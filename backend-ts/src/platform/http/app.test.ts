@@ -28,14 +28,14 @@ function probeApp() {
   routes.get('/probe/result/:kind', (c) => {
     const kind = c.req.param('kind')
     const result =
-      kind === 'ok' || kind === 'created'
+      kind === 'ok'
         ? ok({ label: 'green' })
         : kind === 'notFound'
           ? notFound
           : kind === 'conflict'
             ? conflict
             : invalid({ label: ['Label is required'] })
-    return respondResult(c, result, WIDGET_RESPONSES, kind === 'created' ? 201 : 200)
+    return respondResult(c, result, WIDGET_RESPONSES)
   })
   routes.get('/probe/unreachable-conflict', (c) =>
     respondResult(c, conflict, { notFound: 'Widget not found', conflict: null }),
@@ -183,7 +183,6 @@ describe('respondResult', () => {
       return { status: response.status, body: await jsonOf(response) }
     }
     expect(await answer('ok')).toEqual({ status: 200, body: { label: 'green' } })
-    expect(await answer('created')).toEqual({ status: 201, body: { label: 'green' } })
     expect(await answer('notFound')).toEqual({
       status: 404,
       body: { message: 'Widget not found', errors: {} },

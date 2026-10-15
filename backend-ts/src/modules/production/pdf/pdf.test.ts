@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import sharp from 'sharp'
-import { line, productionData, rejectionOf, writeImage } from '../test-fixtures'
+import { rejectionOf } from '@test-support/values'
+import { line, productionData, writeImage } from '../test-fixtures'
 import type { ProductionItem, ProductionLine, ProductionOrder } from '../orders'
 import { printImagePng } from '../spod/print-image'
 import { createArtifactStore } from './artifact-store'
@@ -195,7 +196,6 @@ describe('productionPdfGenerator', () => {
 
   test('an unknown order, a line without supplier, and one failing supplier', async () => {
     expect(await generatorOf(null).generate(42)).toEqual({ kind: 'orderNotFound' })
-    expect(await generatorOf(null).generate(0)).toEqual({ kind: 'orderNotFound' })
     expect(await generatorOf(order([at(null, { imagePath: png })])).generate(42)).toEqual({
       kind: 'failed',
       error: 'INVALID_SOURCE',
@@ -225,7 +225,6 @@ describe('the artifact store', () => {
     })
     expect(await store.load(8, 'ORD-1.pdf', sha256Hex(bytes))).toEqual({ kind: 'missing' })
     expect(await rejectionOf(store.write(7, '../escape.pdf', bytes))).not.toBe('resolved')
-    expect(await rejectionOf(store.write(0, 'ORD-1.pdf', bytes))).not.toBe('resolved')
   })
 })
 

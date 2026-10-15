@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { createLogger, type Logger } from '@/platform/logging'
+import type { Fetch } from '@/platform/fetch'
+import { createLogger, errorClass, type Logger } from '@/platform/logging'
 import {
   lenientId,
   spodCatalogPage,
@@ -137,8 +138,6 @@ const CDN_USER_AGENT = 'Spreadconnect_API_flow'
 /** How much of a catalog image is ever held: the same 10 MiB a visitor may upload. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
-type Fetch = (url: string, init: RequestInit) => Promise<Response>
-
 const designAnswer = z.object({ designId: lenientId })
 const createdOrderAnswer = z.object({ id: lenientId })
 const orderStateAnswer = z.object({ state: z.string() })
@@ -193,7 +192,7 @@ export function createSpodClient({
 
   /** A request that never got a status: the outcome is unknown. Only the error's name is logged. */
   const unavailable = (context: string, error: unknown): SpodFailure => {
-    const name = error instanceof Error ? error.name : typeof error
+    const name = errorClass(error)
     const what = name === 'TimeoutError' ? 'did not answer within the configured timeout' : 'failed'
     logger.error(`SPOD ${context} ${what} (${name})`)
     return { kind: 'failed', error: 'PROVIDER_UNAVAILABLE', ambiguous: true }
@@ -236,8 +235,9 @@ export function createSpodClient({
     try {
       return { kind: 'answered', value: read(body) }
     } catch (error) {
-      const name = error instanceof Error ? error.name : typeof error
-      logger.error(`SPOD ${context} produced an answer that could not be read (${name})`)
+      logger.error(
+        `SPOD ${context} produced an answer that could not be read (${errorClass(error)})`,
+      )
       return { kind: 'failed', error: 'PROVIDER_ANSWER_UNREADABLE', ambiguous: true }
     }
   }

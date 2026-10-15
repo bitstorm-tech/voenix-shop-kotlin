@@ -1,3 +1,4 @@
+import type { Fetch } from '@/platform/fetch'
 import type { Settings } from '@/platform/settings'
 import type { RenderedEmail } from '../templates/layout'
 
@@ -10,7 +11,6 @@ export interface EmailDelivery {
 export type DeliveryResult = { kind: 'accepted' } | { kind: 'failed'; code: string }
 
 /** The `fetch` the adapter calls; the global one in a deployment, a stub in the tests. */
-export type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
 const SEND_URL = 'https://api.sweego.io/send'
 const TIMEOUT_MILLIS = 30_000

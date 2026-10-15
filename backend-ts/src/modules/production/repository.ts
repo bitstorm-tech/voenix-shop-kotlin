@@ -3,6 +3,7 @@ import type { SpodCatalogSource } from '@/modules/article'
 import { spodEnvironmentOfStoredValue, type SpodEnvironment } from '@/modules/spod'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import './schema'
 
 /** The channel-shaped half of a destination, secret excluded: the same shape in and out. */
@@ -172,13 +173,14 @@ export function createDestinationRepository(db: Kysely<Tables>) {
           }),
       ),
 
-    /** `inUse` when deliveries or synced articles still reference the destination. */
-    delete: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('production_destinations').where('id', '=', id).executeTakeFirst(),
-        )
-        return result.numDeletedRows === 0n ? 'notFound' : 'deleted'
+    /** A conflict when deliveries or synced articles still reference the destination. */
+    delete: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db
+          .deleteFrom('production_destinations')
+          .where('id', '=', id)
+          .executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
   }
 }

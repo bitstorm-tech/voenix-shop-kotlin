@@ -4,7 +4,13 @@ import { z } from 'zod'
 import { readUploadedImage } from '@/modules/image'
 import { toApiError } from '@/modules/promotion'
 import { guestCapable, type Auth } from '@/platform/auth/auth'
-import { apiError, formBody, jsonBody, respondResult } from '@/platform/http/respond'
+import {
+  apiError,
+  formBody,
+  jsonBody,
+  respondFailure,
+  respondResult,
+} from '@/platform/http/respond'
 import { MAXIMUM_LINE_QUANTITY, type CartOwner } from './repository'
 import type { AddItemInput, CartService } from './service'
 
@@ -57,12 +63,6 @@ const orderItemIdParam = zValidator('param', z.object({ orderItemId: pathId }), 
   result.success ? undefined : c.json(apiError(REORDER_RESPONSES.notFound), 404),
 )
 
-/** The signed-in customer's id, or `null` for a guest. */
-const userIdOf = (c: Context): number | null => {
-  const userId = Number(c.var.principal?.userId)
-  return Number.isSafeInteger(userId) && userId > 0 ? userId : null
-}
-
 /**
  * The eight cart routes under `/api/cart`, guest-capable: every mutation needs a valid CSRF pair,
  * from guests and signed-in customers alike. A mutation calls `getOrCreate` and therefore hands
@@ -72,7 +72,7 @@ const userIdOf = (c: Context): number | null => {
 export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens']): Hono {
   const mutatingOwner = async (c: Context): Promise<CartOwner> => ({
     guestToken: await guestTokens.getOrCreate(c),
-    userId: userIdOf(c),
+    userId: c.var.principal?.userId ?? null,
   })
 
   const cart = new Hono()
@@ -82,18 +82,19 @@ export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens'])
     // Cart contents are per visitor and change constantly; no cache may keep them.
     c.header('Cache-Control', 'no-store')
     return c.json(
-      await carts.cart({ guestToken: await guestTokens.tryGet(c), userId: userIdOf(c) }),
+      await carts.cart({
+        guestToken: await guestTokens.tryGet(c),
+        userId: c.var.principal?.userId ?? null,
+      }),
     )
   })
 
   cart.post('/images', formBody, async (c) => {
     const upload = await readUploadedImage(await c.req.formData())
-    return respondResult(
-      c,
-      await carts.uploadPrintImage(await mutatingOwner(c), upload),
-      CART_RESPONSES,
-      201,
-    )
+    const result = await carts.uploadPrintImage(await mutatingOwner(c), upload)
+    return result.kind === 'ok'
+      ? c.json(result.value, 201)
+      : respondFailure(c, result, CART_RESPONSES)
   })
 
   cart.post('/items', jsonBody(addCartItemInput), async (c) =>

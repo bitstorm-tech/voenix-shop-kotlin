@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from 'bun:test'
 import { randomBytes } from 'node:crypto'
-import type { Kysely } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { Client } from 'pg'
 import { createDatabase, type DatabaseSettings, type Tables } from '@/platform/db/database'
 
@@ -50,6 +50,21 @@ export function testDatabase(options: { template?: boolean } = {}): TestDatabase
     },
     settings,
   }
+}
+
+/** The number of rows in one table. */
+export async function count(db: Kysely<Tables>, table: string): Promise<number> {
+  const { rows } = await sql<{ count: number }>`SELECT count(*)::int AS count FROM ${sql.table(
+    table,
+  )}`.execute(db)
+  return rows[0]?.count ?? 0
+}
+
+/** A user row with a well-formed but unusable password hash, for a reference to point at. */
+export async function seedUser(db: Kysely<Tables>, email: string): Promise<number> {
+  const { rows } = await sql<{ id: number }>`INSERT INTO users (email, password_hash)
+    VALUES (${email}, 'v1$1$salt$hash') RETURNING id`.execute(db)
+  return rows[0]?.id ?? 0
 }
 
 /** Runs one statement on the container's own database, which is never copied or dropped. */

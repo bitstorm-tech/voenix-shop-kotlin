@@ -206,7 +206,7 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
       case 'lockedOut':
         return c.json(apiError('Too many failed login attempts'), 429)
       default:
-        await auth.signIn(c, String(result.userId), result.roles)
+        await auth.signIn(c, result.userId, result.roles)
         return c.body(null, 204)
     }
   })
@@ -245,15 +245,15 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
   })
 
   routes.get('/api/auth/me', requireAuthenticated, async (c) => {
-    const userId = sessionUserId(c)
-    if (userId === null) return authenticationRequired(c)
+    const userId = c.var.principal?.userId
+    if (userId === undefined) return authenticationRequired(c)
     const profile = await accounts.profile(userId)
     return profile === undefined ? userNotFound(c) : c.json(profile)
   })
 
   routes.put('/api/auth/profile', requireAuthenticated, jsonBody(profileInput), async (c) => {
-    const userId = sessionUserId(c)
-    if (userId === null) return authenticationRequired(c)
+    const userId = c.var.principal?.userId
+    if (userId === undefined) return authenticationRequired(c)
     const profile = await accounts.updateProfile(userId, c.req.valid('json'))
     return profile === undefined ? userNotFound(c) : c.json(profile)
   })
@@ -263,8 +263,8 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
     requireAuthenticated,
     jsonBody(changeEmailInput),
     async (c) => {
-      const userId = sessionUserId(c)
-      if (userId === null) return authenticationRequired(c)
+      const userId = c.var.principal?.userId
+      if (userId === undefined) return authenticationRequired(c)
       switch (await accounts.changeEmail(userId, c.req.valid('json'))) {
         case 'sent':
           return c.body(null, 204)
@@ -285,8 +285,8 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
     requireAuthenticated,
     jsonBody(changePasswordInput),
     async (c) => {
-      const userId = sessionUserId(c)
-      if (userId === null) return authenticationRequired(c)
+      const userId = c.var.principal?.userId
+      if (userId === undefined) return authenticationRequired(c)
       switch (await accounts.changePassword(userId, c.req.valid('json'))) {
         case 'changed':
           return c.body(null, 204)
@@ -351,15 +351,6 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
 
   routes.route('/api/admin/supplier-logins', admin)
   return routes
-}
-
-/**
- * The numeric user id of the session. Only the account login creates sessions, always with a
- * database id; any other claim cannot belong to a stored user.
- */
-function sessionUserId(c: Context): number | null {
-  const userId = Number(c.var.principal?.userId)
-  return Number.isSafeInteger(userId) && userId > 0 ? userId : null
 }
 
 const authenticationRequired = (c: Context) => c.json(apiError('Authentication required'), 401)

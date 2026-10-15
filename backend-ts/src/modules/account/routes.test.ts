@@ -93,8 +93,7 @@ async function signIn(email: string, password: string): Promise<Record<string, s
   return { Cookie: `${session}; ${cookieHeader(antiforgery)}`, 'X-XSRF-TOKEN': requestToken }
 }
 
-const customer = (userId: number) =>
-  signedInHeaders({ userId: String(userId), roles: ['CUSTOMER'] })
+const customer = (userId: number) => signedInHeaders({ userId: userId, roles: ['CUSTOMER'] })
 
 describe('POST /api/auth/register and POST /api/auth/confirm-email', () => {
   test('registers, mails the confirmation link, and the link confirms once', async () => {
@@ -494,7 +493,7 @@ describe('POST /api/auth/change-password', () => {
 })
 
 describe('/api/admin/supplier-logins', () => {
-  const admin = () => signedInHeaders({ userId: '1', roles: ['ADMIN'] })
+  const admin = () => signedInHeaders({ userId: 1, roles: ['ADMIN'] })
   const supplier = async (name: string) => {
     const { rows } = await sql<{
       id: number

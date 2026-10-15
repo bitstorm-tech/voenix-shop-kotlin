@@ -1,7 +1,7 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
-import { read, write, type Tables } from '@/platform/db/database'
-import { createLogger } from '@/platform/logging'
-import { errorClass, type OrderLoader } from '../orders'
+import { read, type Tables } from '@/platform/db/database'
+import { createLogger, errorClass } from '@/platform/logging'
+import { type OrderLoader } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { renderProductionPdf } from '../pdf/renderer'
 import '../schema'
@@ -26,14 +26,12 @@ export function createGenerationStage({
 }) {
   /** Touches the job only while its artifact does not exist; answers whether it did. */
   const updateOpenJob = async (jobId: number, values: UpdateObject<Tables, 'production_jobs'>) => {
-    const result = await write(db, (trx) =>
-      trx
-        .updateTable('production_jobs')
-        .set(values)
-        .where('id', '=', jobId)
-        .where('generated_at', 'is', null)
-        .executeTakeFirst(),
-    )
+    const result = await db
+      .updateTable('production_jobs')
+      .set(values)
+      .where('id', '=', jobId)
+      .where('generated_at', 'is', null)
+      .executeTakeFirst()
     return result.numUpdatedRows > 0n
   }
   const recordFailure = (jobId: number, code: string) =>

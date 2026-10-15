@@ -1,7 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { createLogger } from '@/platform/logging'
-import { errorClass } from '../orders'
+import { createLogger, errorClass } from '@/platform/logging'
 import type { ReportedRemoteState } from '../spod/repository'
 import { carrierOfReportedName } from './carrier'
 import type { Shipment } from './repository'

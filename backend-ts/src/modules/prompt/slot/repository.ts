@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import { lockSequence } from '../ordering'
 import '../schema'
 
@@ -27,6 +28,11 @@ export interface PromptSlotVariant {
 
 /** Every value a variant may change; its slot is not one of them. */
 export type SlotVariantValues = Pick<PromptSlotVariant, 'name' | 'prompt' | 'description' | 'llm'>
+
+/** The validated create body of a variant: its values plus the slot it is created in, once. */
+export interface SlotVariantInput extends SlotVariantValues {
+  slotId: number
+}
 
 export type PromptSlotRepository = ReturnType<typeof createPromptSlotRepository>
 
@@ -79,22 +85,27 @@ const variantById = (trx: Transaction<Tables>, id: number) =>
  * Slots and their variants. A unique violation can only be the name: the position rule is deferred
  * to `COMMIT` and unreachable under the `SLOT` anchor. A foreign-key violation has exactly one
  * possible cause per statement: the missing slot of a variant insert, the variants of a slot
- * delete, the prompts of a variant delete.
+ * delete, the prompts of a variant delete. `conflict` is therefore the name another slot or variant
+ * already carries in any case (variant names are unique across all slots), or, for a delete, a
+ * slot that still has variants or a variant a prompt still uses; the routes word the two apart.
  */
 export function createPromptSlotRepository(db: Kysely<Tables>) {
   return {
     listSlots: (): Promise<PromptSlot[]> =>
       read(db, (trx) => selectSlots(trx).orderBy('slot.position').orderBy('slot.id').execute()),
 
-    findSlot: (id: number) => read(db, (trx) => slotById(trx, id).executeTakeFirst()),
+    getSlot: async (id: number): Promise<OperationResult<PromptSlot>> => {
+      const slot = await read(db, (trx) => slotById(trx, id).executeTakeFirst())
+      return slot === undefined ? notFound : ok(slot)
+    },
 
     /**
      * Appends behind the highest position. Gaps a delete left stay empty: nothing reads the number,
      * only the order it produces.
      */
-    insertSlot: (name: string) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
-        write(db, async (trx): Promise<PromptSlot> => {
+    createSlot: (name: string): Promise<OperationResult<PromptSlot>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
+        write(db, async (trx) => {
           await lockSequence(trx, 'SLOT')
           const { last } = await trx
             .selectFrom('prompt_slots')
@@ -105,12 +116,12 @@ export function createPromptSlotRepository(db: Kysely<Tables>) {
             .values({ name, position: last + 1 })
             .returning('id')
             .executeTakeFirstOrThrow()
-          return { id, name, position: last + 1, variantCount: 0 }
+          return ok({ id, name, position: last + 1, variantCount: 0 })
         }),
       ),
 
-    updateSlot: (id: number, name: string) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+    updateSlot: (id: number, name: string): Promise<OperationResult<PromptSlot>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           const result = await trx
             .updateTable('prompt_slots')
@@ -118,18 +129,16 @@ export function createPromptSlotRepository(db: Kysely<Tables>) {
             .where('id', '=', id)
             .executeTakeFirst()
           return result.numUpdatedRows === 0n
-            ? 'notFound'
-            : slotById(trx, id).executeTakeFirstOrThrow()
+            ? notFound
+            : ok(await slotById(trx, id).executeTakeFirstOrThrow())
         }),
       ),
 
-    /** The number of rows deleted, or `'inUse'` while variants reference the slot. */
-    deleteSlot: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('prompt_slots').where('id', '=', id).executeTakeFirst(),
-        )
-        return Number(result.numDeletedRows)
+    /** A conflict while variants reference the slot. */
+    deleteSlot: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db.deleteFrom('prompt_slots').where('id', '=', id).executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
 
     /** Every variant, in its slot's display order and then by name. */
@@ -143,11 +152,21 @@ export function createPromptSlotRepository(db: Kysely<Tables>) {
           .execute(),
       ),
 
-    findVariant: (id: number) => read(db, (trx) => variantById(trx, id).executeTakeFirst()),
+    getVariant: async (id: number): Promise<OperationResult<PromptSlotVariant>> => {
+      const variant = await read(db, (trx) => variantById(trx, id).executeTakeFirst())
+      return variant === undefined ? notFound : ok(variant)
+    },
 
-    insertVariant: (slotId: number, values: SlotVariantValues) =>
+    /** A slot that does not exist is a broken field of the body, not a conflict. */
+    createVariant: ({
+      slotId,
+      ...values
+    }: SlotVariantInput): Promise<OperationResult<PromptSlotVariant>> =>
       executePostgresWrite(
-        { uniqueViolation: 'conflict', foreignKeyViolation: 'slotNotFound' },
+        {
+          uniqueViolation: conflict,
+          foreignKeyViolation: invalid({ slotId: ['Prompt slot does not exist'] }),
+        },
         () =>
           write(db, async (trx) => {
             const { id } = await trx
@@ -155,12 +174,15 @@ export function createPromptSlotRepository(db: Kysely<Tables>) {
               .values({ slot_id: slotId, ...values })
               .returning('id')
               .executeTakeFirstOrThrow()
-            return variantById(trx, id).executeTakeFirstOrThrow()
+            return ok(await variantById(trx, id).executeTakeFirstOrThrow())
           }),
       ),
 
-    updateVariant: (id: number, values: SlotVariantValues) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+    updateVariant: (
+      id: number,
+      values: SlotVariantValues,
+    ): Promise<OperationResult<PromptSlotVariant>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           const result = await trx
             .updateTable('prompt_slot_variants')
@@ -168,18 +190,19 @@ export function createPromptSlotRepository(db: Kysely<Tables>) {
             .where('id', '=', id)
             .executeTakeFirst()
           return result.numUpdatedRows === 0n
-            ? 'notFound'
-            : variantById(trx, id).executeTakeFirstOrThrow()
+            ? notFound
+            : ok(await variantById(trx, id).executeTakeFirstOrThrow())
         }),
       ),
 
-    /** The number of rows deleted, or `'inUse'` while a prompt is composed of the variant. */
-    deleteVariant: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('prompt_slot_variants').where('id', '=', id).executeTakeFirst(),
-        )
-        return Number(result.numDeletedRows)
+    /** A conflict while a prompt is composed of the variant. */
+    deleteVariant: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db
+          .deleteFrom('prompt_slot_variants')
+          .where('id', '=', id)
+          .executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
   }
 }

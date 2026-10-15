@@ -1,5 +1,6 @@
 import { sql, type Transaction } from 'kysely'
 import type { Tables } from '@/platform/db/database'
+import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { ArticleType } from './catalog'
 import './schema'
 
@@ -119,15 +120,15 @@ export async function moveInSequence<T extends { id: number; position: number }>
   sourceId: number,
   targetId: number,
   beforeWrite: () => Promise<void> = () => Promise.resolve(),
-): Promise<T[] | 'notFound' | 'conflict'> {
+): Promise<OperationResult<T[]>> {
   const sourceIndex = stored.findIndex((row) => row.id === sourceId)
   const targetIndex = stored.findIndex((row) => row.id === targetId)
-  if (sourceIndex < 0 || targetIndex < 0) return 'notFound'
-  if (!isDense(stored)) return 'conflict'
+  if (sourceIndex < 0 || targetIndex < 0) return notFound
+  if (!isDense(stored)) return conflict
   await beforeWrite()
   const moved = [...stored]
   moved.splice(targetIndex, 0, ...moved.splice(sourceIndex, 1))
-  return rewritePositions(trx, table, moved)
+  return ok(await rewritePositions(trx, table, moved))
 }
 
 /** Moves every article behind `position` one place forward, closing the gap a delete left. */

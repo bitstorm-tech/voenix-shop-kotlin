@@ -41,5 +41,3 @@ export function createAccountModule({
   const supplierAccounts: SupplierAccounts = { supplierIdOf: repository.findSupplierId }
   return { routes: accountRoutes(service, auth), supplierAccounts }
 }
-
-export type AccountModule = ReturnType<typeof createAccountModule>

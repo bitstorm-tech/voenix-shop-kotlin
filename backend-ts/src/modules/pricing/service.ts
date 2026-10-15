@@ -1,19 +1,8 @@
-import {
-  buildValidationErrors,
-  conflict,
-  invalid,
-  notFound,
-  ok,
-  type OperationResult,
-} from '@/platform/operation'
+import { buildValidationErrors, invalid, ok, type OperationResult } from '@/platform/operation'
 import { calculatePrice, type CalculatedPrice, type PriceInput } from './calculation'
 import type { PricingRepository, Vat } from './repository'
 
-/** The validated body of a VAT create or update, as `vat-routes.ts`'s schema produces it. */
-export type VatInput = Omit<Vat, 'id'>
-
 export type PriceService = ReturnType<typeof createPriceService>
-export type VatService = ReturnType<typeof createVatService>
 
 export function createPriceService(repository: PricingRepository) {
   return {
@@ -91,36 +80,6 @@ export function createPriceService(repository: PricingRepository) {
         vat,
         vat,
       )
-    },
-  }
-}
-
-export function createVatService(repository: PricingRepository) {
-  return {
-    list: async (): Promise<OperationResult<Vat[]>> => ok(await repository.listVats()),
-
-    get: async (id: number): Promise<OperationResult<Vat>> => {
-      const vat = await repository.findVat(id)
-      return vat === undefined ? notFound : ok(vat)
-    },
-
-    create: async (input: VatInput): Promise<OperationResult<Vat>> => {
-      const stored = await repository.insertVat(input)
-      return stored === 'conflict' ? conflict : ok(stored)
-    },
-
-    update: async (id: number, input: VatInput): Promise<OperationResult<Vat>> => {
-      const stored = await repository.updateVat(id, input)
-      if (stored === 'conflict') return conflict
-      if (stored === 'notFound') return notFound
-      return ok(stored)
-    },
-
-    /** `conflict` means a price still references the entry. */
-    delete: async (id: number): Promise<OperationResult<undefined>> => {
-      const deleted = await repository.deleteVat(id)
-      if (deleted === 'inUse') return conflict
-      return deleted === 0 ? notFound : ok(undefined)
     },
   }
 }

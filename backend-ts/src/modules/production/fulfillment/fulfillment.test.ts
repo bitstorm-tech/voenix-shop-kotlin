@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Hono } from 'hono'
 import { write } from '@/platform/db/database'
-import { testDatabase } from '@test-support/database'
+import { seedUser, testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
 import { requestProduction } from '../delivery/requests'
 import type { ProductionLine } from '../orders'
@@ -17,7 +17,6 @@ import {
   seedOrder,
   seedSpodDestination,
   seedSupplier,
-  seedUser,
   stubSpodClient,
   WEBHOOK_SECRET,
   writeImage,
@@ -102,8 +101,8 @@ const jobOf = async (orderId: number, supplierId: number) => {
   return job
 }
 
-const asSupplier = async () => signedInHeaders({ userId: String(loginA), roles: ['SUPPLIER'] })
-const asAdmin = async () => signedInHeaders({ userId: String(adminId), roles: ['ADMIN'] })
+const asSupplier = async () => signedInHeaders({ userId: loginA, roles: ['SUPPLIER'] })
+const asAdmin = async () => signedInHeaders({ userId: adminId, roles: ['ADMIN'] })
 
 const get = async (path: string, headers: Record<string, string>) => app.request(path, { headers })
 const post = async (path: string, headers: Record<string, string>, body: unknown = {}) =>

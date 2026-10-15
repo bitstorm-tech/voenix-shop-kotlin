@@ -4,14 +4,15 @@ const UNIQUE_VIOLATION = '23505'
 const FOREIGN_KEY_VIOLATIONS = ['23503', '23001']
 
 /**
- * Runs a write and maps the constraint violations the repository declared to its own result,
- * letting PostgreSQL stay the concurrency-safe authority for unique business rules. SQLSTATE
- * `23505` becomes `uniqueViolation`; a foreign-key violation becomes `foreignKeyViolation`, which
- * is only unambiguous when exactly one relationship can fail the write. Every undeclared state is
+ * Runs a write and maps the constraint violations the repository declared to the value it wants
+ * for them (usually an `OperationResult` failure such as `conflict`), letting PostgreSQL stay the
+ * concurrency-safe authority for unique business rules. SQLSTATE `23505` becomes
+ * `uniqueViolation`; a foreign-key violation becomes `foreignKeyViolation`, which is only
+ * unambiguous when exactly one relationship can fail the write. Every undeclared state is
  * rethrown. Never derive a result from a constraint name or a message
  * (docs/dev/backend-ts/conventions/persistence-error-handling.md).
  */
-export async function executePostgresWrite<T, V extends string>(
+export async function executePostgresWrite<T, const V>(
   violations: { uniqueViolation?: V; foreignKeyViolation?: V },
   operation: () => Promise<T>,
 ): Promise<T | V> {

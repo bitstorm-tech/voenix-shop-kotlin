@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { priceInput } from '@/modules/pricing'
-import { readUploadedImage, uploadRejection } from '@/modules/image'
+import { exampleImageUpload } from '@/modules/image'
 import {
   apiError,
   formBody,
@@ -61,7 +61,7 @@ const promptId = integerParam('id', 'Invalid prompt id')
 /** `/api/admin/prompts` itself, mounted below the module's admin protection. There is no delete. */
 export function promptAdminRoutes(prompts: PromptService): Hono {
   const routes = new Hono()
-  routes.get('/', async (c) => respondResult(c, await prompts.list(), PROMPT_RESPONSES))
+  routes.get('/', async (c) => c.json(await prompts.list()))
   routes.post('/', jsonBody(promptInput), async (c) => {
     const result = await prompts.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, PROMPT_RESPONSES)
@@ -72,30 +72,11 @@ export function promptAdminRoutes(prompts: PromptService): Hono {
     const { sourceId, targetId } = c.req.valid('json')
     return respondResult(c, await prompts.reorder(sourceId, targetId), PROMPT_RESPONSES)
   })
-  routes.post('/example-images', formBody, async (c) => {
-    const upload = await readUploadedImage(await c.req.formData())
-    switch (upload.kind) {
-      case 'missing':
-        return respondResult(
-          c,
-          uploadRejection('An example image file part is required'),
-          PROMPT_RESPONSES,
-        )
-      case 'tooLarge':
-        return respondResult(
-          c,
-          uploadRejection('Example image must not exceed 10 MiB'),
-          PROMPT_RESPONSES,
-        )
-      case 'received':
-        return respondResult(
-          c,
-          await prompts.storeExampleImage(upload.upload),
-          PROMPT_RESPONSES,
-          201,
-        )
-    }
-  })
+  routes.post(
+    '/example-images',
+    formBody,
+    exampleImageUpload(prompts.storeExampleImage, PROMPT_RESPONSES),
+  )
   routes.get('/:id', promptId, async (c) =>
     respondResult(c, await prompts.get(c.req.valid('param').id), PROMPT_RESPONSES),
   )

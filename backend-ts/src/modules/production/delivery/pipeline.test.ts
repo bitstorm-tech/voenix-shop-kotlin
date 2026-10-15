@@ -4,12 +4,12 @@ import { createServer, type Server as NetServer } from 'node:net'
 import { join } from 'node:path'
 import { write } from '@/platform/db/database'
 import { testDatabase } from '@test-support/database'
+import { rejectionOf } from '@test-support/values'
 import {
   line,
   productionData,
   productionTestKit,
   queuedEmails,
-  rejectionOf,
   resetProduction,
   seedOrder,
   seedSftpDestination,
@@ -111,7 +111,7 @@ describe('requestProduction', () => {
     ).toEqual([{ order_id: orderId }])
   })
 
-  test('it joins the caller transaction and refuses a non-positive order id', async () => {
+  test('it joins the caller transaction', async () => {
     const orderId = await seedOrder(database.db)
     expect(
       await rejectionOf(
@@ -121,9 +121,6 @@ describe('requestProduction', () => {
         }),
       ),
     ).toBe('the paid transition rolls back')
-    expect(await rejectionOf(write(database.db, (trx) => requestProduction(trx, 0)))).toBe(
-      'Production requires a positive order id',
-    )
     expect(await database.db.selectFrom('production_requests').select('id').execute()).toEqual([])
   })
 })

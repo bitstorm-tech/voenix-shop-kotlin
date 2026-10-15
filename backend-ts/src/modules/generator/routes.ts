@@ -28,7 +28,7 @@ export function generatorRoutes({
 }): Hono {
   const generation = new Hono()
   generation.use(guestCapable)
-  generation.post('/generate', rateLimit, formBody, async (c) => {
+  generation.post('/generate', formBody, rateLimit, async (c) => {
     const upload = await readGenerationUpload(await c.req.formData())
     if (upload.kind === 'rejected') {
       return c.json(apiError('Validation failed', { [upload.field]: [upload.message] }), 400)

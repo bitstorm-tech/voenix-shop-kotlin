@@ -1,14 +1,5 @@
 import { sql, type Kysely } from 'kysely'
 import type { Tables } from '@/platform/db/database'
-import {
-  composedApplication,
-  guestCookie,
-  stubMollie,
-  WEBHOOK_SECRET,
-  type ComposedApplication,
-} from '@/test-fixtures'
-
-export { composedApplication, guestCookie, stubMollie, WEBHOOK_SECRET, type ComposedApplication }
 
 /**
  * The rows a checkout journey starts from, written with SQL: how a mug or a cart is created is the
@@ -80,12 +71,6 @@ export async function seedSpodArticle(db: Kysely<Tables>): Promise<void> {
       'v-1', TRUE, TRUE)`.execute(db)
 }
 
-export async function seedUser(db: Kysely<Tables>, email: string): Promise<number> {
-  const { rows } = await sql<{ id: number }>`INSERT INTO users (email, password_hash)
-    VALUES (${email}, 'v1$1$salt$hash') RETURNING id`.execute(db)
-  return rows[0]?.id ?? 0
-}
-
 /** An active percentage coupon of its own for one journey. */
 export async function seedPromotion(
   db: Kysely<Tables>,
@@ -125,14 +110,6 @@ export async function seedCart(
     db,
   )
   return cartId
-}
-
-/** The number of rows in one table. */
-export async function count(db: Kysely<Tables>, table: string): Promise<number> {
-  const { rows } = await sql<{ count: number }>`SELECT count(*)::int AS count FROM ${sql.table(
-    table,
-  )}`.execute(db)
-  return rows[0]?.count ?? 0
 }
 
 /** The request body the Vue store posts today, `phone: ""` and all. */

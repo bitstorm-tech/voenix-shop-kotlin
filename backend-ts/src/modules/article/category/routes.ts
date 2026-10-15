@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { exampleImageUpload } from '@/modules/image'
 import { requireAdmin } from '@/platform/auth/auth'
 import {
   formBody,
@@ -8,13 +9,7 @@ import {
   respondFailure,
   respondResult,
 } from '@/platform/http/respond'
-import {
-  exampleImageUpload,
-  optionalFilename,
-  optionalText,
-  reorderInput,
-  requiredText,
-} from '../routes'
+import { optionalFilename, optionalText, reorderInput, requiredText } from '../routes'
 import type { ArticleCategoryInput, ArticleSubcategoryInput, CategoryService } from './service'
 
 /** The category create and update body. The position is the module's, never the client's. */
@@ -66,7 +61,7 @@ const subcategoryId = integerParam('id', 'Invalid article subcategory id')
 export function categoryRoutes(service: CategoryService): Hono {
   const categories = new Hono()
   categories.use(requireAdmin)
-  categories.get('/', async (c) => respondResult(c, await service.listCategories(), CATEGORY))
+  categories.get('/', async (c) => c.json(await service.listCategories()))
   categories.post('/', jsonBody(articleCategoryInput), async (c) => {
     const result = await service.createCategory(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, CATEGORY)
@@ -95,9 +90,7 @@ export function categoryRoutes(service: CategoryService): Hono {
 
   const subcategories = new Hono()
   subcategories.use(requireAdmin)
-  subcategories.get('/', async (c) =>
-    respondResult(c, await service.listSubcategories(), SUBCATEGORY),
-  )
+  subcategories.get('/', async (c) => c.json(await service.listSubcategories()))
   subcategories.post('/', jsonBody(articleSubcategoryInput), async (c) => {
     const result = await service.createSubcategory(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, SUBCATEGORY)

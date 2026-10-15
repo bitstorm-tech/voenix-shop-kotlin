@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
-import { createPromotionRepository } from '@/modules/promotion/repository'
-import { createPromotionService, type PromotionInput } from '@/modules/promotion/service'
+import { createPromotionRepository, type PromotionInput } from '@/modules/promotion/repository'
 import { testDatabase } from '@test-support/database'
 
 const database = testDatabase()
-const service = () => createPromotionService(createPromotionRepository(database.db))
+const repository = () => createPromotionRepository(database.db)
 
 const input = (name: string, couponCode: string): PromotionInput => ({
   name,
@@ -32,7 +31,7 @@ beforeEach(async () => {
 
 describe('the case-insensitive unique coupon code', () => {
   test('concurrent case-variant creates leave one row and one conflict', async () => {
-    const promotions = service()
+    const promotions = repository()
     const results = await Promise.all([
       promotions.create(input('Spring sale', 'Spring10')),
       promotions.create(input('Spring copy', 'SPRING10')),
@@ -42,7 +41,7 @@ describe('the case-insensitive unique coupon code', () => {
   })
 
   test('concurrent case-variant updates leave one code and one conflict', async () => {
-    const promotions = service()
+    const promotions = repository()
     await promotions.create(input('First', 'First1'))
     await promotions.create(input('Second', 'Second1'))
     const results = await Promise.all([
@@ -56,7 +55,7 @@ describe('the case-insensitive unique coupon code', () => {
 
 describe('the lock of a redeemed promotion', () => {
   test('an admin update racing a redemption waits for the row lock, sees the redemption, and conflicts', async () => {
-    const promotions = service()
+    const promotions = repository()
     await promotions.create(input('Open sale', 'Open2'))
     await sql`
       INSERT INTO carts (id, guest_session_token, status) VALUES (1, 'guest-1', 'CHECKED_OUT');

@@ -182,13 +182,11 @@ export function createCartRepository(
      * so a row without the token would become unreachable with the account.
      */
     insertPrintImage: async (owner: CartOwner, filename: string): Promise<number> => {
-      const { id } = await write(db, (trx) =>
-        trx
-          .insertInto('print_images')
-          .values({ filename, guest_session_token: owner.guestToken, user_id: owner.userId })
-          .returning('id')
-          .executeTakeFirstOrThrow(),
-      )
+      const { id } = await db
+        .insertInto('print_images')
+        .values({ filename, guest_session_token: owner.guestToken, user_id: owner.userId })
+        .returning('id')
+        .executeTakeFirstOrThrow()
       return id
     },
 

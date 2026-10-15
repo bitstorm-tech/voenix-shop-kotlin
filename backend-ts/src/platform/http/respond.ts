@@ -3,10 +3,11 @@ import type { Context, MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import {
   buildValidationErrors,
-  type OperationFailure,
   type OperationResult,
   type ValidationErrors,
 } from '@/platform/operation'
+
+type OperationFailure = Exclude<OperationResult<never>, { kind: 'ok' }>
 
 /** The one error body of this API; `code` is omitted unless given. */
 export interface ApiError {
@@ -113,16 +114,13 @@ export interface FailureResponses {
   conflict: string | null
 }
 
-/** Answers `result`'s value with `successStatus`, or the failure through `respondFailure`. */
+/** Answers `result`'s value with `200`, or the failure through `respondFailure`. */
 export function respondResult<T>(
   c: Context,
   result: OperationResult<T>,
   responses: FailureResponses,
-  successStatus: 200 | 201 = 200,
 ): Response {
-  return result.kind === 'ok'
-    ? c.json(result.value, successStatus)
-    : respondFailure(c, result, responses)
+  return result.kind === 'ok' ? c.json(result.value) : respondFailure(c, result, responses)
 }
 
 /**

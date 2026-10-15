@@ -132,13 +132,11 @@ export function createAccountRepository(db: Kysely<Tables>) {
      * cascade away with the row.
      */
     deleteSupplierLogin: async (userId: number): Promise<boolean> => {
-      const result = await write(db, (trx) =>
-        trx
-          .deleteFrom('users')
-          .where('id', '=', userId)
-          .where('supplier_id', 'is not', null)
-          .executeTakeFirst(),
-      )
+      const result = await db
+        .deleteFrom('users')
+        .where('id', '=', userId)
+        .where('supplier_id', 'is not', null)
+        .executeTakeFirst()
       return result.numDeletedRows > 0n
     },
 
@@ -170,13 +168,11 @@ export function createAccountRepository(db: Kysely<Tables>) {
       }),
 
     resetLockout: async (userId: number): Promise<void> => {
-      await write(db, (trx) =>
-        trx
-          .updateTable('users')
-          .set({ failed_login_count: 0, locked_until: null })
-          .where('id', '=', userId)
-          .execute(),
-      )
+      await db
+        .updateTable('users')
+        .set({ failed_login_count: 0, locked_until: null })
+        .where('id', '=', userId)
+        .execute()
     },
 
     /** Replaces any previous token of the same purpose, so only the latest link counts. */
@@ -285,13 +281,11 @@ export function createAccountRepository(db: Kysely<Tables>) {
       }),
 
     updatePasswordHash: async (userId: number, passwordHash: string): Promise<void> => {
-      await write(db, (trx) =>
-        trx
-          .updateTable('users')
-          .set({ password_hash: passwordHash })
-          .where('id', '=', userId)
-          .execute(),
-      )
+      await db
+        .updateTable('users')
+        .set({ password_hash: passwordHash })
+        .where('id', '=', userId)
+        .execute()
     },
   }
 }

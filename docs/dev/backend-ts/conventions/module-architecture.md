@@ -143,7 +143,7 @@ TypeScript has no `internal` visibility, so the rules live in
 - `boundaries/dependencies` lists, per module, the modules it may import, in
   the `moduleDependencies` table at the top of the config. The target selector
   of every module edge is `fileInternalPath: 'index.ts'`, which is what makes
-  `index.ts` the only importable file: `import … from '@/modules/country/service'`
+  `index.ts` the only importable file: `import … from '@/modules/country/repository'`
   from outside the country module is a lint error.
 - The platform has no such restriction: `@/platform/http/respond` and the
   other files are imported by path. The platform is several independent
@@ -164,15 +164,15 @@ backend-ts/
 |- src/
 |  |- platform/
 |  |  |- settings.ts           every variable, parsed once
-|  |  |- logging.ts, money.ts, operation.ts
+|  |  |- logging.ts, money.ts, operation.ts, fetch.ts
 |  |  |- db/                   database.ts (pool, Tables, read/write), postgres-write.ts, migrate.ts
 |  |  |- http/                 app.ts (createApp), respond.ts (ApiError, jsonBody, integerParam, respondResult)
 |  |  |- auth/                 cookies.ts (sealed cookies), auth.ts (createAuth, protections)
 |  |  `- ratelimit/
-|  |- modules/<name>/          index.ts, routes.ts, service.ts, repository.ts, schema.ts, *.test.ts
+|  |- modules/<name>/          index.ts, routes.ts, service.ts (when it has use cases), repository.ts, schema.ts, *.test.ts
 |  |- composition.ts, main.ts  the composition root
 |  `- migrate.ts               `bun run migrate`
-`- test-support/               preload.ts, database.ts, http.ts
+`- test-support/               preload.ts, database.ts, http.ts, values.ts
 ```
 
 Imports use the alias `@/` for `src/` and `@test-support/` for the test support
@@ -187,7 +187,7 @@ A module exports one factory function and the types another module needs:
 export function createCountryModule({ db }: { db: Kysely<Tables> }) {
   const repository = createCountryRepository(db)
   return {
-    routes: countryRoutes(createCountryService(repository)),
+    routes: countryRoutes(repository),
     find: repository.find,
     isShippable: repository.isShippable,
   }

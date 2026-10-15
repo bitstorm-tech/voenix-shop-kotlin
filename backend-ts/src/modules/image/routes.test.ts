@@ -148,7 +148,7 @@ describe('GET /api/images/guest/{size}/{id}', () => {
     const { calls, resolver } = resolverOwning((caller) => caller.userId === 42)
     const app = testApp(images.guestImageRoute(resolver))
     const response = await app.request('/api/images/guest/120x120/7', {
-      headers: await signedInHeaders({ userId: '42', roles: ['CUSTOMER'] }),
+      headers: await signedInHeaders({ userId: 42, roles: ['CUSTOMER'] }),
     })
     expect(response.status).toBe(200)
     expect(calls).toEqual([{ imageId: 7, guestToken: null, userId: 42 }])

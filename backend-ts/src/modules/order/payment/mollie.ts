@@ -1,6 +1,7 @@
 import { isSupportedCountry, parsePhoneNumberFromString } from 'libphonenumber-js'
 import { z } from 'zod'
-import { createLogger } from '@/platform/logging'
+import type { Fetch } from '@/platform/fetch'
+import { createLogger, errorClass } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import type { OrderAddress, PayableOrder } from '../repository'
 
@@ -47,11 +48,13 @@ export interface MolliePayments {
 /** Mollie's payments endpoint. Not configurable, so no deployment can point it elsewhere. */
 export const MOLLIE_PAYMENTS_URL = 'https://api.mollie.com/v2/payments'
 
-/** An ordinary API call: a Mollie request that has not answered in ten seconds has failed. */
-const REQUEST_TIMEOUT_MILLIS = 10_000
+/**
+ * A Mollie request that has not answered in eight seconds has failed. The order row lock is held
+ * around the call, and every writer queued on that order waits at most the `lock_timeout` of 10 s:
+ * the provider call must give up first, or each of them answers 500.
+ */
+const REQUEST_TIMEOUT_MILLIS = 8_000
 const CURRENCY = 'EUR'
-
-type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
 /**
  * What Mollie answers, in the fields read here. `id`, `status`, and `amount` are required, so a
@@ -84,7 +87,7 @@ export function createMolliePayments(
     try {
       return await call()
     } catch (error) {
-      logger.error(`${what} (${error instanceof Error ? error.name : typeof error})`)
+      logger.error(`${what} (${errorClass(error)})`)
       return null
     }
   }

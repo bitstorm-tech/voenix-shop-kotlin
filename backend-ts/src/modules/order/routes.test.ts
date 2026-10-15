@@ -2,16 +2,9 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
 import type { ProductionPdfResult } from '@/modules/production'
 import { write } from '@/platform/db/database'
-import { testDatabase } from '@test-support/database'
-import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
-import {
-  guestCookie,
-  orderModuleFor,
-  placeInput,
-  resetOrders,
-  seedCart,
-  seedUser,
-} from './test-fixtures'
+import { seedUser, testDatabase } from '@test-support/database'
+import { guestCookie, jsonOf, signedInHeaders, testApp } from '@test-support/http'
+import { orderModuleFor, placeInput, resetOrders, seedCart } from './test-fixtures'
 
 const database = testDatabase()
 let module: Awaited<ReturnType<typeof orderModuleFor>>
@@ -42,7 +35,7 @@ beforeAll(async () => {
 
 const app = () => testApp(module.routes)
 const asGuest = async (token = 'guest-a') => ({ Cookie: await guestCookie(token) })
-const asCustomer = () => signedInHeaders({ userId: String(userId), roles: ['CUSTOMER'] })
+const asCustomer = () => signedInHeaders({ userId: userId, roles: ['CUSTOMER'] })
 
 const ORDER_ONE = {
   orderId: 1,

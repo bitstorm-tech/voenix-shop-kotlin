@@ -121,5 +121,3 @@ export async function createProductionModule({
     worker: { start: worker.start, stop: worker.stop },
   }
 }
-
-export type ProductionModule = Awaited<ReturnType<typeof createProductionModule>>

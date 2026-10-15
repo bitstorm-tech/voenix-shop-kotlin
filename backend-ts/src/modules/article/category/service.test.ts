@@ -40,10 +40,10 @@ const positions = async (table: 'article_categories' | 'article_subcategories') 
 describe('categories', () => {
   test('concurrent case-variant creates leave one row and one conflict', async () => {
     const results = await Promise.all([
-      repository().insertCategory({ name: 'Mugs', description: null, active: true }),
-      repository().insertCategory({ name: 'MUGS', description: null, active: true }),
+      repository().createCategory({ name: 'Mugs', description: null, active: true }),
+      repository().createCategory({ name: 'MUGS', description: null, active: true }),
     ])
-    expect(results.filter((result) => result === 'conflict')).toHaveLength(1)
+    expect(results.filter((result) => result.kind === 'conflict')).toHaveLength(1)
     expect(await positions('article_categories')).toHaveLength(1)
   })
 
@@ -56,11 +56,11 @@ describe('categories', () => {
     const [first = 0, , third = 0] = ids
     const results = await Promise.all([
       repository().reorderCategories(third, first),
-      repository().insertCategory({ name: 'D', description: null, active: true }),
+      repository().createCategory({ name: 'D', description: null, active: true }),
       repository().reorderCategories(first, third),
-      repository().insertCategory({ name: 'E', description: null, active: true }),
+      repository().createCategory({ name: 'E', description: null, active: true }),
     ])
-    expect(results.every((result) => result !== 'conflict' && result !== 'notFound')).toBe(true)
+    expect(results.every((result) => result.kind === 'ok')).toBe(true)
     expect((await positions('article_categories')).map(([, position]) => position)).toEqual([
       1, 2, 3, 4, 5,
     ])
@@ -70,7 +70,7 @@ describe('categories', () => {
     const first = await insertCategory(database.db, 'A')
     const second = await insertCategory(database.db, 'B')
     await sql`UPDATE article_categories SET position = 5 WHERE id = ${second}`.execute(database.db)
-    expect(await repository().reorderCategories(second, first)).toBe('conflict')
+    expect(await repository().reorderCategories(second, first)).toEqual({ kind: 'conflict' })
     expect(await positions('article_categories')).toEqual([
       [first, 1],
       [second, 5],
@@ -91,7 +91,7 @@ describe('categories', () => {
     })
     const reorder = repository().reorderCategories(a, b)
     await outsider
-    expect(await reorder).toBe('conflict')
+    expect(await reorder).toEqual({ kind: 'conflict' })
     expect(await positions('article_categories')).toEqual([
       [a, 1],
       [c, 2],
@@ -108,7 +108,7 @@ describe('subcategories', () => {
       repository().insertSubcategory({ ...input, name: 'Classic' }),
       repository().insertSubcategory({ ...input, name: 'classic' }),
     ])
-    expect(results.filter((result) => result === 'conflict')).toHaveLength(1)
+    expect(results.filter((result) => result.kind === 'conflict')).toHaveLength(1)
   })
 
   test('two moves in opposite directions both succeed under the ascending lock order', async () => {
@@ -128,8 +128,8 @@ describe('subcategories', () => {
     ])
     await holder
     const [moved, movedBack] = await moves
-    expect(typeof moved === 'object' && moved.subcategory.categoryId).toBe(posters)
-    expect(typeof movedBack === 'object' && movedBack.subcategory.categoryId).toBe(mugs)
+    expect(moved.kind === 'ok' && moved.value.subcategory.categoryId).toBe(posters)
+    expect(movedBack.kind === 'ok' && movedBack.value.subcategory.categoryId).toBe(mugs)
   })
 
   test('a gapped sequence inside a category is refused', async () => {
@@ -139,6 +139,6 @@ describe('subcategories', () => {
     await sql`UPDATE article_subcategories SET position = 4 WHERE id = ${second}`.execute(
       database.db,
     )
-    expect(await repository().reorderSubcategories(second, first)).toBe('conflict')
+    expect(await repository().reorderSubcategories(second, first)).toEqual({ kind: 'conflict' })
   })
 })

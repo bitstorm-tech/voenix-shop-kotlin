@@ -1,8 +1,8 @@
-import { sql, type Kysely, type Transaction, type UpdateObject } from 'kysely'
+import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { renderProducerPdfNotification, type EmailModule } from '@/modules/email'
 import { read, write, type Tables } from '@/platform/db/database'
-import { createLogger } from '@/platform/logging'
-import { errorClass, type ProductionOrderReads } from '../orders'
+import { createLogger, errorClass } from '@/platform/logging'
+import { type ProductionOrderReads } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { deliverOverSftp, type SftpDestination } from './sftp'
 import '../schema'
@@ -36,11 +36,11 @@ export function createDeliveryStage({
   orders: Pick<ProductionOrderReads, 'fulfillmentOrders'>
 }) {
   const updateOpen = async (
-    trx: Transaction<Tables>,
+    executor: Kysely<Tables>,
     deliveryId: number,
     values: UpdateObject<Tables, 'production_deliveries'>,
   ) => {
-    const result = await trx
+    const result = await executor
       .updateTable('production_deliveries')
       .set(values)
       .where('id', '=', deliveryId)
@@ -49,7 +49,7 @@ export function createDeliveryStage({
     return result.numUpdatedRows > 0n
   }
   const recordFailure = (deliveryId: number, code: string) =>
-    write(db, (trx) => updateOpen(trx, deliveryId, { last_error_code: code }))
+    updateOpen(db, deliveryId, { last_error_code: code })
 
   /** The destination with its password, or `undefined` when the row or its detail row is gone. */
   const destination = (destinationId: number): Promise<DeliveryDestination | undefined> =>
@@ -165,9 +165,7 @@ export function createDeliveryStage({
     )
     for (const delivery of deliveries) {
       if (signal?.aborted === true) return
-      const started = await write(db, (trx) =>
-        updateOpen(trx, delivery.id, { attempt_count: sql`attempt_count + 1` }),
-      )
+      const started = await updateOpen(db, delivery.id, { attempt_count: sql`attempt_count + 1` })
       if (!started) continue
       const target = await destination(delivery.destinationId)
       if (target === undefined) {

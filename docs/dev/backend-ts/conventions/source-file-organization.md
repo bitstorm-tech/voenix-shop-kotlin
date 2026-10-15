@@ -12,31 +12,30 @@ A module `x` under `src/modules/x/` has these files:
 | File | Contents |
 | --- | --- |
 | `index.ts` | The public surface: `createXModule(deps)`, the `XModule` type, and `export type { … }` of the value types other modules exchange with it. Nothing else is importable from outside. |
-| `routes.ts` | `xRoutes(service)` returning the Hono sub-app, the Zod schemas of its request bodies declared next to the handlers, the `FailureResponses` messages, and the id parameter validators. |
-| `service.ts` | `createXService(repository, …)`: the use cases, returning `OperationResult<T>`; normalization of validated input; the input and response types the HTTP layer and the service share. |
-| `repository.ts` | `createXRepository(db)`: the Kysely queries, the `read`/`write` transactions, `executePostgresWrite` with the declared violations, and the stored value types it produces. |
+| `routes.ts` | `xRoutes(service)` (or `xRoutes(repository)` when there is no service) returning the Hono sub-app, the Zod schemas of its request bodies declared next to the handlers, the `FailureResponses` messages, and the id parameter validators. |
+| `service.ts` | `createXService(repository, …)`: the use cases that do more than the repository answers (a join with another module, a price, an example image), returning `OperationResult<T>`. A module whose routes only forward to the repository has no service. |
+| `repository.ts` | `createXRepository(db)`: the Kysely queries, the `read`/`write` transactions, `executePostgresWrite` with the declared violations, the `OperationResult<T>` of a write or lookup that can fail, and the stored value and input types it produces and consumes. |
 | `schema.ts` | The table interfaces the module owns and the `declare module` block that merges them into the platform's `Tables`. |
 
 A concern that grows past this gets a file of its own, named after the concept
 (`sync.ts`, `pdf.ts`, `mollie.ts`), never after a kind (`utils.ts`,
 `types.ts`, `helpers.ts`). The deciding question is always: *which component
 produces or owns this type?* Put the type in that component's file. `Country`
-lives in `repository.ts` because the repository produces it; `PublicCountry`
-and `CountryInput` live in `service.ts` because the service produces the one
-and consumes the other.
+and `CountryInput` live in the country module's `repository.ts` because the
+repository produces the one and consumes the other; the module has no service.
 
 ## Factory functions, not classes
 
 Every component is a factory function returning a plain object of functions:
 
 ```ts
-export function createCountryService(repository: CountryRepository) {
+export function createCountryRepository(db: Kysely<Tables>) {
   return {
     get: async (id: number): Promise<OperationResult<Country>> => { … },
-    create: async (input: CountryInput): Promise<OperationResult<Country>> => { … },
+    create: (input: CountryInput): Promise<OperationResult<Country>> => { … },
   }
 }
-export type CountryService = ReturnType<typeof createCountryService>
+export type CountryRepository = ReturnType<typeof createCountryRepository>
 ```
 
 The closure holds the dependencies, the object is the interface, and
@@ -47,7 +46,7 @@ second implementation exists.
 ## The platform
 
 `src/platform/` is grouped the same way, by concern rather than by kind:
-`settings.ts`, `operation.ts`, `money.ts`, `logging.ts` at the top,
+`settings.ts`, `operation.ts`, `money.ts`, `logging.ts`, `fetch.ts` at the top,
 `db/`, `http/`, `auth/`, `ratelimit/` below. Each file is imported by its
 path; see [Module architecture](module-architecture.md).
 
@@ -60,7 +59,7 @@ per concern, each with a `describe` per route or behaviour:
 | File | What it states |
 | --- | --- |
 | `routes.test.ts` | One happy path per route and the module-specific HTTP errors, through `testApp` against the real database |
-| `service.test.ts` | Service and repository behaviour, the conflict and concurrency cases, the exported capabilities |
+| `service.test.ts` or `repository.test.ts` | Service and repository behaviour, the conflict and concurrency cases, the exported capabilities |
 | `validation.test.ts` | The request schemas: field names and messages, once |
 
 Platform behaviour (401/403, CSRF, unknown properties, malformed ids, the body

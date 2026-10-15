@@ -14,14 +14,8 @@ import {
   type PDFPage,
 } from 'pdf-lib'
 import sharp from 'sharp'
-import { createLogger } from '@/platform/logging'
-import {
-  errorClass,
-  orderLabel,
-  pdfFileName,
-  type ProductionItem,
-  type ProductionOrder,
-} from '../orders'
+import { createLogger, errorClass } from '@/platform/logging'
+import { orderLabel, pdfFileName, type ProductionItem, type ProductionOrder } from '../orders'
 
 /**
  * The bounded reasons a production PDF cannot be rendered. Every one is retryable: an image

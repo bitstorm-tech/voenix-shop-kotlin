@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { Hono } from 'hono'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testAuth } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import {
   articleTestModule,
   grossPrice,
@@ -9,7 +10,6 @@ import {
   insertSubcategory,
   insertSupplier,
   insertVat,
-  pngBytes,
   resetArticles,
 } from '../test-fixtures'
 

@@ -1,7 +1,7 @@
 import type { SpodProductRef } from '@/modules/article'
 import type { SpodAccess, SpodClient, SpodOneTimeItem, SpodOrderRequest } from '@/modules/spod'
-import { createLogger } from '@/platform/logging'
-import { errorClass, type OrderLoader, type ProductionItem, type ProductionOrder } from '../orders'
+import { createLogger, errorClass } from '@/platform/logging'
+import { type OrderLoader, type ProductionItem, type ProductionOrder } from '../orders'
 import { printImagePng } from './print-image'
 import type { SpodOrderRepository } from './repository'
 

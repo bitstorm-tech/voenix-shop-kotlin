@@ -2,7 +2,6 @@ import type { Kysely } from 'kysely'
 import type { Tables } from '@/platform/db/database'
 import { createCountryRepository } from './repository'
 import { countryRoutes } from './routes'
-import { createCountryService } from './service'
 
 export type { Country } from './repository'
 
@@ -14,7 +13,7 @@ export type { Country } from './repository'
 export function createCountryModule({ db }: { db: Kysely<Tables> }) {
   const repository = createCountryRepository(db)
   return {
-    routes: countryRoutes(createCountryService(repository)),
+    routes: countryRoutes(repository),
     find: repository.find,
     isShippable: repository.isShippable,
   }

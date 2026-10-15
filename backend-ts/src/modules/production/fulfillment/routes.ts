@@ -153,10 +153,8 @@ const invalidStatus = (c: Context) =>
  * usable user id is a wiring bug and fails as a 500 rather than a shipment by nobody.
  */
 function actorUserId(c: Context): number {
-  const userId = Number(c.var.principal?.userId)
-  if (!Number.isSafeInteger(userId) || userId <= 0) {
-    throw new Error('A protected write has no user id to record')
-  }
+  const userId = c.var.principal?.userId
+  if (userId === undefined) throw new Error('A protected write has no user id to record')
   return userId
 }
 

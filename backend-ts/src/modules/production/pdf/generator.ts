@@ -24,7 +24,6 @@ export type ProductionPdfResult =
 export function createProductionPdfGenerator(loadOrder: OrderLoader) {
   return {
     generate: async (orderId: number): Promise<ProductionPdfResult> => {
-      if (orderId <= 0) return { kind: 'orderNotFound' }
       const loaded = await loadOrder(orderId)
       if (loaded.kind === 'failed') {
         switch (loaded.code) {

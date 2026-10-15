@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { Settings } from '@/platform/settings'
+import type { Fetch } from '@/platform/fetch'
 import { renderPasswordReset } from '../templates/password-reset'
-import { createSweegoDelivery, type Fetch } from './sweego'
+import { createSweegoDelivery } from './sweego'
 
 const settings = {
   enabled: true,

@@ -1,6 +1,7 @@
 import type { Kysely, Transaction } from 'kysely'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { CalculatedPrice, PriceInput } from './calculation'
 import './schema'
 
@@ -12,6 +13,9 @@ export interface Vat {
   description: string | null
   isDefault: boolean
 }
+
+/** The validated body of a VAT create or update, as `vat-routes.ts`'s schema produces it. */
+export type VatInput = Omit<Vat, 'id'>
 
 export type PricingRepository = ReturnType<typeof createPricingRepository>
 
@@ -30,14 +34,16 @@ export function createPricingRepository(db: Kysely<Tables>) {
           .execute(),
       ),
 
-    findVat: (id: number) =>
-      read(db, (trx) =>
+    getVat: async (id: number): Promise<OperationResult<Vat>> => {
+      const vat = await read(db, (trx) =>
         trx
           .selectFrom('value_added_taxes')
           .select(vatColumns)
           .where('id', '=', id)
           .executeTakeFirst(),
-      ),
+      )
+      return vat === undefined ? notFound : ok(vat)
+    },
 
     /** The VAT entries with these ids, keyed by id; unknown ids are absent. */
     findVats: async (ids: Iterable<number>): Promise<Map<number, Vat>> => {
@@ -53,8 +59,8 @@ export function createPricingRepository(db: Kysely<Tables>) {
      * Inserts a VAT entry; a new default demotes the previous one in the same transaction. Any
      * unique violation (the name, or a concurrent second default) is the generic conflict.
      */
-    insertVat: (vat: Omit<Vat, 'id'>) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+    createVat: (vat: VatInput): Promise<OperationResult<Vat>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           if (vat.isDefault) await demoteDefault(trx)
           const { id } = await trx
@@ -62,12 +68,12 @@ export function createPricingRepository(db: Kysely<Tables>) {
             .values(vatRow(vat))
             .returning('id')
             .executeTakeFirstOrThrow()
-          return { id, ...vat }
+          return ok({ id, ...vat })
         }),
       ),
 
-    updateVat: (id: number, vat: Omit<Vat, 'id'>) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+    updateVat: (id: number, vat: VatInput): Promise<OperationResult<Vat>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           const existing = await trx
             .selectFrom('value_added_taxes')
@@ -75,20 +81,21 @@ export function createPricingRepository(db: Kysely<Tables>) {
             .where('id', '=', id)
             .forUpdate()
             .executeTakeFirst()
-          if (existing === undefined) return 'notFound'
+          if (existing === undefined) return notFound
           if (vat.isDefault) await demoteDefault(trx)
           await trx.updateTable('value_added_taxes').set(vatRow(vat)).where('id', '=', id).execute()
-          return { id, ...vat }
+          return ok({ id, ...vat })
         }),
       ),
 
-    /** The number of rows deleted, or `'inUse'` when a price still references the entry. */
-    deleteVat: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('value_added_taxes').where('id', '=', id).executeTakeFirst(),
-        )
-        return Number(result.numDeletedRows)
+    /** A conflict when a price still references the entry. */
+    deleteVat: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db
+          .deleteFrom('value_added_taxes')
+          .where('id', '=', id)
+          .executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
 
     /** The stored inputs of these prices, keyed by id; unknown ids are absent. */

@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
 import { createCountryRepository } from '@/modules/country/repository'
-import { createCountryService } from '@/modules/country/service'
 import { testDatabase } from '@test-support/database'
 
 const database = testDatabase()
 const repository = () => createCountryRepository(database.db)
-const service = () => createCountryService(repository())
 
 const resetCountries = async (seed: boolean) => {
   await sql`TRUNCATE countries RESTART IDENTITY CASCADE`.execute(database.db)
@@ -23,22 +21,21 @@ describe('create and update', () => {
   beforeEach(() => resetCountries(true))
 
   test('a duplicate name, however it is cased, and a duplicate normalized code conflict', async () => {
-    const countries = service()
+    const countries = repository()
     expect(await countries.create({ name: 'germany', countryCode: 'GE' })).toEqual({
       kind: 'conflict',
     })
-    expect(await countries.create({ name: 'Denmark', countryCode: ' de ' })).toEqual({
+    expect(await countries.create({ name: 'Denmark', countryCode: 'de' })).toEqual({
       kind: 'conflict',
     })
     expect((await countries.create({ name: 'A%B', countryCode: 'AB' })).kind).toBe('ok')
     expect((await countries.create({ name: 'A_B', countryCode: 'AC' })).kind).toBe('ok')
     expect(await countries.create({ name: 'a%b', countryCode: 'AD' })).toEqual({ kind: 'conflict' })
-    const listed = await countries.listAdmin()
-    expect(listed.kind === 'ok' && listed.value.length).toBe(10)
+    expect(await countries.list()).toHaveLength(10)
   })
 
   test('a self update passes, a conflicting update leaves the row unchanged, an unknown id is not found', async () => {
-    const countries = service()
+    const countries = repository()
     expect(await countries.update(1, { name: 'Germany', countryCode: 'DE' })).toEqual({
       kind: 'ok',
       value: { id: 1, name: 'Germany', countryCode: 'DE' },
@@ -60,7 +57,7 @@ describe('create and update', () => {
 
   test('concurrent creates with a case-variant name or the same code leave one row and one conflict', async () => {
     await resetCountries(false)
-    const countries = service()
+    const countries = repository()
     for (const [first, second] of [
       [
         { name: 'Denmark', countryCode: 'DK' },
@@ -75,36 +72,32 @@ describe('create and update', () => {
       expect(results.filter((result) => result.kind === 'ok')).toHaveLength(1)
       expect(results.filter((result) => result.kind === 'conflict')).toHaveLength(1)
     }
-    const listed = await countries.listAdmin()
-    expect(listed.kind === 'ok' && listed.value.length).toBe(2)
+    expect(await countries.list()).toHaveLength(2)
   })
 })
 
-describe('delete and the public mapping', () => {
+describe('delete and the stored code', () => {
   beforeEach(() => resetCountries(false))
 
   test('delete removes the row and then reports it missing', async () => {
     await sql`INSERT INTO countries (name, country_code) VALUES ('Germany', 'DE')`.execute(
       database.db,
     )
-    const countries = service()
+    const countries = repository()
     expect(await countries.delete(1)).toEqual({ kind: 'ok', value: undefined })
     expect(await countries.delete(1)).toEqual({ kind: 'notFound' })
-    expect(await countries.listAdmin()).toEqual({ kind: 'ok', value: [] })
+    expect(await countries.list()).toEqual([])
   })
 
-  test('the public list upper-cases a stored code and has no dial code for an unknown region', async () => {
-    await sql`INSERT INTO countries (name, country_code) VALUES ('Unknown', 'zz')`.execute(
-      database.db,
-    )
-    expect(await service().listPublic()).toEqual({
+  test('create and update store the code upper-cased', async () => {
+    const countries = repository()
+    const created = await countries.create({ name: 'Denmark', countryCode: 'dk' })
+    expect(created).toEqual({ kind: 'ok', value: { id: 1, name: 'Denmark', countryCode: 'DK' } })
+    expect(await countries.update(1, { name: 'Danmark', countryCode: 'dK' })).toEqual({
       kind: 'ok',
-      value: [{ name: 'Unknown', countryCode: 'ZZ', dialCode: null }],
+      value: { id: 1, name: 'Danmark', countryCode: 'DK' },
     })
-    expect(await service().listAdmin()).toEqual({
-      kind: 'ok',
-      value: [{ id: 1, name: 'Unknown', countryCode: 'zz' }],
-    })
+    expect(await countries.list()).toEqual([{ id: 1, name: 'Danmark', countryCode: 'DK' }])
   })
 })
 
@@ -129,7 +122,7 @@ describe('the exported capabilities', () => {
   })
 
   test('the country admin opens and closes a destination', async () => {
-    const countries = service()
+    const countries = repository()
     const shippable = repository()
     expect(await shippable.isShippable('DK')).toBe(false)
     const created = await countries.create({ name: 'Denmark', countryCode: 'dk' })

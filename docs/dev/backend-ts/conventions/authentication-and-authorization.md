@@ -36,7 +36,8 @@ install a protection and never implement security themselves.
 The auth code **validates and uses** a session but never verifies credentials.
 The account module's login is the one production path that calls
 `auth.signIn(c, userId, roles)`; the session stores the user's numeric database
-id as a string plus the roles granted at login. Tests mint sessions directly
+id as a number plus the roles granted at login, so a handler reads it as
+`c.var.principal?.userId ?? null` without parsing it. Tests mint sessions directly
 through `signedInHeaders` of the test support.
 
 ## The five-minute mental model
@@ -110,7 +111,7 @@ The middleware sets two request variables, typed through Hono's
 
 ```ts
 export interface UserPrincipal {
-  userId: string
+  userId: number
   roles: string[]
 }
 ```

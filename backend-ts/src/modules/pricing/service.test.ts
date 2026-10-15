@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { sql, type Transaction } from 'kysely'
 import { createPricingModule, type CalculatedPrice, type PriceInput } from '@/modules/pricing'
 import { createPricingRepository } from '@/modules/pricing/repository'
-import { createPriceService, createVatService } from '@/modules/pricing/service'
+import { createPriceService } from '@/modules/pricing/service'
 import { write, type Tables } from '@/platform/db/database'
 import { testDatabase } from '@test-support/database'
 
 const database = testDatabase()
 const repository = () => createPricingRepository(database.db)
 const prices = () => createPriceService(repository())
-const vats = () => createVatService(repository())
+const vats = repository
 const catalog = () => createPricingModule({ db: database.db }).priceCatalog
 
 const priceInput = (overrides: Partial<PriceInput> = {}): PriceInput => ({
@@ -229,9 +229,8 @@ describe('VAT entries', () => {
 
   test('the list is ordered by name, then id', async () => {
     for (const name of ['Standard', 'Reduced', 'Zero'])
-      await vats().create({ name, percent: 7, description: null, isDefault: false })
-    const listed = await vats().list()
-    expect(listed.kind === 'ok' && listed.value.map((vat) => vat.name)).toEqual([
+      await vats().createVat({ name, percent: 7, description: null, isDefault: false })
+    expect((await vats().listVats()).map((vat) => vat.name)).toEqual([
       'Reduced',
       'Standard',
       'Zero',
@@ -240,28 +239,24 @@ describe('VAT entries', () => {
 
   test('create and update move the default; false and delete may leave none', async () => {
     const service = vats()
-    const standard = await service.create({
+    const standard = await service.createVat({
       name: 'Standard',
       percent: 19,
       description: null,
       isDefault: true,
     })
-    const reduced = await service.create({
+    const reduced = await service.createVat({
       name: 'Reduced',
       percent: 7,
       description: null,
       isDefault: false,
     })
     if (standard.kind !== 'ok' || reduced.kind !== 'ok') throw new Error('create failed')
-    const defaults = async () => {
-      const listed = await service.list()
-      return listed.kind === 'ok'
-        ? listed.value.filter((vat) => vat.isDefault).map((vat) => vat.id)
-        : []
-    }
+    const defaults = async () =>
+      (await service.listVats()).filter((vat) => vat.isDefault).map((vat) => vat.id)
 
     expect(
-      await service.update(reduced.value.id, {
+      await service.updateVat(reduced.value.id, {
         name: 'Reduced rate',
         percent: 7,
         description: 'Lower',
@@ -278,21 +273,21 @@ describe('VAT entries', () => {
       },
     })
     expect(await defaults()).toEqual([reduced.value.id])
-    await service.update(reduced.value.id, {
+    await service.updateVat(reduced.value.id, {
       name: 'Reduced rate',
       percent: 7,
       description: null,
       isDefault: false,
     })
     expect(await defaults()).toEqual([])
-    await service.update(standard.value.id, {
+    await service.updateVat(standard.value.id, {
       name: 'Standard',
       percent: 19,
       description: null,
       isDefault: true,
     })
     expect(
-      await service.update(999, {
+      await service.updateVat(999, {
         name: 'Missing',
         percent: 19,
         description: null,
@@ -302,15 +297,15 @@ describe('VAT entries', () => {
       kind: 'notFound',
     })
     expect(await defaults()).toEqual([standard.value.id])
-    expect(await service.delete(standard.value.id)).toEqual({ kind: 'ok', value: undefined })
-    expect(await service.delete(standard.value.id)).toEqual({ kind: 'notFound' })
+    expect(await service.deleteVat(standard.value.id)).toEqual({ kind: 'ok', value: undefined })
+    expect(await service.deleteVat(standard.value.id)).toEqual({ kind: 'notFound' })
     expect(await defaults()).toEqual([])
   })
 
   test('a duplicate name conflicts and rolls back the demotion; a case variant is another name', async () => {
     const service = vats()
-    await service.create({ name: 'Standard', percent: 19, description: null, isDefault: true })
-    const reduced = await service.create({
+    await service.createVat({ name: 'Standard', percent: 19, description: null, isDefault: true })
+    const reduced = await service.createVat({
       name: 'Reduced',
       percent: 7,
       description: null,
@@ -318,12 +313,17 @@ describe('VAT entries', () => {
     })
     if (reduced.kind !== 'ok') throw new Error('create failed')
     expect(
-      await service.create({ name: 'Standard', percent: 20, description: null, isDefault: true }),
+      await service.createVat({
+        name: 'Standard',
+        percent: 20,
+        description: null,
+        isDefault: true,
+      }),
     ).toEqual({
       kind: 'conflict',
     })
     expect(
-      await service.update(reduced.value.id, {
+      await service.updateVat(reduced.value.id, {
         name: 'Standard',
         percent: 7,
         description: null,
@@ -333,11 +333,16 @@ describe('VAT entries', () => {
       kind: 'conflict',
     })
     expect(
-      (await service.create({ name: 'standard', percent: 7, description: null, isDefault: false }))
-        .kind,
+      (
+        await service.createVat({
+          name: 'standard',
+          percent: 7,
+          description: null,
+          isDefault: false,
+        })
+      ).kind,
     ).toBe('ok')
-    const listed = await service.list()
-    expect(listed.kind === 'ok' && listed.value.map((vat) => [vat.name, vat.isDefault])).toEqual([
+    expect((await service.listVats()).map((vat) => [vat.name, vat.isDefault])).toEqual([
       ['Reduced', false],
       ['Standard', true],
       ['standard', false],
@@ -347,33 +352,31 @@ describe('VAT entries', () => {
   test('concurrent creates with the same name leave one row and one conflict', async () => {
     const service = vats()
     const results = await Promise.all([
-      service.create({ name: 'Standard', percent: 19, description: null, isDefault: false }),
-      service.create({ name: 'Standard', percent: 7, description: null, isDefault: false }),
+      service.createVat({ name: 'Standard', percent: 19, description: null, isDefault: false }),
+      service.createVat({ name: 'Standard', percent: 7, description: null, isDefault: false }),
     ])
     expect(results.filter((result) => result.kind === 'ok')).toHaveLength(1)
     expect(results.filter((result) => result.kind === 'conflict')).toHaveLength(1)
-    const listed = await service.list()
-    expect(listed.kind === 'ok' && listed.value.length).toBe(1)
+    expect(await service.listVats()).toHaveLength(1)
   })
 
   test('concurrent default writes never leave more than one default', async () => {
     const service = vats()
     const results = await Promise.all([
-      service.create({ name: 'Standard', percent: 19, description: null, isDefault: true }),
-      service.create({ name: 'Reduced', percent: 7, description: null, isDefault: true }),
+      service.createVat({ name: 'Standard', percent: 19, description: null, isDefault: true }),
+      service.createVat({ name: 'Reduced', percent: 7, description: null, isDefault: true }),
     ])
     expect(results.some((result) => result.kind === 'ok')).toBe(true)
     expect(results.every((result) => result.kind === 'ok' || result.kind === 'conflict')).toBe(true)
-    const listed = await service.list()
-    expect(listed.kind === 'ok' && listed.value.filter((vat) => vat.isDefault)).toHaveLength(1)
+    expect((await service.listVats()).filter((vat) => vat.isDefault)).toHaveLength(1)
   })
 
   test('an entry a price references cannot be deleted until the price is gone', async () => {
     await reset(true)
     const { id } = await store(priceInput({ purchaseVatId: 1, salesVatId: 2 }))
-    expect(await vats().delete(1)).toEqual({ kind: 'conflict' })
-    expect(await vats().delete(2)).toEqual({ kind: 'conflict' })
+    expect(await vats().deleteVat(1)).toEqual({ kind: 'conflict' })
+    expect(await vats().deleteVat(2)).toEqual({ kind: 'conflict' })
     await write(database.db, (trx) => catalog().deleteInTransaction(trx, id))
-    expect(await vats().delete(1)).toEqual({ kind: 'ok', value: undefined })
+    expect(await vats().deleteVat(1)).toEqual({ kind: 'ok', value: undefined })
   })
 })

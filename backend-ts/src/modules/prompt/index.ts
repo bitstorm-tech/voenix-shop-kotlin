@@ -7,13 +7,11 @@ import type { Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
 import { categoryRoutes, subcategoryRoutes } from './category/routes'
 import { createPromptCategoryRepository } from './category/repository'
-import { createPromptCategoryService } from './category/service'
 import { createPromptRepository } from './prompt/repository'
 import { promptAdminRoutes, publicPromptRoutes } from './prompt/routes'
 import { createPromptCatalog, createPromptService } from './prompt/service'
 import { createPromptSlotRepository } from './slot/repository'
 import { slotRoutes, slotVariantRoutes } from './slot/routes'
-import { createPromptSlotService } from './slot/service'
 
 /** The public folder the example images of prompts are stored in. */
 const EXAMPLE_IMAGE_FOLDER = 'prompt-example-images'
@@ -34,8 +32,8 @@ export function createPromptModule({
   priceCatalog: PriceCatalog
   exampleImages: ImageModule['exampleImages']
 }) {
-  const slots = createPromptSlotService(createPromptSlotRepository(db))
-  const categories = createPromptCategoryService(createPromptCategoryRepository(db))
+  const slots = createPromptSlotRepository(db)
+  const categories = createPromptCategoryRepository(db)
   const repository = createPromptRepository(db, priceCatalog)
   const prompts = createPromptService({
     repository,

@@ -10,7 +10,7 @@ export type { ExampleImages } from './example-images'
 export type { GuestImageResolver } from './routes'
 export type { ImageStorage } from './service'
 export type { ImageUpload, UploadedImage } from './upload'
-export { FILE_PART_NAME, readUploadedImage, uploadRejection } from './upload'
+export { exampleImageUpload, FILE_PART_NAME, readUploadedImage, uploadRejection } from './upload'
 
 /**
  * The image module. Creating it checks the three roots (fails when one is a file, not writable,

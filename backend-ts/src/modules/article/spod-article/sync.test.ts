@@ -3,6 +3,7 @@ import { sql } from 'kysely'
 import { createSpodClient, type SpodCatalogArticle } from '@/modules/spod'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testAuth } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import type { SpodCatalogSource, SpodSyncReport } from '../index'
 import {
   articleTestModule,
@@ -13,7 +14,6 @@ import {
   insertSupplier,
   insertVat,
   magentaBoxPng,
-  pngBytes,
   resetArticles,
 } from '../test-fixtures'
 

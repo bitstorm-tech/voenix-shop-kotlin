@@ -6,6 +6,7 @@ import type { ExampleImages } from '@/modules/image'
 import { createLogger } from '@/platform/logging'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testAuth } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import {
   articleTestModule,
   grossPrice,
@@ -14,7 +15,6 @@ import {
   insertSpodDestination,
   insertSupplier,
   insertVat,
-  pngBytes,
   resetArticles,
 } from '../test-fixtures'
 

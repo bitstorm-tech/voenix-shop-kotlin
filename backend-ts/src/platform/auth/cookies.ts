@@ -8,7 +8,7 @@ export const SESSION_DURATION_SECONDS = 24 * 60 * 60
 
 /** What the auth cookie carries: a claim, created by the account module at login. */
 export interface UserSession {
-  userId: string
+  userId: number
   roles: string[]
   issuedAtEpochSeconds: number
   expiresAtEpochSeconds: number
@@ -17,7 +17,7 @@ export interface UserSession {
 /** What the CSRF cookie carries: the token and the user it was minted for (`null` for a guest). */
 export interface CsrfSession {
   token: string
-  userId: string | null
+  userId: number | null
 }
 
 export interface SealedValue<T> {

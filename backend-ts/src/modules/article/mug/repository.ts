@@ -2,6 +2,7 @@ import type { Kysely, Selectable, Transaction } from 'kysely'
 import type { CalculatedPrice, PriceCatalog } from '@/modules/pricing'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, notFound, ok } from '@/platform/operation'
 import { printAspectRatioOf, type PrintAspectRatio } from '../catalog'
 import {
   closePositionGap,
@@ -175,21 +176,23 @@ export function createMugRepository(
       write(db, async (trx) => {
         await lockArticleType(trx, 'MUG')
         const stored = await findMug(trx, id, true)
-        if (stored === undefined) return 'notFound'
+        if (stored === undefined) return notFound
         await trx.deleteFrom('article_identities').where('id', '=', id).execute()
         if (stored.priceId !== null) await prices.deleteInTransaction(trx, stored.priceId)
         await closePositionGap(trx, 'article_mugs', stored.article.position)
-        return unreferencedFilenames(
-          trx,
-          'article_mug_variants',
-          'example_image_filename',
-          stored.article.mugVariants.flatMap((variant) => variant.exampleImageFilename ?? []),
+        return ok(
+          await unreferencedFilenames(
+            trx,
+            'article_mug_variants',
+            'example_image_filename',
+            stored.article.mugVariants.flatMap((variant) => variant.exampleImageFilename ?? []),
+          ),
         )
       }),
 
     /** Moves one mug to the place of another under the `MUG` anchor; see `moveInSequence`. */
     reorder: (sourceId: number, targetId: number) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           await lockArticleType(trx, 'MUG')
           return moveInSequence(trx, 'article_mugs', await listMugs(trx), sourceId, targetId)

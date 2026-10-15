@@ -1,17 +1,15 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { write } from '@/platform/db/database'
-import { testDatabase } from '@test-support/database'
-import { jsonOf, testApp } from '@test-support/http'
+import { stubMollie } from '@/test-fixtures'
+import { count, testDatabase } from '@test-support/database'
+import { guestCookie, jsonOf, testApp } from '@test-support/http'
 import {
-  count,
-  guestCookie,
   orderModuleFor,
   placeInput,
   reserve,
   resetOrders,
   seedCart,
   seedPromotion,
-  stubMollie,
   WEBHOOK_SECRET,
 } from '../test-fixtures'
 

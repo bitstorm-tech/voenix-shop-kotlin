@@ -1,7 +1,7 @@
 import type { ExampleImages } from '@/modules/image'
 import type { PriceCatalog, PriceInput } from '@/modules/pricing'
 import type { SupplierModule } from '@/modules/supplier'
-import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
+import { invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import { preparePrice } from '../price'
 import type {
   SpodArticle,
@@ -53,8 +53,7 @@ export function createSpodArticleService(
   }
 
   return {
-    list: async (): Promise<OperationResult<SpodArticleListItem[]>> =>
-      ok(await withSupplierNames(await repository.list())),
+    list: async (): Promise<SpodArticleListItem[]> => withSupplierNames(await repository.list()),
 
     get: async (id: number): Promise<OperationResult<SpodArticle>> => {
       const stored = await repository.find(id)
@@ -95,11 +94,11 @@ export function createSpodArticleService(
 
     delete: async (id: number): Promise<OperationResult<undefined>> => {
       const deleted = await repository.delete(id)
-      if (deleted === 'notFound') return notFound
-      for (const filename of deleted.listingImages)
-        await folders.listingImages.deleteObsolete(filename)
-      for (const filename of deleted.mockups) await folders.mockups.deleteObsolete(filename)
-      for (const filename of deleted.sizeCharts) await folders.sizeCharts.deleteObsolete(filename)
+      if (deleted.kind !== 'ok') return deleted
+      const { listingImages, mockups, sizeCharts } = deleted.value
+      for (const filename of listingImages) await folders.listingImages.deleteObsolete(filename)
+      for (const filename of mockups) await folders.mockups.deleteObsolete(filename)
+      for (const filename of sizeCharts) await folders.sizeCharts.deleteObsolete(filename)
       return ok(undefined)
     },
 
@@ -108,9 +107,8 @@ export function createSpodArticleService(
       targetId: number,
     ): Promise<OperationResult<SpodArticleListItem[]>> => {
       const result = await repository.reorder(sourceId, targetId)
-      if (result === 'notFound') return notFound
-      if (result === 'conflict') return conflict
-      return ok(await withSupplierNames(result))
+      if (result.kind !== 'ok') return result
+      return ok(await withSupplierNames(result.value))
     },
   }
 }

@@ -37,5 +37,3 @@ export function createCheckoutModule({
   })
   return { routes: checkoutRoutes(service, guestTokens) }
 }
-
-export type CheckoutModule = ReturnType<typeof createCheckoutModule>

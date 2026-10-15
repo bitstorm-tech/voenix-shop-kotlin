@@ -3,16 +3,14 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sql } from 'kysely'
 import { write } from '@/platform/db/database'
-import { testDatabase } from '@test-support/database'
-import { guestHeaders, jsonOf, signedInHeaders, testApp } from '@test-support/http'
+import { count, testDatabase } from '@test-support/database'
+import { guestCookie, guestHeaders, jsonOf, signedInHeaders, testApp } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import { createCartRepository } from './repository'
 import { createCartService } from './service'
 import {
   cartModuleFor,
-  count,
-  guestCookie,
   MUG_REF,
-  pngBytes,
   PROMPT_ID,
   resetCarts,
   seedPromotion,
@@ -205,7 +203,7 @@ describe('checkoutCarts', () => {
   })
 
   test('activeCart finds a signed-in customer’s cart by user id, and an emptied cart is a snapshot without lines', async () => {
-    const headers = await signedInHeaders({ userId: '7', roles: ['CUSTOMER'] })
+    const headers = await signedInHeaders({ userId: 7, roles: ['CUSTOMER'] })
     const added = await cartOf(await addItem(headers))
     await sql`DELETE FROM cart_items`.execute(database.db)
     expect(await cart.checkoutCarts.activeCart('any-token', 7)).toMatchObject({

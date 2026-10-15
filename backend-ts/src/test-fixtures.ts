@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApplication } from '@/composition'
 import type { MolliePayment, MolliePayments } from '@/modules/order'
-import { authCookies, GUEST_COOKIE } from '@/platform/auth/cookies'
 import type { DatabaseSettings } from '@/platform/db/database'
 import { loadSettings, type Settings } from '@/platform/settings'
+import { TEST_SESSION_SECRET } from '@test-support/http'
 
 /**
  * What the composed tests share: the settings a deployment would carry pointed at a test database
@@ -15,11 +15,6 @@ import { loadSettings, type Settings } from '@/platform/settings'
  */
 
 export const WEBHOOK_SECRET = 'composed-test-webhook-secret'
-
-// The secret `testAuth` of test-support/http.ts seals with, so its sessions and CSRF pairs are read
-// by the composed application and these guest cookies by the same keys.
-const TEST_SESSION_SECRET = 'test-session-secret-with-at-least-32-bytes'
-const guestCookies = authCookies(TEST_SESSION_SECRET).guest
 
 /** The application's `Settings` for `database`, with every root below `root` and dummy mode on. */
 export function composedSettings(
@@ -36,6 +31,7 @@ export function composedSettings(
     DATABASE_SEARCH_PATH: database.searchPath,
     // Room for the requests a concurrency journey runs at once.
     DATABASE_MAXIMUM_POOL_SIZE: '8',
+    // The secret of `testAuth`, so its sessions, CSRF pairs, and guest cookies are read here.
     AUTH_SESSION_SECRET: TEST_SESSION_SECRET,
     GENERATOR_DUMMY_MODE: 'true',
     MOLLIE_API_KEY: 'test_composed_mollie_key',
@@ -57,7 +53,7 @@ export function composedSettings(
  */
 export function stubMollie() {
   const reported = new Map<string, MolliePayment>()
-  const calls = { create: 0, cancel: [] as string[] }
+  const calls = { create: 0, find: 0, cancel: [] as string[] }
   const state = { refuse: false }
   const mollie: MolliePayments = {
     create: async (order) => {
@@ -74,12 +70,16 @@ export function stubMollie() {
       reported.set(id, payment)
       return payment
     },
-    find: (id) => Promise.resolve(reported.get(id) ?? null),
+    find: (id) => {
+      calls.find += 1
+      return Promise.resolve(reported.get(id) ?? null)
+    },
     cancel: (id) => {
       calls.cancel.push(id)
       return Promise.resolve(true)
     },
   }
+  /** Plays Mollie's side: the payment `id` now has `status` (and optionally another amount). */
   const report = (id: string, change: Partial<MolliePayment>) => {
     const payment = reported.get(id)
     if (payment === undefined) throw new Error(`No stub payment ${id}`)
@@ -88,6 +88,7 @@ export function stubMollie() {
   const reset = () => {
     reported.clear()
     calls.create = 0
+    calls.find = 0
     calls.cancel = []
     state.refuse = false
   }
@@ -106,8 +107,3 @@ export async function composedApplication(database: DatabaseSettings) {
 }
 
 export type ComposedApplication = Awaited<ReturnType<typeof composedApplication>>
-
-/** The `Cookie` pair of a visitor whose guest token is `token`. */
-export async function guestCookie(token: string): Promise<string> {
-  return `${GUEST_COOKIE}=${await guestCookies.seal(token)}`
-}

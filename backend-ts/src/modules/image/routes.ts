@@ -71,7 +71,7 @@ export function guestImageRoute(
         : await resolver({
             imageId,
             guestToken: await guestTokens.tryGet(c),
-            userId: integerOrNull(c.var.principal?.userId),
+            userId: c.var.principal?.userId ?? null,
           })
     if (filename === null) return c.json(apiError('Image not found'), 404)
     const result = await images.get(

@@ -2,14 +2,12 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql, type Kysely } from 'kysely'
-import sharp from 'sharp'
 import { catalogKey, type ArticleVariantReference, type CatalogVariant } from '@/modules/article'
 import { createImageModule } from '@/modules/image'
 import { createOrderModule } from '@/modules/order'
 import { createPromotionModule } from '@/modules/promotion'
-import { createAuth } from '@/platform/auth/auth'
-import { authCookies, GUEST_COOKIE } from '@/platform/auth/cookies'
 import type { Tables } from '@/platform/db/database'
+import { testAuth } from '@test-support/http'
 import { createCartModule } from './index'
 
 /**
@@ -18,11 +16,7 @@ import { createCartModule } from './index'
  * catalogs a test edits, and the rows a test seeds with SQL. Test-only.
  */
 
-// The secret `testAuth` of test-support/http.ts seals with, so its sessions and these guest
-// cookies are read by the same keys.
-const TEST_SESSION_SECRET = 'test-session-secret-with-at-least-32-bytes'
-const guestCookies = authCookies(TEST_SESSION_SECRET).guest
-const { guestTokens } = createAuth({ sessionSecret: TEST_SESSION_SECRET })
+const { guestTokens } = testAuth
 
 export const MUG: CatalogVariant = {
   articleType: 'MUG',
@@ -139,11 +133,6 @@ export async function cartModuleFor(db: Kysely<Tables>) {
   return { ...cart, ...catalogs, promotionCodes, privateStorage: images.privateStorage, root }
 }
 
-/** The `Cookie` pair of a visitor whose guest token is `token`. */
-export async function guestCookie(token: string): Promise<string> {
-  return `${GUEST_COOKIE}=${await guestCookies.seal(token)}`
-}
-
 /**
  * Empties every table the cart tests write and seeds the article identities the fake catalog
  * answers for, one prompt, and the users 7 and 8.
@@ -189,12 +178,6 @@ export async function seedPromotion(
   return rows[0]?.id ?? 0
 }
 
-/** A PNG the private storage accepts. */
-export const pngBytes = () =>
-  sharp({ create: { width: 4, height: 4, channels: 3, background: '#ff0000' } })
-    .png()
-    .toBuffer()
-
 /**
  * A placed order of one line, owned by `owner`, and the id of that line: the ordered references a
  * reorder starts from.
@@ -233,12 +216,4 @@ export async function seedOrderItem(
       'White', 1, 990, ${line.promptId}, ${line.printImageId})
     RETURNING id`.execute(db)
   return rows[0]?.id ?? 0
-}
-
-/** The number of rows in one table. */
-export async function count(db: Kysely<Tables>, table: string): Promise<number> {
-  const { rows } = await sql<{ count: number }>`SELECT count(*)::int AS count FROM ${sql.table(
-    table,
-  )}`.execute(db)
-  return rows[0]?.count ?? 0
 }

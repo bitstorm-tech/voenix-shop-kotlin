@@ -2,6 +2,7 @@ import { sql, type Kysely, type Transaction } from 'kysely'
 import type { CalculatedPrice, PriceCatalog } from '@/modules/pricing'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import { lockCategories, lockSequence, moved, rewritePositions } from '../ordering'
 import type { PromptInput } from './service'
 import '../schema'
@@ -143,16 +144,27 @@ async function isSubcategoryOf(
 }
 
 /** The checks under the category lock that turn the two category references into field errors. */
-async function lockReferences(trx: Transaction<Tables>, values: PromptValues) {
-  if (!(await lockCategories(trx, [values.categoryId]))) return 'categoryNotFound'
+async function lockReferences(
+  trx: Transaction<Tables>,
+  values: PromptValues,
+): Promise<OperationResult<never> | undefined> {
+  if (!(await lockCategories(trx, [values.categoryId]))) {
+    return invalid({ categoryId: ['Prompt category does not exist'] })
+  }
   if (
     values.subcategoryId !== null &&
     !(await isSubcategoryOf(trx, values.subcategoryId, values.categoryId))
   ) {
-    return 'subcategoryNotFound'
+    return invalid({
+      subcategoryId: ['Prompt subcategory does not exist in this prompt category'],
+    })
   }
   return undefined
 }
+
+const slotVariantNotFound = invalid({
+  slotVariantIds: ['One or more prompt slot variants do not exist'],
+})
 
 function promptRow(values: PromptValues) {
   return {
@@ -239,7 +251,7 @@ async function publicRows(
  * Lock order, the module's deadlock rule: the `PROMPT` anchor (only the writes that decide a
  * position), then the category row, then prompt rows. With the category row held and the price id
  * minted in the same transaction, the one reference a write can still violate is a slot variant:
- * a foreign-key violation means `'slotVariantNotFound'`. A unique violation is mapped only for the
+ * a foreign-key violation means an unknown slot variant. A unique violation is mapped only for the
  * reorder, where it is the deferred position rule failing at `COMMIT`.
  */
 export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCatalog) {
@@ -249,8 +261,8 @@ export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCa
     find: (id: number) => read(db, (trx) => findPrompt(trx, id)),
 
     /** Appends behind the last prompt: the price first, then the row, then its mappings. */
-    insert: (values: PromptValues, price: CalculatedPrice) =>
-      executePostgresWrite({ foreignKeyViolation: 'slotVariantNotFound' }, () =>
+    insert: (values: PromptValues, price: CalculatedPrice): Promise<OperationResult<PromptWrite>> =>
+      executePostgresWrite({ foreignKeyViolation: slotVariantNotFound }, () =>
         write(db, async (trx) => {
           await lockSequence(trx, 'PROMPT')
           const rejected = await lockReferences(trx, values)
@@ -269,7 +281,7 @@ export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCa
           const prompt = await findPrompt(trx, id)
           if (prompt === undefined)
             throw new Error(`The prompt ${String(id)} just written is missing`)
-          return { prompt, obsoleteExampleImage: null } satisfies PromptWrite
+          return ok({ prompt, obsoleteExampleImage: null })
         }),
       ),
 
@@ -277,15 +289,19 @@ export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCa
      * Replaces every value but the position, including the whole mapping set and the inputs of the
      * price row, which keeps its id. A prompt whose `price_id` is empty gets a price linked here.
      */
-    update: (id: number, values: PromptValues, price: CalculatedPrice) =>
-      executePostgresWrite({ foreignKeyViolation: 'slotVariantNotFound' }, () =>
+    update: (
+      id: number,
+      values: PromptValues,
+      price: CalculatedPrice,
+    ): Promise<OperationResult<PromptWrite>> =>
+      executePostgresWrite({ foreignKeyViolation: slotVariantNotFound }, () =>
         write(db, async (trx) => {
           const exists = await trx
             .selectFrom('prompts')
             .select('id')
             .where('id', '=', id)
             .executeTakeFirst()
-          if (exists === undefined) return 'notFound'
+          if (exists === undefined) return notFound
           const rejected = await lockReferences(trx, values)
           if (rejected !== undefined) return rejected
           const locked = await trx
@@ -310,10 +326,10 @@ export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCa
           const prompt = await findPrompt(trx, id)
           if (prompt === undefined)
             throw new Error(`The prompt ${String(id)} just written is missing`)
-          return {
+          return ok({
             prompt,
             obsoleteExampleImage: await unreferenced(trx, locked.example_image_filename),
-          } satisfies PromptWrite
+          })
         }),
       ),
 
@@ -322,18 +338,20 @@ export function createPromptRepository(db: Kysely<Tables>, priceCatalog: PriceCa
      * rows are locked ascending by id *after* the order is read: a position another writer changed
      * in between is what the deferred unique rule catches at `COMMIT`.
      */
-    reorder: (sourceId: number, targetId: number) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+    reorder: (sourceId: number, targetId: number): Promise<OperationResult<StoredListRow[]>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           await lockSequence(trx, 'PROMPT')
           const stored = await listRows(trx)
           const order = moved(stored, sourceId, targetId)
-          if (typeof order === 'string') return order
+          if (!Array.isArray(order)) return order
           for (const id of stored.map((row) => row.id).sort((a, b) => a - b)) {
             await trx.selectFrom('prompts').select('id').where('id', '=', id).forUpdate().execute()
           }
-          return rewritePositions(order, (id, position) =>
-            trx.updateTable('prompts').set({ position }).where('id', '=', id).execute(),
+          return ok(
+            await rewritePositions(order, (id, position) =>
+              trx.updateTable('prompts').set({ position }).where('id', '=', id).execute(),
+            ),
           )
         }),
       ),

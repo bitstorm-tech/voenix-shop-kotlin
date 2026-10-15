@@ -75,13 +75,6 @@ export async function seedSupplier(db: Kysely<Tables>, name: string): Promise<nu
   return rows[0]?.id ?? 0
 }
 
-/** A user row, so `shipped_by_user_id` has something to reference. */
-export async function seedUser(db: Kysely<Tables>, email: string): Promise<number> {
-  const { rows } = await sql<{ id: number }>`INSERT INTO users (email, password_hash)
-    VALUES (${email}, 'x') RETURNING id`.execute(db)
-  return rows[0]?.id ?? 0
-}
-
 /** An SFTP destination row pair, written the way the admin route would. */
 export async function seedSftpDestination(
   db: Kysely<Tables>,
@@ -137,13 +130,6 @@ export async function seedSpodDestination(
     .execute()
   return id
 }
-
-/** The message a promise rejects with, or `'resolved'`. */
-export const rejectionOf = (promise: Promise<unknown>): Promise<string> =>
-  promise.then(
-    () => 'resolved',
-    (error: unknown) => (error instanceof Error ? error.message : String(error)),
-  )
 
 /** Every queued mail, oldest first. */
 export async function queuedEmails(db: Kysely<Tables>): Promise<RenderedEmail[]> {

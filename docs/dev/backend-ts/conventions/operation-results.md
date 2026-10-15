@@ -1,6 +1,6 @@
 # Shared operation results
 
-A service answers with
+An operation that can fail answers with
 [`OperationResult<T>`](../../../../backend-ts/src/platform/operation.ts), a
 discriminated union that describes the outcome of an operation without HTTP
 types:
@@ -16,7 +16,7 @@ export type OperationResult<T> =
 `ValidationErrors` is `Record<string, string[]>`: messages grouped by
 lower-camel-case field name, the same shape the `400 Validation failed` answer
 carries. The constructors `ok(value)`, `notFound`, `conflict`, and
-`invalid(errors)` build the variants, so a service reads
+`invalid(errors)` build the variants, so a repository reads
 `return country === undefined ? notFound : ok(country)`.
 
 ## There is no unexpected-failure variant
@@ -31,8 +31,8 @@ connection all travel the same path and reach the client as the same `500`.
 
 ## Responsibilities
 
-The service returns the result without choosing a status code; the route maps
-it:
+The operation returns the result without choosing a status code; the route
+maps it:
 
 | Result | HTTP answer |
 | --- | --- |
@@ -41,11 +41,36 @@ it:
 | `notFound` | `404` with the route's message |
 | `conflict` | `409` with the route's message |
 
-Expected persistence outcomes stay small: the repository returns the stored
-value, `undefined` for a missing row, the number of affected rows for a delete,
-or the string the repository declared for a constraint violation
-(`'conflict'`). The service maps those to the result; SQL states never reach a
-route.
+## The repository answers the result itself
+
+A repository whose write or lookup can fail returns `OperationResult<T>`
+directly: `notFound` for a missing row, `conflict` for a unique violation or a
+delete a foreign key restricts, `invalid({ countryId: ['Country not found'] })`
+for a missing reference. `executePostgresWrite` takes those values as the
+answers to the declared SQL states (see
+[Persistence error handling](persistence-error-handling.md)), so SQL states
+never reach a route.
+
+The reason is issue #251: a repository that answered strings (`'conflict'`,
+`'notFound'`, `'inUse'`) made every service translate them 1:1 into the same
+`OperationResult` again, a ladder of `if (stored === 'conflict') return
+conflict` with nothing to decide. Without the translation, a service that only
+forwarded disappears: the route calls the repository, and `index.ts` wires the
+repository into the routes (country, promotion, the VAT entries, the prompt
+slots and categories). A service stays where it has work of its own: a join
+with another module (supplier's countries), a price, an example image that is
+checked before and deleted after the write.
+
+The one exception is a module-specific union the service really branches on.
+`order/payment/repository.ts` answers `'superseded'` for a status write the
+live-payment index refuses, which the payment service turns into its own
+confirmation outcome instead of a failure; the mug and SPOD article writes and
+the production destinations answer a handful of outcomes (`'priceRequired'`,
+`'channelImmutable'`, …) that the service turns into distinct field errors.
+Such a union is never a renamed `notFound` or `conflict`.
+
+A read that cannot fail answers the plain value, and its route answers it
+without the result: `admin.get('/', async (c) => c.json(await countries.list()))`.
 
 ## One mapping from a result to an HTTP answer
 
@@ -55,13 +80,15 @@ functions of [`respond.ts`](../../../../backend-ts/src/platform/http/respond.ts)
 ```ts
 const COUNTRY_RESPONSES = { notFound: 'Country not found', conflict: 'Country name or code already exists' }
 
-admin.get('/', async (c) => respondResult(c, await countries.listAdmin(), COUNTRY_RESPONSES))
+admin.get('/:id', countryId, async (c) =>
+  respondResult(c, await countries.get(c.req.valid('param').id), COUNTRY_RESPONSES),
+)
 ```
 
-`respondResult(c, result, responses, successStatus = 200)` answers an `ok`
-with the value and hands every other variant to `respondFailure`. A route that
-builds the success answer itself, a `201` with a `Location` header or a `204`
-delete, calls `respondFailure` directly:
+`respondResult(c, result, responses)` answers an `ok` with `200` and the value
+and hands every other variant to `respondFailure`. A route that builds the
+success answer itself, a `201` (with a `Location` header, or the stored name of
+an uploaded image) or a `204` delete, calls `respondFailure` directly:
 
 ```ts
 admin.post('/', jsonBody(countryInput), async (c) => {

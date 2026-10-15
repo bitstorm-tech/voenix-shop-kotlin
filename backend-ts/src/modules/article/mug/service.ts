@@ -2,7 +2,6 @@ import type { ExampleImages } from '@/modules/image'
 import type { CalculatedPrice, PriceCatalog, PriceInput } from '@/modules/pricing'
 import type { SupplierModule } from '@/modules/supplier'
 import {
-  conflict,
   invalid,
   notFound,
   ok,
@@ -133,8 +132,7 @@ export function createMugService(
   }
 
   return {
-    list: async (): Promise<OperationResult<MugArticleListItem[]>> =>
-      ok(await withSupplierNames(await repository.list())),
+    list: async (): Promise<MugArticleListItem[]> => withSupplierNames(await repository.list()),
 
     get: async (id: number): Promise<OperationResult<MugArticle>> => {
       const stored = await repository.find(id)
@@ -149,8 +147,8 @@ export function createMugService(
 
     delete: async (id: number): Promise<OperationResult<undefined>> => {
       const deleted = await repository.delete(id)
-      if (deleted === 'notFound') return notFound
-      for (const filename of deleted) await exampleImages.deleteObsolete(filename)
+      if (deleted.kind !== 'ok') return deleted
+      for (const filename of deleted.value) await exampleImages.deleteObsolete(filename)
       return ok(undefined)
     },
 
@@ -159,9 +157,8 @@ export function createMugService(
       targetId: number,
     ): Promise<OperationResult<MugArticleListItem[]>> => {
       const result = await repository.reorder(sourceId, targetId)
-      if (result === 'notFound') return notFound
-      if (result === 'conflict') return conflict
-      return ok(await withSupplierNames(result))
+      if (result.kind !== 'ok') return result
+      return ok(await withSupplierNames(result.value))
     },
 
     storeExampleImage: exampleImages.store,

@@ -1,7 +1,7 @@
 import type { Transaction } from 'kysely'
 import type { CalculatedPrice, PriceCatalog, PriceInput } from '@/modules/pricing'
 import type { Tables } from '@/platform/db/database'
-import { invalid, ok, type OperationResult } from '@/platform/operation'
+import { ok, type OperationResult } from '@/platform/operation'
 
 /**
  * The price an article owns. It is prepared before the article's transaction opens, because that
@@ -9,23 +9,12 @@ import { invalid, ok, type OperationResult } from '@/platform/operation'
  * together: a rejected price creates no article, a rejected article leaves no price row.
  */
 
-/**
- * Validates and calculates the submitted price without writing; `null` means "keep what is
- * stored". The rules `prepare` answers (an unknown VAT, a discount that does not fit) are reported
- * under the path the client sent them at, `price.salesVatId`, like the field rules of the schema.
- */
+/** Validates and calculates the submitted price without writing; `null` means "keep what is stored". */
 export async function preparePrice(
   prices: Pick<PriceCatalog, 'prepare'>,
   input: PriceInput | null,
 ): Promise<OperationResult<CalculatedPrice | null>> {
-  if (input === null) return ok(null)
-  const prepared = await prices.prepare(input)
-  if (prepared.kind !== 'invalid') return prepared
-  return invalid(
-    Object.fromEntries(
-      Object.entries(prepared.errors).map(([field, messages]) => [`price.${field}`, messages]),
-    ),
-  )
+  return input === null ? ok(null) : prices.prepare(input)
 }
 
 /**

@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import type { SpodSyncReport } from '@/modules/article'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
+import { rejectionOf } from '@test-support/values'
 import {
   productionTestKit,
-  rejectionOf,
   resetProduction,
   seedOrder,
   seedSftpDestination,

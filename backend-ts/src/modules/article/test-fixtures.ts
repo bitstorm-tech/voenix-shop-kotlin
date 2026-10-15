@@ -138,12 +138,6 @@ export const grossPrice = (
   discountValue: discountPercent,
 })
 
-/** A small PNG of one colour, a valid upload for every image folder. */
-export const pngBytes = (color = '#336699'): Promise<Buffer> =>
-  sharp({ create: { width: 40, height: 30, channels: 3, background: color } })
-    .png()
-    .toBuffer()
-
 export interface SeededSpodColor {
   name: string
   hex?: string

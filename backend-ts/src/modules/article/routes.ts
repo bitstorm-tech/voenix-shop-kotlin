@@ -1,13 +1,11 @@
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import { z } from 'zod'
-import { readUploadedImage, uploadRejection, type ExampleImages } from '@/modules/image'
 import { priceInput } from '@/modules/pricing'
-import { respondResult, type FailureResponses } from '@/platform/http/respond'
 import type { Storefront } from './storefront'
 
 /**
  * What every route file of this module shares: the request fragments both article bodies and all
- * four reorders use, the example-image pre-upload, and the three anonymous storefront routes.
+ * four reorders use, and the three anonymous storefront routes.
  */
 
 /** A required id of a body: `X is required` when absent, `X must be positive` below 1. */
@@ -62,25 +60,6 @@ export const reorderInput = z
       })
     }
   })
-
-/**
- * `POST …/example-images`: stores the `file` part of a multipart body in the slice's folder and
- * answers `201 { filename }`, the name a following create or update submits. A missing part and an
- * oversized one are `400` on the `file` field, like everything the storage rejects. Install it
- * behind `formBody`, which refuses a body that is no multipart form.
- */
-export function exampleImageUpload(store: ExampleImages['store'], responses: FailureResponses) {
-  return async (c: Context): Promise<Response> => {
-    const upload = await readUploadedImage(await c.req.formData())
-    const result =
-      upload.kind === 'missing'
-        ? uploadRejection('An example image file part is required')
-        : upload.kind === 'tooLarge'
-          ? uploadRejection('Example image must not exceed 10 MiB')
-          : await store(upload.upload)
-    return respondResult(c, result, responses, 201)
-  }
-}
 
 /**
  * The three anonymous storefront reads. Nothing here takes a parameter or a body, so the only

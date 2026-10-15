@@ -1,5 +1,8 @@
+import type { Context } from 'hono'
+import { respondFailure, type FailureResponses } from '@/platform/http/respond'
 import { invalid, type OperationResult } from '@/platform/operation'
 import { MAX_IMAGE_BYTES } from './codec'
+import type { ExampleImages } from './example-images'
 
 /**
  * The name of the multipart part every pre-upload reads, and therefore also the field every
@@ -41,3 +44,22 @@ export async function readUploadedImage(form: FormData): Promise<UploadedImage> 
  */
 export const uploadRejection = (message: string): OperationResult<never> =>
   invalid({ [FILE_PART_NAME]: [message] })
+
+/**
+ * `POST …/example-images`: stores the `file` part of a multipart body in the owner's folder and
+ * answers `201 { filename }`, the name a following create or update submits. A missing part and an
+ * oversized one are `400` on the `file` field, like everything the storage rejects. Install it
+ * behind `formBody`, which refuses a body that is no multipart form.
+ */
+export function exampleImageUpload(store: ExampleImages['store'], responses: FailureResponses) {
+  return async (c: Context): Promise<Response> => {
+    const upload = await readUploadedImage(await c.req.formData())
+    const result =
+      upload.kind === 'missing'
+        ? uploadRejection('An example image file part is required')
+        : upload.kind === 'tooLarge'
+          ? uploadRejection('Example image must not exceed 10 MiB')
+          : await store(upload.upload)
+    return result.kind === 'ok' ? c.json(result.value, 201) : respondFailure(c, result, responses)
+  }
+}

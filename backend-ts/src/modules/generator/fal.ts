@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { Logger } from '@/platform/logging'
+import type { Fetch } from '@/platform/fetch'
+import { errorClass, type Logger } from '@/platform/logging'
 import { ALLOWED_IMAGE_CONTENT_TYPES, type ImageGenerator, type RawImage } from './image-generator'
 import { MAX_IMAGE_BYTES } from './upload'
 
@@ -9,8 +10,6 @@ export const FAL_EDIT_URL = 'https://fal.run/fal-ai/nano-banana-2/edit'
 /** Generating an image takes far longer than an ordinary API call. */
 const REQUEST_TIMEOUT_MILLIS = 120_000
 const DEFAULT_RESULT_CONTENT_TYPE = 'image/jpeg'
-
-type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
 /**
  * What fal.ai answers. Unknown fields are ignored, so a provider that adds one breaks nothing, and
@@ -41,8 +40,7 @@ export function createFalImageGenerator({
   logger: Logger
 }): ImageGenerator {
   const failed = (what: string, error: unknown): null => {
-    const name = error instanceof Error ? error.name : typeof error
-    logger.error(`${what} (${name})`)
+    logger.error(`${what} (${errorClass(error)})`)
     return null
   }
 

@@ -1,22 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
-import { testDatabase } from '@test-support/database'
-import { guestHeaders, jsonOf, setCookies, signedInHeaders } from '@test-support/http'
+import { composedApplication, type ComposedApplication, WEBHOOK_SECRET } from '@/test-fixtures'
+import { count, seedUser, testDatabase } from '@test-support/database'
+import { guestCookie, guestHeaders, jsonOf, setCookies, signedInHeaders } from '@test-support/http'
 import {
   checkoutBody,
-  composedApplication,
-  count,
   GHOST,
-  guestCookie,
   resetCheckouts,
   seedCart,
   seedPromotion,
   seedSpodArticle,
-  seedUser,
   SHIRT,
   TOTAL_CENTS,
-  WEBHOOK_SECRET,
-  type ComposedApplication,
 } from './test-fixtures'
 
 /**
@@ -50,8 +45,7 @@ const guest = async (token: string) => {
   return { ...headers, Cookie: `${headers.Cookie ?? ''}; ${await guestCookie(token)}` }
 }
 /** Customer `userId`, signed in. */
-const customer = (userId: number) =>
-  signedInHeaders({ userId: String(userId), roles: ['CUSTOMER'] })
+const customer = (userId: number) => signedInHeaders({ userId: userId, roles: ['CUSTOMER'] })
 
 const checkout = (headers: Record<string, string>, body: unknown = checkoutBody()) =>
   app().app.request('/api/checkout', {

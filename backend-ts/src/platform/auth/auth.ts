@@ -19,7 +19,7 @@ export const AuthRoles = { ADMIN: 'ADMIN', SUPPLIER: 'SUPPLIER' } as const
 
 /** The validated identity of one request, or `null` for an anonymous one. */
 export interface UserPrincipal {
-  userId: string
+  userId: number
   roles: string[]
 }
 
@@ -75,7 +75,7 @@ export function createAuth({ sessionSecret }: { sessionSecret: string }) {
     middleware,
     routes,
     /** Writes a fresh 24-hour session; the one production caller is the account module's login. */
-    signIn: (c: Context, userId: string, roles: string[]) => {
+    signIn: (c: Context, userId: number, roles: string[]) => {
       const now = epochSeconds()
       return writeSession(c, {
         userId,
@@ -182,11 +182,9 @@ export function requireSupplier(accounts: SupplierAccounts) {
   return failClosed(async (c) => {
     const principal = c.var.principal
     if (principal === null) return authRefusal(c, 401, 'Authentication required')
-    const userId = Number(principal.userId)
-    const supplierId =
-      principal.roles.includes(AuthRoles.SUPPLIER) && Number.isSafeInteger(userId)
-        ? await accounts.supplierIdOf(userId)
-        : null
+    const supplierId = principal.roles.includes(AuthRoles.SUPPLIER)
+      ? await accounts.supplierIdOf(principal.userId)
+      : null
     if (supplierId === null) return authRefusal(c, 403, 'Supplier access required')
     c.set('supplierId', supplierId)
     return null

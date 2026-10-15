@@ -136,8 +136,8 @@ export function createAccountService({
         emailConfirmed: false,
         supplierId: null,
       })
-      if (stored === 'emailTaken') return 'emailTaken'
-      if (stored === 'unknownSupplier') throw new Error('A registration carries no supplier link')
+      // Without a supplier link the foreign key cannot fail: a refusal is the taken address.
+      if (typeof stored === 'string') return 'emailTaken'
       return (await sendConfirmation(stored, email)) ? 'registered' : 'deliveryFailed'
     },
 

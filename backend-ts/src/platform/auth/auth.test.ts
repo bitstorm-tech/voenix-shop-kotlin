@@ -30,7 +30,7 @@ function probeApp(lookups: number[] = []) {
   const routes = new Hono()
   routes.get('/probe/public', (c) => c.text('public'))
   routes.post('/probe/sign-in', async (c) => {
-    await testAuth.signIn(c, '11', ['ADMIN'])
+    await testAuth.signIn(c, 11, ['ADMIN'])
     return c.text('signed in')
   })
   routes.post('/probe/sign-out', (c) => {
@@ -44,7 +44,7 @@ function probeApp(lookups: number[] = []) {
 
   const account = new Hono()
   account.use(requireAuthenticated)
-  account.get('/', (c) => c.text(`account ${c.var.principal?.userId ?? '?'}`))
+  account.get('/', (c) => c.text(`account ${String(c.var.principal?.userId)}`))
   account.on(MUTATING, '/', (c) => c.text('written'))
   routes.route('/probe/account', account)
 
@@ -105,7 +105,7 @@ describe('the authenticated protection', () => {
 
   test('any signed-in user passes a read without a role requirement', async () => {
     const response = await probeApp().request('/probe/account', {
-      headers: await signedInHeaders({ userId: '21', roles: ['CUSTOMER'] }),
+      headers: await signedInHeaders({ userId: 21, roles: ['CUSTOMER'] }),
     })
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('account 21')
@@ -168,8 +168,8 @@ describe('the admin protection', () => {
 describe('the CSRF token', () => {
   test('is bound to the user it was minted for', async () => {
     const app = probeApp()
-    const alice = await signedInHeaders({ userId: '11' })
-    const bob = await signedInHeaders({ userId: '12' })
+    const alice = await signedInHeaders({ userId: 11 })
+    const bob = await signedInHeaders({ userId: 12 })
     const mixed = {
       Cookie: `${sessionOnly(bob).Cookie}; ${csrfOnly(alice).Cookie}`,
       [CSRF_HEADER]: alice[CSRF_HEADER] ?? '',
@@ -231,7 +231,7 @@ describe('the guest-capable protection', () => {
 
   test('a signed-in user must use a token minted for that user', async () => {
     const app = probeApp()
-    const customer = await signedInHeaders({ userId: '21', roles: ['CUSTOMER'] })
+    const customer = await signedInHeaders({ userId: 21, roles: ['CUSTOMER'] })
     expect((await app.request('/probe/guest', { method: 'POST', headers: customer })).status).toBe(
       200,
     )
@@ -243,7 +243,7 @@ describe('the guest-capable protection', () => {
     expect(
       (await app.request('/probe/guest', { method: 'POST', headers: withGuestToken })).status,
     ).toBe(400)
-    const other = await signedInHeaders({ userId: '99', roles: ['CUSTOMER'] })
+    const other = await signedInHeaders({ userId: 99, roles: ['CUSTOMER'] })
     const foreign = {
       Cookie: `${sessionOnly(customer).Cookie}; ${csrfOnly(other).Cookie}`,
       [CSRF_HEADER]: other[CSRF_HEADER] ?? '',
@@ -261,7 +261,7 @@ describe('the supplier protection', () => {
     expect((await app.request('/probe/supplier')).status).toBe(401)
     for (const roles of [['CUSTOMER'], ['ADMIN']]) {
       const response = await app.request('/probe/supplier', {
-        headers: await signedInHeaders({ userId: '21', roles }),
+        headers: await signedInHeaders({ userId: 21, roles }),
       })
       expect(response.status).toBe(403)
       expect(await jsonOf(response)).toEqual({
@@ -277,10 +277,10 @@ describe('the supplier protection', () => {
     const lookups: number[] = []
     const app = probeApp(lookups)
     const revoked = await app.request('/probe/supplier', {
-      headers: await signedInHeaders({ userId: '22', roles: ['SUPPLIER'] }),
+      headers: await signedInHeaders({ userId: 22, roles: ['SUPPLIER'] }),
     })
     expect(revoked.status).toBe(403)
-    const linked = await signedInHeaders({ userId: '21', roles: ['SUPPLIER'] })
+    const linked = await signedInHeaders({ userId: 21, roles: ['SUPPLIER'] })
     const read = await app.request('/probe/supplier', { headers: linked })
     expect(await read.text()).toBe('supplier 7')
     expect(

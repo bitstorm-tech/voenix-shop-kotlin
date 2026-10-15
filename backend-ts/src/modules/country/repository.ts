@@ -1,11 +1,18 @@
 import type { Kysely } from 'kysely'
-import { read, write, type Tables } from '@/platform/db/database'
+import { read, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import './schema'
 
 /** A stored country; also the admin response. */
 export interface Country {
   id: number
+  name: string
+  countryCode: string
+}
+
+/** The validated body of a create or update, as `routes.ts`'s schema produces it (trimmed). */
+export interface CountryInput {
   name: string
   countryCode: string
 }
@@ -21,10 +28,12 @@ export function createCountryRepository(db: Kysely<Tables>) {
         trx.selectFrom('countries').select(columns).orderBy('country_code').orderBy('id').execute(),
       ),
 
-    findById: (id: number) =>
-      read(db, (trx) =>
+    get: async (id: number): Promise<OperationResult<Country>> => {
+      const country = await read(db, (trx) =>
         trx.selectFrom('countries').select(columns).where('id', '=', id).executeTakeFirst(),
-      ),
+      )
+      return country === undefined ? notFound : ok(country)
+    },
 
     /** The countries with these ids, keyed by id; unknown ids are absent. */
     find: async (ids: Iterable<number>): Promise<Map<number, Country>> => {
@@ -54,36 +63,30 @@ export function createCountryRepository(db: Kysely<Tables>) {
       return row !== undefined
     },
 
-    insert: (country: Omit<Country, 'id'>) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
-        write(db, async (trx) => {
-          const { id } = await trx
-            .insertInto('countries')
-            .values({ name: country.name, country_code: country.countryCode })
-            .returning('id')
-            .executeTakeFirstOrThrow()
-          return { id, ...country }
-        }),
-      ),
-
-    update: (id: number, country: Omit<Country, 'id'>) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, async () => {
-        const result = await write(db, (trx) =>
-          trx
-            .updateTable('countries')
-            .set({ name: country.name, country_code: country.countryCode })
-            .where('id', '=', id)
-            .executeTakeFirst(),
-        )
-        return result.numUpdatedRows === 0n ? 'notFound' : { id, ...country }
+    /** Stores the code upper-cased, the one form every read and `isShippable` rely on. */
+    create: (input: CountryInput): Promise<OperationResult<Country>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, async () => {
+        const country = { name: input.name, countryCode: input.countryCode.toUpperCase() }
+        const { id } = await db
+          .insertInto('countries')
+          .values({ name: country.name, country_code: country.countryCode })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+        return ok({ id, ...country })
       }),
-
-    /** The number of rows deleted: `0` when there was no such country. */
-    delete: async (id: number): Promise<number> => {
-      const result = await write(db, (trx) =>
-        trx.deleteFrom('countries').where('id', '=', id).executeTakeFirst(),
-      )
-      return Number(result.numDeletedRows)
+    update: (id: number, input: CountryInput): Promise<OperationResult<Country>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, async () => {
+        const country = { name: input.name, countryCode: input.countryCode.toUpperCase() }
+        const result = await db
+          .updateTable('countries')
+          .set({ name: country.name, country_code: country.countryCode })
+          .where('id', '=', id)
+          .executeTakeFirst()
+        return result.numUpdatedRows === 0n ? notFound : ok({ id, ...country })
+      }),
+    delete: async (id: number): Promise<OperationResult<undefined>> => {
+      const result = await db.deleteFrom('countries').where('id', '=', id).executeTakeFirst()
+      return result.numDeletedRows === 0n ? notFound : ok(undefined)
     },
   }
 }

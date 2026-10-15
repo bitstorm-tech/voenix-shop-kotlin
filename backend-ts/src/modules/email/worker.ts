@@ -1,7 +1,7 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { read, write, type Tables } from '@/platform/db/database'
-import { createLogger } from '@/platform/logging'
+import { read, type Tables } from '@/platform/db/database'
+import { createLogger, errorClass } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import type { EmailDelivery } from './delivery/sweego'
 import './schema'
@@ -26,14 +26,12 @@ export function createEmailWorker({
 }) {
   /** Only touches the job while it is still open; answers whether it did. */
   const updateOpenJob = async (id: number, values: UpdateObject<Tables, 'email_jobs'>) => {
-    const result = await write(db, (trx) =>
-      trx
-        .updateTable('email_jobs')
-        .set(values)
-        .where('id', '=', id)
-        .where('sent_at', 'is', null)
-        .executeTakeFirst(),
-    )
+    const result = await db
+      .updateTable('email_jobs')
+      .set(values)
+      .where('id', '=', id)
+      .where('sent_at', 'is', null)
+      .executeTakeFirst()
     return result.numUpdatedRows > 0n
   }
 
@@ -81,7 +79,7 @@ export function createEmailWorker({
             await runOnce(signal)
           } catch (error) {
             // The class only: a message could quote a stored mail.
-            logger.error({ errorClass: (error as Error).name }, 'Email worker scan failed')
+            logger.error({ errorClass: errorClass(error) }, 'Email worker scan failed')
           }
           await sleep(settings.pollIntervalMinutes * 60_000, undefined, { signal }).catch(
             () => undefined,

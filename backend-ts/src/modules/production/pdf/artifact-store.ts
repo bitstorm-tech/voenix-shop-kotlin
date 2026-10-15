@@ -22,9 +22,6 @@ export async function createArtifactStore(root: string) {
   const realRoot = await realpath(resolve(root))
 
   const pathOf = (jobId: number, fileName: string) => {
-    if (!Number.isSafeInteger(jobId) || jobId <= 0) {
-      throw new Error('Production artifacts require a positive job id')
-    }
     if (['', '.', '..'].includes(fileName) || basename(fileName) !== fileName) {
       throw new Error('Production artifact file name must be a plain file name')
     }

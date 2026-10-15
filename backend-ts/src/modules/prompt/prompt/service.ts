@@ -1,13 +1,6 @@
 import type { ExampleImages, ImageUpload } from '@/modules/image'
 import type { CalculatedPrice, PriceCatalog, PriceInput } from '@/modules/pricing'
-import {
-  conflict,
-  invalid,
-  notFound,
-  ok,
-  type OperationFailure,
-  type OperationResult,
-} from '@/platform/operation'
+import { notFound, ok, type OperationResult } from '@/platform/operation'
 import type {
   CategoryReference,
   PromptRepository,
@@ -105,12 +98,7 @@ export function createPromptService({
    */
   async function writePrepared(
     { price: priceInput, ...values }: PromptInput,
-    write: (
-      values: PromptValues,
-      price: CalculatedPrice,
-    ) => Promise<
-      PromptWrite | 'notFound' | 'categoryNotFound' | 'subcategoryNotFound' | 'slotVariantNotFound'
-    >,
+    write: (values: PromptValues, price: CalculatedPrice) => Promise<OperationResult<PromptWrite>>,
   ): Promise<OperationResult<Prompt>> {
     const image = await exampleImages.checkSubmitted(
       EXAMPLE_IMAGE_FIELD,
@@ -118,28 +106,15 @@ export function createPromptService({
     )
     if (image.kind !== 'ok') return image
     const price = await priceCatalog.prepare(priceInput)
-    if (price.kind !== 'ok') return underPrice(price)
+    if (price.kind !== 'ok') return price
     const written = await write(values, price.value)
-    switch (written) {
-      case 'notFound':
-        return notFound
-      case 'categoryNotFound':
-        return invalid({ categoryId: ['Prompt category does not exist'] })
-      case 'subcategoryNotFound':
-        return invalid({
-          subcategoryId: ['Prompt subcategory does not exist in this prompt category'],
-        })
-      case 'slotVariantNotFound':
-        return invalid({ slotVariantIds: ['One or more prompt slot variants do not exist'] })
-      default:
-        await exampleImages.deleteObsolete(written.obsoleteExampleImage)
-        return ok(await withPrice(written.prompt))
-    }
+    if (written.kind !== 'ok') return written
+    await exampleImages.deleteObsolete(written.value.obsoleteExampleImage)
+    return ok(await withPrice(written.value.prompt))
   }
 
   return {
-    list: async (): Promise<OperationResult<PromptListItem[]>> =>
-      ok(await withPrices(await repository.list(), promptPrice)),
+    list: async (): Promise<PromptListItem[]> => withPrices(await repository.list(), promptPrice),
 
     get: async (id: number): Promise<OperationResult<Prompt>> => {
       const stored = await repository.find(id)
@@ -157,9 +132,8 @@ export function createPromptService({
       targetId: number,
     ): Promise<OperationResult<PromptListItem[]>> => {
       const result = await repository.reorder(sourceId, targetId)
-      if (result === 'notFound') return notFound
-      if (result === 'conflict') return conflict
-      return ok(await withPrices(result, promptPrice))
+      if (result.kind !== 'ok') return result
+      return ok(await withPrices(result.value, promptPrice))
     },
 
     storeExampleImage: (upload: ImageUpload) => exampleImages.store(upload),
@@ -222,14 +196,3 @@ const promptPrice = (price: CalculatedPrice): PromptPrice => ({
   regularSalesTotalGross: price.discount === null ? null : price.regularSalesTotal.gross,
   salesVatRatePercent: price.salesVat.percent,
 })
-
-/** The price's field errors keep the path the client sent them at: `price.salesVatId`. */
-function underPrice(failure: OperationFailure): OperationFailure {
-  if (failure.kind !== 'invalid') return failure
-  return {
-    kind: 'invalid',
-    errors: Object.fromEntries(
-      Object.entries(failure.errors).map(([field, messages]) => [`price.${field}`, messages]),
-    ),
-  }
-}

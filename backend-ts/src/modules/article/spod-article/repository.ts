@@ -2,6 +2,7 @@ import type { Kysely, Transaction } from 'kysely'
 import type { CalculatedPrice, PriceCatalog } from '@/modules/pricing'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, notFound, ok } from '@/platform/operation'
 import { spodVariantName } from '../catalog'
 import {
   closePositionGap,
@@ -183,12 +184,12 @@ export function createSpodArticleRepository(
       write(db, async (trx) => {
         await lockArticleType(trx, 'SPOD')
         const stored = await findArticle(trx, id, true)
-        if (stored === undefined) return 'notFound'
+        if (stored === undefined) return notFound
         const { article } = stored
         await trx.deleteFrom('article_identities').where('id', '=', id).execute()
         if (stored.priceId !== null) await prices.deleteInTransaction(trx, stored.priceId)
         await closePositionGap(trx, 'article_spod_articles', article.position)
-        return {
+        return ok({
           listingImages: await unreferencedFilenames(
             trx,
             'article_spod_images',
@@ -207,12 +208,12 @@ export function createSpodArticleRepository(
             'size_chart_image_filename',
             article.sizeChartImageFilename === null ? [] : [article.sizeChartImageFilename],
           ),
-        }
+        })
       }),
 
     /** Moves one article to the place of another under the `SPOD` anchor; see `moveInSequence`. */
     reorder: (sourceId: number, targetId: number) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
         write(db, async (trx) => {
           await lockArticleType(trx, 'SPOD')
           return moveInSequence(

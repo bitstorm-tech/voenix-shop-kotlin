@@ -2,7 +2,6 @@ import type { SpodCatalogSync, SpodSyncReport } from '@/modules/article'
 import type { SpodEnvironment } from '@/modules/spod'
 import {
   buildValidationErrors,
-  conflict,
   invalid,
   notFound,
   ok,
@@ -72,8 +71,7 @@ export function createDestinationService(
     !spodConfigured && input.detail.channel === 'SPOD'
 
   return {
-    list: async (): Promise<OperationResult<DestinationResponse[]>> =>
-      ok((await repository.list()).map(toResponse)),
+    list: async (): Promise<DestinationResponse[]> => (await repository.list()).map(toResponse),
 
     get: async (id: number): Promise<OperationResult<DestinationResponse>> => {
       const stored = await repository.find(id)
@@ -100,16 +98,7 @@ export function createDestinationService(
       return toResult(await repository.update(id, writeOf(input), input.secret))
     },
 
-    delete: async (id: number): Promise<OperationResult<undefined>> => {
-      switch (await repository.delete(id)) {
-        case 'deleted':
-          return ok(undefined)
-        case 'notFound':
-          return notFound
-        case 'inUse':
-          return conflict
-      }
-    },
+    delete: repository.delete,
 
     /**
      * Reads the destination and hands its catalog source to the article module's sync, which runs

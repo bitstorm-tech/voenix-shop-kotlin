@@ -12,9 +12,6 @@ export async function requestProduction(
   trx: Transaction<Tables>,
   orderId: number,
 ): Promise<number> {
-  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
-    throw new Error('Production requires a positive order id')
-  }
   await trx
     .insertInto('production_requests')
     .values({ order_id: orderId })
@@ -39,14 +36,12 @@ export function createRequestRepository(db: Kysely<Tables>) {
     requestId: number,
     values: UpdateObject<Tables, 'production_requests'>,
   ) => {
-    const result = await write(db, (trx) =>
-      trx
-        .updateTable('production_requests')
-        .set(values)
-        .where('id', '=', requestId)
-        .where('processed_at', 'is', null)
-        .executeTakeFirst(),
-    )
+    const result = await db
+      .updateTable('production_requests')
+      .set(values)
+      .where('id', '=', requestId)
+      .where('processed_at', 'is', null)
+      .executeTakeFirst()
     return result.numUpdatedRows > 0n
   }
 

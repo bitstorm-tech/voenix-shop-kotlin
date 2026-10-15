@@ -1,5 +1,5 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
-import { read, write, type Tables } from '@/platform/db/database'
+import { read, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
 import type { PaymentStatus } from './mollie'
 import '../schema'
@@ -76,13 +76,11 @@ export function createPaymentRepository(db: Kysely<Tables>) {
      */
     updateStatus: (paymentId: number, status: PaymentStatus) =>
       executePostgresWrite({ uniqueViolation: 'superseded' }, async () => {
-        await write(db, (trx) =>
-          trx
-            .updateTable('payments')
-            .set({ status, updated_at: sql<Date>`now()` })
-            .where('id', '=', paymentId)
-            .execute(),
-        )
+        await db
+          .updateTable('payments')
+          .set({ status, updated_at: sql<Date>`now()` })
+          .where('id', '=', paymentId)
+          .execute()
         return 'applied' as const
       }),
   }

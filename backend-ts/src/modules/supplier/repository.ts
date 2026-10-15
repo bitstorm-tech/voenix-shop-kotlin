@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely'
-import { read, write, type Tables } from '@/platform/db/database'
+import { read, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import './schema'
 
 /** A stored supplier row: every editable field and the bare `countryId`, without the nested country. */
@@ -76,10 +77,12 @@ export function createSupplierRepository(db: Kysely<Tables>) {
         trx.selectFrom('suppliers').select(columns).orderBy('name').orderBy('id').execute(),
       ),
 
-    findById: (id: number): Promise<StoredSupplier | undefined> =>
-      read(db, (trx) =>
+    get: async (id: number): Promise<OperationResult<StoredSupplier>> => {
+      const supplier = await read(db, (trx) =>
         trx.selectFrom('suppliers').select(columns).where('id', '=', id).executeTakeFirst(),
-      ),
+      )
+      return supplier === undefined ? notFound : ok(supplier)
+    },
 
     /** The summaries of the suppliers with these ids, keyed by id; unknown ids are absent. */
     find: async (ids: Iterable<number>): Promise<Map<number, SupplierSummary>> => {
@@ -92,10 +95,10 @@ export function createSupplierRepository(db: Kysely<Tables>) {
     },
 
     /** The country reference is the insert's only foreign key, so a violation means an unknown country. */
-    insert: (supplier: SupplierFields) =>
-      executePostgresWrite({ foreignKeyViolation: 'countryNotFound' }, () =>
-        write(db, (trx) =>
-          trx
+    insert: (supplier: SupplierFields): Promise<OperationResult<StoredSupplier>> =>
+      executePostgresWrite({ foreignKeyViolation: countryNotFound }, async () =>
+        ok(
+          await db
             .insertInto('suppliers')
             .values(toRow(supplier))
             .returning(columns)
@@ -103,29 +106,27 @@ export function createSupplierRepository(db: Kysely<Tables>) {
         ),
       ),
 
-    update: (id: number, supplier: SupplierFields) =>
-      executePostgresWrite({ foreignKeyViolation: 'countryNotFound' }, async () => {
-        const stored = await write(db, (trx) =>
-          trx
-            .updateTable('suppliers')
-            .set(toRow(supplier))
-            .where('id', '=', id)
-            .returning(columns)
-            .executeTakeFirst(),
-        )
-        return stored ?? 'notFound'
+    update: (id: number, supplier: SupplierFields): Promise<OperationResult<StoredSupplier>> =>
+      executePostgresWrite({ foreignKeyViolation: countryNotFound }, async () => {
+        const stored = await db
+          .updateTable('suppliers')
+          .set(toRow(supplier))
+          .where('id', '=', id)
+          .returning(columns)
+          .executeTakeFirst()
+        return stored === undefined ? notFound : ok(stored)
       }),
 
     /**
-     * The number of rows deleted, `0` when there was no such supplier, or `'inUse'` while a row of
-     * another module still references it (every such foreign key is `ON DELETE RESTRICT`).
+     * Not found when there was no such supplier, a conflict while a row of another module still
+     * references it (every such foreign key is `ON DELETE RESTRICT`).
      */
-    delete: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('suppliers').where('id', '=', id).executeTakeFirst(),
-        )
-        return Number(result.numDeletedRows)
+    delete: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db.deleteFrom('suppliers').where('id', '=', id).executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
   }
 }
+
+const countryNotFound = invalid({ countryId: ['Country not found'] })

@@ -5,6 +5,7 @@ import {
   authCookies,
   CSRF_COOKIE,
   CSRF_HEADER,
+  GUEST_COOKIE,
   SESSION_COOKIE,
   SESSION_DURATION_SECONDS,
 } from '@/platform/auth/cookies'
@@ -25,11 +26,11 @@ export function testApp(...routes: Hono[]): Hono {
 
 /** The headers of a signed-in client: a session cookie plus a CSRF cookie and header minted for that user. */
 export async function signedInHeaders({
-  userId = '11',
+  userId = 11,
   roles = ['ADMIN'],
   issuedAt = epochSeconds(),
   expiresAt = issuedAt + SESSION_DURATION_SECONDS,
-}: { userId?: string; roles?: string[]; issuedAt?: number; expiresAt?: number } = {}): Promise<
+}: { userId?: number; roles?: string[]; issuedAt?: number; expiresAt?: number } = {}): Promise<
   Record<string, string>
 > {
   const session = await cookies.session.seal({
@@ -48,6 +49,11 @@ export async function guestHeaders(): Promise<Record<string, string>> {
   const token = newToken()
   const csrf = await cookies.csrf.seal({ token, userId: null })
   return { Cookie: `${CSRF_COOKIE}=${csrf}`, [CSRF_HEADER]: token }
+}
+
+/** The `Cookie` pair of a visitor whose guest token is `token`. */
+export async function guestCookie(token: string): Promise<string> {
+  return `${GUEST_COOKIE}=${await cookies.guest.seal(token)}`
 }
 
 const newToken = () => randomBytes(32).toString('base64url')

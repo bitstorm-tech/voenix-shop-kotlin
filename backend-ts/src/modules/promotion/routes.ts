@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireAdmin } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
-import type { PromotionInput, PromotionService } from './service'
+import type { PromotionInput, PromotionRepository } from './repository'
 
 const MAXIMUM_FIXED_AMOUNT_CENTS = 9_999_999_999
 
@@ -111,10 +111,10 @@ const DELETE_RESPONSES = {
 }
 const promotionId = integerParam('id', 'Invalid promotion id')
 
-export function promotionRoutes(promotions: PromotionService): Hono {
+export function promotionRoutes(promotions: PromotionRepository): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await promotions.list(), PROMOTION_RESPONSES))
+  admin.get('/', async (c) => c.json(await promotions.list()))
   admin.post('/', jsonBody(promotionInput), async (c) => {
     const result = await promotions.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, PROMOTION_RESPONSES)

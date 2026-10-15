@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { Hono } from 'hono'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testAuth } from '@test-support/http'
-import { catalogKey, type ArticleModule, type CatalogVariant } from './index'
+import { catalogKey, type ArticleCatalog, type CatalogVariant } from './index'
 import {
   articleTestModule,
   grossPrice,
@@ -16,7 +16,7 @@ import {
 
 const database = testDatabase()
 let app: Hono
-let catalog: ArticleModule['articleCatalog']
+let catalog: ArticleCatalog
 beforeAll(async () => {
   const { article } = await articleTestModule(database.db, testAuth.guestTokens)
   app = testApp(article.routes)

@@ -59,7 +59,7 @@ const supplierId = integerParam('id', 'Invalid supplier id')
 export function supplierRoutes(suppliers: SupplierService): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await suppliers.list(), SUPPLIER_RESPONSES))
+  admin.get('/', async (c) => c.json(await suppliers.list()))
   admin.post('/', jsonBody(supplierInput), async (c) => {
     const result = await suppliers.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, SUPPLIER_RESPONSES)

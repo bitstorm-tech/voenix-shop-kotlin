@@ -82,12 +82,6 @@ const orderIdParam = zValidator(
   (result, c) => (result.success ? undefined : c.json(apiError(ORDER_NOT_FOUND), 404)),
 )
 
-/** The signed-in customer's id, or `null` for a guest. */
-const userIdOf = (c: Context): number | null => {
-  const userId = Number(c.var.principal?.userId)
-  return Number.isSafeInteger(userId) && userId > 0 ? userId : null
-}
-
 /**
  * The two checkout routes under `/api/checkout`, guest-capable. Both answers carry
  * `Cache-Control: no-store` (set in the handler, so a CSRF rejection or a validation failure is
@@ -102,7 +96,7 @@ export function checkoutRoutes(checkouts: CheckoutService, guestTokens: Auth['gu
     c.header('Cache-Control', 'no-store')
     const result = await checkouts.checkout(
       await guestTokens.tryGet(c),
-      userIdOf(c),
+      c.var.principal?.userId ?? null,
       c.req.valid('json'),
     )
     if (result.kind !== 'started') return respondFailure(c, result)
@@ -117,7 +111,7 @@ export function checkoutRoutes(checkouts: CheckoutService, guestTokens: Auth['gu
     const result = await checkouts.startPayment(
       c.req.valid('param').orderId,
       await guestTokens.tryGet(c),
-      userIdOf(c),
+      c.var.principal?.userId ?? null,
     )
     if (result.kind !== 'started') return respondFailure(c, result)
     return c.json({ orderId: result.orderId, checkoutUrl: result.checkoutUrl })

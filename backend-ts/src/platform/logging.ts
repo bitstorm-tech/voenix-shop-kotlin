@@ -12,3 +12,7 @@ const root = pino()
 export function createLogger(name: string): Logger {
   return root.child({ name })
 }
+
+/** The class of a caught value, the one thing about an error that is always safe to log. */
+export const errorClass = (error: unknown): string =>
+  error instanceof Error ? error.name : typeof error

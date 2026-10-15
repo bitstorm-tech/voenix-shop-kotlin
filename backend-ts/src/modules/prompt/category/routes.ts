@@ -8,8 +8,7 @@ import {
   type FailureResponses,
 } from '@/platform/http/respond'
 import { optionalText, reorderInput, requiredName } from '../fields'
-import type { CategoryValues, SubcategoryValues } from './repository'
-import type { PromptCategoryService } from './service'
+import type { CategoryValues, PromptCategoryRepository, SubcategoryValues } from './repository'
 
 /** The create and update body of a category; `active` defaults to `true`. */
 export const categoryInput = z.strictObject({
@@ -52,9 +51,9 @@ const SUBCATEGORY = responses(
 const subcategoryId = integerParam('id', 'Invalid prompt subcategory id')
 
 /** `/api/admin/prompts/categories`, mounted below the module's admin protection. */
-export function categoryRoutes(categories: PromptCategoryService): Hono {
+export function categoryRoutes(categories: PromptCategoryRepository): Hono {
   const routes = new Hono()
-  routes.get('/', async (c) => respondResult(c, await categories.listCategories(), CATEGORY.write))
+  routes.get('/', async (c) => c.json(await categories.listCategories()))
   routes.post('/', jsonBody(categoryInput), async (c) => {
     const result = await categories.createCategory(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, CATEGORY.write)
@@ -88,11 +87,9 @@ export function categoryRoutes(categories: PromptCategoryService): Hono {
 }
 
 /** `/api/admin/prompts/subcategories`, mounted below the module's admin protection. */
-export function subcategoryRoutes(categories: PromptCategoryService): Hono {
+export function subcategoryRoutes(categories: PromptCategoryRepository): Hono {
   const routes = new Hono()
-  routes.get('/', async (c) =>
-    respondResult(c, await categories.listSubcategories(), SUBCATEGORY.write),
-  )
+  routes.get('/', async (c) => c.json(await categories.listSubcategories()))
   routes.post('/', jsonBody(subcategoryInput), async (c) => {
     const result = await categories.createSubcategory(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, SUBCATEGORY.write)

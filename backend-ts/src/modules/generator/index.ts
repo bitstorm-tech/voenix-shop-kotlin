@@ -48,5 +48,3 @@ export function createGeneratorModule({
   })
   return { routes: generatorRoutes({ generator, coins, guestTokens, rateLimit }) }
 }
-
-export type GeneratorModule = ReturnType<typeof createGeneratorModule>

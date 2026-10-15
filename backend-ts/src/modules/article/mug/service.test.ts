@@ -5,12 +5,12 @@ import { sql } from 'kysely'
 import { createLogger } from '@/platform/logging'
 import { testDatabase } from '@test-support/database'
 import { testAuth } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import {
   articleTestModule,
   grossPrice,
   insertCategory,
   insertVat,
-  pngBytes,
   resetArticles,
 } from '../test-fixtures'
 import { createMugRepository } from './repository'

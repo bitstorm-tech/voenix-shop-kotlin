@@ -24,8 +24,6 @@ import { createApp } from '@/platform/http/app'
 import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import type { Settings } from '@/platform/settings'
 
-export type Application = Awaited<ReturnType<typeof createApplication>>
-
 /**
  * The composition root: the whole application from one `Settings` object. It migrates the database
  * first (the production module reads a table while it is created, and every module must see the

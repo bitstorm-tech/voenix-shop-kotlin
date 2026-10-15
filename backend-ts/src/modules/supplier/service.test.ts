@@ -35,7 +35,7 @@ describe('country enrichment', () => {
       expect((await service.create(supplier)).kind).toBe('ok')
     lookups.length = 0
 
-    expect((await service.list()).kind).toBe('ok')
+    expect(await service.list()).toHaveLength(3)
     expect(lookups).toEqual([[1, 2]])
   })
 })
@@ -45,12 +45,12 @@ describe('find', () => {
     const repository = createSupplierRepository(database.db)
     const acme = await repository.insert(input('Acme', 1))
     const globex = await repository.insert(input('Globex'))
-    if (typeof acme === 'string' || typeof globex === 'string') throw new Error('not stored')
+    if (acme.kind !== 'ok' || globex.kind !== 'ok') throw new Error('not stored')
 
-    const found = await repository.find([acme.id, globex.id, 999])
+    const found = await repository.find([acme.value.id, globex.value.id, 999])
     expect([...found.entries()]).toEqual([
-      [acme.id, { id: acme.id, name: 'Acme' }],
-      [globex.id, { id: globex.id, name: 'Globex' }],
+      [acme.value.id, { id: acme.value.id, name: 'Acme' }],
+      [globex.value.id, { id: globex.value.id, name: 'Globex' }],
     ])
     expect((await repository.find([])).size).toBe(0)
   })

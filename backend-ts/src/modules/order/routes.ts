@@ -32,12 +32,6 @@ function idParams<Names extends string>(...names: Names[]) {
   )
 }
 
-/** The signed-in customer's id, or `null` for a guest. */
-const userIdOf = (c: Context): number | null => {
-  const userId = Number(c.var.principal?.userId)
-  return Number.isSafeInteger(userId) && userId > 0 ? userId : null
-}
-
 /**
  * The customer's own orders (guest-capable) and the anonymous mail-link lookup, on two disjoint
  * subtrees. Reading never mints a guest cookie; the lookup has no protection at all, because the
@@ -47,12 +41,16 @@ export function orderRoutes(orders: OrderService, guestTokens: Auth['guestTokens
   const customer = new Hono()
   customer.use(noStore, guestCapable)
   customer.get('/', async (c) =>
-    c.json(await orders.history(userIdOf(c), await guestTokens.tryGet(c))),
+    c.json(await orders.history(c.var.principal?.userId ?? null, await guestTokens.tryGet(c))),
   )
   customer.get('/:orderId', idParams('orderId'), async (c) =>
     respondResult(
       c,
-      await orders.order(c.req.valid('param').orderId, userIdOf(c), await guestTokens.tryGet(c)),
+      await orders.order(
+        c.req.valid('param').orderId,
+        c.var.principal?.userId ?? null,
+        await guestTokens.tryGet(c),
+      ),
       ORDER_RESPONSES,
     ),
   )

@@ -49,7 +49,7 @@ const articleId = integerParam('id', 'Invalid article id')
 export function spodArticleRoutes(articles: SpodArticleService): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await articles.list(), SPOD_RESPONSES))
+  admin.get('/', async (c) => c.json(await articles.list()))
   admin.put('/order', jsonBody(reorderInput), async (c) => {
     const { sourceId, targetId } = c.req.valid('json')
     return respondResult(c, await articles.reorder(sourceId, targetId), ORDER_RESPONSES)

@@ -101,7 +101,7 @@ describe('POST /api/generator/generate', () => {
   })
 
   test('a signed-in visitor pays from the account and gets no guest cookie', async () => {
-    const response = await generate(app(), await signedInHeaders({ userId: '7', roles: [] }))
+    const response = await generate(app(), await signedInHeaders({ userId: 7, roles: [] }))
     expect(response.status).toBe(200)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(IMAGE)
     expect(setCookies(response, GUEST_COOKIE)).toEqual([])
@@ -110,7 +110,7 @@ describe('POST /api/generator/generate', () => {
 
   test('an empty balance is a 402 with the code the storefront reads, and nothing is spent', async () => {
     await sql`INSERT INTO magic_coins (user_id, balance) VALUES (8, 0)`.execute(database.db)
-    const response = await generate(app(), await signedInHeaders({ userId: '8', roles: [] }))
+    const response = await generate(app(), await signedInHeaders({ userId: 8, roles: [] }))
     expect(response.status).toBe(402)
     expect(await jsonOf(response)).toEqual({
       message: 'Not enough Magic Coins',
@@ -121,7 +121,7 @@ describe('POST /api/generator/generate', () => {
   })
 
   test('an unknown prompt and an unknown article are 404s of their own, and free', async () => {
-    const headers = await signedInHeaders({ userId: '9', roles: [] })
+    const headers = await signedInHeaders({ userId: 9, roles: [] })
     const prompt = await generate(app(), headers, upload({ promptId: '99' }))
     expect(prompt.status).toBe(404)
     expect(await jsonOf(prompt)).toEqual({ message: 'Prompt not found', errors: {} })
@@ -148,7 +148,7 @@ describe('POST /api/generator/generate', () => {
       requested.push(url)
       return Promise.resolve(new Response('busy', { status: 503 }))
     })
-    const response = await generate(target, await signedInHeaders({ userId: '10', roles: [] }))
+    const response = await generate(target, await signedInHeaders({ userId: 10, roles: [] }))
     expect(response.status).toBe(502)
     expect(await jsonOf(response)).toEqual({ message: 'Generator API error', errors: {} })
     expect(requested).toEqual(['https://fal.run/fal-ai/nano-banana-2/edit'])
@@ -161,7 +161,7 @@ describe('POST /api/generator/generate', () => {
       // A fresh guest each time, so every one of the twenty can afford its generation.
       expect((await generate(target, await guestHeaders())).status).toBe(200)
     }
-    const refused = await generate(target, await signedInHeaders({ userId: '12', roles: [] }))
+    const refused = await generate(target, await signedInHeaders({ userId: 12, roles: [] }))
     expect(refused.status).toBe(429)
     expect(await jsonOf(refused)).toEqual({ message: 'Too many requests', errors: {} })
     const retryAfter = Number(refused.headers.get('Retry-After'))
@@ -174,6 +174,20 @@ describe('POST /api/generator/generate', () => {
     const target = app()
     for (let call = 0; call < 25; call++) {
       expect((await generate(target, {})).status).toBe(400)
+    }
+    expect((await generate(target, await guestHeaders())).status).toBe(200)
+  })
+
+  test('a body that is no multipart form is refused before the limiter counts it', async () => {
+    const target = app()
+    const headers = { ...(await guestHeaders()), 'content-type': 'application/json' }
+    for (let call = 0; call < 25; call++) {
+      const refused = await target.request('/api/generator/generate', {
+        method: 'POST',
+        headers,
+        body: '{}',
+      })
+      expect(refused.status).toBe(415)
     }
     expect((await generate(target, await guestHeaders())).status).toBe(200)
   })
@@ -196,7 +210,7 @@ describe('GET /api/magic-coins/balance', () => {
   test('a signed-in user reads the account balance', async () => {
     await sql`INSERT INTO magic_coins (user_id, balance) VALUES (13, 4)`.execute(database.db)
     const response = await app().request('/api/magic-coins/balance', {
-      headers: await signedInHeaders({ userId: '13', roles: [] }),
+      headers: await signedInHeaders({ userId: 13, roles: [] }),
     })
     expect(await jsonOf(response)).toEqual({ balance: 4 })
   })

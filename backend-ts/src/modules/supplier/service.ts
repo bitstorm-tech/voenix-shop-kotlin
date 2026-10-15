@@ -1,5 +1,5 @@
 import type { Country, CountryModule } from '@/modules/country'
-import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
+import { ok, type OperationResult } from '@/platform/operation'
 import type { StoredSupplier, SupplierRepository } from './repository'
 
 /**
@@ -29,32 +29,22 @@ export function createSupplierService(
       country: supplier.countryId === null ? null : (countries.get(supplier.countryId) ?? null),
     })
   const answer = async (
-    result: StoredSupplier | 'notFound' | 'countryNotFound',
-  ): Promise<OperationResult<Supplier>> => {
-    if (result === 'notFound') return notFound
-    if (result === 'countryNotFound') return invalid({ countryId: ['Country not found'] })
-    return ok(withCountry(await countriesOf([result]))(result))
-  }
+    result: OperationResult<StoredSupplier>,
+  ): Promise<OperationResult<Supplier>> =>
+    result.kind === 'ok' ? ok(withCountry(await countriesOf([result.value]))(result.value)) : result
 
   return {
-    list: async (): Promise<OperationResult<Supplier[]>> => {
+    list: async (): Promise<Supplier[]> => {
       const suppliers = await repository.list()
-      return ok(suppliers.map(withCountry(await countriesOf(suppliers))))
+      return suppliers.map(withCountry(await countriesOf(suppliers)))
     },
 
-    get: async (id: number): Promise<OperationResult<Supplier>> =>
-      answer((await repository.findById(id)) ?? 'notFound'),
+    get: async (id: number) => answer(await repository.get(id)),
 
-    create: async (input: SupplierInput): Promise<OperationResult<Supplier>> =>
-      answer(await repository.insert(input)),
+    create: async (input: SupplierInput) => answer(await repository.insert(input)),
 
-    update: async (id: number, input: SupplierInput): Promise<OperationResult<Supplier>> =>
-      answer(await repository.update(id, input)),
+    update: async (id: number, input: SupplierInput) => answer(await repository.update(id, input)),
 
-    delete: async (id: number): Promise<OperationResult<undefined>> => {
-      const deleted = await repository.delete(id)
-      if (deleted === 'inUse') return conflict
-      return deleted === 0 ? notFound : ok(undefined)
-    },
+    delete: repository.delete,
   }
 }

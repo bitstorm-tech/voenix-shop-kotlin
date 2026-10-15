@@ -1,5 +1,6 @@
 import type { Transaction } from 'kysely'
 import type { Tables } from '@/platform/db/database'
+import { conflict, notFound, type OperationResult } from '@/platform/operation'
 import './schema'
 
 /**
@@ -52,8 +53,8 @@ interface Positioned {
 }
 
 /**
- * `ordered` with the row `sourceId` moved to the index `targetId` holds, or `'notFound'` when the
- * stored order contains either id not, or `'conflict'` when the stored positions are not `1..n`.
+ * `ordered` with the row `sourceId` moved to the index `targetId` holds, or `notFound` when the
+ * stored order contains either id not, or `conflict` when the stored positions are not `1..n`.
  * A gap can only come from a writer that ignored the anchor; rewriting it would move every row a
  * client sees, so the move is refused and the evidence stays in place.
  */
@@ -61,11 +62,11 @@ export function moved<T extends Positioned>(
   ordered: readonly T[],
   sourceId: number,
   targetId: number,
-): T[] | 'notFound' | 'conflict' {
+): T[] | OperationResult<never> {
   const sourceIndex = ordered.findIndex((row) => row.id === sourceId)
   const targetIndex = ordered.findIndex((row) => row.id === targetId)
-  if (sourceIndex < 0 || targetIndex < 0) return 'notFound'
-  if (!ordered.every((row, index) => row.position === index + 1)) return 'conflict'
+  if (sourceIndex < 0 || targetIndex < 0) return notFound
+  if (!ordered.every((row, index) => row.position === index + 1)) return conflict
   const result = [...ordered]
   result.splice(targetIndex, 0, ...result.splice(sourceIndex, 1))
   return result

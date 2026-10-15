@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { write } from '@/platform/db/database'
-import { testDatabase } from '@test-support/database'
-import { guestHeaders, jsonOf, setCookies, signedInHeaders, testApp } from '@test-support/http'
+import { count, testDatabase } from '@test-support/database'
+import {
+  guestHeaders,
+  jsonOf,
+  setCookies,
+  signedInHeaders,
+  testApp,
+  guestCookie,
+} from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 import {
   cartModuleFor,
-  count,
-  guestCookie,
   MUG,
   MUG_REF,
-  pngBytes,
   PROMPT_ID,
   resetCarts,
   seedOrderItem,
@@ -28,7 +33,7 @@ beforeEach(async () => {
 const guest = async (token = 'guest-a') => withGuestCookie(await guestHeaders(), token)
 /** Customer `userId`, signed in, in a browser that also carries the guest cookie of `token`. */
 const customer = async (userId: number, token = 'guest-a') =>
-  withGuestCookie(await signedInHeaders({ userId: String(userId), roles: ['CUSTOMER'] }), token)
+  withGuestCookie(await signedInHeaders({ userId: userId, roles: ['CUSTOMER'] }), token)
 const withGuestCookie = async (headers: Record<string, string>, token: string) => ({
   ...headers,
   Cookie: `${headers.Cookie ?? ''}; ${await guestCookie(token)}`,

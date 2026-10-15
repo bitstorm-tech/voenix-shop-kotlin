@@ -4,7 +4,7 @@ import {
   type ArticleVariantReference,
   type SpodProductRef,
 } from '@/modules/article'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorClass } from '@/platform/logging'
 
 /**
  * The three reads production needs from the order module, declared here as types and implemented
@@ -112,9 +112,9 @@ const logger = createLogger('production')
 
 /**
  * Loads one order and resolves its lines against today's catalog. `null` from the order module is
- * `SOURCE_NOT_FOUND`, an answer for another order or one without lines `SOURCE_INVALID`, and any
- * exception `SOURCE_UNAVAILABLE`: a worker must never mistake "we could not look" for "there is
- * nothing". Only the error's class is logged.
+ * `SOURCE_NOT_FOUND`, an order without lines `SOURCE_INVALID`, and any exception
+ * `SOURCE_UNAVAILABLE`: a worker must never mistake "we could not look" for "there is nothing".
+ * Only the error's class is logged.
  */
 export function createOrderLoader(
   orders: Pick<ProductionOrderReads, 'productionData'>,
@@ -134,9 +134,7 @@ export function createOrderLoader(
       return { kind: 'failed', code: 'SOURCE_UNAVAILABLE' }
     }
     if (data === null) return { kind: 'failed', code: 'SOURCE_NOT_FOUND' }
-    if (data.orderId !== orderId || data.lines.length === 0) {
-      return { kind: 'failed', code: 'SOURCE_INVALID' }
-    }
+    if (data.lines.length === 0) return { kind: 'failed', code: 'SOURCE_INVALID' }
     const catalog = await articleCatalog.find(data.lines)
     const { lines, ...header } = data
     return {
@@ -164,7 +162,3 @@ export const orderLabel = (orderId: number): string => `ORD-${String(orderId)}`
 
 /** `ORD-{orderId}.pdf`: the producer-facing file name of the download, the artifact, and the upload. */
 export const pdfFileName = (orderId: number): string => `${orderLabel(orderId)}.pdf`
-
-/** The class of a thrown value, the only part of it production logs. */
-export const errorClass = (error: unknown): string =>
-  error instanceof Error ? error.name : typeof error

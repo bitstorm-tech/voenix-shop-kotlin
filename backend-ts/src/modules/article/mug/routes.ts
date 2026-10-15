@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { exampleImageUpload } from '@/modules/image'
 import { requireAdmin } from '@/platform/auth/auth'
 import {
   formBody,
@@ -11,7 +12,6 @@ import {
 import { PRINT_ASPECT_RATIOS } from '../catalog'
 import {
   articlePrice,
-  exampleImageUpload,
   optionalFilename,
   optionalId,
   optionalText,
@@ -124,7 +124,7 @@ const mugId = integerParam('id', 'Invalid article id')
 export function mugRoutes(mugs: MugService): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await mugs.list(), MUG_RESPONSES))
+  admin.get('/', async (c) => c.json(await mugs.list()))
   admin.post('/', jsonBody(mugArticleInput), async (c) => {
     const result = await mugs.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, MUG_RESPONSES)

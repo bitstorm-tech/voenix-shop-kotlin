@@ -15,8 +15,6 @@ export type OperationResult<T> =
   | { kind: 'conflict' }
   | { kind: 'invalid'; errors: ValidationErrors }
 
-export type OperationFailure = Exclude<OperationResult<never>, { kind: 'ok' }>
-
 export const ok = <T>(value: T): OperationResult<T> => ({ kind: 'ok', value })
 export const notFound: OperationResult<never> = { kind: 'notFound' }
 export const conflict: OperationResult<never> = { kind: 'conflict' }

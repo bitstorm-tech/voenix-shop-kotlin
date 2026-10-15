@@ -119,5 +119,3 @@ export function createArticleModule({
     }),
   }
 }
-
-export type ArticleModule = ReturnType<typeof createArticleModule>

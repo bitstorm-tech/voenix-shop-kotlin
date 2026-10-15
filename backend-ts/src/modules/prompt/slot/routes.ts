@@ -2,8 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import { optionalText, requiredName } from '../fields'
-import type { SlotVariantValues } from './repository'
-import type { PromptSlotService, SlotVariantInput } from './service'
+import type { PromptSlotRepository, SlotVariantInput, SlotVariantValues } from './repository'
 
 /** The create and update body of a slot: a slot carries nothing but its name. */
 export const slotInput = z.strictObject({ name: requiredName(255) })
@@ -53,9 +52,9 @@ const VARIANT_IN_USE = {
 const variantId = integerParam('id', 'Invalid prompt slot variant id')
 
 /** `/api/admin/prompts/slots`, mounted below the module's admin protection. */
-export function slotRoutes(slots: PromptSlotService): Hono {
+export function slotRoutes(slots: PromptSlotRepository): Hono {
   const routes = new Hono()
-  routes.get('/', async (c) => respondResult(c, await slots.listSlots(), SLOT_RESPONSES))
+  routes.get('/', async (c) => c.json(await slots.listSlots()))
   routes.post('/', jsonBody(slotInput), async (c) => {
     const result = await slots.createSlot(c.req.valid('json').name)
     if (result.kind !== 'ok') return respondFailure(c, result, SLOT_RESPONSES)
@@ -81,9 +80,9 @@ export function slotRoutes(slots: PromptSlotService): Hono {
 }
 
 /** `/api/admin/prompts/slot-variants`, mounted below the module's admin protection. */
-export function slotVariantRoutes(slots: PromptSlotService): Hono {
+export function slotVariantRoutes(slots: PromptSlotRepository): Hono {
   const routes = new Hono()
-  routes.get('/', async (c) => respondResult(c, await slots.listVariants(), VARIANT_RESPONSES))
+  routes.get('/', async (c) => c.json(await slots.listVariants()))
   routes.post('/', jsonBody(slotVariantInput), async (c) => {
     const result = await slots.createVariant(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, VARIANT_RESPONSES)

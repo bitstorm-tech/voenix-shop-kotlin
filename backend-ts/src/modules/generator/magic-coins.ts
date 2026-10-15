@@ -12,18 +12,16 @@ export const GENERATION_COST = 1
 export type MagicCoinsOwner = { kind: 'user'; userId: number } | { kind: 'guest'; token: string }
 
 /**
- * The owner behind this request: the signed-in user when the session's user id is a positive
- * number, otherwise the guest of the `voenix.guest` cookie, which is issued when the request
- * carries no usable one. The one implementation of that rule; both routes of the module use it.
+ * The owner behind this request: the signed-in user, otherwise the guest of the `voenix.guest`
+ * cookie, which is issued when the request carries no usable one. The one implementation of that
+ * rule; both routes of the module use it.
  */
 export async function magicCoinsOwner(
   c: Context,
   guestTokens: Auth['guestTokens'],
 ): Promise<MagicCoinsOwner> {
-  const userId = c.var.principal?.userId ?? ''
-  if (/^\d+$/.test(userId) && Number(userId) > 0 && Number.isSafeInteger(Number(userId))) {
-    return { kind: 'user', userId: Number(userId) }
-  }
+  const userId = c.var.principal?.userId
+  if (userId !== undefined) return { kind: 'user', userId }
   return { kind: 'guest', token: await guestTokens.getOrCreate(c) }
 }
 
@@ -63,14 +61,12 @@ export function createMagicCoins(db: Kysely<Tables>) {
 
     /** Deducts one generation in a single statement; `false` when the balance did not cover it. */
     spend: async (owner: MagicCoinsOwner): Promise<boolean> => {
-      const result = await write(db, (trx) =>
-        trx
-          .updateTable('magic_coins')
-          .set({ balance: sql`balance - ${GENERATION_COST}`, updated_at: sql`CURRENT_TIMESTAMP` })
-          .where(ownerIs(owner))
-          .where('balance', '>=', GENERATION_COST)
-          .executeTakeFirst(),
-      )
+      const result = await db
+        .updateTable('magic_coins')
+        .set({ balance: sql`balance - ${GENERATION_COST}`, updated_at: sql`CURRENT_TIMESTAMP` })
+        .where(ownerIs(owner))
+        .where('balance', '>=', GENERATION_COST)
+        .executeTakeFirst()
       return result.numUpdatedRows > 0n
     },
   }

@@ -170,7 +170,7 @@ const destinationId = integerParam('id', 'Invalid production destination id')
 export function destinationRoutes(destinations: DestinationService): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await destinations.list(), DESTINATION_RESPONSES))
+  admin.get('/', async (c) => c.json(await destinations.list()))
   admin.post('/', jsonBody(destinationInput), async (c) => {
     const result = await destinations.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, DESTINATION_RESPONSES)

@@ -154,19 +154,17 @@ export function createSpodOrderRepository({
     /** Records the design of each position, so a re-scan skips the uploads it already did. */
     recordDesigns: async (jobId: number, designIds: Map<number, string>) => {
       if (designIds.size === 0) return
-      await write(db, (trx) =>
-        trx
-          .insertInto('production_spod_designs')
-          .values(
-            [...designIds].map(([position, designId]) => ({
-              production_job_id: jobId,
-              position,
-              design_id: designId,
-            })),
-          )
-          .onConflict((conflict) => conflict.columns(['production_job_id', 'position']).doNothing())
-          .execute(),
-      )
+      await db
+        .insertInto('production_spod_designs')
+        .values(
+          [...designIds].map(([position, designId]) => ({
+            production_job_id: jobId,
+            position,
+            design_id: designId,
+          })),
+        )
+        .onConflict((conflict) => conflict.columns(['production_job_id', 'position']).doNothing())
+        .execute()
     },
 
     /** The variant names the job was split with, by position: the snapshot, not today's. */
@@ -187,14 +185,12 @@ export function createSpodOrderRepository({
      * can never overwrite the id of an order that is already ours.
      */
     recordCreatedOrder: async (jobId: number, spodOrderId: string): Promise<boolean> => {
-      const result = await write(db, (trx) =>
-        trx
-          .updateTable('production_spod_orders')
-          .set({ external_reference: spodOrderId, create_state: 'CREATED', last_error_code: null })
-          .where('production_job_id', '=', jobId)
-          .where('create_state', '=', 'PENDING')
-          .executeTakeFirst(),
-      )
+      const result = await db
+        .updateTable('production_spod_orders')
+        .set({ external_reference: spodOrderId, create_state: 'CREATED', last_error_code: null })
+        .where('production_job_id', '=', jobId)
+        .where('create_state', '=', 'PENDING')
+        .executeTakeFirst()
       return result.numUpdatedRows > 0n
     },
 

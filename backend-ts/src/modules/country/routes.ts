@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
+import { getCountryCallingCode, isSupportedCountry } from 'libphonenumber-js'
 import { z } from 'zod'
 import { requireAdmin } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
-import type { CountryInput, CountryService } from './service'
+import type { Country, CountryInput, CountryRepository } from './repository'
 
 /** The create and update body. A missing, `null`, or non-string field answers its required message. */
 export const countryInput = z.strictObject({
@@ -25,10 +26,19 @@ const COUNTRY_RESPONSES = {
 }
 const countryId = integerParam('id', 'Invalid country id')
 
-export function countryRoutes(countries: CountryService): Hono {
+/** The public response: no id, and the dial code when the region is known. */
+function toPublicCountry({ name, countryCode }: Country) {
+  return {
+    name,
+    countryCode,
+    dialCode: isSupportedCountry(countryCode) ? `+${getCountryCallingCode(countryCode)}` : null,
+  }
+}
+
+export function countryRoutes(countries: CountryRepository): Hono {
   const admin = new Hono()
   admin.use(requireAdmin)
-  admin.get('/', async (c) => respondResult(c, await countries.listAdmin(), COUNTRY_RESPONSES))
+  admin.get('/', async (c) => c.json(await countries.list()))
   admin.post('/', jsonBody(countryInput), async (c) => {
     const result = await countries.create(c.req.valid('json'))
     if (result.kind !== 'ok') return respondFailure(c, result, COUNTRY_RESPONSES)
@@ -52,9 +62,7 @@ export function countryRoutes(countries: CountryService): Hono {
   })
 
   const routes = new Hono()
-  routes.get('/api/countries', async (c) =>
-    respondResult(c, await countries.listPublic(), COUNTRY_RESPONSES),
-  )
+  routes.get('/api/countries', async (c) => c.json((await countries.list()).map(toPublicCountry)))
   routes.route('/api/admin/countries', admin)
   return routes
 }

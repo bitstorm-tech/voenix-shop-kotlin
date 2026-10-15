@@ -1,10 +1,26 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
-import type { PromotionInput } from './service'
+import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import './schema'
 
 export type DiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
+
+/**
+ * The validated body of a create or update, as `routes.ts`'s schema produces it: text trimmed,
+ * timestamps parsed, every optional field `null` when absent.
+ */
+export interface PromotionInput {
+  name: string
+  couponCode: string
+  discountType: DiscountType
+  discountValue: number
+  startsAt: Date | null
+  endsAt: Date | null
+  usageLimitTotal: number | null
+  usageLimitPerUser: number | null
+  isActive: boolean
+}
 
 /**
  * The discount a promotion grants: a percentage above 0 and at most 100 with two decimals, or a
@@ -106,36 +122,39 @@ async function promotionsWhere(
   return rows.map((row) => withRedemptions(toStoredPromotion(row), Number(row.redemption_count)))
 }
 
-/** The admin operations, each in a transaction of its own. */
+/**
+ * The admin operations. `update` answers `conflict` for a duplicate code and for a locked
+ * promotion.
+ */
 export function createPromotionRepository(db: Kysely<Tables>) {
   return {
     list: () => read(db, (trx) => promotionsWhere(trx, 'all')),
 
-    find: async (id: number): Promise<Promotion | undefined> =>
-      (await read(db, (trx) => promotionsWhere(trx, [id])))[0],
+    get: async (id: number): Promise<OperationResult<Promotion>> => {
+      const [promotion] = await read(db, (trx) => promotionsWhere(trx, [id]))
+      return promotion === undefined ? notFound : ok(promotion)
+    },
 
-    insert: (input: PromotionInput) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
-        write(db, async (trx) => {
-          const row = await trx
-            .insertInto('promotions')
-            .values(rowOf(input))
-            .returning(columns)
-            .executeTakeFirstOrThrow()
-          return withRedemptions(toStoredPromotion(row), 0)
-        }),
-      ),
+    create: (input: PromotionInput): Promise<OperationResult<Promotion>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, async () => {
+        const row = await db
+          .insertInto('promotions')
+          .values(rowOf(input))
+          .returning(columns)
+          .executeTakeFirstOrThrow()
+        return ok(withRedemptions(toStoredPromotion(row), 0))
+      }),
 
     /**
      * Replaces the configuration of an unredeemed promotion. The row lock comes first, so a
      * redemption racing this update is either committed before the count is read or waits until
      * the update has committed. A redeemed promotion still accepts a change of `isActive` alone.
      */
-    update: (id: number, input: PromotionInput) =>
-      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
-        write(db, async (trx): Promise<Promotion | 'notFound' | 'locked'> => {
+    update: (id: number, input: PromotionInput): Promise<OperationResult<Promotion>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
+        write(db, async (trx) => {
           const stored = await lockPromotion(trx, id)
-          if (stored === undefined) return 'notFound'
+          if (stored === undefined) return notFound
           const redemptionCount = await countRedemptions(trx, id)
           if (redemptionCount === 0) {
             const row = await trx
@@ -144,28 +163,26 @@ export function createPromotionRepository(db: Kysely<Tables>) {
               .where('id', '=', id)
               .returning(columns)
               .executeTakeFirstOrThrow()
-            return withRedemptions(toStoredPromotion(row), 0)
+            return ok(withRedemptions(toStoredPromotion(row), 0))
           }
-          if (!changesOnlyActivation(input, stored)) return 'locked'
+          if (!changesOnlyActivation(input, stored)) return conflict
           await trx
             .updateTable('promotions')
             .set({ is_active: input.isActive })
             .where('id', '=', id)
             .execute()
-          return withRedemptions({ ...stored, isActive: input.isActive }, redemptionCount)
+          return ok(withRedemptions({ ...stored, isActive: input.isActive }, redemptionCount))
         }),
       ),
 
     /**
-     * The number of rows deleted, or `'inUse'` when a redemption, a reservation, or an order still
-     * restricts the delete. The SQL state cannot tell which one, so the answer does not either.
+     * A conflict when a redemption, a reservation, or an order still restricts the delete. The SQL
+     * state cannot tell which one, so the answer does not either.
      */
-    delete: (id: number) =>
-      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
-        const result = await write(db, (trx) =>
-          trx.deleteFrom('promotions').where('id', '=', id).executeTakeFirst(),
-        )
-        return Number(result.numDeletedRows)
+    delete: (id: number): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ foreignKeyViolation: conflict }, async () => {
+        const result = await db.deleteFrom('promotions').where('id', '=', id).executeTakeFirst()
+        return result.numDeletedRows === 0n ? notFound : ok(undefined)
       }),
   }
 }

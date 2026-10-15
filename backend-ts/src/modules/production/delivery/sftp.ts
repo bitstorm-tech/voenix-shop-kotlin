@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Client, type SFTPWrapper } from 'ssh2'
-import { createLogger } from '@/platform/logging'
-import { errorClass } from '../orders'
+import { createLogger, errorClass } from '@/platform/logging'
 
 /**
  * An SFTP destination as the delivery stage reads it: the one read model that carries the
