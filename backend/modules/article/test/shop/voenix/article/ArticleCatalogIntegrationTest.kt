@@ -94,6 +94,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         outsideColorCode = "#fffffd",
                         insideColorCode = "#fffffe",
                         spodProduct = null,
+                        spodHotspot = null,
                     ),
                     found[PURCHASABLE],
                 )
@@ -117,6 +118,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         outsideColorCode = "#000",
                         insideColorCode = "#000",
                         spodProduct = null,
+                        spodHotspot = null,
                     ),
                     found[INACTIVE_ARTICLE],
                 )
@@ -139,6 +141,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         outsideColorCode = "#0f0",
                         insideColorCode = "#0f0",
                         spodProduct = null,
+                        spodHotspot = null,
                     ),
                     found[INACTIVE_VARIANT],
                 )
@@ -164,6 +167,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         outsideColorCode = "#eee",
                         insideColorCode = "#fff",
                         spodProduct = null,
+                        spodHotspot = null,
                     ),
                     found[WITHOUT_PRICE],
                 )
@@ -246,7 +250,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         SHIRT_ARTICLE_ID to PrintAspectRatio.SQUARE,
                     ),
                     fixture.catalog.printFormats(setOf(1L, 4L, 5L, SHIRT_ARTICLE_ID, 404L)),
-                    "A mug that says nothing about its ratio is printed 16:9, a shirt 1:1",
+                    "A mug that says nothing about its ratio is printed 16:9, a SPOD article 1:1",
                 )
                 // One query per article type, merged into the one map.
                 assertEquals(2, counting.statements.size, "Statements: ${counting.statements}")
@@ -295,7 +299,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                 )
                 assertEquals(
                     CatalogVariant(
-                        articleType = ArticleType.TSHIRT,
+                        articleType = ArticleType.SPOD,
                         articleName = "Classic shirt",
                         variantName = "Black / M",
                         purchasable = true,
@@ -313,6 +317,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
                         insideColorCode = null,
                         spodProduct =
                             SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+                        spodHotspot = "MEDIUM_FRONT",
                     ),
                     found[SHIRT],
                 )
@@ -399,7 +404,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
             """
                 .trimIndent(),
         )
-        SyncedTshirts.insert(
+        SyncedSpodArticles.insert(
             dataSource,
             id = SHIRT_ARTICLE_ID,
             name = "Classic shirt",
@@ -408,14 +413,14 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
             priceId = SHIRT_PRICE_ID,
             variants =
                 listOf(
-                    SyncedTshirtVariant(
+                    SyncedSpodVariant(
                         id = SHIRT_VARIANT_ID,
                         spodProductTypeId = 300,
                         spodAppearanceId = 4,
                         spodSizeId = 12,
                         isDefault = true,
                     ),
-                    SyncedTshirtVariant(
+                    SyncedSpodVariant(
                         id = RETIRED_SHIRT_VARIANT_ID,
                         sizeLabel = "L",
                         spodProductTypeId = 300,
@@ -432,7 +437,7 @@ internal class ArticleCatalogIntegrationTest : PostgresIntegrationTest() {
         ArticleTestSchema.seedVat(dataSource)
         ArticleTestSchema.seedCategories(dataSource, "Mugs")
         ArticleTestSchema.seedSuppliers(dataSource, "Porcelain Ltd", "Glass Co")
-        SyncedTshirts.seedSpodDestination(dataSource)
+        SyncedSpodArticles.seedSpodDestination(dataSource)
     }
 
     /** Runs [block] against the real module installed on [dataSource], signed in as an admin. */

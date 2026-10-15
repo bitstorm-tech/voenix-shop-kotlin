@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
  * [SpodClient.sizeChart] answer, plus [parseColorHex], the one piece of interpretation the answers
  * need.
  *
- * Two decisions run through every type here, both from the t-shirt sync decisions (6 and 4).
+ * Two decisions run through every type here, both from the SPOD sync decisions (6 and 4).
  *
  * **Every field except an id has a default.** The partner documents neither which fields are
  * optional nor what a sparse article looks like, and a sync that refuses to decode a page is a sync
@@ -27,7 +27,7 @@ public data class SpodCatalogPage(
     /**
      * How many articles the merchant has in total, not how many are in this page. It is what tells
      * the sync whether it has seen the whole catalog — and only a complete listing may deactivate
-     * what is missing from it (t-shirt sync decision 6).
+     * what is missing from it (SPOD sync decision 6).
      *
      * It is the one field with no default, because there is no safe one: a page that carries no
      * count says nothing about the size of the catalog, and any number invented here would be a
@@ -36,7 +36,7 @@ public data class SpodCatalogPage(
     public val count: Int? = null,
 )
 
-/** One backoffice article: the garment, its colours and sizes, and the mockups of them. */
+/** One backoffice article: the product, its colours and sizes, and the images of them. */
 @Serializable
 public data class SpodCatalogArticle(
     public val id: String,
@@ -50,16 +50,20 @@ public data class SpodCatalogArticle(
  * One colour × size combination of an article.
  *
  * [productTypeId], [appearanceId], and [sizeId] are the triple production orders by and the key
- * this shop matches a variant on — never [id], which the partner may renumber (t-shirt sync
- * decision 4).
+ * this shop matches a variant on — never [id], which the partner may renumber (SPOD sync decision
+ * 4).
  *
  * [appearanceColorValue] is the colour as the partner writes it, in an undocumented format;
  * [parseColorHex] is what turns it into something a storefront can paint with, or into nothing.
+ *
+ * [productTypeName] is the partner's name of the product kind ("Men's T-Shirt", "Tote Bag"); every
+ * variant of one article carries the same one, and the shop shows it as the article's subtitle.
  */
 @Serializable
 public data class SpodCatalogVariant(
     public val id: String,
     public val productTypeId: Long = 0,
+    public val productTypeName: String = "",
     public val appearanceId: Long = 0,
     public val appearanceName: String = "",
     public val appearanceColorValue: String? = null,
@@ -69,10 +73,11 @@ public data class SpodCatalogVariant(
 )
 
 /**
- * One mockup image of an article: which colour it shows ([appearanceId]), from which side
- * ([perspective], undocumented, typically something like `front`), and the Spreadshirt product it
- * renders ([productId]) — which [downloadUrl] needs, because [imageUrl] may name it only as a
- * placeholder.
+ * One image the partner lists for an article: which colour it shows ([appearanceId]), from which
+ * side ([perspective], undocumented, typically something like `front`), and the Spreadshirt product
+ * it renders ([productId]) — which [downloadUrl] needs, because [imageUrl] may name it only as a
+ * placeholder. The shop stores every image of a colour, in the partner's order: the operator
+ * chooses them in the backoffice.
  */
 @Serializable
 public data class SpodCatalogImage(
@@ -84,7 +89,7 @@ public data class SpodCatalogImage(
 )
 
 /**
- * The URL this mockup is fetched from.
+ * The URL this image is fetched from.
  *
  * The partner's answers carry the Spreadshirt image server's URL with the literal placeholder
  * `lookupId` where the product id belongs — `…/products/lookupId/views/…` — and the CDN answers
@@ -100,35 +105,7 @@ public data class SpodCatalogImage(
 public fun SpodCatalogImage.downloadUrl(): String =
     if (productId > 0) imageUrl.replace(LOOKUP_ID_SEGMENT, "/products/$productId/") else imageUrl
 
-/**
- * Whether this mockup shows a model wearing the garment (`modelId=…` in the URL) rather than the
- * garment alone. The partner lists both under the same `perspective`; a shop that shows a colour
- * with one picture wants the garment.
- */
-public val SpodCatalogImage.showsModel: Boolean
-    get() = imageUrl.contains(MODEL_ID_PARAMETER)
-
-/**
- * The mockup that shows [appearanceId] from the front, as well as the undocumented `perspective`
- * allows it to be found: the exact word first, then anything that contains it, then the first
- * picture of that colour at all — and at every step the garment alone before a model wearing it. An
- * image without a URL is no image.
- */
-public fun SpodCatalogArticle.frontImage(appearanceId: Long): SpodCatalogImage? {
-    val candidates =
-        images
-            .filter { image -> image.appearanceId == appearanceId && image.imageUrl.isNotBlank() }
-            .sortedBy(SpodCatalogImage::showsModel)
-    return candidates.firstOrNull { image -> image.perspective.equals(FRONT, ignoreCase = true) }
-        ?: candidates.firstOrNull { image ->
-            image.perspective?.contains(FRONT, ignoreCase = true) == true
-        }
-        ?: candidates.firstOrNull()
-}
-
 private const val LOOKUP_ID_SEGMENT = "/products/lookupId/"
-private const val MODEL_ID_PARAMETER = "modelId="
-private const val FRONT = "front"
 
 /** The size chart of a product type, in the one field this shop stores. */
 @Serializable public data class SpodSizeChart(public val sizeImageUrl: String? = null)
@@ -154,7 +131,7 @@ public class SpodBinary(public val bytes: ByteArray, public val contentType: Str
  * colour are one value in the database.
  *
  * Anything else answers `null`, and the caller makes the variant inactive with a bounded warning
- * instead of inventing a colour a customer would order by (t-shirt sync decision 6).
+ * instead of inventing a colour a customer would order by (SPOD sync decision 6).
  */
 public fun parseColorHex(value: String?): String? {
     val digits = value?.substringBefore(',')?.trim()?.removePrefix("#") ?: return null

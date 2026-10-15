@@ -78,12 +78,13 @@ internal class CheckoutService(
             return CheckoutResult.ShippingCountryUnavailable
         }
 
-        // …and the last of the read-only guards: a cart with a t-shirt in it needs a phone number,
+        // …and the last of the read-only guards: a cart with a SPOD article in it needs a phone
+        // number,
         // because the print-on-demand partner refuses an order without one (issue #205, D2). The
         // catalog is only asked when there is no number, so an ordinary checkout pays for no extra
         // lookup, and what decides is the *resolved* type of the stored lines — never a flag a
         // client could send.
-        if (request.shippingAddress?.normalizedPhone == null && cart.containsTshirt()) {
+        if (request.shippingAddress?.normalizedPhone == null && cart.containsSpodArticle()) {
             return CheckoutResult.PhoneRequired
         }
 
@@ -119,23 +120,23 @@ internal class CheckoutService(
     }
 
     /**
-     * Whether any line of this cart is a t-shirt, asked of the catalog in one batched lookup.
+     * Whether any line of this cart is a SPOD article, asked of the catalog in one batched lookup.
      *
      * The cart snapshot carries ids, not types, and it is right not to carry them: a type is
      * current master data, and the cart's job is the arithmetic the customer was shown. So the
      * checkout asks the catalog itself — the same thing it does for everything else it puts on an
-     * order — and a reference the catalog no longer answers is simply not a t-shirt here. That line
-     * cannot be bought at all, and the placement refuses the whole checkout with
+     * order — and a reference the catalog no longer answers is simply not a SPOD article here. That
+     * line cannot be bought at all, and the placement refuses the whole checkout with
      * [CheckoutResult.ItemUnavailable] a moment later; refusing it for a missing phone number would
      * only send the customer to fix the wrong field.
      */
-    private suspend fun CheckoutCart.containsTshirt(): Boolean {
+    private suspend fun CheckoutCart.containsSpodArticle(): Boolean {
         val references =
             lines.mapTo(mutableSetOf()) { line ->
                 ArticleVariantReference(articleId = line.articleId, variantId = line.variantId)
             }
         return articles.find(references).values.any { variant ->
-            variant.articleType == ArticleType.TSHIRT
+            variant.articleType == ArticleType.SPOD
         }
     }
 
@@ -340,7 +341,7 @@ internal sealed interface CheckoutResult {
     data object ShippingCountryUnavailable : CheckoutResult
 
     /**
-     * The cart contains a t-shirt and the request carries no phone number (issue #205, D2).
+     * The cart contains a SPOD article and the request carries no phone number (issue #205, D2).
      *
      * It is the second refusal answered as a *field* error, and for the same reason as the one
      * above: the customer still has the form in front of them and the field they can change is

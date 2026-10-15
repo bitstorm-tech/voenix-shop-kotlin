@@ -26,11 +26,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.article.tshirt.SpodCatalogSource
-import shop.voenix.article.tshirt.TshirtCatalogSync
-import shop.voenix.article.tshirt.TshirtSyncReport
-import shop.voenix.article.tshirt.TshirtSyncResult
-import shop.voenix.article.tshirt.TshirtSyncStatus
+import shop.voenix.article.spod.SpodCatalogSource
+import shop.voenix.article.spod.SpodCatalogSync
+import shop.voenix.article.spod.SpodSyncReport
+import shop.voenix.article.spod.SpodSyncResult
+import shop.voenix.article.spod.SpodSyncStatus
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -44,7 +44,7 @@ import shop.voenix.testing.PostgresIntegrationTest
  * The trigger route against the real destination rows: which destination has a catalog at all, and
  * what the sync is handed for the one that has.
  *
- * The disabled destination is the case t-shirt sync decision 4 settles (Joe's D5): a shop that
+ * The disabled destination is the case SPOD sync decision 4 settles (Joe's D5): a shop that
  * switched a channel off may still read its backoffice, so `enabled` is not part of the lookup and
  * only the channel is. The source the stub records is the other half — the supplier, the
  * installation, and the token come off that row and nowhere else, including the access token no
@@ -61,7 +61,7 @@ internal class ProductionDestinationSyncIntegrationTest : PostgresIntegrationTes
             insertSupplier(dataSource, "Acme")
             insertSupplier(dataSource, "Spreadconnect")
             val database = Database.connect(datasource = dataSource)
-            val sync = RecordingTshirtCatalogSync()
+            val sync = RecordingSpodCatalogSync()
 
             testApplication {
                 application { installDestinationTestApplication(database, sync) }
@@ -99,17 +99,17 @@ internal class ProductionDestinationSyncIntegrationTest : PostgresIntegrationTes
     }
 
     /** Answers a report for every run and remembers what the route handed it. */
-    private class RecordingTshirtCatalogSync : TshirtCatalogSync {
+    private class RecordingSpodCatalogSync : SpodCatalogSync {
         val sources: MutableList<SpodCatalogSource> = mutableListOf()
 
-        override suspend fun sync(source: SpodCatalogSource): TshirtSyncResult {
+        override suspend fun sync(source: SpodCatalogSource): SpodSyncResult {
             sources += source
-            return TshirtSyncResult.Reported(
-                TshirtSyncReport(
+            return SpodSyncResult.Reported(
+                SpodSyncReport(
                     destinationId = source.access.destinationId,
                     supplierId = source.supplierId,
                     environment = source.access.environment,
-                    status = TshirtSyncStatus.COMPLETED,
+                    status = SpodSyncStatus.COMPLETED,
                     startedAt = Instant.EPOCH,
                     finishedAt = Instant.EPOCH,
                 )
@@ -119,7 +119,7 @@ internal class ProductionDestinationSyncIntegrationTest : PostgresIntegrationTes
 
     private fun io.ktor.server.application.Application.installDestinationTestApplication(
         database: Database,
-        sync: TshirtCatalogSync,
+        sync: SpodCatalogSync,
     ) {
         installHttpRuntime()
         installAuthModule(AuthSettings("production-destination-sync-session-secret"))

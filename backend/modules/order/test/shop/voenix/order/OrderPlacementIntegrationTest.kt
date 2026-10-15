@@ -117,7 +117,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     .expectPlaced()
 
             assertEquals(
-                listOf("MUG", "TSHIRT"),
+                listOf("MUG", "SPOD"),
                 fixture.articleTypesOf(placed.orderId),
                 "each line stores the type of the article it was placed for",
             )
@@ -137,7 +137,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     "SELECT print_template_width_mm, print_template_height_mm, " +
                         "document_format_width_mm, document_format_height_mm, " +
                         "document_format_margin_bottom_mm FROM voenix.order_items " +
-                        "WHERE order_id = ${placed.orderId} AND article_type = 'TSHIRT'",
+                        "WHERE order_id = ${placed.orderId} AND article_type = 'SPOD'",
                 ),
             )
 
@@ -148,7 +148,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     .order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
                     .expectSuccess()
             assertEquals(
-                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                listOf(ArticleType.MUG, ArticleType.SPOD),
                 stored.items.map(OrderLineView::articleType),
             )
         }

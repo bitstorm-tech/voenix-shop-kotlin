@@ -1,4 +1,4 @@
-package shop.voenix.article.tshirt
+package shop.voenix.article.spod
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
@@ -38,8 +38,8 @@ import shop.voenix.article.CountingDataSource
 import shop.voenix.article.CountingPriceCatalog
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
-import shop.voenix.article.SyncedTshirtVariant
-import shop.voenix.article.SyncedTshirts
+import shop.voenix.article.SyncedSpodArticles
+import shop.voenix.article.SyncedSpodVariant
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
@@ -53,31 +53,31 @@ import shop.voenix.testing.PostgresIntegrationTest
 import shop.voenix.vat.installVatModule
 
 /**
- * The storefront half of the t-shirt slice against real Ktor routes and a real PostgreSQL database.
+ * The storefront half of the SPOD article slice against real Ktor routes and a real PostgreSQL
+ * database.
  *
- * It asks the same questions of the shirts that `PublicMugIntegrationTest` asks of the mugs — the
- * visibility matrix, the display order, the variant filter, and a statement count that does not
- * grow with the catalog — because the two lists apply one rule that is written once per type.
+ * It asks the same questions of the SPOD articles that `PublicMugIntegrationTest` asks of the mugs
+ * — the visibility matrix, the display order, the variant filter, and a statement count that does
+ * not grow with the catalog — because the two lists apply one rule that is written once per type.
  *
- * The catalog is built the way it really comes into being since the catalog sync: the garment half
- * of every shirt is inserted as a sync run would insert it (`SyncedTshirts`), and the shop half —
- * visibility, category path, frame, ratio, default variant, and price — is written through the
- * surviving admin `PUT`. The storefront answer itself is unchanged by that ticket, which is what
- * these tests pin.
+ * The catalog is built the way it really comes into being: the partner's half of every article —
+ * its colours, pictures, variants, and measured frame — is inserted as a sync run would insert it
+ * (`SyncedSpodArticles`), and the shop half — visibility, category path, default variant, and price
+ * — is written through the admin `PUT`.
  *
- * The question that is this file's alone is the last one: **a customer must not learn that the
- * print-on-demand partner exists.** The whole-document comparison is what enforces it. The three
- * SPOD ids are stored on every variant the sync wrote, and they may not appear in a single byte the
+ * The question that is this file's alone is the last one: **the printer's vocabulary stays inside
+ * the backend.** The whole-document comparison is what enforces it. The three SPOD ids and the
+ * hotspot are stored for every variant the sync wrote, and they may not appear in a single byte the
  * anonymous client receives.
  */
-internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
+internal class PublicSpodArticleIntegrationTest : PostgresIntegrationTest() {
     /**
-     * The filter matrix. Six shirts, one per combination the visibility rule distinguishes, and
+     * The filter matrix. Six articles, one per combination the visibility rule distinguishes, and
      * only the two visible ones come back.
      */
     @Test
-    fun `the public list shows only shirts whose whole category path is active`() {
-        migratedDataSource("article-public-tshirt-filter-test").use { dataSource ->
+    fun `the public list shows only articles whose whole category path is active`() {
+        migratedDataSource("article-public-spod-filter-test").use { dataSource ->
             seedCatalog(dataSource)
             // 1: active, active category, no subcategory.
             seedShirt(dataSource, id = 1)
@@ -92,7 +92,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
             // 6: a draft — inactive, and therefore without category and price.
             seedShirt(dataSource, id = 6)
 
-            storefrontApplication(dataSource, "article-public-tshirt-filter-integration-secret") {
+            storefrontApplication(dataSource, "article-public-spod-filter-integration-secret") {
                 fixture ->
                 fixture.activate(id = 1, categoryId = 1)
                 fixture.activate(id = 2, categoryId = 1, subcategoryId = 1)
@@ -105,14 +105,14 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                     """
                     UPDATE voenix.article_categories SET active = FALSE WHERE id = 2;
                     UPDATE voenix.article_subcategories SET active = FALSE WHERE id = 2;
-                    UPDATE voenix.article_tshirts SET active = FALSE WHERE id = 5;
+                    UPDATE voenix.article_spod_articles SET active = FALSE WHERE id = 5;
                     """
                         .trimIndent(),
                 )
 
                 assertEquals(listOf(1L, 2L), fixture.listedIds())
 
-                // Switching the subcategory back on makes exactly its shirt visible again.
+                // Switching the subcategory back on makes exactly its article visible again.
                 ArticleTestSchema.execute(
                     dataSource,
                     "UPDATE voenix.article_subcategories SET active = TRUE WHERE id = 2",
@@ -131,12 +131,12 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
 
     @Test
     fun `the public list is in display order and answers the documented shape`() {
-        migratedDataSource("article-public-tshirt-shape-test").use { dataSource ->
+        migratedDataSource("article-public-spod-shape-test").use { dataSource ->
             seedCatalog(dataSource)
             seedShapeShirt(dataSource)
             seedShirt(dataSource, id = 2, position = 2, name = "Second tee", firstVariantId = 4)
 
-            storefrontApplication(dataSource, "article-public-tshirt-shape-integration-secret") {
+            storefrontApplication(dataSource, "article-public-spod-shape-integration-secret") {
                 fixture ->
                 fixture.images.put(FIRST_IMAGE, SECOND_IMAGE)
                 fixture.activate(
@@ -144,7 +144,6 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                     categoryId = 1,
                     subcategoryId = 1,
                     defaultVariantId = 1,
-                    printAspectRatio = "16:9",
                 )
                 fixture.activate(id = 2, categoryId = 1, defaultVariantId = 4)
 
@@ -158,7 +157,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 ArticleTestSchema.execute(
                     dataSource,
                     """
-                    UPDATE voenix.article_tshirts
+                    UPDATE voenix.article_spod_articles
                     SET position = CASE id WHEN 1 THEN 2 ELSE 1 END
                     WHERE id IN (1, 2)
                     """
@@ -176,22 +175,22 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
      */
     @Test
     fun `the public payload carries no SPOD ids, no supplier fields, and no active flags`() {
-        migratedDataSource("article-public-tshirt-contract-test").use { dataSource ->
+        migratedDataSource("article-public-spod-contract-test").use { dataSource ->
             seedCatalog(dataSource)
             seedShapeShirt(dataSource)
 
             storefrontApplication(
                 dataSource,
-                "article-public-tshirt-contract-integration-secret",
+                "article-public-spod-contract-integration-secret",
             ) { fixture ->
                 fixture.images.put(FIRST_IMAGE, SECOND_IMAGE)
                 fixture.activate(id = 1, categoryId = 1, subcategoryId = 1, defaultVariantId = 1)
 
-                val shirt = fixture.listedItems().single()
-                listOf("active", "priceId", "supplierId", "sync").forEach { field ->
-                    assertTrue(field !in shirt.keys, "The public shirt must not carry `$field`")
+                val article = fixture.listedItems().single()
+                listOf("active", "priceId", "supplierId", "sync", "hotspot").forEach { field ->
+                    assertTrue(field !in article.keys, "The public article must not carry `$field`")
                 }
-                val variant = shirt.getValue("variants").jsonArray.first().jsonObject
+                val variant = article.getValue("variants").jsonArray.first().jsonObject
                 listOf(
                         "active",
                         "spodProductTypeId",
@@ -208,29 +207,35 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                         )
                     }
 
-                // Not one byte of the answer names the printer, whatever it is nested in.
+                // Not one byte of the answer carries the printer's ids or its placement, whatever
+                // it
+                // is nested in. (The article type `SPOD` names the channel and is the one word of
+                // the partner's that the storefront may see.)
                 val body = fixture.list().bodyAsText()
-                assertTrue("spod" !in body.lowercase(), "The storefront answer named SPOD: $body")
-                assertTrue(SPOD_PRODUCT_TYPE_ID !in body, "The storefront answer leaked a SPOD id")
+                listOf(SPOD_PRODUCT_TYPE_ID, "spod-variant-", "spod-article-", "MEDIUM_FRONT")
+                    .forEach { leak ->
+                        assertTrue(leak !in body, "The storefront answer leaked `$leak`: $body")
+                    }
 
                 // The stored ids and the supplier are real: they are left out of the answer, not
                 // missing from the article.
                 assertEquals(
                     listOf(SPOD_PRODUCT_TYPE_ID.toLong()),
-                    ArticleTestSchema.storedTshirtProductTypeIds(dataSource).distinct(),
+                    ArticleTestSchema.storedSpodProductTypeIds(dataSource).distinct(),
                 )
             }
         }
     }
 
     /**
-     * The variants a customer sees: the active ones, the default first, then by colour and size.
+     * The variants a customer sees: the active ones, in the partner's order of their colours, then
+     * by id. A colour without an active variant is not offered at all.
      */
     @Test
-    fun `the public variants are the active ones with the default first`() {
-        migratedDataSource("article-public-tshirt-variants-test").use { dataSource ->
+    fun `the public variants are the active ones in the order of their colour`() {
+        migratedDataSource("article-public-spod-variants-test").use { dataSource ->
             seedCatalog(dataSource)
-            SyncedTshirts.insert(
+            SyncedSpodArticles.insert(
                 dataSource,
                 id = 1,
                 name = "Classic tee",
@@ -257,25 +262,31 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
 
             storefrontApplication(
                 dataSource,
-                "article-public-tshirt-variants-integration-secret",
+                "article-public-spod-variants-integration-secret",
             ) { fixture ->
                 fixture.activate(id = 1, categoryId = 1, defaultVariantId = 4)
 
                 assertEquals(
-                    listOf("Black / M", "White / L", "White / M"),
+                    listOf("White / L", "White / M", "Black / M"),
                     fixture.listedVariantNames(),
+                )
+                assertEquals(
+                    listOf("White", "Black"),
+                    fixture.listedItems().single().getValue("appearances").jsonArray.map { color ->
+                        color.jsonObject.getValue("colorName").jsonPrimitive.content
+                    },
                 )
             }
         }
     }
 
     /**
-     * The list may not read anything per shirt. Three shirts must cost the same statements as one,
-     * and every price of the page must be resolved by exactly one batched lookup.
+     * The list may not read anything per article. Three articles must cost the same statements as
+     * one, and every price of the page must be resolved by exactly one batched lookup.
      */
     @Test
-    fun `the public list runs three data accesses for one shirt and for three`() {
-        migratedDataSource("article-public-tshirt-statements-test").use { dataSource ->
+    fun `the public list runs the same data accesses for one article and for three`() {
+        migratedDataSource("article-public-spod-statements-test").use { dataSource ->
             seedCatalog(dataSource)
             seedShirt(dataSource, id = 1, name = "First")
             seedShirt(dataSource, id = 2, position = 2, name = "Second", firstVariantId = 2)
@@ -284,7 +295,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
 
             storefrontApplication(
                 counting,
-                "article-public-tshirt-statements-integration-secret",
+                "article-public-spod-statements-integration-secret",
             ) { fixture ->
                 fixture.activate(id = 1, categoryId = 1, subcategoryId = 1)
                 counting.statements.clear()
@@ -303,8 +314,8 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 assertEquals(
                     forOneShirt,
                     forThreeShirts,
-                    "The public list must run the same statements regardless of how many shirts " +
-                        "it answers",
+                    "The public list must run the same statements regardless of how many " +
+                        "articles it answers",
                 )
                 assertEquals(
                     PUBLIC_LIST_STATEMENT_COUNT,
@@ -320,22 +331,27 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
     /** Anonymous access is the point of this route; the admin subtree stays closed. */
     @Test
     fun `the public route answers without a session while the admin routes do not`() {
-        migratedDataSource("article-public-tshirt-access-test").use { dataSource ->
+        migratedDataSource("article-public-spod-access-test").use { dataSource ->
             seedCatalog(dataSource)
             seedShirt(dataSource, id = 1, name = "Classic tee")
 
-            storefrontApplication(dataSource, "article-public-tshirt-access-integration-secret") {
+            storefrontApplication(dataSource, "article-public-spod-access-integration-secret") {
                 fixture ->
                 fixture.activate(id = 1, categoryId = 1, subcategoryId = 1)
 
                 assertEquals(HttpStatusCode.OK, fixture.list().status)
                 assertEquals(
                     HttpStatusCode.Unauthorized,
-                    fixture.anonymous.get("/api/admin/articles/tshirts").status,
+                    fixture.anonymous.get("/api/admin/articles/spod").status,
                 )
                 assertEquals(
                     HttpStatusCode.Unauthorized,
-                    fixture.anonymous.get("/api/admin/articles/tshirts/1").status,
+                    fixture.anonymous.get("/api/admin/articles/spod/1").status,
+                )
+                // The storefront path of the old `TSHIRT` type is gone with it.
+                assertEquals(
+                    HttpStatusCode.NotFound,
+                    fixture.anonymous.get("/api/articles/tshirts").status,
                 )
             }
         }
@@ -344,10 +360,10 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
     /** An empty catalog answers an empty array and asks the pricing module nothing. */
     @Test
     fun `an empty catalog answers an empty array without a price lookup`() {
-        migratedDataSource("article-public-tshirt-empty-test").use { dataSource ->
+        migratedDataSource("article-public-spod-empty-test").use { dataSource ->
             seedCatalog(dataSource)
 
-            storefrontApplication(dataSource, "article-public-tshirt-empty-integration-secret") {
+            storefrontApplication(dataSource, "article-public-spod-empty-integration-secret") {
                 fixture ->
                 assertEquals("[]", fixture.list().bodyAsText())
                 assertEquals(emptyList<Set<Long>>(), fixture.prices.requestedIds.toList())
@@ -357,20 +373,20 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
 
     /**
      * A discount is configured on the price, and the storefront answers both amounts: `price` is
-     * what the customer pays, `regularPrice` is the amount a shop strikes through. A shirt without
-     * a discount still carries the key — it answers `null`, so a client never has to ask whether
-     * the field exists.
+     * what the customer pays, `regularPrice` is the amount a shop strikes through. An article
+     * without a discount still carries the key — it answers `null`, so a client never has to ask
+     * whether the field exists.
      */
     @Test
-    fun `a discounted shirt answers the effective price next to the regular one`() {
-        migratedDataSource("article-public-tshirt-discount-test").use { dataSource ->
+    fun `a discounted article answers the effective price next to the regular one`() {
+        migratedDataSource("article-public-spod-discount-test").use { dataSource ->
             seedCatalog(dataSource)
             seedShirt(dataSource, id = 1)
             seedShirt(dataSource, id = 2, position = 2, name = "Second tee", firstVariantId = 4)
 
             storefrontApplication(
                 dataSource,
-                "article-public-tshirt-discount-integration-secret",
+                "article-public-spod-discount-integration-secret",
             ) { fixture ->
                 fixture.activate(id = 1, categoryId = 1, price = DISCOUNTED_PRICE)
                 fixture.activate(id = 2, categoryId = 1, defaultVariantId = 4)
@@ -391,10 +407,10 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Classic", "Slim")
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 2, "Premium")
         ArticleTestSchema.seedSuppliers(dataSource, "Print Partner Ltd")
-        SyncedTshirts.seedSpodDestination(dataSource, label = "Print Partner Ltd")
+        SyncedSpodArticles.seedSpodDestination(dataSource, label = "Print Partner Ltd")
     }
 
-    /** A synced shirt with one active default variant, as a sync run would have left it. */
+    /** A synced article with one active default variant, as a sync run would have left it. */
     private fun seedShirt(
         dataSource: DataSource,
         id: Long,
@@ -402,7 +418,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         name: String = "Shirt $id",
         firstVariantId: Long = id,
     ) {
-        SyncedTshirts.insert(
+        SyncedSpodArticles.insert(
             dataSource,
             id = id,
             position = position,
@@ -411,9 +427,12 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         )
     }
 
-    /** The shirt of the documented answer: a size chart, an image, and a hidden third variant. */
+    /**
+     * The article of the documented answer: a size chart, a listing image, and a hidden third
+     * variant whose colour is hidden with it.
+     */
     private fun seedShapeShirt(dataSource: DataSource) {
-        SyncedTshirts.insert(
+        SyncedSpodArticles.insert(
             dataSource,
             id = 1,
             name = "Classic tee",
@@ -424,7 +443,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                         id = 1,
                         appearanceId = 5,
                         isDefault = true,
-                        exampleImageFilename = FIRST_IMAGE,
+                        listingImageFilename = FIRST_IMAGE,
                     ),
                     variant(id = 2, colorName = "White", sizeLabel = "L", appearanceId = 6),
                     variant(
@@ -446,9 +465,9 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         sizeId: Long = sizeLabel.first().code.toLong(),
         isDefault: Boolean = false,
         active: Boolean = true,
-        exampleImageFilename: String? = null,
-    ): SyncedTshirtVariant =
-        SyncedTshirtVariant(
+        listingImageFilename: String? = null,
+    ): SyncedSpodVariant =
+        SyncedSpodVariant(
             id = id,
             colorName = colorName,
             colorHex = VARIANT_COLOR_HEX,
@@ -458,7 +477,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
             spodSizeId = sizeId,
             isDefault = isDefault,
             active = active,
-            exampleImageFilename = exampleImageFilename,
+            listingImageFilename = listingImageFilename,
         )
 
     /**
@@ -514,23 +533,20 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
         val images: RecordingPublicImageStorage,
         val prices: CountingPriceCatalog,
     ) {
-        /** Writes the shop half of a synced shirt: everything a customer needs it to have. */
+        /** Writes the shop half of a synced article: everything a customer needs it to have. */
         suspend fun activate(
             id: Long,
             categoryId: Long,
             subcategoryId: Long? = null,
             defaultVariantId: Long = id,
-            printAspectRatio: String = "1:1",
             price: String = REGULAR_PRICE,
         ) {
             val body =
                 """{"active":true,"categoryId":$categoryId""" +
                     (subcategoryId?.let { value -> ""","subcategoryId":$value""" } ?: "") +
-                    ""","defaultVariantId":$defaultVariantId""" +
-                    ""","printAspectRatio":"$printAspectRatio",$PRINT_FRAME,""" +
-                    """"price":$price}"""
+                    ""","defaultVariantId":$defaultVariantId,"price":$price}"""
             val updated =
-                admin.put("/api/admin/articles/tshirts/$id") {
+                admin.put("/api/admin/articles/spod/$id") {
                     header(AuthRouting.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(body)
@@ -559,7 +575,7 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
     }
 
     private companion object {
-        const val PUBLIC_PATH = "/api/articles/tshirts"
+        const val PUBLIC_PATH = "/api/articles/spod"
         const val FIRST_IMAGE = RecordingPublicImageStorage.FIRST_FILENAME
         const val SECOND_IMAGE = RecordingPublicImageStorage.SECOND_FILENAME
 
@@ -579,20 +595,17 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 """"salesTotalInputCents":1990,"discountType":"PERCENTAGE","discountValue":20}"""
 
         /**
-         * Two statements of this module — the visible shirts with their categories and the active
-         * variants of all of them — plus the two the one batched `PriceCatalog.find` runs for the
-         * prices and their VAT entries.
+         * Three statements of this module — the visible articles with their categories, the active
+         * variants of all of them with their colours, and the pictures of those colours — plus the
+         * two the one batched `PriceCatalog.find` runs for the prices and their VAT entries.
          */
-        const val PUBLIC_LIST_STATEMENT_COUNT = 4
-
-        const val PRINT_FRAME =
-            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40.5}"""
+        const val PUBLIC_LIST_STATEMENT_COUNT = 5
 
         val DOCUMENTED_PUBLIC_LIST =
             """
             [
               {
-                "articleType": "TSHIRT",
+                "articleType": "SPOD",
                 "id": 1,
                 "position": 1,
                 "name": "Classic tee",
@@ -602,37 +615,49 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 "subcategoryId": 1,
                 "price": 1990,
                 "regularPrice": null,
-                "printAspectRatio": "16:9",
+                "productTypeName": "T-Shirt",
                 "sizeChartImageFilename": "$SECOND_IMAGE",
                 "printFrame": {
                   "leftPct": 25.0,
                   "topPct": 20.0,
                   "widthPct": 50.0,
-                  "heightPct": 40.5
+                  "heightPct": 40.0
                 },
+                "appearances": [
+                  {
+                    "id": 1,
+                    "colorName": "Black",
+                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "mockupImageFilename": null,
+                    "listingImageFilenames": ["$FIRST_IMAGE"]
+                  },
+                  {
+                    "id": 2,
+                    "colorName": "White",
+                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "mockupImageFilename": null,
+                    "listingImageFilenames": []
+                  }
+                ],
                 "variants": [
                   {
                     "id": 1,
                     "name": "Black / M",
-                    "colorName": "Black",
-                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "appearanceId": 1,
                     "size": "M",
-                    "isDefault": true,
-                    "exampleImageFilename": "$FIRST_IMAGE"
+                    "isDefault": true
                   },
                   {
                     "id": 2,
                     "name": "White / L",
-                    "colorName": "White",
-                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "appearanceId": 2,
                     "size": "L",
-                    "isDefault": false,
-                    "exampleImageFilename": null
+                    "isDefault": false
                   }
                 ]
               },
               {
-                "articleType": "TSHIRT",
+                "articleType": "SPOD",
                 "id": 2,
                 "position": 2,
                 "name": "Second tee",
@@ -642,23 +667,30 @@ internal class PublicTshirtIntegrationTest : PostgresIntegrationTest() {
                 "subcategoryId": null,
                 "price": 1990,
                 "regularPrice": null,
-                "printAspectRatio": "1:1",
+                "productTypeName": "T-Shirt",
                 "sizeChartImageFilename": null,
                 "printFrame": {
                   "leftPct": 25.0,
                   "topPct": 20.0,
                   "widthPct": 50.0,
-                  "heightPct": 40.5
+                  "heightPct": 40.0
                 },
+                "appearances": [
+                  {
+                    "id": 4,
+                    "colorName": "Black",
+                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "mockupImageFilename": null,
+                    "listingImageFilenames": []
+                  }
+                ],
                 "variants": [
                   {
                     "id": 4,
                     "name": "Black / M",
-                    "colorName": "Black",
-                    "colorHex": "$VARIANT_COLOR_HEX",
+                    "appearanceId": 4,
                     "size": "M",
-                    "isDefault": true,
-                    "exampleImageFilename": null
+                    "isDefault": true
                   }
                 ]
               }

@@ -1,11 +1,11 @@
-package shop.voenix.article.tshirt
+package shop.voenix.article.spod
 
 import shop.voenix.spod.SpodAccess
 import shop.voenix.spod.SpodEnvironment
 
 /**
- * Reconciles one destination's Spreadconnect backoffice catalog into this shop's t-shirts and
- * answers what it did (t-shirt sync decisions).
+ * Reconciles one destination's Spreadconnect backoffice catalog into this shop's SPOD articles and
+ * answers what it did (SPOD sync decisions).
  *
  * It is the one capability the article module exports besides [shop.voenix.article.ArticleCatalog],
  * and it exists because the *trigger* does not belong here: a sync is started on a production
@@ -14,12 +14,12 @@ import shop.voenix.spod.SpodEnvironment
  * over.
  *
  * The run is not a background job. The caller waits for it, and every outcome it needs to answer
- * with is in [TshirtSyncResult] — including the refusal, because a second run of the same
- * destination while the first one is still writing is not something to queue behind.
+ * with is in [SpodSyncResult] — including the refusal, because a second run of the same destination
+ * while the first one is still writing is not something to queue behind.
  */
-public fun interface TshirtCatalogSync {
+public fun interface SpodCatalogSync {
     /** Runs one sync of [source] to completion, or refuses because that destination is busy. */
-    public suspend fun sync(source: SpodCatalogSource): TshirtSyncResult
+    public suspend fun sync(source: SpodCatalogSource): SpodSyncResult
 }
 
 /**
@@ -28,7 +28,7 @@ public fun interface TshirtCatalogSync {
  * article created by the run is produced by.
  *
  * The destination and the environment are deliberately *not* repeated next to [access]. They are
- * part of the identity of a synced article (t-shirt sync decision 4) and of the access at the same
+ * part of the identity of a synced article (SPOD sync decision 4) and of the access at the same
  * time, and one of the two would eventually be filled in from somewhere else — so there is one of
  * each, read off the access.
  *
@@ -55,8 +55,8 @@ public data class SpodCatalogSource(
  * give: nothing was read, nothing was written, and the caller's answer is "try again", not "here is
  * what happened". A run that *failed* is the opposite — it has a report, and the report says why.
  */
-public sealed interface TshirtSyncResult {
-    public data class Reported(public val report: TshirtSyncReport) : TshirtSyncResult
+public sealed interface SpodSyncResult {
+    public data class Reported(public val report: SpodSyncReport) : SpodSyncResult
 
-    public data object Busy : TshirtSyncResult
+    public data object Busy : SpodSyncResult
 }

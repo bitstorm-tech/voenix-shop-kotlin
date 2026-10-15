@@ -19,13 +19,13 @@ handle. What it has is one class, `SpodClient`, and two modules consume it:
   in state `NEW`, read it, confirm it, and ask which placements a product type
   offers (see [SPOD fulfillment](spod-fulfillment.md));
 - `article` reads the merchant's backoffice catalog through it and turns it
-  into this shop's t-shirts — list the articles, read a size chart, download an
-  image one of those answers points at (see the
-  [Article package guide](article-package.md#t-shirts)).
+  into this shop's SPOD articles — list the articles, read a size chart,
+  download an image one of those answers points at (see the
+  [Article package guide](article-package.md#spod-articles)).
 
 The client used to live inside `production`. It moved here when the t-shirt
 catalog became synced data
-([t-shirt sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
+([SPOD sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
 two modules needed the same client, and the alternative — `article` depending
 on `production`, or a second client next to the first — would either have
 inverted the layering or split the partner's request budget in two.
@@ -34,7 +34,7 @@ inverted the layering or split the partner's request budget in two.
 
 ```mermaid
 flowchart TB
-    Article["article<br/>TshirtCatalogSyncService"]
+    Article["article<br/>SpodCatalogSyncService"]
     Production["production<br/>SpodOrderSubmitter"]
     Client["SpodClient<br/>one instance per application"]
     Pacer["the pacer<br/>≥ 1050 ms between two API requests"]
@@ -87,19 +87,22 @@ The ownership rules are:
 | --- | --- |
 | [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
 | [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
-| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and the three readings of an image answer: `downloadUrl()`, `showsModel`, and `SpodCatalogArticle.frontImage(appearanceId)`. |
+| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and `downloadUrl()`, the one reading of an image answer. |
 
 These types read only the keys a sync run uses, and each one it does read has a
 job. `SpodCatalogPage` carries the page's `items` and the catalog's total
 `count`; the `count` is nullable, because a page that carries none is a
 malformed answer the caller has to refuse rather than a listing that happens to
 end early (the paging cursor is the `limit`/`offset` the *caller* passed, so the
-echo of them in the body is not read at all). `SpodCatalogVariant` likewise
-answers no image id list: which picture a colour gets is decided from
-`SpodCatalogArticle`'s images, not from the variant.
+echo of them in the body is not read at all). `SpodCatalogVariant` carries the
+three product ids, the colour's name and value, the size, the `sku`, and
+`productTypeName` — the partner's name of the product kind, which the shop
+stores as an article's subtitle. It answers no image id list: which pictures a
+colour gets is decided from `SpodCatalogArticle`'s images, every one whose
+`appearanceId` is that colour, in the listing's order.
 
-Three things about an image answer are undocumented and live next to the type,
-so the article module never reads the partner's URL format itself:
+One thing about an image answer is undocumented and lives next to the type, so
+the article module never reads the partner's URL format itself:
 
 - **`downloadUrl()`** — the partner writes the Spreadshirt image server's URL
   with the literal placeholder `lookupId` where the product id belongs
@@ -112,12 +115,11 @@ so the article module never reads the partner's URL format itself:
   used as it is. The partner's support says to use the URL exactly as
   answered (2026-10), but the staging CDN still answers it with that `404`
   (checked again on 2026-10-06), so the replacement stays.
-- **`showsModel`** — a colour lists two or three mockups under the same
-  `perspective`: the garment alone and one or two photos of a model wearing it,
-  told apart by `modelId=` in the URL.
-- **`frontImage(appearanceId)`** — the mockup a colour is shown with: the
-  exact `perspective` word `front` first, then anything containing it, then any
-  picture of that colour, and at every step the garment alone before a model.
+
+Which of a colour's images the shop shows used to be a guess here as well — a
+`frontImage` ranking over the undocumented `perspective` and the `modelId=` of a
+model photo. Issue #260 deleted it: the operator chooses a colour's images in
+the backoffice, and the shop stores all of them in the partner's order.
 
 ## The HTTP API
 
@@ -182,7 +184,7 @@ because its answers carry far more than what is read here.
 `download(url, timeoutSeconds)` is the only call whose URL does **not** come
 from `SpodEnvironment`. It comes out of an answer the partner gave this shop —
 a mockup image of a colour, or a size chart — so it is *bounded* instead of
-trusted (t-shirt sync decision 5):
+trusted (SPOD sync decision 5):
 
 - **https only.** A `http` URL, a relative one, or anything that is not a URL
   is refused before a request goes out.
@@ -202,7 +204,7 @@ trusted (t-shirt sync decision 5):
 - **At most 10 MiB is read**, whatever the answer's `Content-Length` claims.
   The channel is cancelled the moment the cap is exceeded — this is an answer,
   not a request, and refusing to keep paying for it is the point of the cap.
-  It is the same 10 MiB a visitor may upload: a mockup of a shirt has no
+  It is the same 10 MiB a visitor may upload: a product image has no
   business being larger than the picture printed on it.
 - **It is not paced.** The 60-per-minute budget belongs to the API; pacing a
   few hundred CDN images behind it would make a sync take minutes for nothing.
@@ -216,7 +218,7 @@ three refusals in the same way.
 
 ## The catalog answers are read leniently
 
-Two decisions run through every type in `SpodCatalog.kt`, both from the t-shirt
+Two decisions run through every type in `SpodCatalog.kt`, both from the SPOD
 sync decisions (6 and 4).
 
 **Every field except an id has a default.** The partner documents neither which
@@ -261,7 +263,7 @@ also **closes** it when the application stops.
 
 Both consuming modules declare the dependency as `exported`, because their own
 public signatures name types of this module: `installArticleModule` and
-`createProductionModule` take a `SpodClient`, `TshirtCatalogSync` takes a
+`createProductionModule` take a `SpodClient`, `SpodCatalogSync` takes a
 `SpodAccess`, and the sync report answers a `SpodError`.
 
 ## Tests
@@ -279,8 +281,7 @@ all.
   host), that image downloads are *not* paced while the catalog calls are, and
   that neither the token nor a URL nor a provider body ever reaches a log line.
 - `SpodCatalogImageTest` — the `lookupId` placeholder replaced by the product id
-  and left alone without one, `showsModel`, and the front-image ranking with the
-  garment alone before a model.
+  and left alone without one.
 - `ParseColorHexTest` — three- and six-digit hex with and without `#`, the
   first colour of a two-tone value, the normalization to lowercase, and the
   values that answer `null`.

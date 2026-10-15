@@ -68,7 +68,7 @@ internal fun Application.installDestinationRoutes(destinations: ProductionDestin
                         )
                     }
 
-                    // Reads this destination's backoffice catalog into the shop's t-shirts and
+                    // Reads this destination's backoffice catalog into the shop's SPOD articles and
                     // answers what the run did. The admin waits for it: a sync is a few seconds of
                     // partner calls, not a job to watch.
                     post("/sync-articles") {

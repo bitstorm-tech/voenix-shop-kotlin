@@ -47,9 +47,9 @@ import shop.voenix.testing.PostgresIntegrationTest
 internal fun KtorApplication.module(spod: SpodClient): Unit = Application.install(this, spod = spod)
 
 /**
- * The t-shirt sync through the whole composition: an admin creates a print-on-demand destination
- * over the real admin API, presses the sync button of that destination, and a shirt of the
- * partner's backoffice becomes a row of this shop's catalog.
+ * The SPOD article sync through the whole composition: an admin creates a print-on-demand
+ * destination over the real admin API, presses the sync button of that destination, and a shirt of
+ * the partner's backoffice becomes a SPOD article of this shop's catalog.
  *
  * What only a composed test can show is exactly the edge this ticket added. The button belongs to
  * the production module, the articles it writes belong to the article module, and the two meet
@@ -60,7 +60,7 @@ internal fun KtorApplication.module(spod: SpodClient): Unit = Application.instal
  * `module(spod)` seam for the same reason the checkout suites inject a Mollie stub: where the calls
  * go is not a configuration key, and it must not become one.
  */
-internal class TshirtSpodSyncCompositionIntegrationTest : PostgresIntegrationTest() {
+internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTest() {
     private val imageRoot: Path = createTempDirectory("tshirt-sync-composition")
 
     @AfterTest
@@ -197,7 +197,7 @@ internal class TshirtSpodSyncCompositionIntegrationTest : PostgresIntegrationTes
                 statement
                     .executeQuery(
                         "SELECT name, spod_article_id, spod_environment, spod_destination_id, " +
-                            "supplier_id FROM $SCHEMA.article_tshirts"
+                            "supplier_id FROM $SCHEMA.article_spod_articles"
                     )
                     .use { rows ->
                         if (!rows.next()) return emptyList()

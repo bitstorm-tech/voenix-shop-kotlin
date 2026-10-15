@@ -33,16 +33,18 @@ internal object ArticleTestSchema {
             dataSource,
             """
             DELETE FROM voenix.article_mug_variants;
-            DELETE FROM voenix.article_tshirt_variants;
+            DELETE FROM voenix.article_spod_variants;
+            DELETE FROM voenix.article_spod_images;
+            DELETE FROM voenix.article_spod_appearances;
             DELETE FROM voenix.article_variant_identities;
             DELETE FROM voenix.article_mugs;
-            DELETE FROM voenix.article_tshirts;
+            DELETE FROM voenix.article_spod_articles;
             DELETE FROM voenix.article_identities;
             DELETE FROM voenix.article_subcategories;
             DELETE FROM voenix.article_categories;
             DELETE FROM voenix.prices;
-            -- A synced t-shirt references the destination it came from with ON DELETE
-            -- RESTRICT, so the destinations go after the shirts and before their supplier.
+            -- A synced SPOD article references the destination it came from with ON DELETE
+            -- RESTRICT, so the destinations go after the articles and before their supplier.
             DELETE FROM voenix.production_destinations;
             DELETE FROM voenix.suppliers;
             DELETE FROM voenix.value_added_taxes;
@@ -50,6 +52,8 @@ internal object ArticleTestSchema {
             ALTER TABLE voenix.article_subcategories ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.article_identities ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.article_variant_identities ALTER COLUMN id RESTART WITH 1;
+            ALTER TABLE voenix.article_spod_appearances ALTER COLUMN id RESTART WITH 1;
+            ALTER TABLE voenix.article_spod_images ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.prices ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.production_destinations ALTER COLUMN id RESTART WITH 1;
             ALTER TABLE voenix.suppliers ALTER COLUMN id RESTART WITH 1;
@@ -134,27 +138,28 @@ internal object ArticleTestSchema {
             rows.getLong("supplier_id")
         }
 
-    /** The stored t-shirts as `name to position` pairs, in display order. */
-    fun orderedTshirts(dataSource: DataSource): List<Pair<String, Int>> =
+    /** The stored SPOD articles as `name to position` pairs, in display order. */
+    fun orderedSpodArticles(dataSource: DataSource): List<Pair<String, Int>> =
         query(
             dataSource,
-            "SELECT name, position FROM voenix.article_tshirts ORDER BY position, id",
+            "SELECT name, position FROM voenix.article_spod_articles ORDER BY position, id",
         ) { rows ->
             rows.getString("name") to rows.getInt("position")
         }
 
-    /** The stored variants of one t-shirt as `name to isDefault` pairs, in id order. */
-    fun storedTshirtVariantDefaults(
+    /** The stored variants of one SPOD article as `name to isDefault` pairs, in id order. */
+    fun storedSpodVariantDefaults(
         dataSource: DataSource,
         articleId: Long,
     ): List<Pair<String, Boolean>> =
         query(
             dataSource,
             """
-            SELECT color_name || ' / ' || size_label AS name, is_default
-            FROM voenix.article_tshirt_variants
-            WHERE article_id = $articleId
-            ORDER BY id
+            SELECT a.color_name || ' / ' || v.size_label AS name, v.is_default
+            FROM voenix.article_spod_variants v
+            JOIN voenix.article_spod_appearances a ON a.id = v.appearance_id
+            WHERE v.article_id = $articleId
+            ORDER BY v.id
             """
                 .trimIndent(),
         ) { rows ->
@@ -162,15 +167,15 @@ internal object ArticleTestSchema {
         }
 
     /**
-     * The SPOD product type id of every stored t-shirt variant, in id order.
+     * The SPOD product type id of every stored SPOD variant, in id order.
      *
      * The storefront answer never names the print-on-demand partner, and this is what tells "left
      * out of the contract" from "never stored on the variant".
      */
-    fun storedTshirtProductTypeIds(dataSource: DataSource): List<Long> =
+    fun storedSpodProductTypeIds(dataSource: DataSource): List<Long> =
         query(
             dataSource,
-            "SELECT spod_product_type_id FROM voenix.article_tshirt_variants ORDER BY id",
+            "SELECT spod_product_type_id FROM voenix.article_spod_variants ORDER BY id",
         ) { rows ->
             rows.getLong("spod_product_type_id")
         }

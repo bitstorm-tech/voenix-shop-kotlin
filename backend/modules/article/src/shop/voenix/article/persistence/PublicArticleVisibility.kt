@@ -10,7 +10,8 @@ import org.jetbrains.exposed.v1.core.or
 
 // The one rule that decides what a customer may see, written once per article type.
 //
-// Three storefront reads apply it — the mug list, the t-shirt list, and the shared navigation — and
+// Three storefront reads apply it — the mug list, the SPOD article list, and the shared navigation
+// — and
 // every one of them starts from the join and the condition of this file instead of spelling the
 // rule again. That is not tidiness: writing it twice is what would allow the navigation to offer a
 // category whose articles no list shows. The legacy backend had exactly that duplication, once per
@@ -50,21 +51,21 @@ internal fun visibleMugCondition(): Op<Boolean> =
         (ArticleCategories.active eq true) and
         (ArticleMugs.subcategoryId.isNull() or (ArticleSubcategories.active eq true))
 
-/** The t-shirts joined with the category structure, exactly as the mugs are joined above. */
-internal fun visibleTshirtsWithCategories(): Join =
-    ArticleTshirts.join(
+/** The SPOD articles joined with the category structure, exactly as the mugs are joined above. */
+internal fun visibleSpodArticlesWithCategories(): Join =
+    ArticleSpodArticles.join(
             ArticleCategories,
             JoinType.INNER,
-            additionalConstraint = { ArticleCategories.id eq ArticleTshirts.categoryId },
+            additionalConstraint = { ArticleCategories.id eq ArticleSpodArticles.categoryId },
         )
         .join(
             ArticleSubcategories,
             JoinType.LEFT,
-            additionalConstraint = { ArticleSubcategories.id eq ArticleTshirts.subcategoryId },
+            additionalConstraint = { ArticleSubcategories.id eq ArticleSpodArticles.subcategoryId },
         )
 
-/** The same visibility rule, read from the t-shirt table. */
-internal fun visibleTshirtCondition(): Op<Boolean> =
-    (ArticleTshirts.active eq true) and
+/** The same visibility rule, read from the SPOD article table. */
+internal fun visibleSpodArticleCondition(): Op<Boolean> =
+    (ArticleSpodArticles.active eq true) and
         (ArticleCategories.active eq true) and
-        (ArticleTshirts.subcategoryId.isNull() or (ArticleSubcategories.active eq true))
+        (ArticleSpodArticles.subcategoryId.isNull() or (ArticleSubcategories.active eq true))

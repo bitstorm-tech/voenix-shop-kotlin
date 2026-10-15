@@ -178,7 +178,7 @@ this kind (issue #205):
   treats a blank one as no number at all. Both are properties of the request.
 - `CheckoutService` asks the article catalog what the stored cart lines **are**,
   and refuses a checkout without a phone number when one of them is a
-  `TSHIRT`, because the print-on-demand partner rejects an order that carries
+  `SPOD` article, because the print-on-demand partner rejects an order that carries
   no phone. What is in the cart is not a property of the request either, and it
   is decided on the **resolved** type of the lines, never on a flag a client
   sends.

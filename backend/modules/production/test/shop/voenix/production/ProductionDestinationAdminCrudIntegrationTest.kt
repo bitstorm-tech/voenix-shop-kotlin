@@ -32,7 +32,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.spod.SpodCatalogSync
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -631,7 +631,7 @@ private fun io.ktor.server.application.Application.installDestinationTestApplica
     installAuthModule(AuthSettings("production-destination-crud-session-secret"))
     installProductionModule(
         database,
-        TshirtCatalogSync { error("no journey of this suite syncs anything") },
+        SpodCatalogSync { error("no journey of this suite syncs anything") },
         spodConfigured = spodConfigured,
     )
     routing {

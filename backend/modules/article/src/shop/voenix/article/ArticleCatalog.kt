@@ -56,7 +56,7 @@ public interface ArticleCatalog {
  *
  * The pair is closed and small on purpose. It is the intersection of two lists that must agree: the
  * ratios the image generator can ask for, and the ratios the shop actually prints — a mug takes the
- * wide wrap-around print, a t-shirt a square chest print. Every constant is stored as its
+ * wide wrap-around print, a SPOD article a square front print. Every constant is stored as its
  * [wireValue], which is also what a client sends and receives and what the CHECK constraints of the
  * article tables allow, so the same three places never need a translation table between them.
  *
@@ -143,13 +143,16 @@ public data class ArticleVariantReference(
  *   customer *choose* an article and therefore stay out, exactly like the four non-layout
  *   measurements below. Both codes are `null` for an article type that has no colors — a future
  *   type answers null here rather than forcing an empty string, which is why they are nullable
- *   forever even though every mug variant carries both. A t-shirt variant is one of those types:
- *   its colour is part of [variantName] (`"Black / M"`), so both codes are `null` for it.
+ *   forever even though every mug variant carries both. A SPOD variant is one of those types: its
+ *   colour is part of [variantName] (`"Black / M"`), so both codes are `null` for it.
  *
  * [spodProduct] is the same idea seen from the production side: it carries the three ids the
  * print-on-demand partner needs and is `null` for every article type that is not produced that way.
- * A mug answers `null` there and a t-shirt answers `null` for the five measurements below, because
- * the two types are produced through different channels — one is laid out into a PDF, the other is
+ * [spodHotspot] belongs to it: the SPOD placement the article's print frame was measured for, which
+ * is what the customer previewed. It is `null` for a mug and for a SPOD article no sync run has
+ * measured yet — such an article cannot be active, so it is never purchasable either. A mug answers
+ * `null` for both and a SPOD article answers `null` for the five measurements below, because the
+ * two types are produced through different channels — one is laid out into a PDF, the other is
  * ordered from a remote printer.
  *
  * Only the five *layout* measurements are here, not all nine mug measurements: `ProductionItem`
@@ -182,6 +185,7 @@ public data class CatalogVariant(
     public val outsideColorCode: String?,
     public val insideColorCode: String?,
     public val spodProduct: SpodProductRef?,
+    public val spodHotspot: String?,
 )
 
 /**
@@ -213,11 +217,16 @@ public data class SpodProductRef(
  * change. Consumers switch on this value; they never parse it.
  *
  * It is `@Serializable` because the storefront representations carry it as their discriminator, and
- * the wire value is the constant's name: `"MUG"`, `"TSHIRT"`. No entry is renamed on the wire, so
- * the stored literal, the enum constant, and the JSON string are one word everywhere.
+ * the wire value is the constant's name: `"MUG"`, `"SPOD"`. No entry is renamed on the wire, so the
+ * stored literal, the enum constant, and the JSON string are one word everywhere.
  */
 @Serializable
 public enum class ArticleType {
     MUG,
-    TSHIRT,
+
+    /**
+     * An article printed by the print-on-demand partner (SPOD). The type names the channel, not the
+     * product kind: a t-shirt and a tote bag are both `SPOD`, and which product it is, is data.
+     */
+    SPOD,
 }

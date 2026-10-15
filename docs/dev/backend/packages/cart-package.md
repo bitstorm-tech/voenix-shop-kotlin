@@ -150,7 +150,7 @@ of a line is **current master data, resolved on every read** in one batched
 `ArticleCatalog.find` call. `articleType` is part of that live half (issue
 #205): `cart_items` stores only the article and variant ids — the type comes
 from the catalog — and it is what a client switches on to render the line, a
-`"MUG"` with its two colour codes or a `"TSHIRT"` whose colour and size are in
+`"MUG"` with its two colour codes or a `"SPOD"` article whose colour and size are in
 its `variantName` (`"Black / M"`). A line whose reference the catalog no longer
 answers keeps its snapshot price and renders with `articleType: null`, `null`
 names, and `available: false` instead of disappearing. The `CheckoutCart`

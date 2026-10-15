@@ -455,7 +455,7 @@ one installation is refused by the other, which reaches this shop as the bounded
 2. Create the shirt in the **Spreadconnect backoffice** — the garment, its
    colours, and its sizes — and press *Sync from Spreadconnect* on the
    destination row. The sync writes the partner's three product ids onto every
-   variant; nobody types them any more (t-shirt sync decision 1). Without a synced shirt there
+   variant; nobody types them any more (SPOD sync decision 1). Without a synced shirt there
    is nothing to sell, and a variant without the ids could not exist at all —
    submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
    goes out.
@@ -608,14 +608,14 @@ for a reference whose subject has moved on.
 
 ### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
 
-Since the t-shirt catalog is synced (t-shirt sync decision 1), the partner is a second author
+Since the t-shirt catalog is synced (SPOD sync decision 1), the partner is a second author
 of a variant's name: renaming a colour in the Spreadconnect backoffice and
 pressing *Sync from Spreadconnect* rewrites `colorName` on every variant of
 that colour. The name tripwire of step 1 then compares today's composed name
 with the one the split snapshotted and refuses every job of that colour that
 was already waiting, with `SPOD_MAPPING_CHANGED`.
 
-**That is a false alarm, and it is accepted on purpose** (t-shirt sync decision 8;
+**That is a false alarm, and it is accepted on purpose** (SPOD sync decision 8;
 Joe's decision D1 on issue #224). The check exists to catch a *mapping* that
 changed under a paid order, and a rename changes no mapping at all — the three
 ids the order is placed with are untouched.
@@ -794,10 +794,10 @@ silently become a different garment.
 
 Since the t-shirt catalog is synced, the partner writes that name too, so a
 backoffice rename trips this check as a false alarm. That is accepted
-([t-shirt sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
+([SPOD sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
 until issue #225 compares ids instead of names. Orders stay `oneTimeItems` and
 never use the synced articles' SKUs
-([t-shirt sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
+([SPOD sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
 
 ## Production file map
 

@@ -63,10 +63,10 @@ internal object CartTestSupport {
                 "voenix.prompts, voenix.prompt_categories, voenix.promotions, voenix.users " +
                 "RESTART IDENTITY CASCADE",
             "INSERT INTO voenix.article_identities (id, article_type) " +
-                "VALUES ($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'TSHIRT')",
+                "VALUES ($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'SPOD')",
             "INSERT INTO voenix.article_variant_identities (id, article_id, article_type) " +
                 "VALUES ($VARIANT_ID, $ARTICLE_ID, 'MUG'), " +
-                "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'TSHIRT')",
+                "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'SPOD')",
             "INSERT INTO voenix.prompt_categories (id, name, position) VALUES (1, 'Fun', 1)",
             "INSERT INTO voenix.prompts " +
                 "(id, position, title, prompt_text, category_id, active, archived) " +
@@ -168,17 +168,18 @@ internal object CartTestSupport {
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
             spodProduct = null,
+            spodHotspot = null,
         )
 
     /**
-     * The other type a cart line can be (issue #205): a t-shirt spells its colour and size in the
-     * variant name, so it carries neither colour code — exactly what `ArticleCatalog` answers.
+     * The other type a cart line can be (issue #205): a SPOD article spells its colour and size in
+     * the variant name, so it carries neither colour code — exactly what `ArticleCatalog` answers.
      */
-    fun tshirtVariant(): CatalogVariant =
+    fun spodVariant(): CatalogVariant =
         variant(
                 articleName = "Classic shirt",
                 variantName = "Black / M",
-                articleType = ArticleType.TSHIRT,
+                articleType = ArticleType.SPOD,
             )
             .copy(outsideColorCode = null, insideColorCode = null)
 

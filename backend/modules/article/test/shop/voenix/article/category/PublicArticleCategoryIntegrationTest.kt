@@ -34,8 +34,8 @@ import shop.voenix.article.CountingDataSource
 import shop.voenix.article.CountingPriceCatalog
 import shop.voenix.article.RecordingPublicImageStorage
 import shop.voenix.article.RecordingSupplierReader
-import shop.voenix.article.SyncedTshirtVariant
-import shop.voenix.article.SyncedTshirts
+import shop.voenix.article.SyncedSpodArticles
+import shop.voenix.article.SyncedSpodVariant
 import shop.voenix.article.installArticleModule
 import shop.voenix.article.unreachableSpodClient
 import shop.voenix.article.validateArticleRequests
@@ -70,7 +70,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 // `Shirts` only by a shirt in `Slim`; `Empty` by nobody at all.
                 fixture.createMug(mugBody("Plain mug", categoryId = 1))
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.syncTshirt(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
+                fixture.syncSpodArticle(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
 
                 ArticleTestSchema.execute(
                     dataSource,
@@ -98,7 +98,12 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
             storefrontApplication(dataSource, "article-public-categories-mixed-secret") { fixture ->
                 // One mug and one shirt in the very same category and subcategory.
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.syncTshirt(dataSource, "Classic tee", categoryId = 1, subcategoryId = 1)
+                fixture.syncSpodArticle(
+                    dataSource,
+                    "Classic tee",
+                    categoryId = 1,
+                    subcategoryId = 1,
+                )
                 assertEquals(listOf(1L to listOf(1L)), fixture.navigation())
 
                 // The mug goes: the shirt alone keeps both levels alive.
@@ -111,7 +116,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 // The shirt goes too, and the entry disappears with the last visible article.
                 ArticleTestSchema.execute(
                     dataSource,
-                    "UPDATE voenix.article_tshirts SET active = FALSE",
+                    "UPDATE voenix.article_spod_articles SET active = FALSE",
                 )
                 assertEquals(emptyList<Pair<Long, List<Long>>>(), fixture.navigation())
 
@@ -119,7 +124,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 ArticleTestSchema.execute(
                     dataSource,
                     """
-                    UPDATE voenix.article_tshirts SET active = TRUE;
+                    UPDATE voenix.article_spod_articles SET active = TRUE;
                     UPDATE voenix.article_categories SET active = FALSE WHERE id = 1;
                     """
                         .trimIndent(),
@@ -169,8 +174,13 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
                 val forOneArticle = counting.normalizedStatements()
 
                 fixture.createMug(mugBody("Classic mug", categoryId = 1, subcategoryId = 1))
-                fixture.syncTshirt(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
-                fixture.syncTshirt(dataSource, "Classic tee", categoryId = 1, subcategoryId = 1)
+                fixture.syncSpodArticle(dataSource, "Slim tee", categoryId = 2, subcategoryId = 3)
+                fixture.syncSpodArticle(
+                    dataSource,
+                    "Classic tee",
+                    categoryId = 1,
+                    subcategoryId = 1,
+                )
                 counting.statements.clear()
                 assertEquals(
                     listOf(1L to listOf(1L), 2L to listOf(3L)),
@@ -211,7 +221,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 1, "Classic", "Travel")
         ArticleTestSchema.seedSubcategories(dataSource, categoryId = 2, "Slim")
         ArticleTestSchema.seedSuppliers(dataSource, "Porcelain Ltd")
-        SyncedTshirts.seedSpodDestination(dataSource)
+        SyncedSpodArticles.seedSpodDestination(dataSource)
     }
 
     private fun mugBody(
@@ -284,37 +294,36 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
         suspend fun createMug(body: String) = create("/api/admin/articles/mugs", body)
 
         /**
-         * A visible t-shirt: the garment half is inserted the way a sync run inserts it, the shop
-         * half — visibility, category path, frame, default variant, and price — is written through
-         * the admin route that survived the catalog sync.
+         * A visible SPOD article: the partner's half is inserted the way a sync run inserts it, the
+         * shop half — visibility, category path, default variant, and price — is written through
+         * the admin route.
          *
          * The ids start well above the mug ids of these tests, because both article types mint
          * their identities from one sequence and this fixture chooses its own.
          */
-        suspend fun syncTshirt(
+        suspend fun syncSpodArticle(
             dataSource: DataSource,
             name: String,
             categoryId: Long,
             subcategoryId: Long? = null,
         ) {
             val id = nextShirtId++
-            SyncedTshirts.insert(
+            SyncedSpodArticles.insert(
                 dataSource,
                 id = id,
                 position = (id - FIRST_SHIRT_ID + 1).toInt(),
                 name = name,
-                variants = listOf(SyncedTshirtVariant(id = id, isDefault = true)),
+                variants = listOf(SyncedSpodVariant(id = id, isDefault = true)),
             )
             val updated =
-                admin.put("/api/admin/articles/tshirts/$id") {
+                admin.put("/api/admin/articles/spod/$id") {
                     header(AuthRouting.CSRF_HEADER, token)
                     contentType(ContentType.Application.Json)
                     setBody(
                         """{"active":true,"categoryId":$categoryId""" +
                             (subcategoryId?.let { value -> ""","subcategoryId":$value""" } ?: "") +
-                            ""","defaultVariantId":$id,"printAspectRatio":"1:1",""" +
-                            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,""" +
-                            """"heightPct":40.5},"price":{"purchaseVatId":1,"salesVatId":1,""" +
+                            ""","defaultVariantId":$id,""" +
+                            """"price":{"purchaseVatId":1,"salesVatId":1,""" +
                             """"purchasePriceInputCents":500,"salesTotalInputCents":1990}}"""
                     )
                 }

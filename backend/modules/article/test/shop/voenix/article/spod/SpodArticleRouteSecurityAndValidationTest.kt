@@ -1,4 +1,4 @@
-package shop.voenix.article.tshirt
+package shop.voenix.article.spod
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.cookies.HttpCookies
@@ -32,7 +32,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
-import shop.voenix.article.PrintAspectRatio
 import shop.voenix.article.ReorderInput
 import shop.voenix.article.antiforgeryToken
 import shop.voenix.article.assertApiError
@@ -45,20 +44,21 @@ import shop.voenix.http.installHttpRuntime
 import shop.voenix.operation.OperationResult
 
 /**
- * What the t-shirt routes answer, against stubbed operations: the security subtree, the id binding,
- * the validation that runs before any operation, and the mapping of every result the operations can
- * produce.
+ * What the SPOD article routes answer, against stubbed operations: the security subtree, the id
+ * binding, the validation that runs before any operation, and the mapping of every result the
+ * operations can produce.
  *
- * The two questions that are new since the catalog sync are about what is *gone*. The create route
- * and the two pre-uploads no longer exist, because a shirt and its pictures come from the
- * Spreadconnect backoffice — and the update body carries the shop's half of the article alone, so a
- * client that still sends the partner's half is answered without it ever reaching the write path.
+ * Three questions are about what is *gone*. The create route and the two pre-uploads do not exist,
+ * because an article and its pictures come from the Spreadconnect backoffice; the old t-shirt paths
+ * answer nothing at all; and the update body carries the shop's half of the article alone, so a
+ * client that still sends the partner's half — or a print frame — is answered without it ever
+ * reaching the write path.
  */
-internal class TshirtArticleRouteSecurityAndValidationTest {
+internal class SpodArticleRouteSecurityAndValidationTest {
     @Test
-    fun `admin subtree rejects before id binding or tshirt operations`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+    fun `admin subtree rejects before id binding or article operations`() = testApplication {
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
 
         listOf(
                 client.get(BASE_PATH),
@@ -69,7 +69,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 client.delete("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Unauthorized, response.status) }
-        assertEquals(0, tshirts.operationCalls)
+        assertEquals(0, articles.operationCalls)
 
         val customer = signedInClient("CUSTOMER")
         listOf(
@@ -80,7 +80,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 customer.delete("$BASE_PATH/1"),
             )
             .forEach { response -> assertEquals(HttpStatusCode.Forbidden, response.status) }
-        assertEquals(0, tshirts.operationCalls)
+        assertEquals(0, articles.operationCalls)
 
         val admin = signedInClient("ADMIN")
         listOf(
@@ -104,22 +104,21 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             HttpStatusCode.BadRequest,
             "Invalid article id",
         )
-        assertEquals(0, tshirts.operationCalls)
+        assertEquals(0, articles.operationCalls)
     }
 
     /**
-     * The three routes the catalog sync removed: a shirt is not created here any more, and neither
-     * of its two kinds of picture is uploaded here. An admin with a valid token gets nothing from
-     * them.
+     * The three routes a synced article has no use for: it is not created here, and none of its
+     * pictures is uploaded here. An admin with a valid token gets nothing from them.
      *
      * The two answers are both Ktor describing the tree correctly. The base path is still a
      * resource — it answers `GET` — so a `POST` to it is a method it does not have; the two upload
      * paths are no paths at all any more.
      */
     @Test
-    fun `creating a shirt and uploading its pictures are no longer routes`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+    fun `creating an article and uploading its pictures are no routes`() = testApplication {
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
@@ -137,13 +136,25 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                     }
                 assertEquals(expected, response.status, "POST $path")
             }
-        assertEquals(0, tshirts.operationCalls)
+        assertEquals(0, articles.operationCalls)
+    }
+
+    /** The article type is `SPOD` now, and the t-shirt paths went with the `TSHIRT` type. */
+    @Test
+    fun `the t-shirt paths of the old type are gone`() = testApplication {
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
+        val admin = signedInClient("ADMIN")
+
+        assertEquals(HttpStatusCode.NotFound, admin.get("/api/admin/articles/tshirts").status)
+        assertEquals(HttpStatusCode.NotFound, admin.get("/api/admin/articles/tshirts/7").status)
+        assertEquals(0, articles.operationCalls)
     }
 
     @Test
     fun `the read routes answer without a csrf token and map their results`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
         val admin = signedInClient("ADMIN")
 
         val listed = admin.get(BASE_PATH)
@@ -155,27 +166,27 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 item.jsonObject.getValue("id").jsonPrimitive.long
             },
         )
-        assertEquals(1, tshirts.listCalls)
+        assertEquals(1, articles.listCalls)
 
         val read = admin.get("$BASE_PATH/7")
         assertEquals(HttpStatusCode.OK, read.status)
-        assertEquals(7L, tshirts.lastRequestedId)
+        assertEquals(7L, articles.lastRequestedId)
         assertEquals(
             7L,
             Json.parseToJsonElement(read.bodyAsText()).jsonObject.getValue("id").jsonPrimitive.long,
         )
 
-        tshirts.getResult = OperationResult.NotFound
+        articles.getResult = OperationResult.NotFound
         assertApiError(admin.get("$BASE_PATH/7"), HttpStatusCode.NotFound, "Article not found")
 
-        tshirts.getResult = OperationResult.UnexpectedFailure
+        articles.getResult = OperationResult.UnexpectedFailure
         assertApiError(
             admin.get("$BASE_PATH/7"),
             HttpStatusCode.InternalServerError,
             "Internal server error",
         )
 
-        tshirts.listResult = OperationResult.UnexpectedFailure
+        articles.listResult = OperationResult.UnexpectedFailure
         assertApiError(
             admin.get(BASE_PATH),
             HttpStatusCode.InternalServerError,
@@ -190,41 +201,36 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
      */
     @Test
     fun `the update body drops every field the sync owns`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
-        val updated = admin.updateTshirt(token, id = 7, body = BODY_WITH_SPOD_FIELDS)
+        val updated = admin.updateArticle(token, id = 7, body = BODY_WITH_SPOD_FIELDS)
         assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
-        val input = checkNotNull(tshirts.lastUpdated)
+        val input = checkNotNull(articles.lastUpdated)
         assertEquals(true, input.active)
         assertEquals(1L, input.categoryId)
-        assertEquals(2L, input.defaultVariantId)
-        assertEquals(25.0, input.printFrame?.leftPct)
-        assertEquals("16:9", input.printAspectRatio)
+        assertEquals(SpodArticleInput(active = true, categoryId = 1, defaultVariantId = 2), input)
     }
 
     @Test
     fun `http validation rejects an incomplete or contradictory update before operations`() =
         testApplication {
-            val tshirts = StubTshirtArticleOperations()
-            application { installTshirtTestApplication(tshirts) }
+            val articles = StubSpodArticleOperations()
+            application { installSpodTestApplication(articles) }
             val admin = signedInClient("ADMIN")
             val token = antiforgeryToken(admin)
 
             assertApiError(
-                admin.updateTshirt(token, id = 7, body = """{"subcategoryId":3}"""),
+                admin.updateArticle(token, id = 7, body = """{"subcategoryId":3}"""),
                 HttpStatusCode.BadRequest,
                 "Validation failed",
-                linkedMapOf(
-                    "subcategoryId" to listOf("SubcategoryId requires CategoryId"),
-                    "printFrame" to listOf("PrintFrame is required"),
-                ),
+                linkedMapOf("subcategoryId" to listOf("SubcategoryId requires CategoryId")),
             )
             // The activation rules of the article as a whole both report on `active`.
             assertApiError(
-                admin.updateTshirt(token, id = 7, body = """{"active":true,$PRINT_FRAME}"""),
+                admin.updateArticle(token, id = 7, body = """{"active":true}"""),
                 HttpStatusCode.BadRequest,
                 "Validation failed",
                 linkedMapOf(
@@ -235,27 +241,27 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                         )
                 ),
             )
-            assertEquals(0, tshirts.operationCalls)
+            assertEquals(0, articles.operationCalls)
         }
 
     @Test
     fun `update and delete map their results to the required responses`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
-        assertEquals(HttpStatusCode.OK, admin.updateTshirt(token, id = 7).status)
-        assertEquals(7L, tshirts.lastRequestedId)
+        assertEquals(HttpStatusCode.OK, admin.updateArticle(token, id = 7).status)
+        assertEquals(7L, articles.lastRequestedId)
 
-        tshirts.updateResult = OperationResult.NotFound
+        articles.updateResult = OperationResult.NotFound
         assertApiError(
-            admin.updateTshirt(token, id = 7),
+            admin.updateArticle(token, id = 7),
             HttpStatusCode.NotFound,
             "Article not found",
         )
 
-        tshirts.updateResult =
+        articles.updateResult =
             OperationResult.Invalid(
                 mapOf(
                     "defaultVariantId" to
@@ -263,7 +269,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 )
             )
         assertApiError(
-            admin.updateTshirt(token, id = 7),
+            admin.updateArticle(token, id = 7),
             HttpStatusCode.BadRequest,
             "Validation failed",
             linkedMapOf(
@@ -272,9 +278,9 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             ),
         )
 
-        tshirts.updateResult = OperationResult.UnexpectedFailure
+        articles.updateResult = OperationResult.UnexpectedFailure
         assertApiError(
-            admin.updateTshirt(token, id = 7),
+            admin.updateArticle(token, id = 7),
             HttpStatusCode.InternalServerError,
             "Internal server error",
         )
@@ -283,7 +289,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         assertEquals(HttpStatusCode.NoContent, deleted.status)
         assertEquals("", deleted.bodyAsText())
 
-        tshirts.deleteResult = OperationResult.NotFound
+        articles.deleteResult = OperationResult.NotFound
         assertApiError(
             admin.delete("$BASE_PATH/9") { header(AuthRouting.CSRF_HEADER, token) },
             HttpStatusCode.NotFound,
@@ -293,17 +299,17 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
 
     @Test
     fun `the reorder route is a literal segment and maps its own conflict`() = testApplication {
-        val tshirts = StubTshirtArticleOperations()
-        application { installTshirtTestApplication(tshirts) }
+        val articles = StubSpodArticleOperations()
+        application { installSpodTestApplication(articles) }
         val admin = signedInClient("ADMIN")
         val token = antiforgeryToken(admin)
 
         // `order` is not bound as an article id: the item routes never see this request.
         val reordered = admin.reorder(token, """{"sourceId":43,"targetId":42}""")
         assertEquals(HttpStatusCode.OK, reordered.status)
-        assertEquals(1, tshirts.reorderCalls)
-        assertNull(tshirts.lastRequestedId)
-        assertEquals(43L, tshirts.lastReordered?.sourceId)
+        assertEquals(1, articles.reorderCalls)
+        assertNull(articles.lastRequestedId)
+        assertEquals(43L, articles.lastReordered?.sourceId)
         assertEquals(
             listOf(42L, 43L),
             Json.parseToJsonElement(reordered.bodyAsText()).jsonArray.map { item ->
@@ -318,24 +324,25 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             "Validation failed",
             linkedMapOf("targetId" to listOf("TargetId must be different from SourceId")),
         )
-        assertEquals(1, tshirts.reorderCalls)
+        assertEquals(1, articles.reorderCalls)
 
-        tshirts.reorderResult = OperationResult.NotFound
+        articles.reorderResult = OperationResult.NotFound
         assertApiError(
             admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
             HttpStatusCode.NotFound,
             "Article not found",
         )
 
-        // The one conflict of the shirt routes, with the stable message a client may retry on.
-        tshirts.reorderResult = OperationResult.Conflict
+        // The one conflict of the SPOD article routes, with the stable message a client may retry
+        // on.
+        articles.reorderResult = OperationResult.Conflict
         assertApiError(
             admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
             HttpStatusCode.Conflict,
             "Article order changed concurrently, please retry",
         )
 
-        tshirts.reorderResult = OperationResult.UnexpectedFailure
+        articles.reorderResult = OperationResult.UnexpectedFailure
         assertApiError(
             admin.reorder(token, """{"sourceId":43,"targetId":42}"""),
             HttpStatusCode.InternalServerError,
@@ -343,7 +350,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         )
     }
 
-    private suspend fun HttpClient.updateTshirt(
+    private suspend fun HttpClient.updateArticle(
         token: String,
         id: Long,
         body: String = VALID_BODY,
@@ -364,11 +371,11 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             setBody(body)
         }
 
-    private fun Application.installTshirtTestApplication(tshirts: TshirtArticleOperations) {
+    private fun Application.installSpodTestApplication(articles: SpodArticleOperations) {
         installHttpRuntime()
         install(RequestValidation) { validateArticleRequests() }
-        installAuthModule(AuthSettings("article-tshirt-route-contract-session-secret"))
-        installTshirtArticleRoutes(tshirts)
+        installAuthModule(AuthSettings("article-spod-route-contract-session-secret"))
+        installSpodArticleRoutes(articles)
         routing {
             post("/test/sign-in/{role}") {
                 call.sessions.set(
@@ -387,43 +394,43 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
             assertEquals(HttpStatusCode.OK, client.post("/test/sign-in/$role").status)
         }
 
-    private class StubTshirtArticleOperations : TshirtArticleOperations {
+    private class StubSpodArticleOperations : SpodArticleOperations {
         var listCalls = 0
         var getCalls = 0
         var updateCalls = 0
         var deleteCalls = 0
         var reorderCalls = 0
         var lastRequestedId: Long? = null
-        var lastUpdated: TshirtArticleInput? = null
+        var lastUpdated: SpodArticleInput? = null
         var lastReordered: ReorderInput? = null
-        var listResult: OperationResult<List<TshirtArticleListItem>>? = null
-        var getResult: OperationResult<TshirtArticle>? = null
-        var updateResult: OperationResult<TshirtArticle>? = null
+        var listResult: OperationResult<List<SpodArticleListItem>>? = null
+        var getResult: OperationResult<SpodArticle>? = null
+        var updateResult: OperationResult<SpodArticle>? = null
         var deleteResult: OperationResult<Unit>? = null
-        var reorderResult: OperationResult<List<TshirtArticleListItem>>? = null
+        var reorderResult: OperationResult<List<SpodArticleListItem>>? = null
 
         val operationCalls: Int
             get() = listCalls + getCalls + updateCalls + deleteCalls + reorderCalls
 
-        override suspend fun list(): OperationResult<List<TshirtArticleListItem>> {
+        override suspend fun list(): OperationResult<List<SpodArticleListItem>> {
             listCalls++
             return listResult ?: OperationResult.Success(listOf(listItem(42)))
         }
 
-        override suspend fun get(id: Long): OperationResult<TshirtArticle> {
+        override suspend fun get(id: Long): OperationResult<SpodArticle> {
             getCalls++
             lastRequestedId = id
-            return getResult ?: OperationResult.Success(tshirt(id))
+            return getResult ?: OperationResult.Success(article(id))
         }
 
         override suspend fun update(
             id: Long,
-            input: TshirtArticleInput,
-        ): OperationResult<TshirtArticle> {
+            input: SpodArticleInput,
+        ): OperationResult<SpodArticle> {
             updateCalls++
             lastRequestedId = id
             lastUpdated = input
-            return updateResult ?: OperationResult.Success(tshirt(id))
+            return updateResult ?: OperationResult.Success(article(id))
         }
 
         override suspend fun delete(id: Long): OperationResult<Unit> {
@@ -434,7 +441,7 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
 
         override suspend fun reorder(
             input: ReorderInput
-        ): OperationResult<List<TshirtArticleListItem>> {
+        ): OperationResult<List<SpodArticleListItem>> {
             reorderCalls++
             lastReordered = input
             return reorderResult
@@ -444,8 +451,8 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
         private fun listItem(
             id: Long,
             position: Int = 1,
-        ): TshirtArticleListItem =
-            TshirtArticleListItem(
+        ): SpodArticleListItem =
+            SpodArticleListItem(
                 id = id,
                 position = position,
                 name = "Classic",
@@ -462,8 +469,8 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 missingAtSpreadconnect = false,
             )
 
-        private fun tshirt(id: Long): TshirtArticle =
-            TshirtArticle(
+        private fun article(id: Long): SpodArticle =
+            SpodArticle(
                 id = id,
                 position = 1,
                 name = "Classic",
@@ -473,14 +480,15 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
                 categoryId = null,
                 subcategoryId = null,
                 supplierId = 3,
-                printAspectRatio = PrintAspectRatio.SQUARE,
+                productTypeName = "T-Shirt",
                 sizeChartImageFilename = null,
-                printFrame =
-                    PrintFrame(leftPct = 25.0, topPct = 20.0, widthPct = 50.0, heightPct = 40.0),
-                tshirtVariants = emptyList(),
+                printFrame = null,
+                hotspot = null,
+                appearances = emptyList(),
+                spodVariants = emptyList(),
                 price = null,
                 sync =
-                    TshirtArticleSync(
+                    SpodArticleSync(
                         spodArticleId = "spod-article-1",
                         environment = "PRODUCTION",
                         syncedAt = SYNCED_AT,
@@ -489,26 +497,24 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
     }
 
     private companion object {
-        const val BASE_PATH = "/api/admin/articles/tshirts"
+        const val BASE_PATH = "/api/admin/articles/spod"
         val SYNCED_AT: Instant = Instant.parse("2026-08-24T09:00:00Z")
-
-        const val PRINT_FRAME =
-            """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40}"""
 
         /**
          * A body every field rule accepts, so that only the route's own behaviour is under test.
          */
-        const val VALID_BODY = """{"active":false,$PRINT_FRAME}"""
+        const val VALID_BODY = """{"active":false}"""
 
         /**
-         * The same body with the partner's half of the article added to it, as an admin client
-         * written against the old contract would still send it.
+         * An update with the partner's half of the article and a print frame added to it, as an
+         * admin client written against the old t-shirt contract would still send it.
          */
         const val BODY_WITH_SPOD_FIELDS =
             """{"name":"Renamed by hand","descriptionShort":"Short","descriptionLong":"Long",""" +
                 """"supplierId":9,"sizeChartImageFilename":"chart.webp",""" +
-                """"tshirtVariants":[{"colorName":"Black","sizeLabel":"M"}],""" +
+                """"spodVariants":[{"colorName":"Black","sizeLabel":"M"}],""" +
                 """"active":true,"categoryId":1,"defaultVariantId":2,""" +
-                """"printAspectRatio":"16:9",$PRINT_FRAME}"""
+                """"printAspectRatio":"16:9",""" +
+                """"printFrame":{"leftPct":25,"topPct":20,"widthPct":50,"heightPct":40}}"""
     }
 }

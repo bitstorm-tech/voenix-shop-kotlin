@@ -146,7 +146,7 @@ internal class CheckoutServiceTest {
      */
     @Test
     fun `a cart with a t-shirt in it is refused without a phone number`() {
-        val world = World(cart = reservedCart(), articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+        val world = World(cart = reservedCart(), articleTypes = mapOf(LINE to ArticleType.SPOD))
 
         assertEquals(CheckoutResult.PhoneRequired, world.checkout())
         assertEquals(
@@ -163,7 +163,7 @@ internal class CheckoutServiceTest {
 
     @Test
     fun `the same cart is placed once a phone number is given`() {
-        val world = World(articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+        val world = World(articleTypes = mapOf(LINE to ArticleType.SPOD))
 
         val result = world.checkout(request = frontendRequest(phone = " +49 89 123456 "))
 
@@ -900,6 +900,7 @@ internal class CheckoutServiceTest {
                 outsideColorCode = null,
                 insideColorCode = null,
                 spodProduct = null,
+                spodHotspot = null,
             )
 
         fun cart(

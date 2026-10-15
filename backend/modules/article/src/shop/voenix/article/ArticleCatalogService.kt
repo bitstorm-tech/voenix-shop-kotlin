@@ -68,4 +68,5 @@ private fun StoredCatalogVariant.withPrice(price: CalculatedPrice?): CatalogVari
         outsideColorCode = outsideColorCode,
         insideColorCode = insideColorCode,
         spodProduct = spodProduct,
+        spodHotspot = spodHotspot,
     )

@@ -1,4 +1,4 @@
-package shop.voenix.article.tshirt
+package shop.voenix.article.spod
 
 import java.time.Instant
 import kotlinx.serialization.Serializable
@@ -16,45 +16,45 @@ import shop.voenix.spod.SpodError
  * warning next to it says which one.
  *
  * [warnings] is the other half of the answer: everything the run *degraded* instead of failing on
- * (t-shirt sync decision 6). The codes are a closed enum on purpose, so the admin screen can
- * explain each of them in the shop's own words instead of showing a sentence the partner wrote.
+ * (SPOD sync decision 6). The codes are a closed enum on purpose, so the admin screen can explain
+ * each of them in the shop's own words instead of showing a sentence the partner wrote.
  *
- * A [status] of [TshirtSyncStatus.FAILED] means the listing could not be read to the end. Nothing
- * was written then, and nothing was deactivated — [failure] carries the bounded reason.
+ * A [status] of [SpodSyncStatus.FAILED] means the listing could not be read to the end. Nothing was
+ * written then, and nothing was deactivated — [failure] carries the bounded reason.
  */
 @Serializable
-public data class TshirtSyncReport(
+public data class SpodSyncReport(
     public val destinationId: Long,
     public val supplierId: Long,
     public val environment: SpodEnvironment,
-    public val status: TshirtSyncStatus,
+    public val status: SpodSyncStatus,
     public val failure: SpodError? = null,
     @Serializable(with = InstantIso8601Serializer::class) public val startedAt: Instant,
     @Serializable(with = InstantIso8601Serializer::class) public val finishedAt: Instant,
     public val fetchedArticles: Int = 0,
-    public val created: List<TshirtSyncLine> = emptyList(),
-    public val updated: List<TshirtSyncLine> = emptyList(),
-    public val unchanged: List<TshirtSyncLine> = emptyList(),
-    public val deactivated: List<TshirtSyncLine> = emptyList(),
-    public val failed: List<TshirtSyncLine> = emptyList(),
-    public val warnings: List<TshirtSyncWarning> = emptyList(),
+    public val created: List<SpodSyncLine> = emptyList(),
+    public val updated: List<SpodSyncLine> = emptyList(),
+    public val unchanged: List<SpodSyncLine> = emptyList(),
+    public val deactivated: List<SpodSyncLine> = emptyList(),
+    public val failed: List<SpodSyncLine> = emptyList(),
+    public val warnings: List<SpodSyncWarning> = emptyList(),
 )
 
 /** Whether the run read the whole catalog. Only a completed run may deactivate anything. */
-public enum class TshirtSyncStatus {
+public enum class SpodSyncStatus {
     COMPLETED,
     FAILED,
 }
 
 /**
- * One article in one of the report's lists: which shirt it is here, which article it is over there,
- * and how many of its variants the run touched.
+ * One article in one of the report's lists: which SPOD article it is here, which article it is over
+ * there, and how many of its variants the run touched.
  *
  * [articleId] is `null` for an article that never became a row — one that failed before it could be
  * written.
  */
 @Serializable
-public data class TshirtSyncLine(
+public data class SpodSyncLine(
     public val articleId: Long?,
     public val spodArticleId: String,
     public val name: String,
@@ -65,8 +65,8 @@ public data class TshirtSyncLine(
 
 /** One thing the run degraded, coded so the admin screen can phrase it. */
 @Serializable
-public data class TshirtSyncWarning(
-    public val code: TshirtSyncWarningCode,
+public data class SpodSyncWarning(
+    public val code: SpodSyncWarningCode,
     public val spodArticleId: String? = null,
     public val detail: String,
 )
@@ -79,7 +79,7 @@ public data class TshirtSyncWarning(
  * and of the partner — never text the partner wrote, so no code path exists that could carry a
  * provider sentence into a log line.
  */
-public enum class TshirtSyncWarningCode {
+public enum class SpodSyncWarningCode {
     /** The article's variants name more than one product type; the shop stores one per article. */
     MIXED_PRODUCT_TYPES,
 
@@ -93,20 +93,23 @@ public enum class TshirtSyncWarningCode {
     ARTICLE_WITHOUT_VARIANTS,
 
     /**
-     * An id of the article, of one of its variants, or of one of its mockups is longer than the
-     * column that would store it — nothing was written for it.
+     * An id of the article, of one of its variants, or of one of its listing images is longer than
+     * the column that would store it — nothing was written for it.
      */
     SPOD_ID_UNUSABLE,
 
     /** `appearanceColorValue` was not a colour; the variants of that colour are inactive. */
     COLOR_VALUE_UNREADABLE,
 
-    /** The colour has no usable mockup image; the variants of that colour are inactive. */
+    /**
+     * Not one listing image of the colour could be stored — the partner lists none, or none could
+     * be fetched; the variants of that colour are inactive and keep whatever pictures they had.
+     */
     COLOR_WITHOUT_IMAGE,
 
     /**
-     * The colour's mockup could not be downloaded or stored; the variants of that colour are
-     * inactive and keep whatever picture they had. The next run asks for it again.
+     * One of the colour's listing images could not be downloaded or stored; it is left out, and the
+     * next run asks for it again.
      */
     IMAGE_DOWNLOAD_FAILED,
 

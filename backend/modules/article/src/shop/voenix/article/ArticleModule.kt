@@ -24,21 +24,21 @@ import shop.voenix.article.mug.installPublicMugRoutes
 import shop.voenix.article.persistence.ArticleCatalogRepository
 import shop.voenix.article.persistence.ArticleCategoryRepository
 import shop.voenix.article.persistence.ArticleMugRepository
+import shop.voenix.article.persistence.ArticleSpodRepository
+import shop.voenix.article.persistence.ArticleSpodSyncRepository
 import shop.voenix.article.persistence.ArticleSubcategoryRepository
-import shop.voenix.article.persistence.ArticleTshirtRepository
-import shop.voenix.article.persistence.ArticleTshirtSyncRepository
 import shop.voenix.article.persistence.PublicArticleCategoryRepository
 import shop.voenix.article.persistence.PublicMugRepository
-import shop.voenix.article.persistence.PublicTshirtRepository
-import shop.voenix.article.tshirt.PublicTshirtOperations
-import shop.voenix.article.tshirt.PublicTshirtService
-import shop.voenix.article.tshirt.TshirtArticleInput
-import shop.voenix.article.tshirt.TshirtArticleOperations
-import shop.voenix.article.tshirt.TshirtArticleService
-import shop.voenix.article.tshirt.TshirtCatalogSync
-import shop.voenix.article.tshirt.TshirtCatalogSyncService
-import shop.voenix.article.tshirt.installPublicTshirtRoutes
-import shop.voenix.article.tshirt.installTshirtArticleRoutes
+import shop.voenix.article.persistence.PublicSpodArticleRepository
+import shop.voenix.article.spod.PublicSpodArticleOperations
+import shop.voenix.article.spod.PublicSpodArticleService
+import shop.voenix.article.spod.SpodArticleInput
+import shop.voenix.article.spod.SpodArticleOperations
+import shop.voenix.article.spod.SpodArticleService
+import shop.voenix.article.spod.SpodCatalogSync
+import shop.voenix.article.spod.SpodCatalogSyncService
+import shop.voenix.article.spod.installPublicSpodArticleRoutes
+import shop.voenix.article.spod.installSpodArticleRoutes
 import shop.voenix.image.PublicImageStorage
 import shop.voenix.pricing.PriceCatalog
 import shop.voenix.spod.SpodClient
@@ -47,7 +47,7 @@ import shop.voenix.validation.toRequestValidationResult
 
 /**
  * The assembled article runtime. The module is split into the sub-packages `category` (categories
- * and subcategories), `mug` (the first article type), `tshirt` (the second one), and `persistence`
+ * and subcategories), `mug` (the first article type), `spod` (the second one), and `persistence`
  * (Exposed tables, repositories, and the ordering lock), but it stays one compilation module: the
  * sub-packages organize the files, the module boundary is what `internal` protects.
  *
@@ -62,12 +62,12 @@ internal constructor(
     internal val categories: ArticleCategoryOperations,
     internal val subcategories: ArticleSubcategoryOperations,
     internal val mugs: MugArticleOperations,
-    internal val tshirts: TshirtArticleOperations,
+    internal val spodArticles: SpodArticleOperations,
     internal val storefront: ArticleStorefront,
     /** Resolves the article-variant references Cart, Order, Checkout, and the Generator store. */
     public val catalog: ArticleCatalog,
     /** Reconciles one destination's Spreadconnect catalog; the production module triggers it. */
-    public val tshirtSync: TshirtCatalogSync,
+    public val spodSync: SpodCatalogSync,
 )
 
 /**
@@ -80,7 +80,7 @@ internal constructor(
  */
 internal class ArticleStorefront(
     val mugs: PublicMugOperations,
-    val tshirts: PublicTshirtOperations,
+    val spodArticles: PublicSpodArticleOperations,
     val categories: PublicArticleCategoryOperations,
 )
 
@@ -101,9 +101,9 @@ internal fun createArticleModule(
                 prices,
                 suppliers,
             ),
-        tshirts =
-            TshirtArticleService(
-                ArticleTshirtRepository(database, prices),
+        spodArticles =
+            SpodArticleService(
+                ArticleSpodRepository(database, prices),
                 images,
                 prices,
                 suppliers,
@@ -111,25 +111,26 @@ internal fun createArticleModule(
         storefront =
             ArticleStorefront(
                 mugs = PublicMugService(PublicMugRepository(database), prices),
-                tshirts = PublicTshirtService(PublicTshirtRepository(database), prices),
+                spodArticles =
+                    PublicSpodArticleService(PublicSpodArticleRepository(database), prices),
                 categories =
                     PublicArticleCategoryService(PublicArticleCategoryRepository(database)),
             ),
         catalog = ArticleCatalogService(ArticleCatalogRepository(database), prices),
-        tshirtSync = TshirtCatalogSyncService(ArticleTshirtSyncRepository(database), spod, images),
+        spodSync = SpodCatalogSyncService(ArticleSpodSyncRepository(database), spod, images),
     )
 
 /**
  * Installs the article admin routes and the anonymous storefront routes, and returns the handle the
  * composition root reads the module's two capabilities off. [images] is the public image storage
- * that the example-image pre-uploads and the t-shirt sync write to, [prices] is the pricing
+ * that the example-image pre-uploads and the SPOD article sync write to, [prices] is the pricing
  * capability that writes an article's price into the same transaction as the article itself,
  * [suppliers] is the supplier capability that labels the rows of every admin article list with the
  * name behind their supplier id, and [spod] is the application's single Spreadconnect client, whose
  * pacer keeps every call of every module inside the partner's request budget.
  *
  * The composition root binds [ArticleModule.catalog] to the cart module, which resolves the
- * `(articleId, variantId)` pair of every line it renders through it, and [ArticleModule.tshirtSync]
+ * `(articleId, variantId)` pair of every line it renders through it, and [ArticleModule.spodSync]
  * to the production module, which triggers a sync on one of its destinations.
  */
 public fun Application.installArticleModule(
@@ -143,9 +144,9 @@ public fun Application.installArticleModule(
     installArticleCategoryRoutes(module.categories)
     installArticleSubcategoryRoutes(module.subcategories)
     installMugArticleRoutes(module.mugs)
-    installTshirtArticleRoutes(module.tshirts)
+    installSpodArticleRoutes(module.spodArticles)
     installPublicMugRoutes(module.storefront.mugs)
-    installPublicTshirtRoutes(module.storefront.tshirts)
+    installPublicSpodArticleRoutes(module.storefront.spodArticles)
     installPublicArticleCategoryRoutes(module.storefront.categories)
     return module
 }
@@ -154,6 +155,6 @@ public fun RequestValidationConfig.validateArticleRequests() {
     validate<ArticleCategoryInput> { input -> input.toRequestValidationResult() }
     validate<ArticleSubcategoryInput> { input -> input.toRequestValidationResult() }
     validate<MugArticleInput> { input -> input.toRequestValidationResult() }
-    validate<TshirtArticleInput> { input -> input.toRequestValidationResult() }
+    validate<SpodArticleInput> { input -> input.toRequestValidationResult() }
     validate<ReorderInput> { input -> input.toRequestValidationResult() }
 }

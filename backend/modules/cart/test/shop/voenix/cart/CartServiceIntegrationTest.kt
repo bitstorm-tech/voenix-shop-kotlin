@@ -349,7 +349,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             fixture.articles.variants =
                 mapOf(
                     CartTestSupport.REFERENCE to CartTestSupport.variant(),
-                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.tshirtVariant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.spodVariant(),
                 )
 
             fixture.service.addItem(GUEST, addInput()).expectSuccess()
@@ -365,7 +365,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     .expectSuccess()
 
             assertEquals(
-                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                listOf(ArticleType.MUG, ArticleType.SPOD),
                 view.items.map(CartLine::articleType),
             )
             assertEquals(listOf("White", "Black / M"), view.items.map(CartLine::variantName))
