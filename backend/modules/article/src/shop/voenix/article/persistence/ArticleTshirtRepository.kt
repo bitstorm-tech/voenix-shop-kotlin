@@ -27,15 +27,15 @@ import shop.voenix.pricing.PriceCatalog
  * Reads t-shirts and writes the half of them the shop owns.
  *
  * It is [ArticleMugRepository] with one whole direction missing. A shirt is created and its garment
- * data maintained by a sync run against the Spreadconnect backoffice (ADR 0003), so there is no
- * insert here at all, and the update writes only `active`, the category path, the frame, the ratio,
- * the price, and which variant is the default one. The rules that survive are the ones that were
- * never about the partner: the price is written by this class rather than by the service, so that
- * an article and its price commit or roll back together; the locks are taken in the same order
- * every write takes them — the `article_types('TSHIRT')` anchor of the position sequence, the
- * referenced category row, then the shirt row itself; and the deferred unique rule on `position`
- * can only fire at the COMMIT of a reorder, which is why that is the one write whose whole
- * transaction is wrapped in the mapping.
+ * data maintained by a sync run against the Spreadconnect backoffice (t-shirt sync decision 1), so
+ * there is no insert here at all, and the update writes only `active`, the category path, the
+ * frame, the ratio, the price, and which variant is the default one. The rules that survive are the
+ * ones that were never about the partner: the price is written by this class rather than by the
+ * service, so that an article and its price commit or roll back together; the locks are taken in
+ * the same order every write takes them — the `article_types('TSHIRT')` anchor of the position
+ * sequence, the referenced category row, then the shirt row itself; and the deferred unique rule on
+ * `position` can only fire at the COMMIT of a reorder, which is why that is the one write whose
+ * whole transaction is wrapped in the mapping.
  */
 internal class ArticleTshirtRepository(
     private val database: Database,
@@ -98,8 +98,9 @@ internal class ArticleTshirtRepository(
      * order.
      *
      * A sync run never deletes: a shirt the partner stopped listing is deactivated and marked, so
-     * that it can come back. This route is the manual retirement of a shirt that will not (ADR 0003
-     * §4), and the next sync of that destination writes it again if the operator was wrong.
+     * that it can come back. This route is the manual retirement of a shirt that will not (t-shirt
+     * sync decision 4), and the next sync of that destination writes it again if the operator was
+     * wrong.
      *
      * Only the identity row is deleted: the shirt, the variant identities, and the variants all
      * cascade from it. The price row can only go afterwards, because the shirt references it with

@@ -5,8 +5,8 @@ import javax.sql.DataSource
 /**
  * Writes t-shirts the way the only writer of t-shirts writes them: straight into the tables.
  *
- * Since ADR 0003 a shirt is created by a sync run against the Spreadconnect backoffice, so the
- * admin API has no create route any more and a test cannot ask one for a fixture. These helpers
+ * Since the catalog sync a shirt is created by a sync run against the Spreadconnect backoffice, so
+ * the admin API has no create route any more and a test cannot ask one for a fixture. These helpers
  * insert the rows instead — the identity, the article with its SPOD identity columns, and one
  * variant row per colour and size — and hand back nothing but the ids the test chose itself.
  *

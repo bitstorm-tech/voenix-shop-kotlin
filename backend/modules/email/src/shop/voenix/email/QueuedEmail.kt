@@ -186,7 +186,7 @@ public sealed interface QueuedEmail {
 
             /**
              * The submission recorded a failure no further attempt can heal — the partner refuses
-             * the order (an unsupported delivery country is the case ADR 0002, decision 7 is
+             * the order (an unsupported delivery country is the case SPOD fulfillment decision 7 is
              * about), or the job's master data has to be fixed first.
              */
             SUBMISSION_BLOCKED,

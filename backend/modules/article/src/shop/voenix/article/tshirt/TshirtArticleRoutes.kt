@@ -30,10 +30,11 @@ private const val ORDER_CONFLICT_MESSAGE = "Article order changed concurrently, 
 /**
  * The admin t-shirt routes: five of them, and none that creates a shirt.
  *
- * A shirt is created by a sync run against the Spreadconnect backoffice (ADR 0003), so `POST` is
- * gone, and so are the two pre-uploads that fed a variant's example image and the article's size
- * chart — both pictures come from the partner now. What is left is reading the catalog, writing the
- * shop-owned half of one shirt, ordering the list, and retiring a shirt that will not come back.
+ * A shirt is created by a sync run against the Spreadconnect backoffice (t-shirt sync decision 1),
+ * so `POST` is gone, and so are the two pre-uploads that fed a variant's example image and the
+ * article's size chart — both pictures come from the partner now. What is left is reading the
+ * catalog, writing the shop-owned half of one shirt, ordering the list, and retiring a shirt that
+ * will not come back.
  *
  * Exactly one of them can answer `409`, and it is the one that writes positions: a reorder loses
  * its race when the stored sequence is not the one it read. The update has no conflict at all — a

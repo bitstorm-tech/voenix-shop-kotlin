@@ -24,11 +24,10 @@ import shop.voenix.db.write
  * NULL`, so a job whose artifact exists is immutable — no counter, error code, or digest ever
  * changes again.
  *
- * Only SFTP jobs are the business of this repository. A PDF is not a universal job artifact
- * (`docs/adr/0002-production-fulfillment-channels.md`, decision 2): a SPOD job is produced through
- * the partner's API and never has one, so [openJobs] filters on the job's own `fulfillment_channel`
- * rather than leaving a channel that cannot answer to fail its way through the generation stage
- * forever.
+ * Only SFTP jobs are the business of this repository. A PDF is not a universal job artifact (SPOD
+ * fulfillment decision 2): a SPOD job is produced through the partner's API and never has one, so
+ * [openJobs] filters on the job's own `fulfillment_channel` rather than leaving a channel that
+ * cannot answer to fail its way through the generation stage forever.
  */
 internal class ProductionJobRepository(private val database: Database) {
     internal suspend fun openJobs(): List<OpenProductionJob> = database.read {
@@ -82,8 +81,8 @@ internal class ProductionJobRepository(private val database: Database) {
      * confirmed remote order), which is what makes the ship guard one rule for both.
      *
      * The item snapshot is *not* written here anymore — it belongs to the split transaction now
-     * (`docs/adr/0002-production-fulfillment-channels.md`, decision 2), because a channel without a
-     * PDF has no generation stage to anchor it to.
+     * (SPOD fulfillment decision 2), because a channel without a PDF has no generation stage to
+     * anchor it to.
      */
     internal suspend fun completeGeneration(jobId: Long, contentSha256: String): Boolean =
         updateOpenJob(jobId) { statement ->
@@ -163,11 +162,11 @@ internal object ProductionJobs : Table("production_jobs") {
  * reassignment or an article rename moves no row here.
  *
  * They used to be written one stage later, together with the PDF's digest, which made them provably
- * the document's content. Since a job of the print-on-demand channel has no document at all
- * (`docs/adr/0002-production-fulfillment-channels.md`, decision 2), the snapshot moved to the one
- * moment both channels share. For an SFTP job that opens a window of minutes in which a catalog
- * rename can make this snapshot and the PDF disagree on a name; the PDF is still rendered from the
- * same immutable order data, so the two never disagree on *what* was ordered.
+ * the document's content. Since a job of the print-on-demand channel has no document at all (SPOD
+ * fulfillment decision 2), the snapshot moved to the one moment both channels share. For an SFTP
+ * job that opens a window of minutes in which a catalog rename can make this snapshot and the PDF
+ * disagree on a name; the PDF is still rendered from the same immutable order data, so the two
+ * never disagree on *what* was ordered.
  *
  * [position] is the 1-based place of the line inside the supplier's share of the order, which is
  * also the primary key together with the job — items are parts of the job, not rows with a life

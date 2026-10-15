@@ -27,9 +27,9 @@ import shop.voenix.db.write
  * The frame a synced shirt starts with: a centered rectangle on the chest, in percent of the
  * mockup.
  *
- * The partner's API carries no geometry relative to a mockup image (ADR 0003, decision 7), so a new
- * shirt starts from the editor's default frame and an operator calibrates it once. It is written on
- * insert only — the frame is shop-owned and no later run touches it.
+ * The partner's API carries no geometry relative to a mockup image (t-shirt sync decision 7), so a
+ * new shirt starts from the editor's default frame and an operator calibrates it once. It is
+ * written on insert only — the frame is shop-owned and no later run touches it.
  */
 private val DEFAULT_FRAME_LEFT_PCT = BigDecimal("30.00")
 private val DEFAULT_FRAME_TOP_PCT = BigDecimal("25.00")
@@ -39,11 +39,11 @@ private val DEFAULT_FRAME_HEIGHT_PCT = BigDecimal("40.00")
 /**
  * The writing half of the sync: the two transactions a run performs, and nothing else.
  *
- * The split into *one transaction per article* plus *one sweep at the end* is the rule of ADR 0003,
- * decision 6: an article is reconciled completely or not at all, and only a run that read the whole
- * catalog may mark what is missing from it. Neither transaction talks to the partner and neither
- * stores a file — both happen before [upsert] is called, because a transaction must never wait for
- * a CDN.
+ * The split into *one transaction per article* plus *one sweep at the end* is the rule of t-shirt
+ * sync decision 6: an article is reconciled completely or not at all, and only a run that read the
+ * whole catalog may mark what is missing from it. Neither transaction talks to the partner and
+ * neither stores a file — both happen before [upsert] is called, because a transaction must never
+ * wait for a CDN.
  *
  * The class writes the SPOD-owned half of a shirt only. `active` (except the one rule that switches
  * it *off*), the category path, the position after the insert, the price, the frame, the ratio, and
@@ -126,7 +126,7 @@ internal class ArticleTshirtSyncRepository(private val database: Database) {
      * An article of another environment is missing by definition. A destination row is switched
      * from STAGING to PRODUCTION, and the shirts of the installation it left are exactly the shirts
      * the current token no longer lists — even when the new installation happens to number one of
-     * its own articles the same way (ADR 0003, decision 4).
+     * its own articles the same way (t-shirt sync decision 4).
      *
      * `spod_missing_since IS NULL` is what makes the sweep idempotent: an article that was already
      * marked is left alone, so a second run neither writes it again nor reports it again.
@@ -181,9 +181,9 @@ internal class ArticleTshirtSyncRepository(private val database: Database) {
  * prepared variant.
  *
  * Everything the shop owns starts at its neutral value — inactive, no category, no price, the
- * default frame, the square print ratio — because an operator, not a sync run, decides those (ADR
- * 0003, decision 2). The first variant that can be sold becomes the default one, so the article
- * already has a picture when it appears in the admin list.
+ * default frame, the square print ratio — because an operator, not a sync run, decides those
+ * (t-shirt sync decision 2). The first variant that can be sold becomes the default one, so the
+ * article already has a picture when it appears in the admin list.
  */
 private fun insertInTransaction(
     destinationId: Long,

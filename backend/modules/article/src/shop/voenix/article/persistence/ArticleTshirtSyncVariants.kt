@@ -20,9 +20,9 @@ import shop.voenix.article.tshirt.TshirtSyncWarningCode
  * reconciliation with three outcomes per row and a default variant that has to keep pointing at
  * something a customer can buy. Everything in this file runs inside the caller's transaction.
  *
- * Nothing is ever deleted here (ADR 0003, decision 4). A colour switched off in the backoffice is a
- * row that keeps its id, so the order that referenced it still resolves and the colour can come
- * back.
+ * Nothing is ever deleted here (t-shirt sync decision 4). A colour switched off in the backoffice
+ * is a row that keeps its id, so the order that referenced it still resolves and the colour can
+ * come back.
  */
 internal fun writeVariantsInTransaction(
     articleId: Long,

@@ -143,8 +143,8 @@ describe('adminRoutes', () => {
     expect(router.resolve('/admin/articles/tshirts').meta.title).toBe('T-Shirts')
   })
 
-  // A shirt is created by a sync run against the Spreadconnect backoffice (ADR 0003), so only the
-  // mug has a create page.
+  // A shirt is created by a sync run against the Spreadconnect backoffice (t-shirt sync decision
+  // 1), so only the mug has a create page.
   it('registers a create route for the mug only', () => {
     const paths = getAdminChildRoutes().map((route) => route.path)
 

@@ -171,8 +171,8 @@ internal fun Application.installProductionModule(
  * [spodClient] is the application's single print-on-demand client — one pacer for the partner's
  * request budget — which this module shares with the article module's t-shirt sync and closes when
  * the application stops. [tshirtCatalogSync] is that sync: the run belongs to the module that owns
- * the articles, the button belongs to the destination screen this module owns (ADR 0003, decision
- * 5).
+ * the articles, the button belongs to the destination screen this module owns (t-shirt sync
+ * decision 5).
  *
  * The parameter list is long for the same reason [createProductionModule]'s is: the dependencies
  * *are* the list, one per collaborator.

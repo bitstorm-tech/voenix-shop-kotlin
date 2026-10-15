@@ -25,8 +25,8 @@ import shop.voenix.spod.SpodAccess
 import shop.voenix.spod.SpodEnvironment
 
 /**
- * Destination persistence across the base table and the per-channel detail tables
- * (`docs/adr/0002-production-fulfillment-channels.md`, decision 3).
+ * Destination persistence across the base table and the per-channel detail tables (SPOD fulfillment
+ * decision 3).
  *
  * A destination is always two rows: the base row with identity, supplier, channel, label, enabled,
  * and the notification fields, plus exactly one detail row in the table of its channel. Both are
@@ -58,8 +58,8 @@ internal class ProductionDestinationRepository(private val database: Database) {
      * a secret — a sync has to authenticate, exactly like the order submission does — which is why
      * it selects the token column the other reads deliberately leave out.
      *
-     * `enabled` is not part of the query: a disabled destination may still sync (ADR 0003, decision
-     * 4). Only the channel is checked, and a destination that has no catalog answers
+     * `enabled` is not part of the query: a disabled destination may still sync (t-shirt sync
+     * decision 4). Only the channel is checked, and a destination that has no catalog answers
      * [ProductionDestinationCatalogSource.NotSyncable] rather than nothing at all, so the caller
      * can tell it apart from an unknown id.
      */
@@ -461,8 +461,9 @@ internal sealed interface ProductionDestinationWriteResult {
 
     /**
      * The replace names a different supplier. A destination belongs to the supplier it was created
-     * for: its open `production_deliveries` rows and — since ADR 0003 — every t-shirt a sync of it
-     * created carry that supplier, and moving the destination would leave all of them behind.
+     * for: its open `production_deliveries` rows and — since the catalog sync — every t-shirt a
+     * sync of it created carry that supplier, and moving the destination would leave all of them
+     * behind.
      */
     data object SupplierImmutable : ProductionDestinationWriteResult
 }

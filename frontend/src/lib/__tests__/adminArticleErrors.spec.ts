@@ -167,8 +167,9 @@ describe('t-shirt save errors', () => {
     expect(errors.other).toEqual([])
   })
 
-  // The shirt editor writes no variants at all since ADR 0003, and it has no name, description, or
-  // supplier input either — such a message belongs in the summary, not on an input that is gone.
+  // The shirt editor writes no variants at all since the catalog sync, and it has no name,
+  // description, or supplier input either — such a message belongs in the summary, not on an input
+  // that is gone.
   it.each([
     ['tshirtVariants[0].colorHex', 'ColorHex must be a six-digit hex color such as #1a2b3c'],
     ['name', 'Name is required'],

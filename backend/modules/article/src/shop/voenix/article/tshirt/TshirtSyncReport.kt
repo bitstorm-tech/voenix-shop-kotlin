@@ -16,8 +16,8 @@ import shop.voenix.spod.SpodError
  * warning next to it says which one.
  *
  * [warnings] is the other half of the answer: everything the run *degraded* instead of failing on
- * (ADR 0003, decision 6). The codes are a closed enum on purpose, so the admin screen can explain
- * each of them in the shop's own words instead of showing a sentence the partner wrote.
+ * (t-shirt sync decision 6). The codes are a closed enum on purpose, so the admin screen can
+ * explain each of them in the shop's own words instead of showing a sentence the partner wrote.
  *
  * A [status] of [TshirtSyncStatus.FAILED] means the listing could not be read to the end. Nothing
  * was written then, and nothing was deactivated — [failure] carries the bounded reason.

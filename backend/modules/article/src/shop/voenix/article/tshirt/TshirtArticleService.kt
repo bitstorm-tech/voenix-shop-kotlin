@@ -22,8 +22,8 @@ import shop.voenix.pricing.PriceCatalog
 import shop.voenix.supplier.SupplierReader
 
 /**
- * The admin lifecycle of a t-shirt, which since ADR 0003 is a short one: read the catalog, write
- * the shop-owned half of a shirt, order the list, and retire a shirt for good.
+ * The admin lifecycle of a t-shirt, which since the catalog sync is a short one: read the catalog,
+ * write the shop-owned half of a shirt, order the list, and retire a shirt for good.
  *
  * A shirt is created and its garment data maintained by a sync run against the Spreadconnect
  * backoffice, so this service neither creates nor uploads anything. What is left of the mug
@@ -171,8 +171,8 @@ internal class TshirtArticleService(
  * The two folders a shirt's pictures live in.
  *
  * They are top-level rather than private to this service because a shirt has a second writer since
- * ADR 0003: the sync downloads both kinds of picture, and the admin service deletes them when a
- * shirt is retired. One definition per folder is what keeps the two from drifting apart.
+ * the catalog sync: the sync downloads both kinds of picture, and the admin service deletes them
+ * when a shirt is retired. One definition per folder is what keeps the two from drifting apart.
  */
 internal val TSHIRT_EXAMPLE_IMAGE_FOLDER: PublicImageFolder =
     PublicImageFolder.of("articles/tshirts/variant-example-images")

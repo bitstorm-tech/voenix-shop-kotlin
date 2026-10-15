@@ -5,7 +5,7 @@ import shop.voenix.spod.SpodEnvironment
 
 /**
  * Reconciles one destination's Spreadconnect backoffice catalog into this shop's t-shirts and
- * answers what it did (ADR 0003).
+ * answers what it did (t-shirt sync decisions).
  *
  * It is the one capability the article module exports besides [shop.voenix.article.ArticleCatalog],
  * and it exists because the *trigger* does not belong here: a sync is started on a production
@@ -28,7 +28,7 @@ public fun interface TshirtCatalogSync {
  * article created by the run is produced by.
  *
  * The destination and the environment are deliberately *not* repeated next to [access]. They are
- * part of the identity of a synced article (ADR 0003, decision 4) and of the access at the same
+ * part of the identity of a synced article (t-shirt sync decision 4) and of the access at the same
  * time, and one of the two would eventually be filled in from somewhere else — so there is one of
  * each, read off the access.
  *

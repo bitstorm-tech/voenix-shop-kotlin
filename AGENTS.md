@@ -23,7 +23,7 @@ Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/
 ### Domain language and decisions
 
 - Use the domain terms as defined in the glossary `CONTEXT.md` at the repo root, in code, issues, and docs alike.
-- Architecture decisions live in `docs/adr/`. Read the ADRs that touch the area you work in; when your proposal contradicts one, say so explicitly instead of overriding it silently.
+- There are no ADRs. The reason for a design and the alternatives it beat are written into the `docs/dev` guide of the package it shapes (for example the numbered decisions in the SPOD fulfillment guide). Read the guides that touch the area you work in; when your proposal contradicts a recorded decision, say so explicitly instead of overriding it silently.
 
 ### Council workflow
 

@@ -13,7 +13,7 @@ import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { AdminArticleTshirtVariantDto } from '@/stores/admin/tshirtArticles'
 
 /**
- * The synced variants of one t-shirt, read-only (ADR 0003).
+ * The synced variants of one t-shirt, read-only (t-shirt sync decision 2).
  *
  * The editor renders it twice — once for the active variants and once for the inactive ones behind
  * their toggle — and both lists show the same columns on purpose: an operator comparing this screen

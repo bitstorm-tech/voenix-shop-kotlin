@@ -405,7 +405,7 @@ it through the exported `OrderPlacement` capability. It runs in three steps.
    line by it, and it must keep saying "t-shirt" after the article was edited or
    deleted. Which channel a line is produced through is decided elsewhere, by
    the enabled destination of its supplier, snapshotted on the production job
-   (see [ADR 0002](../../../adr/0002-production-fulfillment-channels.md)), and no
+   (see [SPOD fulfillment decision 1](spod-fulfillment.md#the-design-decisions)), and no
    reader of `order_items.article_type` chooses a channel from it. A
    t-shirt line stores `NULL` in all five measurements, because those are PDF
    layout overrides and a shirt has no page to lay out.

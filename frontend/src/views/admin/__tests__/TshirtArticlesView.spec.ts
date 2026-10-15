@@ -101,7 +101,8 @@ describe('TshirtArticlesView', () => {
     expect(wrapper.text()).toContain('No T-shirts found.')
   })
 
-  // A shirt is created by a sync run against the Spreadconnect backoffice (ADR 0003).
+  // A shirt is created by a sync run against the Spreadconnect backoffice (t-shirt sync decision
+  // 1).
   it('offers no way to add a shirt by hand', async () => {
     const wrapper = await mountTshirtArticlesView()
 

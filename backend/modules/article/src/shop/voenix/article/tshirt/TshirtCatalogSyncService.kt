@@ -31,7 +31,7 @@ import shop.voenix.spod.parseColorHex
  * One sync run of one destination, from the first page of the partner's listing to the last file it
  * deletes.
  *
- * The shape of a run follows ADR 0003 and is the same every time:
+ * The shape of a run follows the t-shirt sync decisions and is the same every time:
  * 1. read the *whole* listing, or give up — a partial listing may not deactivate anything;
  * 2. per article: judge it, resolve its colours and pictures, fetch what changed, and write it in
  *    one transaction of its own;
@@ -300,13 +300,13 @@ internal class TshirtCatalogSyncService(
     /**
      * The colour of one appearance and the picture the shop shows it with.
      *
-     * Everything here degrades instead of failing (ADR 0003, decision 6): a colour value this shop
-     * cannot read becomes a neutral grey, a colour without a usable mockup keeps whatever picture
-     * it had, and so does a colour whose mockup could not be fetched or stored. In each case the
-     * variants of that colour go inactive with a warning — nobody orders a garment whose colour the
-     * shop had to invent or cannot show. A picture that could not be fetched is asked for again by
-     * the next run: nothing of it is stored, so the stored `spod_image_id` still differs from the
-     * one the partner lists.
+     * Everything here degrades instead of failing (t-shirt sync decision 6): a colour value this
+     * shop cannot read becomes a neutral grey, a colour without a usable mockup keeps whatever
+     * picture it had, and so does a colour whose mockup could not be fetched or stored. In each
+     * case the variants of that colour go inactive with a warning — nobody orders a garment whose
+     * colour the shop had to invent or cannot show. A picture that could not be fetched is asked
+     * for again by the next run: nothing of it is stored, so the stored `spod_image_id` still
+     * differs from the one the partner lists.
      *
      * An unchanged picture is not fetched again. That is what `spod_image_id` is stored for, and it
      * is why a second identical run downloads nothing at all: a new *size* of a colour the shop

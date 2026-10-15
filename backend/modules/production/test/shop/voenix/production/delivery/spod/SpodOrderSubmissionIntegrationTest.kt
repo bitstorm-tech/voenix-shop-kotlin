@@ -226,9 +226,10 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
     }
 
     /**
-     * The safety net of ADR 0002, decision 8: the three partner ids are read from today's master
-     * data, so a mapping fix heals a pending order — and the snapshotted variant name is what stops
-     * the same liveness from silently turning a paid "Schwarz / M" into a different garment.
+     * The safety net of SPOD fulfillment decision 8: the three partner ids are read from today's
+     * master data, so a mapping fix heals a pending order — and the snapshotted variant name is
+     * what stops the same liveness from silently turning a paid "Schwarz / M" into a different
+     * garment.
      */
     @Test
     fun `a variant renamed after the split refuses the job`() = runBlocking {
@@ -283,9 +284,9 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
         }
 
     /**
-     * The case ADR 0002, decision 7 is about: an order the partner will not accept — an unsupported
-     * delivery country reaches this shop as a create rejection — is a manual refund, and nobody
-     * would ever learn of it without the alert.
+     * The case SPOD fulfillment decision 7 is about: an order the partner will not accept — an
+     * unsupported delivery country reaches this shop as a create rejection — is a manual refund,
+     * and nobody would ever learn of it without the alert.
      */
     @Test
     fun `a rejected creation alerts the operator, and a repeated one does not alert twice`() =

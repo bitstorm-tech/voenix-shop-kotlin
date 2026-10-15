@@ -286,7 +286,7 @@ internal class PublicArticleCategoryIntegrationTest : PostgresIntegrationTest() 
         /**
          * A visible t-shirt: the garment half is inserted the way a sync run inserts it, the shop
          * half — visibility, category path, frame, default variant, and price — is written through
-         * the admin route that survived ADR 0003.
+         * the admin route that survived the catalog sync.
          *
          * The ids start well above the mug ids of these tests, because both article types mint
          * their identities from one sequence and this fixture chooses its own.

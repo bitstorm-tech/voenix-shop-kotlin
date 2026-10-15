@@ -77,8 +77,8 @@ internal data class StoredOrder(
          *
          * It does **not** decide how the line is produced. That is the fulfillment channel, and it
          * comes from the supplier's enabled destination at split time and is frozen in
-         * `production_jobs.fulfillment_channel` (ADR 0002, decision 2) — so a shirt of a supplier
-         * with an SFTP destination travels as a PDF like everything else of that supplier.
+         * `production_jobs.fulfillment_channel` (SPOD fulfillment decision 2) — so a shirt of a
+         * supplier with an SFTP destination travels as a PDF like everything else of that supplier.
          *
          * It is stored rather than resolved so a retyped or deleted article cannot change what an
          * order that is already in production says it was.

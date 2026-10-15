@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
  * [SpodClient.sizeChart] answer, plus [parseColorHex], the one piece of interpretation the answers
  * need.
  *
- * Two decisions run through every type here, both from ADR 0003.
+ * Two decisions run through every type here, both from the t-shirt sync decisions (6 and 4).
  *
  * **Every field except an id has a default.** The partner documents neither which fields are
  * optional nor what a sparse article looks like, and a sync that refuses to decode a page is a sync
@@ -27,7 +27,7 @@ public data class SpodCatalogPage(
     /**
      * How many articles the merchant has in total, not how many are in this page. It is what tells
      * the sync whether it has seen the whole catalog — and only a complete listing may deactivate
-     * what is missing from it (ADR 0003, decision 6).
+     * what is missing from it (t-shirt sync decision 6).
      *
      * It is the one field with no default, because there is no safe one: a page that carries no
      * count says nothing about the size of the catalog, and any number invented here would be a
@@ -50,8 +50,8 @@ public data class SpodCatalogArticle(
  * One colour × size combination of an article.
  *
  * [productTypeId], [appearanceId], and [sizeId] are the triple production orders by and the key
- * this shop matches a variant on — never [id], which the partner may renumber (ADR 0003, decision
- * 4).
+ * this shop matches a variant on — never [id], which the partner may renumber (t-shirt sync
+ * decision 4).
  *
  * [appearanceColorValue] is the colour as the partner writes it, in an undocumented format;
  * [parseColorHex] is what turns it into something a storefront can paint with, or into nothing.
@@ -151,7 +151,7 @@ public class SpodBinary(public val bytes: ByteArray, public val contentType: Str
  * colour are one value in the database.
  *
  * Anything else answers `null`, and the caller makes the variant inactive with a bounded warning
- * instead of inventing a colour a customer would order by (ADR 0003, decision 6).
+ * instead of inventing a colour a customer would order by (t-shirt sync decision 6).
  */
 public fun parseColorHex(value: String?): String? {
     val digits = value?.substringBefore(',')?.trim()?.removePrefix("#") ?: return null

@@ -34,8 +34,8 @@ export interface AdminArticleEditorStore<
 > {
   fetchArticle: (id: number) => Promise<TArticle>
   /**
-   * Creating is a mug thing. A shirt comes into being through a sync run (ADR 0003), so the t-shirt
-   * store has no create call and its editor is only ever reached with an article id.
+   * Creating is a mug thing. A shirt comes into being through a sync run (t-shirt sync decision 1),
+   * so the t-shirt store has no create call and its editor is only ever reached with an article id.
    */
   createArticle?: (payload: TRequest) => Promise<TArticle>
   updateArticle: (id: number, payload: TRequest) => Promise<TArticle>

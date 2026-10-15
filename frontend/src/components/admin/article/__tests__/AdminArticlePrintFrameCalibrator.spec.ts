@@ -93,7 +93,7 @@ describe('AdminArticlePrintFrameCalibrator', () => {
   it('is silent about the shape and cannot fit while no mockup has loaded', async () => {
     const wrapper = mountCalibrator({ mockupUrl: null })
 
-    // The mockup arrives with a sync run; nobody uploads one here (ADR 0003).
+    // The mockup arrives with a sync run; nobody uploads one here (t-shirt sync decision 1).
     const hint = wrapper.get('[data-testid="print-frame-no-mockup"]')
     expect(hint.text()).toContain('synced example image of the default variant')
     expect(hint.text()).not.toContain('Upload')

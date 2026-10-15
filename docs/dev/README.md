@@ -30,16 +30,17 @@ a running shop to one package's internals.
 | Folder | What you find there |
 | --- | --- |
 | [`getting-started/`](getting-started/) | Running, seeding, importing data, building the deployable image. |
-| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: modules, file layout, code quality, results and errors, validation, limits, authentication. |
+| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: the technology stack, modules, file layout, code quality, results and errors, validation, limits, authentication. |
 | [`backend/packages/`](backend/packages/) | One guide per backend package (`shop.voenix.<name>`), plus the SPOD channel guide that belongs to the Production package. |
 | [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls, plus frontend conventions such as landing pages and form controls. |
 | [`guides/`](guides/) | Operator how-tos that cross backend, frontend, and admin UI. |
 
-The folders `docs/adr` (architecture decision records), `docs/migration` (the
-record of the .NET → Kotlin migration) and `docs/agents` (instructions for
-coding agents) sit next to this one and are not developer documentation in this
-sense; the guides link into them where a decision or a migration record is the
-reason for a design.
+The folders `docs/migration` (the record of the .NET → Kotlin migration) and
+`docs/agents` (instructions for coding agents) sit next to this one and are not
+developer documentation in this sense; the guides link into them where a
+migration record is the reason for a design. There are no separate decision
+records: the reason for a design, and the alternatives it beat, are written into
+the guide of the package it shapes.
 
 ## Getting started
 
@@ -54,6 +55,7 @@ reason for a design.
 
 | Guide | What it answers |
 | --- | --- |
+| [The technology stack](backend/conventions/technology-stack.md) | What the backend is built from (Ktor, Exposed, Flyway, …) and why those and not the alternatives. |
 | [Backend compile-time modules](backend/conventions/module-architecture.md) | Which Kotlin modules exist, what may depend on what, and how a module exports a capability. |
 | [Kotlin source file organization](backend/conventions/source-file-organization.md) | Which declarations go into one file; the standard module shape. |
 | [Kotlin code quality](backend/conventions/kotlin-code-quality.md) | ktfmt, Ktlint, Detekt: how to run them and what the gate enforces. |

@@ -111,7 +111,7 @@ internal class ProductionDestinationService(
 
     /**
      * Reads the destination and hands its catalog source to the article module's sync, which does
-     * the whole run before this call returns (ADR 0003, decision 5).
+     * the whole run before this call returns (t-shirt sync decision 5).
      *
      * The run is not wrapped in a transaction and opens none: every write it makes belongs to the
      * article module. What this service contributes is the one destination read the sync cannot do

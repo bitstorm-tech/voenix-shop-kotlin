@@ -10,10 +10,10 @@ import shop.voenix.article.PrintAspectRatio
 /**
  * The field-rule matrix of the one t-shirt write there is: the shop's half of a synced article.
  *
- * Since ADR 0003 the garment belongs to the Spreadconnect backoffice, so the rules about a name, a
- * description, a colour, a size, and the three printer ids are gone with the fields they judged.
- * What is left is what the shop decides: where the shirt is filed, how its preview places a design,
- * which variant is the default one, and whether it may be shown at all.
+ * Since the catalog sync the garment belongs to the Spreadconnect backoffice, so the rules about a
+ * name, a description, a colour, a size, and the three printer ids are gone with the fields they
+ * judged. What is left is what the shop decides: where the shirt is filed, how its preview places a
+ * design, which variant is the default one, and whether it may be shown at all.
  *
  * Two activation rules are deliberately *not* here. Whether a price exists and whether the partner
  * still lists the article can both be facts about the stored row, so the write path owns them;

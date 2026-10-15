@@ -42,7 +42,7 @@ import {
 } from '@/stores/admin/tshirtArticles'
 
 /**
- * The t-shirt editor. A shirt has two owners since ADR 0003, and so has this screen: the
+ * The t-shirt editor. A shirt has two owners since the catalog sync, and so has this screen: the
  * Spreadconnect section *shows* what a sync run wrote — the name, the descriptions, the garment's
  * variants, the size chart — and every other section edits what the shop decides about it.
  *

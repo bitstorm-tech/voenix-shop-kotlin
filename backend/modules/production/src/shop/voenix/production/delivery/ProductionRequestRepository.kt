@@ -76,9 +76,9 @@ internal class ProductionRequestRepository(private val database: Database) {
      * frozen on the job row, so a destination reconfigured afterwards never changes how a running
      * job is produced. And they decide its **deliveries**, which are therefore a snapshot of the
      * configuration at split time as well. A SPOD job gets none at all: there is no document to
-     * push (`docs/adr/0002-production-fulfillment-channels.md`, decision 2). An SFTP supplier
-     * without an enabled destination still gets its job — the artifact is generated and served on
-     * the supplier page, only the push is skipped — and is reported back so the caller can log it.
+     * push (SPOD fulfillment decision 2). An SFTP supplier without an enabled destination still
+     * gets its job — the artifact is generated and served on the supplier page, only the push is
+     * skipped — and is reported back so the caller can log it.
      *
      * The item lines are written here rather than at artifact generation, because this is the one
      * moment both channels share. [itemsBySupplier] holds the supplier-filtered lists in source

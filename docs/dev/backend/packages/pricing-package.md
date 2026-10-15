@@ -268,9 +268,34 @@ decides which regular price is lawful to advertise, and the admin discount card
 says so. An automated price history is a follow-up (issue #239), not part of
 this feature.
 
-Why it was decided that way, and what has to exist before discounts are used at
-scale, is recorded in
-[ADR 0004](../../../adr/0004-price-discount-reference-price.md).
+Why it was decided that way (issue #238, the council with Joe deciding): § 11
+PAngV requires a shop that announces a price reduction to state the **lowest
+price applied within the previous 30 days**, and this shop cannot know it. A
+`prices` row holds the current inputs and an update overwrites them, so nothing
+records what an article cost three weeks ago. Worse, net, tax, and gross are
+derived from the referenced VAT entries on every read, so a VAT change silently
+changes what an older price "was" — a history rebuilt from today's rows would
+be a reconstruction, not a record. Half a history, one that starts today or one
+rebuilt from rows VAT changes already moved, would be worse than none, because
+a wrong reference price is the exact failure the rule is about. So no column,
+API field, or admin view claims to know a 30-day low.
+
+Two alternatives were rejected. **Building the price history now** needs a
+write on every price change, a rule for what a VAT change means for a
+historical amount, a backfill, and an admin view that explains the number — a
+feature of its own that would have delayed a discount one operator can use
+lawfully today. **Calculating the discount but never highlighting it** avoids
+the rule, but a silent price cut is what editing the sales price already did;
+the crossed-out amount and the saving badge *are* the requirement.
+
+The consequence is accepted on purpose: neither validation nor the admin UI
+stops a discount configured right after a price increase. That is fine while
+one owner sets the prices personally and knows the rule. It stops being fine as
+soon as discounts are used on many articles or by more than one operator, which
+makes issue #239 a **prerequisite** for that step, not a nice-to-have. Nothing
+blocks it: a history table is written next to `prices`, and the storefront
+already has exactly one field for the crossed-out amount (`regularPrice`,
+`regularSalesTotalGross`), so only the producer of that number changes.
 
 ## Validation and normalization
 

@@ -59,8 +59,8 @@ import shop.voenix.vat.installVatModule
  * visibility matrix, the display order, the variant filter, and a statement count that does not
  * grow with the catalog — because the two lists apply one rule that is written once per type.
  *
- * The catalog is built the way it really comes into being since ADR 0003: the garment half of every
- * shirt is inserted as a sync run would insert it (`SyncedTshirts`), and the shop half —
+ * The catalog is built the way it really comes into being since the catalog sync: the garment half
+ * of every shirt is inserted as a sync run would insert it (`SyncedTshirts`), and the shop half —
  * visibility, category path, frame, ratio, default variant, and price — is written through the
  * surviving admin `PUT`. The storefront answer itself is unchanged by that ticket, which is what
  * these tests pin.

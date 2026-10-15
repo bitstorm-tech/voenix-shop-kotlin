@@ -40,8 +40,8 @@ export interface TshirtPrintFrameDto {
  * One stored variant of a t-shirt: a colour in a size, and the printable product those name at the
  * print-on-demand partner.
  *
- * The whole type is read-only. A variant is written by a sync run alone (ADR 0003); the admin's
- * only say about the array is which of its entries is the default one.
+ * The whole type is read-only. A variant is written by a sync run alone (t-shirt sync decision 2);
+ * the admin's only say about the array is which of its entries is the default one.
  *
  * `name` is composed by the backend — `"Black / M"`. `spodVariantId` and `sku` are the partner's
  * own names for the row: neither is ordered by, but an operator comparing this screen with the

@@ -193,7 +193,7 @@ the worker stages, and the channel adapters:
 | [`ProducerNotificationResolver.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver. |
 | [`ProductionSourceResolution.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
 | [`sftp/SftpProductionDelivery.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | In the `spod` module since ADR 0003, shared with the article module's catalog sync: the print-on-demand HTTP adapter with its eight calls (five of them this module's), the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary (see the [SPOD package guide](spod-package.md)). |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | In the `spod` module since the catalog sync, shared with the article module's catalog sync: the print-on-demand HTTP adapter with its eight calls (five of them this module's), the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary (see the [SPOD package guide](spod-package.md)). |
 | [`spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The submission stage with its creation and confirmation halves, and the `SpodSubmissionError` codes. |
 | [`spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | Remote-order state with the `production_spod_orders` and `production_spod_designs` tables, `OpenSpodJob`, and the supplier's destination read. |
 | [`spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG inside production, with the pixel cap, the byte budget, and `PrintImageError`. |
@@ -314,7 +314,7 @@ are enforced before any handler runs:
 ### Syncing the t-shirt catalog of a destination
 
 `POST …/{id}/sync-articles` is the trigger of the sync described in the
-[Article package guide](article-package.md#t-shirts) (ADR 0003). The run itself
+[Article package guide](article-package.md#t-shirts) (t-shirt sync decision 1). The run itself
 belongs to the article module, which owns the tables it writes; this module owns
 the button, because a run is scoped to one destination's token. The service does
 the one read the sync cannot do itself — the supplier, the installation, and the
@@ -413,7 +413,7 @@ it.
 - The **channel and the supplier are fixed after creation.** A `PUT` that names
   another one is a field error — `channel`: *Channel cannot be changed after
   creation*, `supplierId`: *Supplier cannot be changed after creation*. The
-  supplier rule joined the older channel rule with ADR 0003: a synced t-shirt
+  supplier rule joined the older channel rule with the catalog sync: a synced t-shirt
   carries the supplier of the destination it came from, so moving a destination
   to another supplier would silently re-own every shirt it wrote.
 - `enabled` defaults to `true`. Disabling a destination
@@ -649,8 +649,8 @@ later ones:
 
 `V23__production_job_channels.sql` gives a job the two columns its lifecycle
 needs once a PDF is no longer the only way to produce one
-([ADR 0002](../../../adr/0002-production-fulfillment-channels.md), decisions 1
-and 2):
+([SPOD fulfillment decisions](spod-fulfillment.md#the-design-decisions) 1 and
+2):
 
 - `fulfillment_channel` (`SFTP` | `SPOD`, `NOT NULL`, no default) is how this
   job is produced, decided by the split from the supplier's enabled
@@ -669,8 +669,8 @@ which is what they were.
 
 `V24__production_spod_orders.sql` gives a SPOD job the two tables its remote
 lifecycle needs
-([ADR 0002](../../../adr/0002-production-fulfillment-channels.md), decisions 2
-and 4). `production_spod_orders` holds one row per job (the partner's order
+([SPOD fulfillment decisions](spod-fulfillment.md#the-design-decisions) 2 and
+4). `production_spod_orders` holds one row per job (the partner's order
 id, the creation state, the ambiguity counter, the confirmation, and the
 remote state) and `production_spod_designs` one row per item position with
 the design that was uploaded for it. Why the columns are shaped that way, and
@@ -996,7 +996,7 @@ list the renderer filters out for itself, so nobody filters the order twice
 and hopes the two filters agree.
 
 The anchor used to be the artifact generation, which made the snapshot
-provably the PDF's content. ADR 0002 moved it to the split, because a SPOD job
+provably the PDF's content. SPOD fulfillment decision 2 moved it to the split, because a SPOD job
 has no PDF to anchor anything to and the supplier page must still show its
 lines. The accepted consequence: on an SFTP job a catalog rename in the
 minutes between split and generation can make the page and the document
@@ -1137,7 +1137,7 @@ back inside the same transaction to say why, which is the whole error matrix:
 | not prepared yet | `409`, code `NOT_READY` |
 
 The `prepared_at IS NOT NULL` guard is decision J1 of issue #119, made
-channel-neutral by ADR 0002: there is nothing to have packed before the job is
+channel-neutral by SPOD fulfillment decision 2: there is nothing to have packed before the job is
 prepared. No PDF was generated for an SFTP job, no remote order was confirmed
 for a SPOD one. A human ship stays allowed for both channels; on a SPOD job it
 is the admin's fallback when the partner's shipping webhook never arrives. Two
