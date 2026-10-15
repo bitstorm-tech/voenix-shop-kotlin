@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
-import { useEventListener } from '@vueuse/core'
 import { ImagePlus, Trash2 } from 'lucide-vue-next'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
@@ -24,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { optionalText } from '@/lib/forms'
@@ -66,11 +66,6 @@ const MAX_DESCRIPTION_LENGTH = 1000
 const MAX_EXAMPLE_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const ACCEPTED_EXAMPLE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const ACCEPTED_EXAMPLE_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
-const PASTED_IMAGE_EXTENSIONS: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-}
 const NONE_CATEGORY_VALUE = 'none'
 
 interface FormState {
@@ -228,33 +223,10 @@ function onExampleImageChange(files: File[]) {
   emit('clearErrors')
 }
 
-/**
- * Lets the admin paste an image from the clipboard anywhere in the open dialog. Clipboard images
- * often carry a generic or missing name, so a supported one is renamed to match its type before it
- * runs through the same validation as a chosen file. Pastes without an image, such as text in the
- * name field, are left to the browser.
- */
-function onPaste(event: ClipboardEvent) {
-  if (!open.value || props.saving || props.deleting) {
-    return
-  }
-
-  const pastedFile = Array.from(event.clipboardData?.files ?? []).find((file) =>
-    file.type.startsWith('image/'),
-  )
-  if (!pastedFile) {
-    return
-  }
-
-  event.preventDefault()
-  const extension = PASTED_IMAGE_EXTENSIONS[pastedFile.type]
-  const file = extension
-    ? new File([pastedFile], `pasted-image${extension}`, { type: pastedFile.type })
-    : pastedFile
-  onExampleImageChange([file])
-}
-
-useEventListener(document, 'paste', onPaste)
+useClipboardImagePaste(
+  (file) => onExampleImageChange([file]),
+  () => open.value && !props.saving && !props.deleting,
+)
 
 function removeImage() {
   clearSelectedExampleImage()

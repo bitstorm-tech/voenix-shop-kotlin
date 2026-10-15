@@ -14,6 +14,7 @@ import {
 import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { InvalidArticleRequestError } from '@/stores/admin/articles'
 import { useAdminMugArticlesStore } from '@/stores/admin/mugArticles'
@@ -132,6 +133,11 @@ async function onExampleImageSelected(files: File[]) {
     }
   }
 }
+
+useClipboardImagePaste(
+  (file) => onExampleImageSelected([file]),
+  () => open.value && !isUploadingImage.value,
+)
 
 function removeExampleImage() {
   form.exampleImageFilename = null
@@ -269,7 +275,8 @@ watch(
         <div class="space-y-2 border-t border-border pt-5">
           <Label for="mug-variant-example-image">Example image</Label>
           <p class="text-sm text-muted-foreground">
-            Product photo of this variant shown in the shop. PNG, JPEG, or WebP, max 10 MB.
+            Product photo of this variant shown in the shop. PNG, JPEG, or WebP, max 10 MB. You can
+            also paste an image from the clipboard.
           </p>
           <div class="flex items-center gap-4">
             <img

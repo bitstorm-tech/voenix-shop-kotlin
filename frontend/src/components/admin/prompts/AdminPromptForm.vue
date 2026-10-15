@@ -21,6 +21,7 @@ import {
   type AdminPromptFieldErrors,
   type AdminPromptFormState,
 } from '@/composables/useAdminPromptEdit'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 import type {
   AdminPromptCategoryDto,
@@ -146,6 +147,11 @@ async function onExampleImageSelected(files: File[]) {
   }
 }
 
+useClipboardImagePaste(
+  (file) => onExampleImageSelected([file]),
+  () => !props.disabled && !isUploadingImage.value,
+)
+
 function removeExampleImage() {
   uploadEpoch += 1
   setUploading(false)
@@ -193,7 +199,9 @@ onBeforeUnmount(() => {
 
       <div class="space-y-2 border-t border-border pt-5">
         <Label for="prompt-example-image">Example image</Label>
-        <p class="text-sm text-muted-foreground">PNG, JPEG, or WebP, max 10 MB.</p>
+        <p class="text-sm text-muted-foreground">
+          PNG, JPEG, or WebP, max 10 MB. You can also paste an image from the clipboard.
+        </p>
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
           <img
             v-if="exampleImagePreviewUrl"
