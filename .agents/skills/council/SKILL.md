@@ -12,10 +12,14 @@ Claude session) runs the workflow, delegates work, and owns every synthesis.
 
 The input is a **driving issue labeled `ready-for-agent`** whose issue set meets
 the planning bar in `docs/agents/issue-tracker.md`: the decided plan in the
-driving issue, sub-tickets with acceptance criteria, affected files, and test
-expectations, ordered by blocked-by dependencies. That planning happens in a
-normal conversation with Joe, not in this skill; the issue set is the only
-channel into this thread. Do not re-plan it.
+driving issue and an ordered list of tickets with acceptance criteria,
+affected files, and test expectations. A ticket is either a native sub-issue
+(ordered by blocked-by dependencies) or an inline `T<n>` entry under
+`## Tickets` in the driving issue (ordered by list position); the planning
+bar defines both shapes. That planning happens in a normal conversation with
+Joe, not in this skill; the issue set is the only channel into this thread.
+Do not re-plan it, and do not cut tickets yourself: a driving issue without
+tickets fails the planning bar.
 
 ## Participants and channels
 
@@ -63,11 +67,13 @@ run.
 ## Implementation
 
 1. The orchestrator owns the execution order, which follows the tickets'
-   blocked-by chain. The default implementer is one `council-implementer`
+   blocked-by chain (sub-issues) or list order (inline tickets). The default
+   implementer is one `council-implementer`
    agent per ticket, running serially; escalate to `council-reviewer` only
    per the participant rules.
-2. Each implementation agent receives the ticket number, the decided plan,
-   and the canonical rules that apply to the task.
+2. Each implementation agent receives the ticket (issue number, or the
+   driving issue number plus the `T<n>` id and the ticket text for inline
+   tickets), the decided plan, and the canonical rules that apply to the task.
 3. Implementation agents verify with module-scoped checks only; the full
    quality gate is deliberately reserved for the orchestrator's acceptance
    run. The rule itself lives in the implementer's agent definition
@@ -79,7 +85,9 @@ run.
    `.claude/agents/council-simplifier.md`): no abstraction without a second
    caller, no speculative configuration, no defensive branch the plan did
    not ask for. Catching this per ticket is cheaper than unwinding it across
-   the whole diff in verification. Close the ticket with a result comment.
+   the whole diff in verification. Record the result: close a sub-issue
+   with a result comment; for an inline ticket, post the result as a comment
+   on the driving issue headed with the ticket id.
 5. The orchestrator may implement a ticket itself when delegation would cost
    more than it saves; record that decision in the ticket.
 6. When the last ticket has passed its acceptance check, the orchestrator
@@ -87,7 +95,8 @@ run.
    against the default branch — automatically, without asking Joe first. The
    PR body says `Closes #<driving issue>` — the exact GitHub closing keyword,
    so the issue closes on merge (`Implements #n` does not close it) — and
-   links the implemented tickets. Link the PR to the thread with T3 Code's
+   links the implemented tickets (sub-issue numbers, or the inline ticket
+   ids). Link the PR to the thread with T3 Code's
    `link_pull_request`. The PR is the verification's review target and stays
    open until the verification has run; this workflow never merges it.
 7. Post a recovery comment on the driving issue — PR number, what is done,

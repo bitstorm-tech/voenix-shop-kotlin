@@ -23,7 +23,7 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 - `ready-for-agent` marks a council driving issue whose issue set meets the
   planning bar below. Joe starts the implementation thread himself in T3
   Code (`.agents/skills/council/SKILL.md`); the label launches nothing.
-  Never put it on a sub-ticket.
+  Never put it on a ticket.
 - `needs-triage` marks an issue Joe has not decided on yet.
 - `enhancement`, `bug`, `documentation` describe the kind of issue.
 
@@ -38,9 +38,18 @@ everything that thread needs:
   question is decided — no deferred points, no "to be clarified during
   implementation". Special instructions and working-branch hints live here
   too; there is no separate handoff prompt.
-- Every sub-ticket carries **acceptance criteria, affected files, and test
-  expectations**, is linked as a native sub-issue, and is ordered with
-  blocked-by dependencies (both conventions below).
+- The plan is cut into **tickets**, each the scope of one implementer run.
+  A ticket carries **acceptance criteria, affected files, and test
+  expectations** and has a defined order. A ticket takes one of two shapes;
+  pick one shape per driving issue:
+  - a **native sub-issue**, ordered with blocked-by dependencies (both
+    conventions below) — the shape for large issue sets or tickets that
+    may be reopened independently;
+  - an **inline ticket**: a numbered `T1`, `T2`, … entry under a `## Tickets`
+    heading in the driving issue, implemented in list order. This is the
+    cheaper shape when the plan already lives in one issue and the tickets
+    carry no life of their own. The council records each inline ticket's
+    result as a comment on the driving issue instead of closing an issue.
 - Every acceptance criterion that names another module's route, capability,
   or type is **verified against that module's actual code** before the
   ticket is created. A criterion written from memory (ticket #31 demanded a
@@ -53,10 +62,11 @@ gap as a comment on the driving issue; the next planning round closes it.
 ## Parent issues and sub-issues
 
 A parent issue exists only for a **council driving issue** and its
-implementation sub-tickets (for example #238 → its T1–T6). Findings of a
-review or analysis become **independent top-level issues**, one per topic,
-without a common parent (for example #128–#140, #247–#254); each gets its
-own sub-tickets later if it goes through the council.
+implementation tickets when they are sub-issues (for example #238 → its
+T1–T6); inline tickets need no parent link. Findings of a review or analysis
+become **independent top-level issues**, one per topic, without a common
+parent (for example #128–#140, #247–#254); each gets its own tickets later if
+it goes through the council.
 
 Whenever an issue is a child of a parent issue, link it as a **native GitHub
 sub-issue** — a `Part of #<n>` line in the body is context, not the link.
