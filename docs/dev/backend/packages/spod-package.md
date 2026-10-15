@@ -25,7 +25,7 @@ handle. What it has is one class, `SpodClient`, and two modules consume it:
 
 The client used to live inside `production`. It moved here when the t-shirt
 catalog became synced data
-([ADR 0003, decision 5](../../../adr/0003-spod-backoffice-as-t-shirt-source.md)):
+([t-shirt sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
 two modules needed the same client, and the alternative — `article` depending
 on `production`, or a second client next to the first — would either have
 inverted the layering or split the partner's request budget in two.
@@ -182,7 +182,7 @@ because its answers carry far more than what is read here.
 `download(url, timeoutSeconds)` is the only call whose URL does **not** come
 from `SpodEnvironment`. It comes out of an answer the partner gave this shop —
 a mockup image of a colour, or a size chart — so it is *bounded* instead of
-trusted (ADR 0003, decision 5):
+trusted (t-shirt sync decision 5):
 
 - **https only.** A `http` URL, a relative one, or anything that is not a URL
   is refused before a request goes out.
@@ -216,7 +216,8 @@ three refusals in the same way.
 
 ## The catalog answers are read leniently
 
-Two decisions run through every type in `SpodCatalog.kt`, both from ADR 0003.
+Two decisions run through every type in `SpodCatalog.kt`, both from the t-shirt
+sync decisions (6 and 4).
 
 **Every field except an id has a default.** The partner documents neither which
 fields are optional nor what a sparse article looks like, and a sync that

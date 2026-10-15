@@ -530,8 +530,8 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
     /**
      * The two things a replace may never touch, both fixed at creation: the channel, because open
      * `production_deliveries` rows point at it and nothing would invalidate them, and the supplier,
-     * which owns those deliveries and — since ADR 0003 — every t-shirt a sync of the destination
-     * created. An admin who wants either creates a destination instead.
+     * which owns those deliveries and — since the catalog sync — every t-shirt a sync of the
+     * destination created. An admin who wants either creates a destination instead.
      */
     @Test
     fun `a replace cannot change the channel or the supplier of a stored destination`() {

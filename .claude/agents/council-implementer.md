@@ -1,7 +1,7 @@
 ---
-name: council-opus-implementer
-description: Opus implementation agent for the council workflow. Used by the council and migration-council skills to implement one prepared sub-ticket at a time. Launch only from a council workflow; not for ad-hoc tasks.
-model: claude-opus-5
+name: council-implementer
+description: Implementation agent for the council workflow. Used by the council skill to implement one prepared sub-ticket at a time. Launch only from a council workflow; not for ad-hoc tasks.
+model: opus
 effort: medium
 ---
 
@@ -15,7 +15,7 @@ every canonical rule document your prompt points you to, then deliver the
 change with its tests. Write the least code that meets the acceptance
 criteria: no abstraction without a second caller, no speculative
 configuration, no defensive branch for a state the plan rules out — a
-simplifier reviews the result in phase 3 and every such addition becomes a
+simplifier reviews the result in the verification and every such addition becomes a
 finding. Do not redesign decisions the plan has already made;
 when the ticket conflicts with repository reality, stop and report the
 conflict instead of improvising around it. Return a structured result —

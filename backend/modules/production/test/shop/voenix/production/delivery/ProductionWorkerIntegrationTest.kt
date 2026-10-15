@@ -175,7 +175,8 @@ internal class ProductionWorkerIntegrationTest : PostgresIntegrationTest() {
      * The channel is decided from the supplier's enabled destinations and frozen on the job. A
      * mixed order therefore splits into two jobs of two different lifecycles: the mug supplier's
      * SFTP job with its deliveries, and the shirt supplier's SPOD job with none at all — there is
-     * no document to push (ADR 0002, decision 2). Both carry their own item lines from here on.
+     * no document to push (SPOD fulfillment decision 2). Both carry their own item lines from here
+     * on.
      */
     @Test
     fun `a mixed order splits into an sftp job with deliveries and a spod job without`() =

@@ -42,8 +42,7 @@ import shop.voenix.spod.SpodShipping
  * our own `externalOrderReference`. An order can only ever be fetched by the id its creation
  * answered with — so if that id is lost, the order is lost with it, and no amount of retrying can
  * find it again. Three rules follow, and they are the reason the steps are ordered as they are
- * ([ADR 0002](../../../../../../../../docs/adr/0002-production-fulfillment-channels.md), decision
- * 4):
+ * (SPOD fulfillment decision 4):
  *
  * 1. **The order is always created `NEW`.** The partner would happily create it confirmed in one
  *    call; this shop never asks for that. A `NEW` order produces nothing and charges nothing, which
@@ -132,11 +131,11 @@ internal class SpodOrderSubmitter(
      * The positions are the split's: the supplier's share of the order in source order, which is
      * exactly what `production_job_items` holds. That is what lets the checks below work at all.
      *
-     * They are the safety net of ADR 0002, decision 8. The partner's three ids are resolved from
-     * *today's* master data on every load, so a mapping fix heals every pending order — but the
-     * same liveness would let a corrected mapping silently turn a paid "Black / M" into a different
-     * garment. So the composed variant name of today is compared against the name the order line
-     * was split with, and a disagreement refuses the whole job.
+     * They are the safety net of SPOD fulfillment decision 8. The partner's three ids are resolved
+     * from *today's* master data on every load, so a mapping fix heals every pending order — but
+     * the same liveness would let a corrected mapping silently turn a paid "Black / M" into a
+     * different garment. So the composed variant name of today is compared against the name the
+     * order line was split with, and a disagreement refuses the whole job.
      *
      * The set of lines is checked as a whole for the same reason, and it has to be: a per-line
      * check cannot see a line that is *gone*. Reassigning an article's supplier after the split
@@ -191,9 +190,9 @@ private class SpodOrderCreator(
      * The partner's order id, or `null` when this attempt did not get that far.
      *
      * The phone is checked before a single byte is uploaded. Checkout already requires one whenever
-     * the cart holds a print-on-demand line (ADR 0002, decision 6) and the partner rejects an order
-     * without one, so this is defensive — but an order that cannot be created should not spend a
-     * design upload on finding that out.
+     * the cart holds a print-on-demand line (SPOD fulfillment decision 6) and the partner rejects
+     * an order without one, so this is defensive — but an order that cannot be created should not
+     * spend a design upload on finding that out.
      */
     suspend fun create(context: SpodJobContext): String? {
         val phone = context.order.customerPhone?.takeIf(String::isNotBlank)
@@ -618,11 +617,14 @@ internal enum class SpodSubmissionError {
     /**
      * The live lines of this supplier are no longer the snapshotted set — a line was added,
      * removed, or moved since the split, typically by an article changing supplier. Submitting
-     * anyway would order a part of a paid order (ADR 0002, decision 8).
+     * anyway would order a part of a paid order (SPOD fulfillment decision 8).
      */
     ITEM_SET_CHANGED,
 
-    /** Today's composed variant name is not the one the order line was split with (ADR 0002/8). */
+    /**
+     * Today's composed variant name is not the one the order line was split with (SPOD fulfillment
+     * decision 8).
+     */
     SPOD_MAPPING_CHANGED,
 
     /** The order carries no phone number, which the partner requires on every order. */
@@ -651,7 +653,7 @@ internal enum class SpodSubmissionError {
  * The submission codes that no further scan can heal: every one of them waits for a person — an
  * admin fixing master data, an operator refunding an order the partner will not produce (an
  * unsupported delivery country reaches this shop as a create rejection). Recording one of them
- * enqueues the ops alert, which is what ADR 0002, decision 7 asks for.
+ * enqueues the ops alert, which is what SPOD fulfillment decision 7 asks for.
  *
  * Everything not in this set waits for something that comes back on its own — the partner, the
  * network, the next rate-limit window — and stays silent.

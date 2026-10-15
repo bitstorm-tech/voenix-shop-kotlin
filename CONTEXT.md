@@ -31,7 +31,7 @@ ordered line it is snapshotted like every other line field, so a later type
 change in the catalog cannot rewrite what was bought.
 
 **Synced t-shirt article**:
-A t-shirt article, and since ADR 0003 there is no other kind: it comes into
+A t-shirt article, and there is no other kind: it comes into
 being when a **sync run** reads the merchant's Spreadconnect (SPOD) backoffice
 for one production destination, and it has two owners for life. The backoffice
 owns the garment — name, descriptions, the variants with their colours, sizes,
@@ -61,7 +61,8 @@ the customer), sale (no campaign object exists)
 The sales total before the discount (`regularSalesTotal`), and what the
 storefront strikes through next to the effective price. It is the price an
 operator configured, not a price the shop observed over time: the system does
-not check it against the lowest price of the previous 30 days (see ADR 0004).
+not check it against the lowest price of the previous 30 days (see the Pricing
+package guide).
 _Avoid_: list price (reads as a supplier's list in this shop), original price
 
 **Prompt slot**:

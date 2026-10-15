@@ -59,7 +59,7 @@ not the string. The t-shirt work (#205) is what moved the count: the storefront
 gained `GET /api/articles/tshirts`, the admin surface for the t-shirt routes
 landed with #220, the same ticket built the destination admin UI
 that five of the formerly uncalled routes were waiting for, and the SPOD webhook
-joined the routes that must stay uncalled. The synced catalog (#224, ADR 0003)
+joined the routes that must stay uncalled. The synced catalog (#224)
 moved it back down: three t-shirt admin routes were removed and one destination
 route, the catalog sync, was added.
 
@@ -377,7 +377,7 @@ Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
-The t-shirt family used to be that same shape a second time. Since ADR 0003 it
+The t-shirt family used to be that same shape a second time. Since the catalog sync it
 is **five rows instead of eight**: a shirt is created by a sync run against the
 Spreadconnect backoffice, so the store has no create action and no upload
 action, and the two pre-uploads and the `POST` are gone from the backend as
@@ -534,7 +534,7 @@ second enabled SPOD destination of one supplier, comes back as a field error on
 `channel`. The delete's `409` means the destination is still referenced;
 disabling it is the way out, not a retry.
 
-`POST …/{id}/sync-articles` joined them with ADR 0003 and is the *Sync from
+`POST …/{id}/sync-articles` joined them with the catalog sync and is the *Sync from
 Spreadconnect* button `views/admin/ProductionDestinationsView.vue` shows on
 every SPOD row, enabled and disabled alike. The store holds the per-destination
 loading state and the last report; the request is synchronous and may take a

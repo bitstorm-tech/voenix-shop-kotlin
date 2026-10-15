@@ -11,7 +11,7 @@ it can only produce states the application itself could produce: one VAT entry,
 one supplier, a mug category with two subcategories, three priced mugs with
 variants, a prompt category with a subcategory, and three priced prompts.
 
-The script seeds **mugs only**, and since ADR 0003 it could not seed a shirt at
+The script seeds **mugs only**, and since the catalog sync it could not seed a shirt at
 all: a t-shirt is not created through the admin API but by a **sync run**
 against the Spreadconnect backoffice, which needs a real destination with a real
 token. To get shirts into a development database, set a SPOD destination up and

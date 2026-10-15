@@ -21,11 +21,11 @@ import shop.voenix.http.ApiError
  * order it produces for this shop.
  *
  * It follows the payment module's Mollie webhook to the letter, because the situation is the same
- * (ADR 0002, decision 5): a caller with no session and no CSRF token, so the route deliberately
- * installs **none** of the auth subtrees and the secret path segment takes their place. The secret
- * is compared before anything else happens — before the body is read, before the database is
- * touched — so a wrong one costs a constant-time string comparison and nothing more. It never
- * reaches a log line, in this file or anywhere else.
+ * (SPOD fulfillment decision 5): a caller with no session and no CSRF token, so the route
+ * deliberately installs **none** of the auth subtrees and the secret path segment takes their
+ * place. The secret is compared before anything else happens — before the body is read, before the
+ * database is touched — so a wrong one costs a constant-time string comparison and nothing more. It
+ * never reaches a log line, in this file or anywhere else.
  *
  * What differs from Mollie is the answer. The partner demands `202` with the body `[accepted]`
  * within eight seconds, and it redelivers anything else — so **every** processed and every no-op
@@ -81,7 +81,7 @@ internal fun interface SpodWebhookOperations {
  *
  * [reference] is how the job is found: the partner's own order id where the payload carries one,
  * and this shop's `ORD-{orderId}-JOB-{jobId}` reference as the fallback — which is exactly why that
- * string is deterministic (ADR 0002, decision 4).
+ * string is deterministic (SPOD fulfillment decision 4).
  */
 internal sealed interface SpodWebhookEvent {
     val reference: SpodOrderReference

@@ -144,12 +144,12 @@ internal class FulfillmentRepository(
      * commit, or neither.
      *
      * The `WHERE` clause carries the whole business rule: the row must exist, must not be shipped
-     * yet, must be prepared (decision J1 of issue #119, made channel-neutral by ADR 0002 — the
-     * generated PDF of an SFTP job, the confirmed remote order of a SPOD one), and — for a supplier
-     * caller — must belong to that supplier. So the update decides, not a read the caller could
-     * race against: two concurrent ships of one job end as one [ShipWriteResult.SHIPPED] and one
-     * [ShipWriteResult.ALREADY_SHIPPED], and exactly one mail is queued. The email module's unique
-     * `(kind, source_id)` rule deduplicates on top of that.
+     * yet, must be prepared (decision J1 of issue #119, made channel-neutral by SPOD fulfillment
+     * decision 2 — the generated PDF of an SFTP job, the confirmed remote order of a SPOD one), and
+     * — for a supplier caller — must belong to that supplier. So the update decides, not a read the
+     * caller could race against: two concurrent ships of one job end as one
+     * [ShipWriteResult.SHIPPED] and one [ShipWriteResult.ALREADY_SHIPPED], and exactly one mail is
+     * queued. The email module's unique `(kind, source_id)` rule deduplicates on top of that.
      *
      * A failing enqueue rolls the shipment back with it: nobody should see a shipped job whose
      * customer was never told.

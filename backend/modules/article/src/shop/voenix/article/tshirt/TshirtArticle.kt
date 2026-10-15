@@ -18,9 +18,9 @@ import shop.voenix.validation.buildValidationErrors
  * fields for the same reasons: `articleType` would say `"TSHIRT"` on every row of a route that only
  * serves shirts, and a `priceId` would duplicate what the embedded price already carries.
  *
- * Most of this is now response-only. Since ADR 0003 a shirt has two owners, and the admin writes
- * only the shop's half (see [TshirtArticleInput]): the name, the descriptions, the supplier, the
- * size chart, and the whole variant array are the sync's, and they are answered so an admin can
+ * Most of this is now response-only. Since the catalog sync a shirt has two owners, and the admin
+ * writes only the shop's half (see [TshirtArticleInput]): the name, the descriptions, the supplier,
+ * the size chart, and the whole variant array are the sync's, and they are answered so an admin can
  * *see* the shirt it is editing the shop-owned half of.
  *
  * [position] is response-only for the older reason: delete closes the gap, and the reorder route
@@ -174,8 +174,8 @@ internal data class PrintFrame(
  * One stored variant of a t-shirt: a colour in a size, and the printable product those two name at
  * the print-on-demand partner.
  *
- * The whole type is response-only since ADR 0003. A variant is written by the sync alone, and the
- * admin's only say about the array is which of its entries is the default one
+ * The whole type is response-only since the catalog sync. A variant is written by the sync alone,
+ * and the admin's only say about the array is which of its entries is the default one
  * ([TshirtArticleInput.defaultVariantId]).
  *
  * [name] is composed rather than stored — `"Black / M"` — and it is composed in exactly one place,

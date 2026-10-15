@@ -12,7 +12,7 @@ with an API account and a webhook the partner can reach.
 
 The one thing you never do is type a shirt into this admin. **The Spreadconnect
 backoffice is the source of truth for the garment**
-([ADR 0003](../../adr/0003-spod-backoffice-as-t-shirt-source.md)): you create
+([t-shirt sync decision 1](../backend/packages/article-package.md#the-sync-decisions)): you create
 the article over there with its colours and its sizes, press *Sync from
 Spreadconnect* here, and then decide the shop's half of it — price, category,
 print frame, default variant, and whether it is active. There is no *Add
@@ -59,7 +59,7 @@ staging first.
    payment method does not produce, and the order comes back as
    *needs-action* or *cancelled* and an ops alert.
 4. **Check the shipping countries and the shipping origin.** This shop has no
-   country gate (ADR 0002, decision 7): an order into a country the partner
+   country gate (SPOD fulfillment decision 7): an order into a country the partner
    does not ship to is refused at creation, reaches you as an
    `ORDER_CREATE_REJECTED` alert, and is refunded by hand. Know the list.
 5. **Create the article you want to sell** in the backoffice: pick the garment
@@ -332,7 +332,7 @@ and **unrelated article ids**: backoffice article `12` on staging has nothing to
 do with backoffice article `12` on production. The sync knows that — a synced
 shirt is identified by (destination, environment, backoffice article id), so
 switching the environment of a destination cannot make a production article
-inherit a staging article's price, category, or frame (ADR 0003, decision 4).
+inherit a staging article's price, category, or frame (t-shirt sync decision 4).
 
 What that means in practice: **the staging shirts do not travel.** After the
 switch they are shirts of an installation this destination no longer talks to,

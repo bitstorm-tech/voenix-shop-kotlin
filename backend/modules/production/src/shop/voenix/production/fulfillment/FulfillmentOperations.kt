@@ -256,7 +256,7 @@ internal sealed interface FulfillmentArtifactResult {
  *   no second mail goes out.
  * - [NotReady] — the job is not prepared yet: no PDF was generated for an `SFTP` job, no remote
  *   order was confirmed for a `SPOD` one, so there is nothing that could have been packed (decision
- *   J1 of issue #119, made channel-neutral by ADR 0002).
+ *   J1 of issue #119, made channel-neutral by SPOD fulfillment decision 2).
  *
  * [Shipped] carries the updated view of the surface that asked, which is why the type is generic: a
  * supplier gets a `SupplierJobView`, an admin an `AdminJobView`, and both come from the one service

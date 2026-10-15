@@ -25,9 +25,9 @@ public data class SpodAccess(
 /**
  * The SPOD installation a destination talks to.
  *
- * The base URL is a property of this enum and never a column or an admin input
- * (`docs/adr/0002-production-fulfillment-channels.md`, decision 3): a destination chooses between
- * two known installations, so no configuration mistake can point fulfillment at an arbitrary host.
+ * The base URL is a property of this enum and never a column or an admin input (SPOD fulfillment
+ * decision 3): a destination chooses between two known installations, so no configuration mistake
+ * can point fulfillment at an arbitrary host.
  *
  * On the wire and in the database the value is the entry name, which is also what the
  * `ck_production_destination_spod_environment` check constraint allows.

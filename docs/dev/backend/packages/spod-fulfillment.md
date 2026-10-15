@@ -5,10 +5,11 @@ This page explains how a t-shirt job is produced. It belongs to the
 the two fulfillment channels share; here we look only at the second one, the
 print-on-demand partner **Spreadconnect (SPOD)**.
 
-The architecture decisions behind it are recorded in
-[ADR 0002](../../../adr/0002-production-fulfillment-channels.md). This page is the
-implementation guide: what the code does, in which order, and why the order is
-the interesting part.
+This page is the implementation guide: what the code does, in which order, and
+why the order is the interesting part. The eight decisions the channel was
+built on — and the alternatives they beat — are listed at the end, in
+[The design decisions](#the-design-decisions); the code refers to them by
+number ("SPOD fulfillment decision 7").
 
 ## Two channels, one worker
 
@@ -102,7 +103,7 @@ silently the trailing ones — so without it a fully paid order would be ordered
 from the partner as a partial one, or, when the supplier lost every line, as an
 order with nothing in it.
 
-The second check is the safety net of ADR 0002, decision 8, and it is worth
+The second check is the safety net of SPOD fulfillment decision 8, and it is worth
 understanding. The three partner ids are read from *today's* master data on
 every load, deliberately: a mapping an admin fixes today heals every order
 still waiting to be submitted. But the same liveness would let a corrected
@@ -209,7 +210,7 @@ counterpart of "the PDF exists": the moment the job becomes shippable.
 
 ## The client
 
-The client does not live in this module any more. Since ADR 0003 it is the
+The client does not live in this module any more. Since the catalog sync it is the
 leaf module `spod` (`modules/spod/src/shop/voenix/spod/SpodClient.kt`), because
 a second module needs it: the t-shirt catalog is synced from the same partner's
 API by the article module. The whole client is described in
@@ -279,7 +280,7 @@ position)` and the `design_id`, cascading with the order row above.
 The partner produces and ships; nobody in this shop presses a button for a
 t-shirt. `POST /api/production/webhooks/spod/{secret}` is where that comes
 back, and it follows the Mollie webhook of the payment module exactly
-(ADR 0002, decision 5):
+(SPOD fulfillment decision 5):
 
 - **No auth subtree at all.** The partner has no session and sends no CSRF
   token, so the secret in the path takes their place. It is compared with
@@ -454,7 +455,7 @@ one installation is refused by the other, which reaches this shop as the bounded
 2. Create the shirt in the **Spreadconnect backoffice** — the garment, its
    colours, and its sizes — and press *Sync from Spreadconnect* on the
    destination row. The sync writes the partner's three product ids onto every
-   variant; nobody types them any more (ADR 0003). Without a synced shirt there
+   variant; nobody types them any more (t-shirt sync decision 1). Without a synced shirt there
    is nothing to sell, and a variant without the ids could not exist at all —
    submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
    goes out.
@@ -570,7 +571,7 @@ which is the safety net for a typo, not for a guess.
 
 If the order cannot be produced at all — the partner cancelled it, the delivery
 country is not supported — the job stays where it is and the customer is
-refunded manually (ADR 0002, decision 7). There is no automatic refund path.
+refunded manually (SPOD fulfillment decision 7). There is no automatic refund path.
 
 How an operator learns of it is the alert mail: an unsupported delivery country
 is not a state of its own but a refusal of `POST /orders`, so it reaches this
@@ -607,14 +608,14 @@ for a reference whose subject has moved on.
 
 ### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
 
-Since the t-shirt catalog is synced (ADR 0003), the partner is a second author
+Since the t-shirt catalog is synced (t-shirt sync decision 1), the partner is a second author
 of a variant's name: renaming a colour in the Spreadconnect backoffice and
 pressing *Sync from Spreadconnect* rewrites `colorName` on every variant of
 that colour. The name tripwire of step 1 then compares today's composed name
 with the one the split snapshotted and refuses every job of that colour that
 was already waiting, with `SPOD_MAPPING_CHANGED`.
 
-**That is a false alarm, and it is accepted on purpose** (ADR 0003, decision 8;
+**That is a false alarm, and it is accepted on purpose** (t-shirt sync decision 8;
 Joe's decision D1 on issue #224). The check exists to catch a *mapping* that
 changed under a paid order, and a rename changes no mapping at all — the three
 ids the order is placed with are untouched.
@@ -670,6 +671,134 @@ token, and a URL can never reach a persisted column or a log line by
 construction, because the only thing that travels out of the client is an
 enum entry.
 
+## The design decisions
+
+These eight decisions were made together when t-shirts arrived (issue #205),
+by the council with the contested points decided by Joe. They are numbered
+because the code cites them by number. Before them, the production module knew
+exactly one way to reach a producer: render an immutable PDF per job and push
+it over SFTP. Every mechanism assumed that shape — the artifact generation was
+the exactly-once anchor of the `production_job_items` snapshot, the delivery
+seam took PDF bytes, the ship guard was `generated_at IS NOT NULL`, and a human
+reported "Shipped".
+
+Besides the missing idempotency of
+[the one fact that shapes the whole design](#the-one-fact-that-shapes-the-whole-design),
+these facts of the [official API docs](https://api.spreadconnect.app/docs/)
+shaped them: a non-blank phone **and** email are required on every order; a
+webhook must be acknowledged with **202 and the body `[accepted]`** within
+8 seconds and is delivered at least once; `Shipment.sent` carries carrier,
+tracking code, tracking URL, and our `externalOrderReference`; shipping can be
+preset with `shipping.preferredType: "STANDARD"`; and placement is a `view`
+plus a `hotspot` (e.g. `FRONT` / `MEDIUM_FRONT`), with an endpoint listing the
+available hotspots per product type and design.
+
+### Decision 1 — The channel is a property of the job, decided at split time
+
+`production_jobs.fulfillment_channel` (`SFTP` | `SPOD`) is derived from the
+supplier's enabled destination when the split worker creates the job, and each
+channel owns its own lifecycle from there. Routing stays live master data, but
+the job's channel is frozen the moment the job exists.
+
+### Decision 2 — A PDF is not a universal job artifact
+
+SFTP jobs keep their lifecycle: generate the immutable PDF exactly once, create
+`production_deliveries` rows, push the bytes, a human reports the shipment. SPOD
+jobs create **no PDF and no `production_deliveries` rows**; their remote
+lifecycle lives in `production_spod_orders` and `production_spod_designs`.
+
+Joe decided this against a 2:1 council majority, and the majority's price was
+accepted with it:
+
+- `production_job_items` is written in the **split transaction** for both
+  channels. The snapshot describes the job as split, no longer provably the
+  PDF's bytes: a catalog rename between split and generation can make the
+  supplier page and the PDF of an SFTP job disagree. Accepted, because the
+  window is minutes and the PDF is rendered from the same immutable order
+  snapshot.
+- The ship guard `generated_at IS NOT NULL` became the channel-neutral
+  `prepared_at` on `production_jobs`: SFTP sets it when the PDF is generated,
+  SPOD when the remote order is confirmed.
+
+### Decision 3 — Destinations get per-channel detail tables
+
+`production_destinations` keeps identity, supplier, channel, label, `enabled`,
+and the notification fields; the SFTP columns live in
+`production_destination_sftp`, the SPOD configuration in
+`production_destination_spod` — every column `NOT NULL` in its own table,
+composite foreign keys on `(id, channel)`, the same one-table-per-shape pattern
+the article schema uses. The SPOD row carries `environment`
+(`STAGING` | `PRODUCTION`) and a write-only token; the base URL is derived from
+the environment in code, so no admin input can point fulfillment at an
+arbitrary host. A supplier has at most one **enabled** SPOD destination
+(partial unique index).
+
+### Decision 4 — The submission protocol and its idempotency
+
+Upload the designs → `POST /orders`, always in state `NEW`, with
+`shipping.preferredType: "STANDARD"`, the customer's phone and email, and the
+deterministic `externalOrderReference = ORD-{orderId}-JOB-{jobId}` → **persist
+the returned order id before anything else** → confirm → set `prepared_at`. The
+confirmed state could be set at creation; that is deliberately never used.
+Placement is `view: FRONT`, hotspot `MEDIUM_FRONT`, falling back to the
+available-hotspots endpoint; no placement at all is `PLACEMENT_UNAVAILABLE`.
+
+An ambiguous creation outcome (timeout, reset, `5xx` after sending) permits
+**one** automatic re-create, because an orphaned `NEW` order is inert; a second
+ambiguity quarantines the job as `OUTCOME_UNKNOWN` with an ops alert. A
+confirmation retry reads `GET /orders/{id}` first and confirms only while the
+state is `NEW`. The 60 requests per minute are kept by a client-side pacer plus
+the retryable `RATE_LIMITED` on `429`; the client never retries — retries
+belong to the database-backed worker, as everywhere in production.
+
+### Decision 5 — The inbound webhook follows the Mollie pattern
+
+`POST /api/production/webhooks/spod/{secret}` has no session auth; the secret
+is app configuration (`production.spod.webhookSecret`, at least 32 characters,
+redacted) and is compared in constant time before the body is read. The handler
+is synchronous — two lookups and one guarded transaction — and every outcome,
+the no-ops included (unknown reference, already shipped, unknown event),
+answers **202 `[accepted]`**, so the partner stops redelivering.
+
+`Shipment.sent` reuses the guarded ship transaction: `shipped_by_user_id` stays
+`NULL`, `shipped_by_channel` records the reporter, the carrier name maps
+case-insensitively onto `ShippingCarrier` (else `OTHER`) with the raw name kept
+admin-visible, and **the partner's tracking URL is discarded** — the shop builds
+tracking links from its own bounded list (decision J2 of issue #119).
+`Order.cancelled`, `Order.needs-action`, and `OUTCOME_UNKNOWN` set the remote
+state and enqueue **one** ops alert per job. A human ship on a SPOD job stays
+allowed as the fallback for a lost webhook.
+
+### Decision 6 — The order carries the customer's contact data
+
+The partner gets the **customer's** phone and email (Joe). Checkout therefore
+requires a phone whenever the cart contains a t-shirt line; `orders.phone`
+stays nullable for mug-only orders. `ProductionData` — the production view, not
+the supplier's `FulfillmentOrder`, whose data minimization is untouched —
+carries both.
+
+### Decision 7 — No checkout country gate
+
+A delivery country the partner does not support fails the submission with a
+bounded retryable error and an ops alert, and the operator refunds by hand
+(Joe). No `checkout → production` dependency was added for it.
+
+### Decision 8 — What reaches production stays live
+
+The three partner ids (`productTypeId`, `appearanceId`, `sizeId`) are resolved
+at submission time through `CatalogVariant`, like supplier routing — a mapping
+fix heals every pending order. The safety net: the stage compares today's
+composed variant name with the order line's snapshotted `variant_name` and
+refuses on a mismatch with a retryable code, so a paid "Black / M" can never
+silently become a different garment.
+
+Since the t-shirt catalog is synced, the partner writes that name too, so a
+backoffice rename trips this check as a false alarm. That is accepted
+([t-shirt sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
+until issue #225 compares ids instead of names. Orders stay `oneTimeItems` and
+never use the synced articles' SKUs
+([t-shirt sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
+
 ## Production file map
 
 The client itself is **not** in this module any more; the first two rows point
@@ -689,7 +818,7 @@ into the `spod` module it moved to.
 
 - `PrintImagePngTest` — a WebP original in, PNG out; the pixel cap; the byte
   budget and the bounded shrink; the three failure codes.
-- `SpodClientTest` — in the `spod` module since ADR 0003: the exact request of
+- `SpodClientTest` — in the `spod` module since the catalog sync: the exact request of
   every call including the `X-SPOD-ACCESS-TOKEN` header, the pacer's waiting
   arithmetic on a fake clock, `429` → `RATE_LIMITED`, `4xx` known versus `5xx`
   ambiguous, and that neither the token nor a provider body ever reaches a log

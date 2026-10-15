@@ -126,13 +126,13 @@ internal class SpodOrderRepository(
      * Records the bounded code of one failed attempt and, when that code is one no scan can heal by
      * itself, enqueues the ops alert in the same transaction.
      *
-     * The distinction is what ADR 0002, decision 7 asks for. Most codes are waiting for something
-     * that comes back — the partner, the network, a rate-limit window — and a mail per scan would
-     * be noise. The codes in [SPOD_PERMANENT_FAILURES] wait for a *person*: an unsupported delivery
-     * country or an order the partner refuses reaches this shop as a create rejection, and nobody
-     * would ever learn of the manual refund it needs. The outbox's unique `(kind, source_id)` rule
-     * then makes it one mail per job however many scans record the code again — accepted
-     * deliberately: an operator resolves the job, not the mail.
+     * The distinction is what SPOD fulfillment decision 7 asks for. Most codes are waiting for
+     * something that comes back — the partner, the network, a rate-limit window — and a mail per
+     * scan would be noise. The codes in [SPOD_PERMANENT_FAILURES] wait for a *person*: an
+     * unsupported delivery country or an order the partner refuses reaches this shop as a create
+     * rejection, and nobody would ever learn of the manual refund it needs. The outbox's unique
+     * `(kind, source_id)` rule then makes it one mail per job however many scans record the code
+     * again — accepted deliberately: an operator resolves the job, not the mail.
      */
     suspend fun recordFailure(jobId: Long, code: String): Boolean = database.write {
         val recorded =

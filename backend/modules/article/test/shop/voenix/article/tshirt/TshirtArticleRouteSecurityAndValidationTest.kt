@@ -49,10 +49,10 @@ import shop.voenix.operation.OperationResult
  * the validation that runs before any operation, and the mapping of every result the operations can
  * produce.
  *
- * The two questions that are new since ADR 0003 are about what is *gone*. The create route and the
- * two pre-uploads no longer exist, because a shirt and its pictures come from the Spreadconnect
- * backoffice — and the update body carries the shop's half of the article alone, so a client that
- * still sends the partner's half is answered without it ever reaching the write path.
+ * The two questions that are new since the catalog sync are about what is *gone*. The create route
+ * and the two pre-uploads no longer exist, because a shirt and its pictures come from the
+ * Spreadconnect backoffice — and the update body carries the shop's half of the article alone, so a
+ * client that still sends the partner's half is answered without it ever reaching the write path.
  */
 internal class TshirtArticleRouteSecurityAndValidationTest {
     @Test
@@ -108,8 +108,9 @@ internal class TshirtArticleRouteSecurityAndValidationTest {
     }
 
     /**
-     * The three routes ADR 0003 removed: a shirt is not created here any more, and neither of its
-     * two kinds of picture is uploaded here. An admin with a valid token gets nothing from them.
+     * The three routes the catalog sync removed: a shirt is not created here any more, and neither
+     * of its two kinds of picture is uploaded here. An admin with a valid token gets nothing from
+     * them.
      *
      * The two answers are both Ktor describing the tree correctly. The base path is still a
      * resource — it answers `GET` — so a `POST` to it is a method it does not have; the two upload

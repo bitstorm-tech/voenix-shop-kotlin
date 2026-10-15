@@ -45,16 +45,16 @@ admin routes, its storefront route, and its half of the exported capability.
 Today it provides the authenticated admin lifecycle of *categories* and
 *subcategories*: create, read, update, delete, and an explicit reorder each,
 plus the pre-upload of a subcategory's example image. It also provides an admin
-slice per article type, *mugs* and *t-shirts*, and the two differ since ADR
-0003: a mug has the overview list, one article in full, create, update, delete,
-an explicit reorder, and the pre-upload of a variant's example image, while a
-shirt has no create route and no upload at all. A shirt is written by a **sync
-run** against the print-on-demand partner's backoffice, and the admin edits only
-the shop-owned half of it (see [T-shirts](#t-shirts)). That run is the module's
-second exported capability, `TshirtCatalogSync`. On top of that it serves the
-three anonymous
-storefront reads: the mugs a customer may buy, the shirts a customer may buy,
-and the one type-agnostic navigation both are sorted into.
+slice per article type, *mugs* and *t-shirts*, and the two differ since the
+catalog sync: a mug has the overview list, one article in full, create, update,
+delete, an explicit reorder, and the pre-upload of a variant's example image,
+while a shirt has no create route and no upload at all. A shirt is written by a
+**sync run** against the print-on-demand partner's backoffice, and the admin
+edits only the shop-owned half of it (see [T-shirts](#t-shirts)). That run is
+the module's second exported capability, `TshirtCatalogSync`. On top of that it
+serves the three anonymous storefront reads: the mugs a customer may buy, the
+shirts a customer may buy, and the one type-agnostic navigation both are sorted
+into.
 
 Every one of those levels has a display order that is **dense** (positions run
 1, 2, 3, … without gaps) and **unique**: globally for categories, inside the
@@ -130,7 +130,7 @@ The ownership rules are the ones every product module in this backend follows:
    installing Image returned, the `PriceCatalog` that installing Pricing
    returned, and the `SupplierReader` that installing Supplier returned. That
    last capability turns the supplier id of an article into the supplier name
-   its list row shows, for both types. Since ADR 0003 it also hands Article the
+   its list row shows, for both types. Since the catalog sync it also hands Article the
    application's single `SpodClient`, which the t-shirt sync reads the
    backoffice with, and binds the returned `TshirtCatalogSync` to the
    production module.
@@ -234,7 +234,7 @@ article/
   in one sub-package because the storefront answer is defined by the admin
   state. A mug is visible exactly while it and its category path are active;
 - `tshirt` holds the shirt slice: the admin half, the storefront half, and —
-  since ADR 0003 — the sync that writes the shirts in the first place
+  since the catalog sync — the sync that writes the shirts in the first place
   (`TshirtCatalogSync.kt` with the exported capability and its input,
   `TshirtCatalogSyncService.kt` with one run, `TshirtSyncReport.kt` with what a
   run answers). It is a sibling of `mug` and not a generalization of it:
@@ -311,7 +311,7 @@ and mentions a file only where it matters which one owns a helper.
   share one input and one set of rules instead of four near-identical bodies.
 - `ExampleImage` is the answer of a pre-upload, `{ "filename": "…" }`. The mug
   variant image is the one pre-upload this module still has — a shirt's
-  pictures arrive with a sync run, not with an admin (ADR 0003).
+  pictures arrive with a sync run, not with an admin (t-shirt sync decision 1).
   Reading such a request is not this module's code any more: `ImageUpload`,
   `UploadedImage`, `receiveUploadedImage`, and `respondUploadRejection` live in
   the `image` module since Prompt became a second consumer with the same policy,
@@ -415,7 +415,7 @@ and mentions a file only where it matters which one owns a helper.
   `sync` block (`TshirtArticleSync`) that says where the shirt comes from and
   what the last run saw; `TshirtArticleInput` is the update body and carries the
   shop-owned half alone (there is no create body at all); `TshirtVariant` is
-  response-only since ADR 0003, because a variant is written by the sync; and
+  response-only since the catalog sync, because a variant is written by the sync; and
   `TshirtArticleListItem` is the row of the overview list, the mug list row's
   twelve fields plus `syncedAt` and `missingAtSpreadconnect`.
 - `TshirtCatalogSync` is the exported capability with its input
@@ -1020,7 +1020,7 @@ The t-shirt is the second article type, and `article_tshirts` is its own table
 next to `article_mugs` rather than a set of nullable columns inside it. Unlike
 a mug, **a shirt is never typed into this admin**. It is created by a *sync
 run* against the print-on-demand partner's backoffice
-([ADR 0003](../../../adr/0003-spod-backoffice-as-t-shirt-source.md)): the
+([The sync decisions](#the-sync-decisions)): the
 garment, its colours, its sizes, and its pictures already exist over there, and
 retyping the three partner ids into a variant matrix was the main way to
 produce a wrong mapping.
@@ -1028,7 +1028,7 @@ produce a wrong mapping.
 #### The two owners of a shirt
 
 Every field of a shirt belongs to exactly one of two owners, and the owner
-decides who may write it (ADR 0003, decision 2):
+decides who may write it (t-shirt sync decision 2):
 
 | SPOD-owned — overwritten by every sync run, read-only in the admin | Shop-owned — never touched by a sync run |
 | --- | --- |
@@ -1123,8 +1123,7 @@ on the offset. The percentages are rounded to two decimals *before* they are
 checked, which keeps a frame the validator accepted from being refused by the
 `numeric(5, 2)` CHECK afterwards. A newly synced shirt starts from a centred
 default frame and an operator calibrates it once — the partner's API carries no
-geometry relative to a mockup image, so the frame cannot be computed (ADR 0003,
-decision 7).
+geometry relative to a mockup image, so the frame cannot be computed (t-shirt sync decision 7).
 
 #### What a read answers
 
@@ -1241,7 +1240,7 @@ variant by the product triple `(productTypeId, appearanceId, sizeId)` — never
 by the partner's variant id, which it may renumber. The environment is part of
 the key because one destination row is switched from `STAGING` to
 `PRODUCTION`, and the two installations number their articles independently
-(ADR 0003, decision 4).
+(t-shirt sync decision 4).
 
 #### The report and its warning codes
 
@@ -1254,7 +1253,7 @@ the five lists it carries `destinationId`, `supplierId`, `environment`,
 `status` (`COMPLETED` or `FAILED`), the bounded `failure`, `startedAt`,
 `finishedAt`, `fetchedArticles`, and `warnings`.
 
-A warning is something the run *degraded* instead of failing on (ADR 0003,
+A warning is something the run *degraded* instead of failing on (t-shirt sync
 decision 6). The codes are a closed enum, so what the admin screen prints is a
 code of this shop's own and never a sentence the partner wrote — and the detail
 next to a code names ids only, never partner text:
@@ -1302,6 +1301,92 @@ real order data.
 The activation rules differ from the mug's, and the ownership is why: an active
 shirt needs a category, a price, and an active default variant, and it may not
 be one the partner no longer lists.
+
+#### The sync decisions
+
+The synced shirt rests on eight decisions made together for issue #224, by the
+council with the contested points decided by Joe. Most of them are explained in
+the sections above; this list gathers them with their reasons, and the code
+cites them by number ("t-shirt sync decision 4"). Two facts of the
+[official API docs](https://api.spreadconnect.app/docs/) shaped them:
+`GET /articles` lists the merchant's backoffice articles with the three product
+ids, `sku`, and `appearanceColorValue` per variant and the mockup images per
+article, while the formats of `appearanceColorValue` and `perspective` are
+undocumented.
+
+##### Decision 1 — One backoffice article is one shop shirt, synced, never typed
+
+The backoffice is the source of truth for the garment. Retyping the three
+partner ids into every colour × size variant and re-uploading the partner's
+mockups was double bookkeeping and the main way to produce a wrong mapping, so
+manual creation, the variant matrix editor, and the two picture pre-uploads
+were removed. A run is started by hand per destination: no scheduler and no
+`Article.*` webhook — the operator edits in the backoffice and presses the
+button.
+
+##### Decision 2 — Two owners per article
+
+Explained in [The two owners of a shirt](#the-two-owners-of-a-shirt). The short
+description is the same text truncated, so no third "seeded once" ownership
+exists.
+
+##### Decision 3 — Orders stay `oneTimeItems`
+
+The backoffice article carries a fixed design; the shop's design is generated
+per customer, so the synced article is a template with a placeholder design.
+Ordering by `sku` would print the partner's stock design instead of the
+customer's image. Production keeps its protocol — upload the design, create a
+`NEW` order with `oneTimeItems`, confirm
+([SPOD fulfillment decision 4](spod-fulfillment.md#decision-4--the-submission-protocol-and-its-idempotency)).
+
+##### Decision 4 — Identity is (destination, environment, backoffice article id)
+
+A run is scoped to one destination, and its token decides what exists. The
+environment is part of the key because one destination row is switched from
+`STAGING` to `PRODUCTION`, and the two installations' article ids are
+unrelated: without it, production article *n* would silently merge into
+staging article *n* and inherit its shop-owned data. Variants are matched by the
+product triple, never by the partner's variant id. Nothing is deleted on
+disappearance, only deactivated; `DELETE` stays as the manual retirement (Joe).
+A destination with synced shirts can be disabled but not deleted, its supplier
+is immutable after creation, and a disabled destination may still sync (Joe) —
+only the channel is checked.
+
+##### Decision 5 — The client is shared, the modules stay layered
+
+`SpodClient` lives in the leaf module `spod`; `article` owns the sync and
+exports it as `TshirtCatalogSync`; `production` owns the trigger route on the
+destination, which adds the one edge `production → article`. One client
+instance per application keeps the partner's 60 requests per minute under a
+single pacer. The image download is the one exception to "the base URL comes
+from the environment": its URL comes from the partner's authenticated answer,
+so it is bounded instead — https only, no redirects, no token, `image/*` only,
+10 MiB, and unpaced, because it hits a CDN, not the API (see the
+[SPOD package guide](spod-package.md)).
+
+##### Decision 6 — Undocumented formats degrade, they never fail the run
+
+An unreadable colour value and a colour without a front-view mockup make the
+variant inactive with a bounded warning instead of failing the article or
+inventing data a customer would order by. A listing failure writes nothing and
+deactivates nothing; only a complete listing may sweep.
+
+##### Decision 7 — The print frame stays manual
+
+The API offers no print-area geometry relative to a mockup — `printAreas` are
+millimetres of the garment, `views` carry images without coordinates — so the
+frame calibrator stays and a new shirt starts from the default frame. Recorded
+so the spike is not reopened.
+
+##### Decision 8 — The name tripwire keeps firing on partner renames
+
+[SPOD fulfillment decision 8](spod-fulfillment.md#decision-8--what-reaches-production-stays-live)
+compares today's composed variant name with the order line's snapshot, and the
+sync makes the partner a second author of that name. A backoffice rename
+therefore quarantines in-flight jobs of that colour as a false alarm. Joe
+accepted this operationally — the alert is visible and resolved by hand, see
+[the runbook](spod-fulfillment.md#spod_mapping_changed-after-a-rename-in-the-backoffice)
+— until issue #225 snapshots the three ids and compares ids instead of names.
 
 ### The storefront
 
@@ -1666,11 +1751,11 @@ activation rule: an active article needs at least one active variant, so a
 variant array that never mentions `active` cannot make an article visible by
 accident.
 
-The shirt's field rules are no longer the mug's with other columns: since ADR
-0003 the shirt body describes only what the shop decides about a synced garment.
-What
-is left of the old list is the required frame and the default print ratio, which
-is the square chest print rather than the mug's wrap-around one.
+The shirt's field rules are no longer the mug's with other columns: since the
+catalog sync the shirt body describes only what the shop decides about a synced
+garment. What is left of the old list is the required frame and the default
+print ratio, which is the square chest print rather than the mug's wrap-around
+one.
 
 The mug matrix is the legacy `ArticleRequestValidator` with three additions: an
 active mug also needs a category (the legacy storefront silently hid such
@@ -2094,10 +2179,10 @@ one message per route.
   the required frame with its bounds (checked on the stored two decimals, which
   a test pins with a frame whose raw sum is exactly 100 and whose rounded one is
   not), the positive reference ids, the two activation rules of the body, the
-  print ratio, and — since ADR 0003 — that the write contract carries no field
+  print ratio, and — since the catalog sync — that the write contract carries no field
   the sync owns.
 - `TshirtArticleRouteSecurityAndValidationTest` covers the shirt route contract
-  against stubbed operations, the way the mug test does, plus the shape ADR 0003
+  against stubbed operations, the way the mug test does, plus the shape the catalog sync
   produced: creating a shirt and uploading its pictures are no longer routes,
   and an update body that still sends the sync's fields writes none of them.
 - `TshirtArticleAdminIntegrationTest` runs the write slice against PostgreSQL

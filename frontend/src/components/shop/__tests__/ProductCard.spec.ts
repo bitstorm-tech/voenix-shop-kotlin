@@ -71,7 +71,7 @@ describe('ProductCard', () => {
     expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
-  it('shows one swatch per shirt colour and the sizes as a hint', async () => {
+  it('shows one swatch per shirt colour and the sizes as a range', async () => {
     const tshirt = createShopTshirt({
       id: 20,
       variants: [
@@ -117,7 +117,7 @@ describe('ProductCard', () => {
     expect(swatches).toHaveLength(2)
     expect(swatches.map((swatch) => swatch.attributes('aria-label'))).toEqual(['Black', 'White'])
     expect(swatches[0]!.attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="product-card-sizes"]').text()).toBe('S · M')
+    expect(wrapper.get('[data-testid="product-card-sizes"]').text()).toBe('productCard.sizes S – M')
 
     await swatches[1]!.trigger('click')
 
@@ -153,5 +153,43 @@ describe('ProductCard', () => {
     await swatches[1]!.trigger('click')
 
     expect(wrapper.emitted('select-variant')).toEqual([[212]])
+  })
+
+  it('folds many colours behind a +n button that keeps the selected colour visible', async () => {
+    const colors = ['Black', 'Grey', 'Blue', 'Navy', 'Green', 'Red', 'White']
+    const tshirt = createShopTshirt({
+      id: 22,
+      variants: colors.map((colorName, index) =>
+        createTshirtVariant({
+          id: 220 + index,
+          name: `${colorName} / M`,
+          colorName,
+          colorHex: `#00000${index}`,
+          isDefault: index === 0,
+        }),
+      ),
+    })
+
+    const wrapper = mount(ProductCard, {
+      props: {
+        article: tshirt,
+        activeVariant: tshirt.variants[6]!,
+        priceCents: 1990,
+      },
+    })
+    const labels = () =>
+      wrapper.findAllComponents(SwatchButton).map((swatch) => swatch.attributes('aria-label'))
+
+    // Five places; the selected white swatch takes the last one instead of hiding behind +2.
+    expect(labels()).toEqual(['Black', 'Grey', 'Blue', 'Navy', 'White'])
+    const toggle = wrapper.get('[data-testid="product-card-color-toggle"]')
+    expect(toggle.text()).toBe('+2')
+
+    await toggle.trigger('click')
+
+    expect(labels()).toEqual(colors)
+    expect(toggle.text()).toBe('productCard.fewerColors')
+    // Unfolding the colours is not choosing the card.
+    expect(wrapper.emitted('click')).toBeUndefined()
   })
 })

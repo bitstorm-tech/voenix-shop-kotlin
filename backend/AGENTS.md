@@ -3,7 +3,6 @@
 - Use the Kotlin Toolchain for backend commands. Do not use Gradle or Maven for backend compile, build, run, or test tasks.
 - Organize source files idiomatically: group closely related declarations in one file, following `docs/dev/backend/conventions/source-file-organization.md`. There is no one-type-per-file rule.
 - Kotlin Toolchain `*Plugin.kt` action files contain addressable top-level `@TaskAction` functions and no top-level type, because `plugin.yaml` requires that shape.
-- For migrations from the .NET backend, follow the repo-local `migrate-dotnet-feature` skill in `.agents/skills/migrate-dotnet-feature/SKILL.md`. It follows `docs/migration/module-migration-guide.md` and maintains `docs/migration/<module>-migration.md` as the target module's task and decision record. The skill name refers to the .NET source feature; Kotlin targets are modules.
 
 ## Kotlin Visibility
 

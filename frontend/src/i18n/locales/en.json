@@ -698,7 +698,11 @@
   },
   "productCard": {
     "selected": "Selected",
-    "colors": "Colors"
+    "color": "Color",
+    "sizes": "Sizes",
+    "fewerColors": "Less",
+    "showAllColors": "Show all {count} colors",
+    "showFewerColors": "Show fewer colors"
   },
   "productOverview": {
     "breadcrumb": {

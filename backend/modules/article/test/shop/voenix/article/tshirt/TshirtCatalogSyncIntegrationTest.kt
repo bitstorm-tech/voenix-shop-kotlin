@@ -43,10 +43,10 @@ import shop.voenix.testing.PostgresIntegrationTest
  * What a sync run does to the database, driven through the real [SpodClient] against a `MockEngine`
  * and a real PostgreSQL schema.
  *
- * The tests are written against the two things ADR 0003 promises an operator. The partner owns the
- * garment: a shirt appears, changes, loses a colour, disappears, and comes back without anyone
- * typing anything. The shop owns the rest: whatever an admin decided about a shirt survives every
- * run, and no run ever activates a shirt or deletes a variant.
+ * The tests are written against the two things the t-shirt sync promises an operator. The partner
+ * owns the garment: a shirt appears, changes, loses a colour, disappears, and comes back without
+ * anyone typing anything. The shop owns the rest: whatever an admin decided about a shirt survives
+ * every run, and no run ever activates a shirt or deletes a variant.
  *
  * The engine records every request, which is how the third promise is checked at all — a second
  * identical run downloads nothing. A picture that did not change is not fetched again, and the file

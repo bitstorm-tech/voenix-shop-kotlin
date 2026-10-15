@@ -44,10 +44,11 @@ import shop.voenix.testing.PostgresIntegrationTest
  * The trigger route against the real destination rows: which destination has a catalog at all, and
  * what the sync is handed for the one that has.
  *
- * The disabled destination is the case ADR 0003 decides (D5): a shop that switched a channel off
- * may still read its backoffice, so `enabled` is not part of the lookup and only the channel is.
- * The source the stub records is the other half — the supplier, the installation, and the token
- * come off that row and nowhere else, including the access token no other destination read selects.
+ * The disabled destination is the case t-shirt sync decision 4 settles (Joe's D5): a shop that
+ * switched a channel off may still read its backoffice, so `enabled` is not part of the lookup and
+ * only the channel is. The source the stub records is the other half — the supplier, the
+ * installation, and the token come off that row and nowhere else, including the access token no
+ * other destination read selects.
  *
  * What the run itself does to the article tables is the article module's own suite; this one stops
  * at the seam between the two.

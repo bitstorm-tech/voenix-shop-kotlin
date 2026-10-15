@@ -42,9 +42,9 @@ export interface AdminArticleListItemDto {
 /**
  * What a **synced** type adds to its list rows.
  *
- * Only the t-shirt list carries them: a shirt has two owners since ADR 0003, so its overview has to
- * say how current the garment data is ([syncedAt]) and warn about a shirt the print-on-demand
- * partner no longer lists. A mug has one owner and carries neither field.
+ * Only the t-shirt list carries them: a shirt has two owners since the catalog sync, so its
+ * overview has to say how current the garment data is ([syncedAt]) and warn about a shirt the
+ * print-on-demand partner no longer lists. A mug has one owner and carries neither field.
  */
 export interface AdminArticleSyncListFields {
   syncedAt: string

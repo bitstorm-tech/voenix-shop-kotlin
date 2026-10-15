@@ -16,8 +16,8 @@ interface Props {
   articles: readonly Readonly<AdminArticleRowDto>[]
   /**
    * Shows the sync column of a synced type: when the last run saw the row, and whether the partner
-   * still lists it. Only the t-shirt list has a second owner (ADR 0003); the mug list omits it and
-   * gets the table it always had.
+   * still lists it. Only the t-shirt list has a second owner (t-shirt sync decision 2); the mug
+   * list omits it and gets the table it always had.
    */
   syncColumn?: boolean
   reordering?: boolean

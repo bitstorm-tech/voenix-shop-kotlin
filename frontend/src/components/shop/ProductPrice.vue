@@ -22,10 +22,13 @@ const props = withDefaults(
     cents: number
     regularCents?: number | null
     size?: 'sm' | 'md' | 'lg'
+    /** The "you save" line; a compact spot such as a price tag on an image leaves it out. */
+    showSaving?: boolean
   }>(),
   {
     regularCents: null,
     size: 'md',
+    showSaving: true,
   },
 )
 
@@ -85,7 +88,7 @@ const badgeLabel = computed(() =>
       </Badge>
 
       <span
-        v-if="discountPercent > 0"
+        v-if="showSaving && discountPercent > 0"
         class="basis-full text-[0.72rem] leading-none text-muted-foreground"
         data-testid="product-price-saving"
       >

@@ -69,8 +69,8 @@ const MUG_FIELDS = new Set([
 
 /**
  * The shop-owned half of a synced shirt, and no more. The name, the descriptions, the supplier, and
- * the variants are the partner's (ADR 0003), so a shirt write never carries them and the editor has
- * no input that could show a message about them.
+ * the variants are the partner's (t-shirt sync decision 2), so a shirt write never carries them and
+ * the editor has no input that could show a message about them.
  *
  * The four frame percentages keep their full JSON path as their key, because the calibrator renders
  * one input per percentage and can therefore show the backend's message exactly where the number is

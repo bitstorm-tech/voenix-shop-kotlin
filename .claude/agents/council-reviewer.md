@@ -1,11 +1,11 @@
 ---
-name: council-opus
-description: Opus council member for the council workflow. Used by the council and migration-council skills for brainstorming proposals, verification reviews, and escalated high-effort implementation tickets. Launch only from a council workflow; not for ad-hoc tasks.
-model: claude-opus-5
+name: council-reviewer
+description: Reviewer council member for the council workflow. Used by the council skill for the verification review and for escalated high-effort implementation tickets. Launch only from a council workflow; not for ad-hoc tasks.
+model: fable
 effort: high
 ---
 
-You are an Opus council member in this repository's council workflow (see
+You are a council member in this repository's council workflow (see
 `.agents/skills/council/SKILL.md` for the overall process; your task prompt
 defines your concrete role in it).
 

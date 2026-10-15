@@ -70,8 +70,8 @@ describe('admin t-shirt articles store', () => {
     expect(fetchMock.mock.calls[2]![1]).toMatchObject({ method: 'DELETE' })
   })
 
-  // A shirt is created and its pictures are downloaded by a sync run (ADR 0003), so the store has
-  // no create call and no pre-upload at all.
+  // A shirt is created and its pictures are downloaded by a sync run (t-shirt sync decision 1), so
+  // the store has no create call and no pre-upload at all.
   it('offers neither a create nor an upload action', () => {
     const store = useAdminTshirtArticlesStore()
 

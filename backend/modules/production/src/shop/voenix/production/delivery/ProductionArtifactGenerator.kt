@@ -18,9 +18,8 @@ import shop.voenix.production.pdf.ProductionPdfRenderer
  * plus atomic rename), then record digest, `generated_at`, and `prepared_at` in the database —
  * after that the job is closed and later scans skip it.
  *
- * A SPOD job never reaches this stage. It has no PDF at all
- * (`docs/adr/0002-production-fulfillment-channels.md`, decision 2), so the repository's scan does
- * not hand it out and its own submission stage prepares it instead.
+ * A SPOD job never reaches this stage. It has no PDF at all (SPOD fulfillment decision 2), so the
+ * repository's scan does not hand it out and its own submission stage prepares it instead.
  *
  * Failures are retryable background failures with bounded codes (the source codes, the
  * [shop.voenix.production.ProductionPdfError] names, and `ARTIFACT_WRITE_FAILED`): the job stays

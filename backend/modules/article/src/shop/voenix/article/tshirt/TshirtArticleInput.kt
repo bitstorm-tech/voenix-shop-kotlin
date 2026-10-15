@@ -13,11 +13,11 @@ import shop.voenix.validation.buildValidationErrors
 /**
  * The update body of a t-shirt: the shop's half of a synced article, and nothing else.
  *
- * A shirt has two owners since ADR 0003. The Spreadconnect backoffice owns the garment — the name,
- * the descriptions, the variants with their colours, sizes, ids, and pictures, the size chart, and
- * the supplier behind the destination it was synced from — and a sync run overwrites all of it. The
- * shop owns what the shop decides, and this type is exactly that list. There is no create body at
- * all: a shirt comes into being through a sync, never through this API.
+ * A shirt has two owners since the catalog sync. The Spreadconnect backoffice owns the garment —
+ * the name, the descriptions, the variants with their colours, sizes, ids, and pictures, the size
+ * chart, and the supplier behind the destination it was synced from — and a sync run overwrites all
+ * of it. The shop owns what the shop decides, and this type is exactly that list. There is no
+ * create body at all: a shirt comes into being through a sync, never through this API.
  *
  * A field this type does not carry is therefore not "optional" but *somebody else's*. The HTTP
  * runtime ignores unknown keys, so an admin client that still sends `name` is not rejected — the

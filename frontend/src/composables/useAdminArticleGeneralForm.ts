@@ -9,7 +9,8 @@ interface ArticleGeneralReferences {
   subcategoryId: number | null
   /**
    * Optional, because only a mug editor picks a supplier: a shirt's supplier is the one behind the
-   * Spreadconnect destination it was synced from (ADR 0003), so its form has no such field.
+   * Spreadconnect destination it was synced from (t-shirt sync decision 2), so its form has no such
+   * field.
    */
   supplierId?: number | null
 }

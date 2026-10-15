@@ -27,9 +27,9 @@ import shop.voenix.testing.PostgresIntegrationTest
  * often the worker scans. And they never move again — a later supplier reassignment or an article
  * rename changes today's master data, not what the job was split into.
  *
- * Since ADR 0002 the anchor is the split rather than the artifact generation, because a job of the
- * print-on-demand channel has no document to anchor a snapshot to. For an SFTP job that means the
- * lines exist before its PDF does, which is what the second test pins.
+ * Since SPOD fulfillment decision 2 the anchor is the split rather than the artifact generation,
+ * because a job of the print-on-demand channel has no document to anchor a snapshot to. For an SFTP
+ * job that means the lines exist before its PDF does, which is what the second test pins.
  */
 internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTest() {
     private val artifactRoot = newTempDirectory()
@@ -129,8 +129,9 @@ internal class ProductionJobItemSnapshotIntegrationTest : PostgresIntegrationTes
 
             // A crashed attempt can leave bytes behind without ever having committed; the healed
             // attempt replaces them, and it changes nothing about the lines — not even when the
-            // catalog was renamed in between, which is the window ADR 0002 accepted: the document
-            // is rendered from today's master data, the snapshot keeps what was split.
+            // catalog was renamed in between, which is the window SPOD fulfillment decision 2
+            // accepted: the document is rendered from today's master data, the snapshot keeps what
+            // was split.
             val artifact = artifactRoot.resolve("$jobId").resolve("ORD-60.pdf")
             Files.createDirectories(artifact.parent)
             Files.write(artifact, "half a pdf".toByteArray())

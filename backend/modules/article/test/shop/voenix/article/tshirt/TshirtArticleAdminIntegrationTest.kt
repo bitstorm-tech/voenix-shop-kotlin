@@ -54,12 +54,12 @@ import shop.voenix.vat.installVatModule
  * The t-shirt admin slice against real Ktor routes and a real PostgreSQL database, including the
  * real pricing module.
  *
- * Since ADR 0003 a shirt has two owners, and that is what most of this file is about: the fixtures
- * insert synced shirts the way the sync will (`SyncedTshirts`), and the write path may change the
- * shop's half of such a row and nothing else. The rules that need the *stored* article — an
- * activation without a price, an activation of a shirt the partner no longer lists, and a default
- * variant that is not an active variant of this article — can only be proven here, because the
- * input rules cannot see the row.
+ * Since the catalog sync a shirt has two owners, and that is what most of this file is about: the
+ * fixtures insert synced shirts the way the sync will (`SyncedTshirts`), and the write path may
+ * change the shop's half of such a row and nothing else. The rules that need the *stored* article —
+ * an activation without a price, an activation of a shirt the partner no longer lists, and a
+ * default variant that is not an active variant of this article — can only be proven here, because
+ * the input rules cannot see the row.
  */
 internal class TshirtArticleAdminIntegrationTest : PostgresIntegrationTest() {
     @Test

@@ -306,8 +306,9 @@ async function openProductDraft(article: ShopArticle) {
       >
         <template #action>
           <Button
-            class="mt-4 w-full"
+            class="w-full"
             variant="default"
+            size="lg"
             :disabled="openingArticleId !== null || !getSelectedVariant(article)"
             data-testid="product-open-editor"
             @click.stop="openProductDraft(article)"

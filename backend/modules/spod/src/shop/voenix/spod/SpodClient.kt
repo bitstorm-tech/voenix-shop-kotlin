@@ -71,10 +71,10 @@ import org.slf4j.LoggerFactory
  * serves every supplier — and paces all of them together, which is what a per-account rate limit
  * deserves the day a shop grows a second account.
  *
- * [download] is the one documented exception to the last rule (ADR 0003, decision 5): its URL comes
- * out of an answer the partner gave this shop, not out of [SpodEnvironment]. It is bounded instead
- * — https only, no token, images only, [MAX_IMAGE_BYTES] at most — and it is not paced, because a
- * CDN is not the rate-limited API.
+ * [download] is the one documented exception to the last rule (t-shirt sync decision 5): its URL
+ * comes out of an answer the partner gave this shop, not out of [SpodEnvironment]. It is bounded
+ * instead — https only, no token, images only, [MAX_IMAGE_BYTES] at most — and it is not paced,
+ * because a CDN is not the rate-limited API.
  */
 public class SpodClient
 private constructor(
@@ -203,7 +203,7 @@ private constructor(
 
     /**
      * One page of the merchant's backoffice articles — the source of truth for every synced t-shirt
-     * (ADR 0003).
+     * (t-shirt sync decision 1).
      *
      * Paging is the caller's: the answer carries the total [SpodCatalogPage.count], and the sync
      * asks for the next [offset] until it has seen them all. Doing it here would hide from the sync

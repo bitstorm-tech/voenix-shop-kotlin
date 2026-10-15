@@ -12,9 +12,9 @@ dependencies:
   - ../platform
   - ../image
   - ../pricing: exported
-  # The t-shirt sync reads the Spreadconnect backoffice (ADR 0003). It is exported because the
-  # capability's own contract is written in this partner's vocabulary: the caller hands it a
-  # `SpodAccess` and reads a `SpodError` out of the report.
+  # The t-shirt sync reads the Spreadconnect backoffice (t-shirt sync decision 1). It is exported
+  # because the capability's own contract is written in this partner's vocabulary: the caller hands
+  # it a `SpodAccess` and reads a `SpodError` out of the report.
   - ../spod: exported
   - ../supplier: exported
   - $libs.ktor.server.auth

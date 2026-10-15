@@ -18,17 +18,13 @@
 
 ### Issue tracker
 
-Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` triggers and when an issue gets a parent.
+Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` means and when an issue gets a parent.
 
 ### Domain language and decisions
 
 - Use the domain terms as defined in the glossary `CONTEXT.md` at the repo root, in code, issues, and docs alike.
-- Architecture decisions live in `docs/adr/`. Read the ADRs that touch the area you work in; when your proposal contradicts one, say so explicitly instead of overriding it silently.
-
-### .NET feature migration
-
-Backend features from the legacy .NET application are migrated with the repo-local `migrate-dotnet-feature` skill. See `.agents/skills/migrate-dotnet-feature/SKILL.md` and `docs/migration/module-migration-guide.md`.
+- There are no ADRs. The reason for a design and the alternatives it beat are written into the `docs/dev` guide of the package it shapes (for example the numbered decisions in the SPOD fulfillment guide). Read the guides that touch the area you work in; when your proposal contradicts a recorded decision, say so explicitly instead of overriding it silently.
 
 ### Council workflow
 
-Substantial tasks are planned and verified by a multi-model council (Claude orchestrator, an Opus sub-agent, and Codex/GPT via `codex exec`) and implemented by Opus sub-agents. The general three-phase workflow is the repo-local `council` skill (`.agents/skills/council/SKILL.md`). Module migrations use its specialization, the `migration-council` skill (`.agents/skills/migration-council/SKILL.md`), which binds the workflow to the migration process.
+Substantial tasks are planned with Joe in a normal conversation until the issue set meets the planning bar in `docs/agents/issue-tracker.md` (`ready-for-agent`). Implementation and verification then run autonomously with the repo-local `council` skill (`.agents/skills/council/SKILL.md`): Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, Codex/GPT via `codex exec`, and a simplifier review the result. The agent definitions live in `.claude/agents/council-*.md`.
