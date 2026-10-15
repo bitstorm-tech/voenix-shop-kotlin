@@ -56,6 +56,26 @@ one entry per field, keyed like the JSON (`name`, `size.width`,
 property is reported under its own name with the message `Unknown property`.
 Messages accumulate per field, so two rules on one field report two messages.
 
+## A multipart body
+
+The five pre-upload routes (the example images of articles, subcategories and
+prompts, the cart's print image, the generator's upload) read a
+`multipart/form-data` body with `await c.req.formData()`. They install
+`formBody` from the same file in front of the handler, the multipart
+counterpart of `jsonBody`:
+
+| Request | Answer |
+| --- | --- |
+| content type other than `multipart/form-data` | `415 {"message":"Unsupported media type"}` |
+| a body that is not the form its content type announces | `400 {"message":"Malformed request body"}` |
+| a multipart form | the handler runs; its `await c.req.formData()` gets the form Hono parsed once and cached |
+
+Which parts the form has to carry, and their size, is the route's rule and is
+answered as a field error on the part's name (`file`, `image`). Without the
+middleware, Bun's `formData()` throws on a JSON body and the app's `onError`
+would answer `500`; the Kotlin backend answered the same `415` through Ktor's
+`UnsupportedMediaTypeException`.
+
 ## Rules the schema cannot check
 
 A rule that needs the database (does this country exist? is this name taken?)
@@ -81,4 +101,5 @@ The schema is tested once, as a unit test of the Zod schema through
 `validationFailed`, with the field names and messages the client sees
 (`validation.test.ts` in the country module). Route tests do not repeat the
 field cases; the platform test `app.test.ts` pins the `415`, the malformed
-body, the unknown property, and the shape of the `400`.
+body, the unknown property, and the shape of the `400` for JSON bodies, and
+the `415`, the malformed body, and the cached form for multipart bodies.

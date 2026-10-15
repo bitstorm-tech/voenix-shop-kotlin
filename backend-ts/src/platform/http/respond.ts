@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator'
-import type { Context } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import {
   buildValidationErrors,
@@ -67,6 +67,25 @@ export function jsonBody<S extends z.ZodType>(schema: S) {
     return validate(c, next)
   }
   return validateJson
+}
+
+/**
+ * Guards a route that reads a multipart form (`await c.req.formData()` in the handler; Hono parses
+ * the body once and caches it). Answers `415` for a content type other than `multipart/form-data`
+ * and `400 Malformed request body` for a body that is not the form its content type announces, the
+ * two answers `jsonBody` gives a JSON route. Which parts the form must carry is the route's rule.
+ */
+export const formBody: MiddlewareHandler = async (c, next) => {
+  const contentType = c.req.header('content-type') ?? ''
+  if (!/^multipart\/form-data(\s*;.*)?$/i.test(contentType)) {
+    return c.json(apiError('Unsupported media type'), 415)
+  }
+  try {
+    await c.req.formData()
+  } catch {
+    return c.json(apiError('Malformed request body'), 400)
+  }
+  await next()
 }
 
 const integerText = z

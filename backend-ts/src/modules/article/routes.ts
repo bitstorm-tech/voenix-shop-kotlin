@@ -66,13 +66,12 @@ export const reorderInput = z
 /**
  * `POST …/example-images`: stores the `file` part of a multipart body in the slice's folder and
  * answers `201 { filename }`, the name a following create or update submits. A missing part and an
- * oversized one are `400` on the `file` field, like everything the storage rejects.
+ * oversized one are `400` on the `file` field, like everything the storage rejects. Install it
+ * behind `formBody`, which refuses a body that is no multipart form.
  */
 export function exampleImageUpload(store: ExampleImages['store'], responses: FailureResponses) {
   return async (c: Context): Promise<Response> => {
-    // A body that is no multipart form has no `file` part either.
-    const form = await c.req.formData().catch(() => new FormData())
-    const upload = await readUploadedImage(form)
+    const upload = await readUploadedImage(await c.req.formData())
     const result =
       upload.kind === 'missing'
         ? uploadRejection('An example image file part is required')

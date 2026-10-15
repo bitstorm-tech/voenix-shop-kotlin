@@ -34,7 +34,8 @@ generator.post('/generate', limiter.middleware, async (c) => { … })
 ```
 
 `peerAddress` is handed in because reading the connection's address is the
-one Bun-specific call (`getConnInfo` from `hono/bun`); the composition root
+one Bun-specific call (`getConnInfo` from `@hono/bun`, the package Hono
+moved its Bun adapter to); the composition root
 passes it, and a test passes a constant. Mind the order: the route's
 protection is installed first, so a request without a valid CSRF token is
 answered before the limiter sees it and spends no slot.

@@ -1,8 +1,11 @@
 # Voenix Shop
 
 An e-commerce shop for personalized print products (mugs, t-shirts, tote
-bags), being migrated module by module from a legacy .NET backend to Kotlin.
-One bounded context; the Kotlin modules share this language.
+bags): a Vue frontend and a TypeScript backend on Bun in `backend-ts/`. The
+backend was first migrated module by module from a legacy .NET backend to
+Kotlin and then ported as a whole to TypeScript (issue #262); the Kotlin
+backend in `backend/` stays in the repository, unchanged, until Joe removes
+it. One bounded context; the backend modules share this language.
 
 ## Language
 

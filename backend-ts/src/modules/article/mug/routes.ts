@@ -1,7 +1,13 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireAdmin } from '@/platform/auth/auth'
-import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
+import {
+  formBody,
+  integerParam,
+  jsonBody,
+  respondFailure,
+  respondResult,
+} from '@/platform/http/respond'
 import { PRINT_ASPECT_RATIOS } from '../catalog'
 import {
   articlePrice,
@@ -129,7 +135,11 @@ export function mugRoutes(mugs: MugService): Hono {
     const { sourceId, targetId } = c.req.valid('json')
     return respondResult(c, await mugs.reorder(sourceId, targetId), ORDER_RESPONSES)
   })
-  admin.post('/variant-example-images', exampleImageUpload(mugs.storeExampleImage, MUG_RESPONSES))
+  admin.post(
+    '/variant-example-images',
+    formBody,
+    exampleImageUpload(mugs.storeExampleImage, MUG_RESPONSES),
+  )
   admin.get('/:id', mugId, async (c) =>
     respondResult(c, await mugs.get(c.req.valid('param').id), MUG_RESPONSES),
   )

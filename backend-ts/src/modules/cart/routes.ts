@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { readUploadedImage } from '@/modules/image'
 import { toApiError } from '@/modules/promotion'
 import { guestCapable, type Auth } from '@/platform/auth/auth'
-import { apiError, jsonBody, respondResult } from '@/platform/http/respond'
+import { apiError, formBody, jsonBody, respondResult } from '@/platform/http/respond'
 import { MAXIMUM_LINE_QUANTITY, type CartOwner } from './repository'
 import type { AddItemInput, CartService } from './service'
 
@@ -86,9 +86,8 @@ export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens'])
     )
   })
 
-  cart.post('/images', async (c) => {
-    // A body that is no multipart form has no `file` part either.
-    const upload = await readUploadedImage(await c.req.formData().catch(() => new FormData()))
+  cart.post('/images', formBody, async (c) => {
+    const upload = await readUploadedImage(await c.req.formData())
     return respondResult(
       c,
       await carts.uploadPrintImage(await mutatingOwner(c), upload),

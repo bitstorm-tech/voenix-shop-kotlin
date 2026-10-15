@@ -372,6 +372,20 @@ default `voenix`) and the e-mail with the administrator's address. The role
 becomes effective on the next login, because the session stores its roles
 when it is created.
 
+In development `EMAIL_ENABLED` is `false`, so the confirmation mail is never
+sent, and the token cannot be read from the database either: `account_tokens`
+stores only its SHA-256 hash. Confirm the address in SQL instead, before
+granting the role:
+
+```sql
+UPDATE users_schema.users SET email_confirmed = true
+WHERE LOWER(email) = LOWER('admin@example.com');
+```
+
+The same applies to a supplier login whose invitation never left: set a
+password hash with `createPasswordHasher(600000).hash(password)` from
+`credentials.ts` or, with mail enabled, use "Forgot password".
+
 ## Composition
 
 The composition root creates the module after the email module and before

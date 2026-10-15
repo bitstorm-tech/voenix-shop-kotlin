@@ -221,8 +221,10 @@ of the two ids was wrong.
 ## The upload
 
 `readGenerationUpload(await c.req.formData())` reads the parts in whatever order
-the client sent them. A body that is no multipart form at all is read as an
-empty form and answers `An image file is required`.
+the client sent them. A body that is no multipart form at all never reaches
+it: the platform's `formBody` middleware, installed after the rate limiter,
+answers `415 Unsupported media type` (see
+[Request validation](../conventions/request-validation.md#a-multipart-body)).
 
 Two limits answer two different questions:
 

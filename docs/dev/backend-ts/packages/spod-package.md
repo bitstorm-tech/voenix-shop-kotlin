@@ -22,12 +22,12 @@ the client it returns:
 - `article` reads the merchant's backoffice catalog through it and turns it
   into this shop's SPOD articles: list the articles, read a size chart, read a
   product type's views, render a preview, and download an image one of those
-  answers points at (see the
-  [Kotlin article guide](../../backend/packages/article-package.md#spod-articles)
-  until the TypeScript one exists).
+  answers points at (see
+  [the article guide](article-package.md#the-spod-catalog-sync)).
 
 The client is a module of its own because two modules need it
-([SPOD sync decision 5](../../backend/packages/article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
+([SPOD sync decision 5](../../backend/packages/article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered),
+kept by [the TypeScript article guide](article-package.md#the-spod-catalog-sync)):
 `article` depending on `production`, or a second client next to the first,
 would either have inverted the layering or split the partner's request budget
 in two.
@@ -161,7 +161,9 @@ The first five produce an order and are described step by step in
 [SPOD fulfillment](../../backend/packages/spod-fulfillment.md); the next three
 read the catalog; the last two calibrate a product type, what its sides look
 like and where a design lands on them
-([SPOD sync decision 7](../../backend/packages/article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews)).
+([SPOD sync decision 7](../../backend/packages/article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews),
+and [the sync decisions](article-package.md#the-sync-decisions) of the
+TypeScript article guide).
 
 ### The order request
 

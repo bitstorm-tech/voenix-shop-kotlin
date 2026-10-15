@@ -214,7 +214,8 @@ new category and compacts the old one. A reorder target from another category
 is outside the reordered list and answers `404` like an unknown id.
 
 **The example image.** Upload and save are two requests. The pre-upload takes
-a `multipart/form-data` body with a `file` part, stores it through the image
+a `multipart/form-data` body with a `file` part (any other content type
+answers `415` through the platform's `formBody`), stores it through the image
 module (always WebP under a minted UUID name), and answers the name; create and
 update then carry it as `exampleImageFilename` (`null` removes the image). A
 missing part answers `400 file: An example image file part is required`, an

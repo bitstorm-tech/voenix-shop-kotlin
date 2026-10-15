@@ -1,7 +1,13 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireAdmin } from '@/platform/auth/auth'
-import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
+import {
+  formBody,
+  integerParam,
+  jsonBody,
+  respondFailure,
+  respondResult,
+} from '@/platform/http/respond'
 import {
   exampleImageUpload,
   optionalFilename,
@@ -98,7 +104,11 @@ export function categoryRoutes(service: CategoryService): Hono {
     c.header('Location', `/api/admin/articles/subcategories/${String(result.value.id)}`)
     return c.json(result.value, 201)
   })
-  subcategories.post('/example-images', exampleImageUpload(service.storeExampleImage, SUBCATEGORY))
+  subcategories.post(
+    '/example-images',
+    formBody,
+    exampleImageUpload(service.storeExampleImage, SUBCATEGORY),
+  )
   subcategories.put('/order', jsonBody(reorderInput), async (c) => {
     const { sourceId, targetId } = c.req.valid('json')
     return respondResult(

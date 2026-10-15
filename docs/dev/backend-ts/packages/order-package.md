@@ -409,7 +409,11 @@ place:
 1. The secret is compared **first**, before the body is read, Mollie is called,
    or the database is touched, and in **constant time**
    (`crypto.timingSafeEqual` after a length check; the length of the
-   configured secret is not the secret).
+   configured secret is not the secret). The one caveat is the platform's: a
+   chunked request without `Content-Length` is buffered, not parsed, by the
+   application-wide body limit before the route runs (see
+   [Request size limits](../conventions/request-size-limits.md#the-two-webhooks)).
+   Mollie sends its form body with a `Content-Length`.
 2. `MOLLIE_WEBHOOK_SECRET` has at least 16 characters, and
    `MOLLIE_WEBHOOK_URL` must be `https://` and end in the secret; the
    [settings](../../../../backend-ts/src/platform/settings.ts) refuse to start

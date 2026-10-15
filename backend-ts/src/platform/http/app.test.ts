@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { MAX_REQUEST_BODY_BYTES } from '@/platform/http/app'
-import { integerParam, jsonBody, respondResult } from '@/platform/http/respond'
+import { formBody, integerParam, jsonBody, respondResult } from '@/platform/http/respond'
 import { conflict, invalid, notFound, ok } from '@/platform/operation'
 import { jsonOf, testApp } from '@test-support/http'
 
@@ -22,6 +22,9 @@ function probeApp() {
     c.json({ id: c.req.valid('param').id }),
   )
   routes.post('/probe/upload', async (c) => c.text(String((await c.req.arrayBuffer()).byteLength)))
+  routes.post('/probe/form', formBody, async (c) =>
+    c.json([...(await c.req.formData()).keys()], 201),
+  )
   routes.get('/probe/result/:kind', (c) => {
     const kind = c.req.param('kind')
     const result =
@@ -114,6 +117,43 @@ describe('a JSON body', () => {
       body: '{"label":"green"}',
     })
     expect(missing.status).toBe(415)
+  })
+})
+
+describe('a multipart form body', () => {
+  test('a multipart form reaches the handler, which reads the parsed form', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(4)], { type: 'image/png' }), 'a.png')
+    form.append('note', 'text')
+    const response = await probeApp().request('/probe/form', { method: 'POST', body: form })
+    expect(response.status).toBe(201)
+    expect(await jsonOf(response)).toEqual(['file', 'note'])
+  })
+
+  test('a content type other than multipart/form-data answers 415', async () => {
+    const app = probeApp()
+    for (const contentType of [
+      'application/json',
+      'application/x-www-form-urlencoded',
+      'text/plain',
+    ]) {
+      const response = await postJson(app, '/probe/form', '{"file":"x"}', contentType)
+      expect(response.status).toBe(415)
+      expect(await jsonOf(response)).toEqual({ message: 'Unsupported media type', errors: {} })
+    }
+    const missing = await app.request('/probe/form', { method: 'POST', body: 'file=x' })
+    expect(missing.status).toBe(415)
+  })
+
+  test('a body that is not the announced multipart form answers 400 Malformed request body', async () => {
+    const response = await postJson(
+      probeApp(),
+      '/probe/form',
+      'not a form',
+      'multipart/form-data; boundary=xyz',
+    )
+    expect(response.status).toBe(400)
+    expect(await jsonOf(response)).toEqual({ message: 'Malformed request body', errors: {} })
   })
 })
 

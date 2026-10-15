@@ -267,7 +267,10 @@ that every name `store` mints passes it.
 ## Upload limits
 
 `readUploadedImage(await c.req.formData())` reads the first *file* part named
-`file`; a text part of that name is skipped. It answers `received` with the
+`file`; a text part of that name is skipped. The route installs the
+platform's `formBody` first, so a body that is no multipart form answers
+`415` before the reader runs (see
+[Request validation](../conventions/request-validation.md#a-multipart-body)). It answers `received` with the
 bytes and the declared content type, `missing`, or `tooLarge` for more than
 10 MiB. Each endpoint chooses its own message for the last two (Article and
 Prompt say `Example image must not exceed 10 MiB`, Cart `Image must not exceed

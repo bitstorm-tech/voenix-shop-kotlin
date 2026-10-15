@@ -7,7 +7,6 @@ import {
   WEBHOOK_SECRET,
   type ComposedApplication,
 } from '@/test-fixtures'
-/* eslint-enable boundaries/dependencies */
 
 export { composedApplication, guestCookie, stubMollie, WEBHOOK_SECRET, type ComposedApplication }
 

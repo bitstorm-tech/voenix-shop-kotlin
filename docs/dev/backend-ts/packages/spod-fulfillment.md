@@ -241,7 +241,13 @@ payment module (decision 5). It exists only in a deployment with SPOD settings.
   `403 {"message":"Forbidden"}`. A route test counts the reads of the body
   stream and pins zero. One caveat lives in the platform: a request with
   `Transfer-Encoding: chunked` and no `Content-Length` is buffered by the
-  application-wide body limit before any route runs.
+  application-wide body limit before any route runs, so for such a request the
+  guarantee is "the body is held in memory up to 30,000,000 bytes, but not
+  parsed, before the secret is checked". The port left it that way on purpose
+  (recorded in `docs/migration/typescript-port.md`): exempting the webhook
+  paths from the limit would remove the only transfer bound these routes have,
+  the partner sends its small JSON event with a `Content-Length`, and a
+  per-route limit is more code than the caveat warrants.
 - **The answer is always `202` with the body `[accepted]`.** The partner demands
   exactly that within eight seconds and redelivers anything else, so every
   no-op answers it too: an unknown reference, a job that shipped hours ago, an

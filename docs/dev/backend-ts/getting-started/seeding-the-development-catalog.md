@@ -20,9 +20,11 @@ describes.
    [Running the development server](running-the-development-server.md). The
    script talks to `http://localhost:8080` unless you set `BASE_URL`.
 2. **A user with the `ADMIN` role.** The application seeds no users and no
-   roles. Register one, confirm the address, and grant the role in SQL as the
-   account package guide describes under "Bootstrapping the first
-   administrator".
+   roles. Register one, confirm the address (in SQL while `EMAIL_ENABLED` is
+   `false`, because no confirmation mail leaves and the token is stored only
+   as a hash), and grant the role in SQL as
+   [the account package guide](../packages/account-package.md#bootstrapping-the-first-administrator)
+   describes under "Bootstrapping the first administrator".
 
 ## Running it
 

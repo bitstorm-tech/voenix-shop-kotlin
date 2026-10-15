@@ -4,6 +4,7 @@ import { priceInput } from '@/modules/pricing'
 import { readUploadedImage, uploadRejection } from '@/modules/image'
 import {
   apiError,
+  formBody,
   integerParam,
   jsonBody,
   respondFailure,
@@ -71,7 +72,7 @@ export function promptAdminRoutes(prompts: PromptService): Hono {
     const { sourceId, targetId } = c.req.valid('json')
     return respondResult(c, await prompts.reorder(sourceId, targetId), PROMPT_RESPONSES)
   })
-  routes.post('/example-images', async (c) => {
+  routes.post('/example-images', formBody, async (c) => {
     const upload = await readUploadedImage(await c.req.formData())
     switch (upload.kind) {
       case 'missing':

@@ -102,7 +102,7 @@ Every answer except the upload is the complete recalculated cart.
 | Method and path | Body | Success | Module errors |
 | --- | --- | --- | --- |
 | `GET /api/cart` | none | `200` `CartView`; no cart yet → the empty view; `Cache-Control: no-store` | none |
-| `POST /api/cart/images` | multipart, part `file` | `201` `{"id": 42}` | `400` on `file`: missing part, too large, unreadable, unsupported |
+| `POST /api/cart/images` | multipart, part `file` | `201` `{"id": 42}` | `415` not a multipart form (platform `formBody`), `400` on `file`: missing part, too large, unreadable, unsupported |
 | `POST /api/cart/items` | JSON | `200` `CartView` | `400`: field rules, `variantId` not purchasable, `promptId` unusable, `imageId` not the caller's |
 | `POST /api/cart/order-items/{orderItemId}` | none | `200` `CartView` | `404` `Order item not found` (unknown, foreign, or malformed id), `409` `ORDER_IMAGE_UNAVAILABLE`, `400` variant no longer purchasable |
 | `PATCH /api/cart/items/{itemId}` | `{"quantity": 1..99}` | `200` `CartView` | `400`, `404` |

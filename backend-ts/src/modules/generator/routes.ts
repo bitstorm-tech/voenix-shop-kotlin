@@ -1,6 +1,6 @@
 import { Hono, type MiddlewareHandler } from 'hono'
 import { guestCapable, type Auth } from '@/platform/auth/auth'
-import { apiError } from '@/platform/http/respond'
+import { apiError, formBody } from '@/platform/http/respond'
 import { assertNever } from '@/platform/operation'
 import { magicCoinsOwner, type MagicCoins } from './magic-coins'
 import type { GeneratorService } from './service'
@@ -28,9 +28,8 @@ export function generatorRoutes({
 }): Hono {
   const generation = new Hono()
   generation.use(guestCapable)
-  generation.post('/generate', rateLimit, async (c) => {
-    // A body that is no multipart form has no `image` part either.
-    const upload = await readGenerationUpload(await c.req.formData().catch(() => new FormData()))
+  generation.post('/generate', rateLimit, formBody, async (c) => {
+    const upload = await readGenerationUpload(await c.req.formData())
     if (upload.kind === 'rejected') {
       return c.json(apiError('Validation failed', { [upload.field]: [upload.message] }), 400)
     }

@@ -1,9 +1,18 @@
 # API contract map
 
 Every `/api/…` literal in `frontend/src` has a row here, and every row names the
-Kotlin route behind it. That makes this file the completeness proof of the
+backend route behind it. That makes this file the completeness proof of the
 frontend migration (issue #84): if a literal exists in the code and not in this
 table, something was added without checking it against the backend.
+
+The table was written against the Kotlin backend and is served unchanged by
+the TypeScript backend in `backend-ts/`: the port (issue #262) kept every
+route, method, status code, body, cookie, and header of this map, and the
+frontend was not changed for it. "Backend route" therefore means the route of
+`backend-ts`, documented in `docs/dev/backend-ts/packages/<module>-package.md`;
+the Kotlin guides it was derived from stay readable in `docs/dev/backend/`.
+The smoke run of the port exercised every row of this file against
+`backend-ts` ([the port record](../../migration/typescript-port.md)).
 
 The map was written before the migration to list the disagreements between the
 Vue frontend and the Kotlin backend. The migration is done, so it now lists the
@@ -17,7 +26,7 @@ call already agreed and nothing had to change.
 | --- | --- |
 | Frontend file | Where the literal lives. Line numbers are omitted on purpose, because they rot; the path and the method are enough to find it. |
 | Call | The method and path the frontend sends today. |
-| Kotlin route | The route the Kotlin backend serves, from the HTTP table of `docs/dev/backend/packages/<module>-package.md`. `same` means the path is identical to the call. |
+| Backend route | The route the backend serves, from the HTTP table of `docs/dev/backend-ts/packages/<module>-package.md` (originally derived from the Kotlin guides). `same` means the path is identical to the call. |
 | Closed by | The sub-ticket of issue #84 that migrated the call. `none` means the call needed no change. |
 
 Every row of every table below is a match: same method, same path, same body and
@@ -42,8 +51,8 @@ they shaped almost every store:
    directories. Test files only repeat the literals of the code they test, so
    they add no rows.
 2. Every hit is matched against the HTTP table of the owning backend package
-   guide in `docs/dev/backend/packages/`, and, where a guide leaves a body shape open,
-   against the Ktor route file itself.
+   guide in `docs/dev/backend-ts/packages/`, and, where a guide leaves a body shape open,
+   against the module's `routes.ts` itself.
 3. Hits inside comments and doc blocks are not rows. They name a route that is
    already a row somewhere in this file (`stores/shop/countries.ts` explaining
    why `GET /api/countries` needs no unwrap, `views/auth/LoginView.vue`
@@ -51,7 +60,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **141 rows** and **10** Kotlin routes that no
+That currently yields **141 rows** and **7** backend routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
@@ -70,7 +79,7 @@ that client and the conventions the stores follow.
 
 ## Storefront: catalog reads
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/shop/articleCategories.ts` | `GET /api/articles/categories` | same | #217 |
 | `stores/shop/catalog.ts` | `GET /api/articles/mugs` | same | #88 |
@@ -116,7 +125,7 @@ effective price only and receive no regular amount at all
 
 ## Storefront: cart
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/shop/cart.ts` | `GET /api/cart` | same | #91 |
 | `stores/shop/cart.ts` | `POST /api/cart/images` (multipart, part `file`) | same | #91 |
@@ -148,7 +157,7 @@ an identity change and adopts whatever the backend answers.
 
 ## Storefront: checkout, orders, countries, coins, generation
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/shop/checkout.ts` | `POST /api/checkout` | same | #93 |
 | `stores/shop/checkout.ts` | `POST /api/checkout/orders/{orderId}/payment` | same | #93 |
@@ -225,7 +234,7 @@ error, so the client maps both onto one message rather than matching on that tex
 
 ## Auth and session
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `lib/api.ts` | `GET /api/antiforgery/token` | same | none |
 | `stores/shared/auth.ts` | `GET /api/auth/me` | same | #89 |
@@ -272,7 +281,7 @@ filename or an id. All of them match the image module's routes
 (`docs/dev/backend/packages/image-package.md`); the folder names under
 `/api/images/public/` are the ones the backend writes into.
 
-| Frontend file | Built URL | Kotlin route | Closed by |
+| Frontend file | Built URL | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/mugs/variant-example-images/{filename}` and `/api/images/public/{size}/articles/spod/listing-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97, #217, #260 |
 | `lib/variantExampleImage.ts` (`spodMockupImageUrl`) | `/api/images/public/{size}/articles/spod/mockups/{filename}` | same | #260 |
@@ -305,7 +314,7 @@ invents no `generatedEditedImageId` any more.
 
 ## Admin: reference data
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/suppliers.ts` | `GET /api/admin/suppliers` | same | #87 |
 | `stores/admin/suppliers.ts` | `GET /api/admin/suppliers/{id}` | same | #87 |
@@ -337,7 +346,7 @@ groups them under a nested `discount` object, and validation error keys stay fla
 
 ## Admin: article categories and subcategories
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/articleCategories.ts` | `GET /api/admin/articles/categories` | same | #96 |
 | `stores/admin/articleCategories.ts` | `GET /api/admin/articles/categories/{id}` | same | #96 |
@@ -360,7 +369,7 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 
 ## Admin: mugs and SPOD articles
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/mugArticles.ts` | `GET /api/admin/articles/mugs` | same | #97 |
 | `stores/admin/mugArticles.ts` | `GET /api/admin/articles/mugs/{id}` | same | #97 |
@@ -377,7 +386,7 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
-Kotlin backend has a route family **per type**, and `articleType` exists in
+backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
@@ -420,7 +429,7 @@ uploading them.
 
 ## Admin: prompt categories and subcategories
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/promptCategories.ts` | `GET /api/admin/prompts/categories` | same | #98 |
 | `stores/admin/promptCategories.ts` | `GET /api/admin/prompts/categories/{id}` | same | #98 |
@@ -443,7 +452,7 @@ it per category and leaves the other categories untouched.
 
 ## Admin: prompt slots and slot variants
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/promptSlots.ts` | `GET /api/admin/prompts/slots` | same | #98 |
 | `stores/admin/promptSlots.ts` | `GET /api/admin/prompts/slots/{id}` | same | #98 |
@@ -465,7 +474,7 @@ create is a `400` field error on `slotId`, not a `404`.
 
 ## Admin: prompts
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/prompts.ts` | `GET /api/admin/prompts` | same | #99 |
 | `stores/admin/prompts.ts` | `GET /api/admin/prompts/{id}` | same | #99 |
@@ -487,7 +496,7 @@ reorder does.
 
 ## Admin: order production documents
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs` | same | #100 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | same | #100 |
@@ -500,7 +509,7 @@ codes on download.
 
 ## Admin: production jobs and supplier logins
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs?status=OPEN\|SHIPPED&supplierId=` | same | #125 |
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs/{jobId}/pdf` | same | #125 |
@@ -569,7 +578,7 @@ login's next request.
 
 ## Supplier: production jobs
 
-| Frontend file | Call | Kotlin route | Closed by |
+| Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/supplier/jobs.ts` | `GET /api/supplier/me` | same | #124 |
 | `stores/supplier/jobs.ts` | `GET /api/supplier/production-jobs?status=OPEN\|SHIPPED` | same | #124 |
@@ -586,12 +595,11 @@ never existed.
 ## Backend routes with no frontend caller
 
 The map would not be a completeness proof without the other direction. These
-Kotlin routes exist and nothing in `frontend/src` calls them. Each one is a
+backend routes exist and nothing in `frontend/src` calls them. Each one is a
 decision, not an oversight.
 
-| Kotlin route | Disposition |
+| Backend route | Disposition |
 | --- | --- |
-| `POST /api/admin/prices`, `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` | **No caller by design.** A price belongs to its article or prompt and is written inside that write; the standalone endpoints are the development-phase addition described in `docs/dev/backend/packages/pricing-package.md`. |
 | `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
 | `GET /api/images/private/{size}/{filename...}` | **No caller.** Private images are reached through the guest resolver route instead. Nothing to build. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
@@ -602,7 +610,7 @@ decision, not an oversight.
 | | Count |
 | --- | --- |
 | Frontend rows, all matching | 141 |
-| Backend routes with no caller, all dispositioned | 10 |
+| Backend routes with no caller, all dispositioned | 7 |
 | Call sites with an open contract gap | 0 |
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"
@@ -616,5 +624,7 @@ the two pre-uploads no longer exist, and neither does the variant editor whose
 thumbnails were the fourth — and added the destination's `sync-articles`, which
 is how 143 became 140. The generic SPOD article (#260) renamed the storefront
 route to `GET /api/articles/spod` and added the mockup folder of
-`spodMockupImageUrl`, which is how 140 became 141. Keep it that way: a new `/api/…` literal belongs in this file in
-the same commit that introduces it.
+`spodMockupImageUrl`, which is how 140 became 141. The TypeScript port (#262)
+changed no row; it removed the three standalone price routes nobody called
+(#251), which is how the uncalled routes went from 10 to 7. Keep it that way: a
+new `/api/…` literal belongs in this file in the same commit that introduces it.

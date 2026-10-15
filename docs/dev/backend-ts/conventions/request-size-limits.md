@@ -56,3 +56,17 @@ body stream, and a read of it throws, which the app's `onError` answers with
 
 The platform test `app.test.ts` pins the announced case, the exact-limit case,
 and the chunked case.
+
+## The two webhooks
+
+`POST /api/payments/webhook/{secret}` and
+`POST /api/production/webhooks/spod/{secret}` compare their secret before
+they read the body. Point 2 above weakens that for one request shape: a
+chunked body without `Content-Length` is buffered (held in memory, up to the
+limit, never parsed) before the route runs, so an attacker without the secret
+can make the server hold up to 30,000,000 bytes per request. The port decided
+to keep the middleware as it is and record the caveat instead of exempting the
+two paths: an exemption would leave those routes with no transfer bound at
+all, while the handlers read the whole body; both providers send small bodies
+with a `Content-Length`; and a per-route limit is more code than the gap is
+worth. The decision is recorded in `docs/migration/typescript-port.md`.

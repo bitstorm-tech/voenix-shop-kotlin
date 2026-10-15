@@ -355,9 +355,9 @@ retry`. It is retryable and nothing was written; how that is decided is
 ### The example image
 
 Uploading and saving are two requests. `POST /api/admin/prompts/example-images`
-takes a multipart body with a `file` part, stores it as WebP in the public
-folder `prompt-example-images` through the image module, and answers with the
-name:
+takes a multipart body with a `file` part (anything else answers `415`
+through the platform's `formBody`), stores it as WebP in the public folder
+`prompt-example-images` through the image module, and answers with the name:
 
 ```jsonc
 // 201 Created
