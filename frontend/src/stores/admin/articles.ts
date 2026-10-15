@@ -9,7 +9,7 @@ import { ApiError, fetchForm, type ApiFieldErrors } from '@/lib/api'
  * The per-type stores are `stores/admin/mugArticles.ts` and `stores/admin/tshirtArticles.ts`. A new
  * article type gets a new store next to them.
  */
-export type AdminArticleType = 'MUG' | 'TSHIRT'
+export type AdminArticleType = 'MUG' | 'SPOD'
 
 /**
  * One row of an admin article overview, exactly as a type route answers it.

@@ -174,8 +174,9 @@ internal class CheckoutRouteTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertEquals("Validation failed", response.message())
         assertNull(response.code(), "A field error is not something a frontend branches on")
+        val phoneError = "Phone is required for orders containing print-on-demand articles"
         assertEquals(
-            """{"shippingAddress.phone":["Phone is required for orders containing t-shirts"]}""",
+            """{"shippingAddress.phone":["$phoneError"]}""",
             Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("errors").toString(),
         )
     }

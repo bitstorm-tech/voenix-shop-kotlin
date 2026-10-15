@@ -25,8 +25,8 @@ describe('sizeRange', () => {
     expect(sizeRange(['XL', 'S', 'M'])).toBe('S – XL')
   })
 
-  it('names a single size and returns null for none', () => {
-    expect(sizeRange(['M'])).toBe('M')
+  it('names no range for a single size or none, because there is no choice', () => {
+    expect(sizeRange(['One size'])).toBeNull()
     expect(sizeRange([])).toBeNull()
   })
 })

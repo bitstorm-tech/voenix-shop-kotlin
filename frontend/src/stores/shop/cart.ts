@@ -13,8 +13,8 @@ import type { ShopArticleType } from '@/stores/shop/catalog'
  * sees what they put in and why they cannot buy it.
  *
  * `articleType` is the same kind of live answer and is what the line is rendered by: a mug shows
- * its two colour codes, a t-shirt the mockup of its variant. It is `null` for exactly the lines
- * whose names are `null` — the ones the catalog no longer resolves (issue #205).
+ * its two colour codes, a SPOD article the listing image of its colour. It is `null` for exactly
+ * the lines whose names are `null` — the ones the catalog no longer resolves (issue #205).
  */
 export interface CartItem {
   id: number
@@ -148,11 +148,11 @@ export const useCartStore = defineStore('cart', () => {
   const hasUnavailableItem = computed(() => items.value.some((item) => !item.available))
 
   /**
-   * Whether the cart contains a t-shirt line. The checkout reads it for one rule: a shirt is
+   * Whether the cart contains a SPOD line. The checkout reads it for one rule: a SPOD article is
    * shipped by the print-on-demand partner, who needs a phone number, so the backend refuses such
    * a checkout without one and the form asks for it up front (issue #205, decision D2).
    */
-  const hasTshirtItem = computed(() => items.value.some((item) => item.articleType === 'TSHIRT'))
+  const hasSpodItem = computed(() => items.value.some((item) => item.articleType === 'SPOD'))
 
   /**
    * Adopts a `CartView` wholesale. No mutation answers a partial cart, because shipping thresholds
@@ -320,7 +320,7 @@ export const useCartStore = defineStore('cart', () => {
     mutationError,
     isEmpty,
     hasUnavailableItem,
-    hasTshirtItem,
+    hasSpodItem,
     fetchCart,
     uploadPrintImage,
     addToCart,

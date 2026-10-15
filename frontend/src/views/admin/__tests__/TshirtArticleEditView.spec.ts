@@ -250,7 +250,7 @@ describe('TshirtArticleEditView', () => {
     expect(wrapper.find('#article-name').exists()).toBe(false)
     expect(wrapper.find('[data-testid="size-chart-upload"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="size-chart-preview"]').attributes('src')).toBe(
-      '/api/images/public/400/articles/tshirts/size-charts/chart.webp',
+      '/api/images/public/400/articles/spod/size-charts/chart.webp',
     )
   })
 

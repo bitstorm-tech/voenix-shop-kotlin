@@ -6,7 +6,7 @@ import { fetchJson } from '@/lib/api'
  * The article types the shop sells. The backend enum is closed, because a new type is a new table
  * and a new branch in every consumer (`docs/dev/backend/packages/article-package.md`).
  */
-export type ShopArticleType = 'MUG' | 'TSHIRT'
+export type ShopArticleType = 'MUG' | 'SPOD'
 
 /**
  * One mug variant a customer can order. The storefront never receives an inactive variant, so the
@@ -67,23 +67,35 @@ export interface MugDto extends ShopArticleBase {
 }
 
 /**
- * One t-shirt variant: a colour in a size. `name` is the composed `"Black / M"` that the admin
- * list and the order line spell the same way; `colorName`, `colorHex`, and `size` are the halves a
- * picker shows as a swatch and a size button.
+ * One colour of a SPOD article, as SPOD calls it: an *appearance*. The colour and its pictures hang
+ * off the appearance, not off every size of it. `mockupImageFilename` is the plain product photo the
+ * editor lays the print frame over; `listingImageFilenames` are the photos a listing shows, in
+ * SPOD's order, and the first of them is the one picture the storefront shows for this colour.
  */
-export interface TshirtVariantDto {
+export interface SpodAppearanceDto {
   id: number
-  name: string
   colorName: string
   colorHex: string
-  size: string
-  isDefault: boolean
-  exampleImageFilename: string | null
+  mockupImageFilename: string
+  listingImageFilenames: string[]
 }
 
 /**
- * The rectangle of the mockup the generated design is placed in, in percent of the mockup. The
- * four percentages are never `null` on the storefront, because their columns are `NOT NULL`.
+ * One SPOD variant: a colour in a size. `name` is the composed `"Black / M"` that the admin list and
+ * the order line spell the same way; `appearanceId` names the colour in the article's `appearances`,
+ * and `size` is what a size button shows.
+ */
+export interface SpodVariantDto {
+  id: number
+  name: string
+  appearanceId: number
+  size: string
+  isDefault: boolean
+}
+
+/**
+ * The rectangle of the mockup the generated design is placed in, in percent of the mockup. It is
+ * never `null` on the storefront, because only an article whose frame was measured can be active.
  */
 export interface PrintFrameDto {
   leftPct: number
@@ -92,39 +104,49 @@ export interface PrintFrameDto {
   heightPct: number
 }
 
-/** The format a shirt design is generated in. The backend allows exactly these two. */
-export type PrintAspectRatio = '16:9' | '1:1'
-
 /**
- * One t-shirt as the storefront sees it. The three SPOD ids of a variant are deliberately absent:
- * they name the printable product at the print-on-demand partner, and a customer must never learn
- * that the partner exists.
+ * One article of the print-on-demand partner (a shirt, a tote bag, ...) as the storefront sees
+ * it. What kind of product it is, is data: `productTypeName` says it. The design is always square.
+ * The three SPOD ids of a variant are deliberately absent: they name the printable product at the
+ * partner, and a customer must never learn that the partner exists.
+ *
+ * `appearances` only lists colours with at least one variant, and `variants` are ordered by colour
+ * and then by id.
  */
-export interface TshirtDto extends ShopArticleBase {
-  articleType: 'TSHIRT'
-  printAspectRatio: PrintAspectRatio
+export interface SpodArticleDto extends ShopArticleBase {
+  articleType: 'SPOD'
+  productTypeName: string
   sizeChartImageFilename: string | null
   printFrame: PrintFrameDto
-  variants: TshirtVariantDto[]
+  appearances: SpodAppearanceDto[]
+  variants: SpodVariantDto[]
 }
 
 /**
  * Everything the shop sells, as one discriminated union over `articleType`. The discriminator is
  * on the wire for exactly this reason: a grid, a cart line, or a wizard step tells a mug with
- * measurements from a shirt with a colour and a size by reading one field, never by guessing from
+ * measurements from a SPOD article with a colour and a size by reading one field, never by guessing from
  * the shape ("does it have `mugDetails`?").
  */
-export type ShopArticle = MugDto | TshirtDto
+export type ShopArticle = MugDto | SpodArticleDto
 
 /** The variant of whichever article type — the union the same way, resolved through the article. */
-export type ShopArticleVariant = MugVariantDto | TshirtVariantDto
+export type ShopArticleVariant = MugVariantDto | SpodVariantDto
 
 export function isMug(article: ShopArticle): article is MugDto {
   return article.articleType === 'MUG'
 }
 
-export function isTshirt(article: ShopArticle): article is TshirtDto {
-  return article.articleType === 'TSHIRT'
+export function isSpodArticle(article: ShopArticle): article is SpodArticleDto {
+  return article.articleType === 'SPOD'
+}
+
+/**
+ * The colour a SPOD variant of this article is offered in. The backend lists the colour of every
+ * variant it answers, so the lookup cannot miss.
+ */
+export function appearanceOf(article: SpodArticleDto, variant: SpodVariantDto): SpodAppearanceDto {
+  return article.appearances.find((appearance) => appearance.id === variant.appearanceId)!
 }
 
 function compareArticlesByPosition(a: ShopArticle, b: ShopArticle): number {
@@ -141,7 +163,7 @@ function compareArticlesByName(a: ShopArticle, b: ShopArticle): number {
  * Both type routes are read in parallel and their rows are stamped with the type of the route they
  * came from, so the union's discriminator is guaranteed by construction and not by trusting a
  * field. A read that fails on either half fails as a whole — a grid that silently shows only mugs
- * because the shirt route was down would look like an empty shirt catalog.
+ * because the SPOD route was down would look like an empty SPOD catalog.
  */
 export const useCatalogStore = defineStore('catalog', () => {
   const articles = ref<ShopArticle[]>([])
@@ -153,7 +175,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   let lastFetchedAt = 0
 
   const mugs = computed<MugDto[]>(() => articles.value.filter(isMug))
-  const tshirts = computed<TshirtDto[]>(() => articles.value.filter(isTshirt))
+  const spodArticles = computed<SpodArticleDto[]>(() => articles.value.filter(isSpodArticle))
 
   async function fetchArticles() {
     if (isLoading.value) return
@@ -170,15 +192,15 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
 
     try {
-      const [fetchedMugs, fetchedTshirts] = await Promise.all([
+      const [fetchedMugs, fetchedSpodArticles] = await Promise.all([
         fetchJson<MugDto[]>('/api/articles/mugs'),
-        fetchJson<TshirtDto[]>('/api/articles/tshirts'),
+        fetchJson<SpodArticleDto[]>('/api/articles/spod'),
       ])
 
       articles.value = [
         ...fetchedMugs.map((mug) => ({ ...mug, articleType: 'MUG' }) satisfies MugDto),
-        ...fetchedTshirts.map(
-          (tshirt) => ({ ...tshirt, articleType: 'TSHIRT' }) satisfies TshirtDto,
+        ...fetchedSpodArticles.map(
+          (article) => ({ ...article, articleType: 'SPOD' }) satisfies SpodArticleDto,
         ),
       ]
       hasFetched.value = true
@@ -231,7 +253,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   return {
     articles,
     mugs,
-    tshirts,
+    spodArticles,
     isLoading,
     error,
     hasFetched,

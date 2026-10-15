@@ -170,7 +170,7 @@ const mockupUrl = computed(() => {
     ) ?? variants.value.find((variant) => variant.exampleImageFilename !== null)
 
   return withImage?.exampleImageFilename
-    ? variantExampleImageUrl('TSHIRT', withImage.exampleImageFilename, 1000)
+    ? variantExampleImageUrl('SPOD', withImage.exampleImageFilename, 1000)
     : null
 })
 

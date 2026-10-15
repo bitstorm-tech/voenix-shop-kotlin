@@ -6,7 +6,7 @@ import ProductOverviewView from '@/views/shop/ProductOverviewView.vue'
 import { useEditorStore } from '@/stores/shop/editor'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
-import { createMugVariant, createShopMug, createShopTshirt } from '@/testing/shopCatalog'
+import { createMugVariant, createShopMug, createShopTee } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -146,7 +146,7 @@ describe('ProductOverviewView', () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [
       makeMug({ id: 10, position: 1 }),
-      createShopTshirt({ id: 20, position: 2, categoryId: 1 }),
+      createShopTee({ id: 20, position: 2, categoryId: 1 }),
     ]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
@@ -159,10 +159,10 @@ describe('ProductOverviewView', () => {
         .map((card) => Number(card.attributes('data-article-id'))),
     ).toEqual([10, 20])
 
-    const shirtsOnly = await mountProductOverview(router, '/products?type=TSHIRT')
+    const spodOnly = await mountProductOverview(router, '/products?type=SPOD')
 
     expect(
-      shirtsOnly
+      spodOnly
         .findAll('[data-testid="product-card"]')
         .map((card) => Number(card.attributes('data-article-id'))),
     ).toEqual([20])

@@ -6,7 +6,7 @@ import ProductEditor from '@/components/shop/editor/ProductEditor.vue'
 import {
   toEditorArticleVariant,
   toEditorMugArticle,
-  toEditorTshirtArticle,
+  toEditorSpodArticle,
   type EditorArticle,
   type EditorArticleVariant,
 } from '@/components/shop/editor/types'
@@ -14,8 +14,7 @@ import {
   createMugDetails,
   createMugVariant,
   createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
+  createShopTee,
 } from '@/testing/shopCatalog'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
@@ -51,18 +50,17 @@ const shopMug = createShopMug({
   variants: [createMugVariant({ id: 11 })],
 })
 
-const shopTshirt = createShopTshirt({
+// Black (appearance 201) in S/M/L as variants 21-23, white (appearance 202) as variants 24-26.
+const shopTee = createShopTee({
   id: 2,
-  name: 'Heavy Shirt',
-  printAspectRatio: '16:9',
+  name: 'Heavy Tee',
   printFrame: { leftPct: 30, topPct: 24, widthPct: 40, heightPct: 22.5 },
-  variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
 })
 
 const article: EditorArticle = toEditorMugArticle(shopMug)
 const variant: EditorArticleVariant = toEditorArticleVariant(shopMug, 11)!
-const tshirtArticle: EditorArticle = toEditorTshirtArticle(shopTshirt)
-const tshirtVariant: EditorArticleVariant = toEditorArticleVariant(shopTshirt, 21)!
+const spodArticle: EditorArticle = toEditorSpodArticle(shopTee)
+const spodVariant: EditorArticleVariant = toEditorArticleVariant(shopTee, 21)!
 
 function generatedImage(id: string): GeneratedImage {
   return {
@@ -183,16 +181,12 @@ describe('ProductEditor', () => {
     )
   })
 
-  it('lays the print frame over the shirt mockup at the calibrated percentages', () => {
+  it('lays the print frame over the mockup of the selected colour at the measured percentages', () => {
     const draft = createDraft()
-    const wrapper = mountProductEditor(
-      draft,
-      {},
-      { article: tshirtArticle, variant: tshirtVariant },
-    )
+    const wrapper = mountProductEditor(draft, {}, { article: spodArticle, variant: spodVariant })
 
     expect(wrapper.get('[data-testid="editor-mockup-image"]').attributes('src')).toBe(
-      '/api/images/public/1000/articles/tshirts/variant-example-images/black-shirt.webp',
+      '/api/images/public/1000/articles/spod/mockups/mockup-201.webp',
     )
 
     const frameStyle = wrapper.get('[data-testid="editor-print-frame"]').attributes('style') ?? ''
@@ -205,19 +199,29 @@ describe('ProductEditor', () => {
     expect(frameStyle).not.toContain('aspect-ratio')
   })
 
-  it('falls back to the plain print frame when the shirt mockup photo fails to load', async () => {
+  it('swaps the mockup and keeps the frame when the colour changes', async () => {
     const draft = createDraft()
-    const wrapper = mountProductEditor(
-      draft,
-      {},
-      { article: tshirtArticle, variant: tshirtVariant },
+    const wrapper = mountProductEditor(draft, {}, { article: spodArticle, variant: spodVariant })
+
+    await wrapper.setProps({ variant: toEditorArticleVariant(shopTee, 24)! })
+
+    expect(wrapper.get('[data-testid="editor-mockup-image"]').attributes('src')).toBe(
+      '/api/images/public/1000/articles/spod/mockups/mockup-202.webp',
     )
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
+      'left: 30%',
+    )
+  })
+
+  it('falls back to the plain square print frame when the mockup photo fails to load', async () => {
+    const draft = createDraft()
+    const wrapper = mountProductEditor(draft, {}, { article: spodArticle, variant: spodVariant })
 
     await wrapper.get('[data-testid="editor-mockup-image"]').trigger('error')
 
     expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
-      `aspect-ratio: ${16 / 9}`,
+      'aspect-ratio: 1',
     )
   })
 

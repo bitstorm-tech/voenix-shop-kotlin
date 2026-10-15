@@ -3,8 +3,9 @@ import type {
   MugDetailsDto,
   MugDto,
   MugVariantDto,
-  TshirtDto,
-  TshirtVariantDto,
+  SpodAppearanceDto,
+  SpodArticleDto,
+  SpodVariantDto,
 } from '@/stores/shop/catalog'
 import type { PromptDto } from '@/stores/shop/prompts'
 
@@ -60,39 +61,117 @@ export function createShopMug(overrides: Partial<MugDto> = {}): MugDto {
   }
 }
 
-export function createTshirtVariant(overrides: Partial<TshirtVariantDto> = {}): TshirtVariantDto {
+export function createSpodAppearance(
+  overrides: Partial<SpodAppearanceDto> = {},
+): SpodAppearanceDto {
+  const id = overrides.id ?? 201
+
   return {
-    id: 21,
-    name: 'Black / M',
+    id,
     colorName: 'Black',
     colorHex: '#101010',
-    size: 'M',
-    isDefault: true,
-    exampleImageFilename: null,
+    mockupImageFilename: `mockup-${id}.webp`,
+    listingImageFilenames: [`listing-${id}-front.webp`, `listing-${id}-back.webp`],
     ...overrides,
   }
 }
 
-export function createShopTshirt(overrides: Partial<TshirtDto> = {}): TshirtDto {
-  const id = overrides.id ?? 2
+export function createSpodVariant(overrides: Partial<SpodVariantDto> = {}): SpodVariantDto {
+  return {
+    id: 21,
+    name: 'Black / M',
+    appearanceId: 201,
+    size: 'M',
+    isDefault: true,
+    ...overrides,
+  }
+}
+
+/**
+ * Every colour in every size, the way the backend orders them (colour first), with ids counting up
+ * from `articleId * 10 + 1` and the first variant as the default.
+ */
+function spodVariantsOf(
+  articleId: number,
+  appearances: SpodAppearanceDto[],
+  sizes: string[],
+): SpodVariantDto[] {
+  return appearances
+    .flatMap((appearance) => sizes.map((size) => ({ appearance, size })))
+    .map(({ appearance, size }, index) =>
+      createSpodVariant({
+        id: articleId * 10 + 1 + index,
+        name: `${appearance.colorName} / ${size}`,
+        appearanceId: appearance.id,
+        size,
+        isDefault: index === 0,
+      }),
+    )
+}
+
+/** Overridden `appearances` get every size too, unless the overrides bring their own `variants`. */
+function createShopSpodArticle(
+  id: number,
+  defaultAppearances: SpodAppearanceDto[],
+  sizes: string[],
+  overrides: Partial<SpodArticleDto>,
+): SpodArticleDto {
+  const appearances = overrides.appearances ?? defaultAppearances
 
   return {
-    articleType: 'TSHIRT',
+    articleType: 'SPOD',
     id,
     position: id,
-    name: `Tshirt ${id}`,
+    name: `SPOD article ${id}`,
     descriptionShort: 'Short description',
     descriptionLong: 'Long description',
     categoryId: 20,
     subcategoryId: null,
     price: 1990,
     regularPrice: null,
-    printAspectRatio: '16:9',
+    productTypeName: "Men's Tee",
     sizeChartImageFilename: null,
     printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 40.5 },
-    variants: [createTshirtVariant({ id: id * 10 + 1 })],
+    appearances,
+    variants: spodVariantsOf(id, appearances, sizes),
     ...overrides,
   }
+}
+
+/** A tee in two colours (black, white), each in three sizes (S, M, L); variant ids `id*10+1..6`. */
+export function createShopTee(overrides: Partial<SpodArticleDto> = {}): SpodArticleDto {
+  const id = overrides.id ?? 2
+  const appearances = [
+    createSpodAppearance({ id: id * 100 + 1, colorName: 'Black', colorHex: '#101010' }),
+    createSpodAppearance({ id: id * 100 + 2, colorName: 'White', colorHex: '#ffffff' }),
+  ]
+
+  return createShopSpodArticle(id, appearances, ['S', 'M', 'L'], overrides)
+}
+
+const TOTE_COLORS: [string, string][] = [
+  ['Natural', '#f3ead8'],
+  ['Black', '#101010'],
+  ['Navy', '#1f2a44'],
+  ['Red', '#c0392b'],
+  ['Bottle Green', '#1e5631'],
+  ['Royal Blue', '#2752a8'],
+  ['Grey', '#8a8a8a'],
+  ['Pink', '#f4a6c1'],
+]
+
+/** A tote bag in eight colours and one size ("One size"); variant ids `id*10+1..8`. */
+export function createShopTote(overrides: Partial<SpodArticleDto> = {}): SpodArticleDto {
+  const id = overrides.id ?? 3
+  const appearances = TOTE_COLORS.map(([colorName, colorHex], index) =>
+    createSpodAppearance({ id: id * 100 + 1 + index, colorName, colorHex }),
+  )
+
+  return createShopSpodArticle(id, appearances, ['One size'], {
+    name: `Tote ${id}`,
+    productTypeName: 'Tote Bag',
+    ...overrides,
+  })
 }
 
 export function createMugSubcategory(

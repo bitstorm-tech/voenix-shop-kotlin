@@ -1,15 +1,20 @@
 import {
+  appearanceOf,
   isMug,
   type MugDto,
   type MugVariantDto,
-  type PrintAspectRatio,
   type PrintFrameDto,
   type ShopArticle,
-  type TshirtDto,
-  type TshirtVariantDto,
+  type SpodAppearanceDto,
+  type SpodArticleDto,
+  type SpodVariantDto,
 } from '@/stores/shop/catalog'
 
-/** What every variant contributes to the editor, whatever the article is made of. */
+/**
+ * What every variant contributes to the editor, whatever the article is made of.
+ * `exampleImageFilename` is the catalog photo of the variant: a mug variant's own example image, or
+ * the first listing image of a SPOD variant's colour.
+ */
 interface EditorArticleVariantBase {
   id: number
   name: string
@@ -24,20 +29,21 @@ export interface EditorMugVariant extends EditorArticleVariantBase {
   insideColorCode: string
 }
 
-/** A shirt variant is one colour in one size - the two halves the picker offers separately. */
-export interface EditorTshirtVariant extends EditorArticleVariantBase {
-  type: 'TSHIRT'
+/** A SPOD variant is one colour in one size - the two halves the picker offers separately. */
+export interface EditorSpodVariant extends EditorArticleVariantBase {
+  type: 'SPOD'
+  appearanceId: number
   colorName: string
   colorHex: string
   size: string
 }
 
-export type EditorArticleVariant = EditorMugVariant | EditorTshirtVariant
+export type EditorArticleVariant = EditorMugVariant | EditorSpodVariant
 
 /**
  * The rectangle the design is printed in. `aspectRatio` is the one field the editor really works
  * with; the millimetres exist only where the article is described in millimetres (a mug's document
- * format). A shirt is described by a ratio alone, so its millimetres are `null`.
+ * format). A SPOD article is described by a ratio alone, so its millimetres are `null`.
  */
 export interface EditorPrintArea {
   aspectRatio: number
@@ -60,14 +66,16 @@ export interface EditorMugArticle extends EditorArticleBase {
   variants: EditorMugVariant[]
 }
 
-export interface EditorTshirtArticle extends EditorArticleBase {
-  type: 'TSHIRT'
-  /** The ratio as it is written on the wire, for the copy that names the format. */
-  printAspectRatio: PrintAspectRatio
-  /** Where the design sits on the mockup photo, in percent of the photo (admin-calibrated). */
+export interface EditorSpodArticle extends EditorArticleBase {
+  type: 'SPOD'
+  /** What kind of product it is ("Men's Tee", "Tote Bag"), as SPOD names it. */
+  productTypeName: string
+  /** Where the design sits on the mockup photo, in percent of the photo (measured by the sync). */
   printFrame: PrintFrameDto
+  /** The colours, each with the mockup photo the frame is laid over. */
+  appearances: SpodAppearanceDto[]
   sizeChartImageFilename: string | null
-  variants: EditorTshirtVariant[]
+  variants: EditorSpodVariant[]
 }
 
 /**
@@ -75,13 +83,7 @@ export interface EditorTshirtArticle extends EditorArticleBase {
  * discriminated union over `type`. The editor never touches the catalog DTOs directly, so a new
  * article type is one adapter plus the branches that really differ.
  */
-export type EditorArticle = EditorMugArticle | EditorTshirtArticle
-
-/** The two ratios the backend allows for a shirt design, as the numbers the frame is drawn with. */
-export const PRINT_ASPECT_RATIOS: Record<PrintAspectRatio, number> = {
-  '16:9': 16 / 9,
-  '1:1': 1,
-}
+export type EditorArticle = EditorMugArticle | EditorSpodArticle
 
 export function toEditorMugArticle(mug: MugDto): EditorMugArticle {
   const width = mug.mugDetails.documentFormatWidthMm
@@ -106,30 +108,26 @@ export function toEditorMugArticle(mug: MugDto): EditorMugArticle {
   }
 }
 
-export function toEditorTshirtArticle(tshirt: TshirtDto): EditorTshirtArticle {
+export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle {
   return {
-    id: tshirt.id,
-    type: 'TSHIRT',
-    name: tshirt.name,
-    descriptionShort: tshirt.descriptionShort,
-    price: tshirt.price,
-    regularPrice: tshirt.regularPrice,
-    // A shirt always has a print area: its ratio comes from the closed `printAspectRatio` enum,
-    // and there are no millimetres to lose.
-    printArea: {
-      aspectRatio: PRINT_ASPECT_RATIOS[tshirt.printAspectRatio],
-      documentFormatWidthMm: null,
-      documentFormatHeightMm: null,
-    },
-    printAspectRatio: tshirt.printAspectRatio,
-    printFrame: tshirt.printFrame,
-    sizeChartImageFilename: tshirt.sizeChartImageFilename,
-    variants: tshirt.variants.map(toEditorTshirtVariant),
+    id: article.id,
+    type: 'SPOD',
+    name: article.name,
+    descriptionShort: article.descriptionShort,
+    price: article.price,
+    regularPrice: article.regularPrice,
+    // A SPOD design is always square, and there are no millimetres to lose.
+    printArea: { aspectRatio: 1, documentFormatWidthMm: null, documentFormatHeightMm: null },
+    productTypeName: article.productTypeName,
+    printFrame: article.printFrame,
+    appearances: article.appearances,
+    sizeChartImageFilename: article.sizeChartImageFilename,
+    variants: article.variants.map((variant) => toEditorSpodVariant(article, variant)),
   }
 }
 
 export function toEditorArticle(article: ShopArticle): EditorArticle {
-  return isMug(article) ? toEditorMugArticle(article) : toEditorTshirtArticle(article)
+  return isMug(article) ? toEditorMugArticle(article) : toEditorSpodArticle(article)
 }
 
 export function toEditorMugVariant(variant: MugVariantDto): EditorMugVariant {
@@ -144,16 +142,22 @@ export function toEditorMugVariant(variant: MugVariantDto): EditorMugVariant {
   }
 }
 
-export function toEditorTshirtVariant(variant: TshirtVariantDto): EditorTshirtVariant {
+export function toEditorSpodVariant(
+  article: SpodArticleDto,
+  variant: SpodVariantDto,
+): EditorSpodVariant {
+  const appearance = appearanceOf(article, variant)
+
   return {
     id: variant.id,
-    type: 'TSHIRT',
+    type: 'SPOD',
     name: variant.name,
-    colorName: variant.colorName,
-    colorHex: variant.colorHex,
+    appearanceId: variant.appearanceId,
+    colorName: appearance.colorName,
+    colorHex: appearance.colorHex,
     size: variant.size,
     isDefault: variant.isDefault,
-    exampleImageFilename: variant.exampleImageFilename,
+    exampleImageFilename: appearance.listingImageFilenames[0] ?? null,
   }
 }
 
@@ -173,5 +177,5 @@ export function toEditorArticleVariant(
   // The variant comes out of this article's own list, so the article's type names it.
   return isMug(article)
     ? toEditorMugVariant(variant as MugVariantDto)
-    : toEditorTshirtVariant(variant as TshirtVariantDto)
+    : toEditorSpodVariant(article, variant as SpodVariantDto)
 }

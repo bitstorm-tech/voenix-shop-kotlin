@@ -193,7 +193,7 @@ compare them line by line.
 There is exactly one deliberate exception, and it is worth knowing because it
 looks like the adapter layer this rule forbids: the **shop catalog store stamps
 `articleType` onto what it returns**. The article routes are one family per
-type (`/api/articles/mugs`, `/api/articles/tshirts`), so the type is the *path*
+type (`/api/articles/mugs`, `/api/articles/spod`), so the type is the *path*
 and not a field of the body. `stores/shop/catalog.ts` reads both families and
 merges them into one catalog, which would otherwise hand the UI a union nothing
 can narrow. Stamping the discriminator the path already stated is not renaming a

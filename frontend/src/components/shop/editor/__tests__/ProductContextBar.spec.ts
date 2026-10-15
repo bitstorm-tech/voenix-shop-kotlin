@@ -7,7 +7,7 @@ import ProductContextBar from '@/components/shop/editor/ProductContextBar.vue'
 import {
   toEditorArticleVariant,
   toEditorMugArticle,
-  toEditorTshirtArticle,
+  toEditorSpodArticle,
   type EditorArticle,
   type EditorArticleVariant,
 } from '@/components/shop/editor/types'
@@ -15,8 +15,8 @@ import {
   createMugDetails,
   createMugVariant,
   createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
+  createShopTee,
+  createSpodAppearance,
 } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
@@ -36,18 +36,17 @@ const shopMug = createShopMug({
   variants: [createMugVariant({ id: 11, exampleImageFilename: 'white-mug.png' })],
 })
 
-const shopTshirt = createShopTshirt({
+const shopTee = createShopTee({
   id: 2,
-  name: 'Heavy Shirt',
+  name: 'Heavy Tee',
   descriptionShort: 'Short',
-  printAspectRatio: '1:1',
-  variants: [createTshirtVariant({ id: 21, exampleImageFilename: null })],
+  appearances: [createSpodAppearance({ id: 201, listingImageFilenames: [] })],
 })
 
 const article: EditorArticle = toEditorMugArticle(shopMug)
 const variant: EditorArticleVariant = toEditorArticleVariant(shopMug, 11)!
-const tshirtArticle: EditorArticle = toEditorTshirtArticle(shopTshirt)
-const tshirtVariant: EditorArticleVariant = toEditorArticleVariant(shopTshirt, 21)!
+const spodArticle: EditorArticle = toEditorSpodArticle(shopTee)
+const spodVariant: EditorArticleVariant = toEditorArticleVariant(shopTee, 21)!
 
 function compileScopedCss() {
   const source = readFileSync(componentPath, 'utf-8')
@@ -115,37 +114,34 @@ describe('ProductContextBar', () => {
     expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
-  it('names the print ratio and the shirt icon for a t-shirt', () => {
+  it('names the product type, the square print area, and the package icon for a SPOD article', () => {
     const wrapper = mount(ProductContextBar, {
       props: {
-        article: tshirtArticle,
-        variant: tshirtVariant,
+        article: spodArticle,
+        variant: spodVariant,
       },
     })
 
+    expect(wrapper.get('[data-testid="editor-product-type"]').text()).toBe("Men's Tee")
     expect(wrapper.get('[data-testid="editor-product-context"]').text()).toContain(
-      'editor.context.printRatio',
+      'editor.context.printAreaSquare',
     )
     expect(wrapper.find('img.product-context-image').exists()).toBe(false)
-    expect(wrapper.get('.product-context-placeholder svg').classes()).toContain('lucide-shirt')
+    expect(wrapper.get('.product-context-placeholder svg').classes()).toContain('lucide-package')
   })
 
-  it('shows the shirt variant photo from the shirt folder', () => {
+  it('shows the first listing image of the SPOD colour from the listing folder', () => {
+    const tee = createShopTee({ id: 2 })
+
     const wrapper = mount(ProductContextBar, {
       props: {
-        article: tshirtArticle,
-        variant: toEditorArticleVariant(
-          createShopTshirt({
-            id: 2,
-            variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
-          }),
-          21,
-        )!,
+        article: toEditorSpodArticle(tee),
+        variant: toEditorArticleVariant(tee, 21)!,
       },
     })
 
     expect(wrapper.get('img.product-context-image').attributes('src')).toBe(
-      '/api/images/public/200/articles/tshirts/variant-example-images/black-shirt.webp',
+      '/api/images/public/200/articles/spod/listing-images/listing-201-front.webp',
     )
   })
 

@@ -5,7 +5,7 @@ import CartLineItem from '@/components/shop/CartLineItem.vue'
 import { useCartStore, type CartItem } from '@/stores/shop/cart'
 import { useCatalogStore } from '@/stores/shop/catalog'
 import { createCartItem } from '@/testing/cart'
-import { createShopMug, createShopTshirt, createTshirtVariant } from '@/testing/shopCatalog'
+import { createShopMug, createShopTee, createSpodAppearance } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -46,44 +46,40 @@ describe('CartLineItem', () => {
 
     const fallback = wrapper.get('[data-testid="cart-line-mug-fallback"]')
     expect(fallback.attributes('style')).toContain('background-color: rgb(255, 255, 255)')
-    expect(wrapper.find('[data-testid="cart-line-shirt-fallback"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="cart-line-spod-fallback"]').exists()).toBe(false)
   })
 
-  it('shows the variant mockup of a shirt line and its size through the variant name', () => {
+  it('shows the first listing image of a SPOD line colour and its size through the variant name', () => {
     const catalogStore = useCatalogStore()
-    catalogStore.articles = [
-      createShopTshirt({
-        id: 42,
-        variants: [
-          createTshirtVariant({ id: 84, name: 'Black / M', exampleImageFilename: 'black.png' }),
-        ],
-      }),
-    ]
+    // Variant 425 is white (appearance 4202) in M.
+    catalogStore.articles = [createShopTee({ id: 42 })]
 
     const wrapper = mountLine(
       createCartItem({
         articleId: 42,
-        variantId: 84,
-        articleType: 'TSHIRT',
+        variantId: 425,
+        articleType: 'SPOD',
         articleName: 'Shirt',
-        variantName: 'Black / M',
+        variantName: 'White / M',
         outsideColorCode: null,
         insideColorCode: null,
       }),
     )
 
     expect(wrapper.get('[data-testid="cart-line-variant-image"]').attributes('src')).toBe(
-      '/api/images/public/400/articles/tshirts/variant-example-images/black.png',
+      '/api/images/public/400/articles/spod/listing-images/listing-4202-front.webp',
     )
-    expect(wrapper.text()).toContain('Black / M')
+    expect(wrapper.text()).toContain('White / M')
   })
 
-  it('tints the shirt silhouette with the catalog colour while no mockup exists', () => {
+  it('tints the package icon with the catalog colour while the colour has no listing image', () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [
-      createShopTshirt({
+      createShopTee({
         id: 42,
-        variants: [createTshirtVariant({ id: 84, colorHex: '#101010' })],
+        appearances: [
+          createSpodAppearance({ id: 4201, colorHex: '#101010', listingImageFilenames: [] }),
+        ],
       }),
       createShopMug({ id: 43 }),
     ]
@@ -91,29 +87,29 @@ describe('CartLineItem', () => {
     const wrapper = mountLine(
       createCartItem({
         articleId: 42,
-        variantId: 84,
-        articleType: 'TSHIRT',
+        variantId: 421,
+        articleType: 'SPOD',
         variantName: 'Black / M',
         outsideColorCode: null,
         insideColorCode: null,
       }),
     )
 
-    const fallback = wrapper.get('[data-testid="cart-line-shirt-fallback"]')
+    const fallback = wrapper.get('[data-testid="cart-line-spod-fallback"]')
     expect(fallback.attributes('fill')).toBe('#101010')
     expect(wrapper.find('[data-testid="cart-line-mug-fallback"]').exists()).toBe(false)
   })
 
-  it('keeps the shirt silhouette untinted when the catalog no longer answers for the line', () => {
+  it('keeps the package icon untinted when the catalog no longer answers for the line', () => {
     const wrapper = mountLine(
       createCartItem({
         articleId: 999,
-        articleType: 'TSHIRT',
+        articleType: 'SPOD',
         outsideColorCode: null,
         insideColorCode: null,
       }),
     )
 
-    expect(wrapper.get('[data-testid="cart-line-shirt-fallback"]').attributes('fill')).toBe('none')
+    expect(wrapper.get('[data-testid="cart-line-spod-fallback"]').attributes('fill')).toBe('none')
   })
 })

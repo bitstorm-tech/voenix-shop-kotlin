@@ -291,7 +291,7 @@ in the exact shape the Request Validation plugin produces for a malformed body:
 {
   "message": "Validation failed",
   "errors": {
-    "shippingAddress.phone": ["Phone is required for orders containing t-shirts"]
+    "shippingAddress.phone": ["Phone is required for orders containing print-on-demand articles"]
   }
 }
 ```

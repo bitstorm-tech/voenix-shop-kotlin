@@ -127,7 +127,7 @@ onMounted(async () => {
 
     <AdminArticlesTable
       v-else
-      article-type="TSHIRT"
+      article-type="SPOD"
       edit-route-name="admin-tshirt-article-edit"
       sync-column
       :articles="filteredArticles"

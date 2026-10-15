@@ -21,13 +21,13 @@ describe('wizard store', () => {
     expect(wizard.selectedArticleId).toBe(1)
   })
 
-  it('keeps the article type of a shirt selection and drops everything on a reset', () => {
+  it('keeps the article type of a SPOD selection and drops everything on a reset', () => {
     const wizard = useWizardStore()
 
-    wizard.selectArticle('TSHIRT', 2, 21)
+    wizard.selectArticle('SPOD', 2, 21)
 
     expect(wizard.hasSelectedArticle).toBe(true)
-    expect(wizard.selectedArticleType).toBe('TSHIRT')
+    expect(wizard.selectedArticleType).toBe('SPOD')
     expect(wizard.selectedVariantId).toBe(21)
 
     wizard.clearArticleSelection()

@@ -8,12 +8,13 @@ import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { sizeRange } from '@/lib/tshirtSizes'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
+  appearanceOf,
   isMug,
-  isTshirt,
+  isSpodArticle,
   type MugVariantDto,
   type ShopArticle,
   type ShopArticleVariant,
-  type TshirtVariantDto,
+  type SpodVariantDto,
 } from '@/stores/shop/catalog'
 
 const { t } = useI18n()
@@ -43,8 +44,8 @@ const emit = defineEmits<{
 
 /**
  * One card for both article types. The discriminator decides what a variant means: a mug variant
- * is an outside and an inside colour, a shirt variant is one colour in one size - which is why a
- * shirt shows a swatch per *colour* and its sizes as a range, instead of a swatch per variant.
+ * is an outside and an inside colour, a SPOD variant is one colour in one size - which is why a
+ * SPOD article shows a swatch per *colour* and its sizes as a range, instead of a swatch per variant.
  *
  * The card stays calm however many colours an article has: the price sits on the picture as a tag,
  * the first few swatches are shown at a size a thumb can hit, and a "+n" button unfolds the rest.
@@ -56,27 +57,31 @@ const mugVariant = computed<MugVariantDto | null>(() =>
   isMug(props.article) ? (props.activeVariant as MugVariantDto | null) : null,
 )
 
-const tshirtVariant = computed<TshirtVariantDto | null>(() =>
-  isTshirt(props.article) ? (props.activeVariant as TshirtVariantDto | null) : null,
+const spodVariant = computed<SpodVariantDto | null>(() =>
+  isSpodArticle(props.article) ? (props.activeVariant as SpodVariantDto | null) : null,
+)
+
+/** The colour of the active SPOD variant, which carries the name, the hex, and the photos. */
+const spodAppearance = computed(() =>
+  isSpodArticle(props.article) && spodVariant.value
+    ? appearanceOf(props.article, spodVariant.value)
+    : null,
 )
 
 const outsideColor = computed(
-  () => mugVariant.value?.outsideColorCode ?? tshirtVariant.value?.colorHex ?? '#cccccc',
+  () => mugVariant.value?.outsideColorCode ?? spodAppearance.value?.colorHex ?? '#cccccc',
 )
 
 const insideColor = computed(
-  () => mugVariant.value?.insideColorCode ?? tshirtVariant.value?.colorHex ?? '#ffffff',
+  () => mugVariant.value?.insideColorCode ?? spodAppearance.value?.colorHex ?? '#ffffff',
 )
 
-const exampleImageUrl = computed(() =>
-  props.activeVariant?.exampleImageFilename
-    ? variantExampleImageUrl(
-        props.article.articleType,
-        props.activeVariant.exampleImageFilename,
-        400,
-      )
-    : null,
-)
+/** One picture per card: a mug variant's own photo, or the first listing image of the colour. */
+const exampleImageUrl = computed(() => {
+  const filename =
+    mugVariant.value?.exampleImageFilename ?? spodAppearance.value?.listingImageFilenames[0]
+  return filename ? variantExampleImageUrl(props.article.articleType, filename, 400) : null
+})
 
 interface ColorSwatch {
   variantId: number
@@ -108,29 +113,18 @@ const colorSwatches = computed<ColorSwatch[]>(() => {
     }))
   }
 
-  const variantsByColor = new Map<string, TshirtVariantDto[]>()
-
-  for (const variant of article.variants) {
-    const variants = variantsByColor.get(variant.colorName)
-    if (variants === undefined) {
-      variantsByColor.set(variant.colorName, [variant])
-    } else {
-      variants.push(variant)
-    }
-  }
-
   // Clicking a colour keeps the selected size when that colour is offered in it.
-  const selectedSize = tshirtVariant.value?.size
+  const selectedSize = spodVariant.value?.size
 
-  return [...variantsByColor.values()].map((variants) => {
-    const first = variants[0]!
-    const variant = variants.find((item) => item.size === selectedSize) ?? first
+  return article.appearances.map((appearance) => {
+    const variants = article.variants.filter((item) => item.appearanceId === appearance.id)
+    const variant = variants.find((item) => item.size === selectedSize) ?? variants[0]!
 
     return {
       variantId: variant.id,
-      label: first.colorName,
-      color: first.colorHex,
-      selected: tshirtVariant.value?.colorName === first.colorName,
+      label: appearance.colorName,
+      color: appearance.colorHex,
+      selected: spodVariant.value?.appearanceId === appearance.id,
     }
   })
 })
@@ -158,15 +152,15 @@ const visibleSwatches = computed<ColorSwatch[]>(() => {
   return folded
 })
 
-/** The name of the active colour: a shirt's colour, or the name of a mug variant. */
+/** The name of the active colour: a SPOD article's colour, or the name of a mug variant. */
 const activeColorName = computed(
-  () => tshirtVariant.value?.colorName ?? mugVariant.value?.name ?? null,
+  () => spodAppearance.value?.colorName ?? mugVariant.value?.name ?? null,
 )
 
-/** The sizes a shirt is offered in, as a range from the smallest to the largest. */
+/** The sizes a SPOD article is offered in, as a range from the smallest to the largest. */
 const sizeHint = computed(() => {
   const article = props.article
-  if (!isTshirt(article)) return null
+  if (!isSpodArticle(article)) return null
 
   return sizeRange([...new Set(article.variants.map((variant) => variant.size))])
 })

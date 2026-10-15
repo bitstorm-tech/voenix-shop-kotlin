@@ -3,15 +3,10 @@ import {
   toEditorArticle,
   toEditorArticleVariant,
   toEditorMugArticle,
-  toEditorTshirtArticle,
+  toEditorSpodArticle,
 } from '@/components/shop/editor/types'
 import type { MugDetailsDto, MugDto } from '@/stores/shop/catalog'
-import {
-  createMugDetails,
-  createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
-} from '@/testing/shopCatalog'
+import { createMugDetails, createShopMug, createShopTee } from '@/testing/shopCatalog'
 
 function makeMug(mugDetails: Partial<MugDetailsDto>): MugDto {
   return createShopMug({
@@ -47,33 +42,25 @@ describe('editor type adapters', () => {
     ).toBeNull()
   })
 
-  it('derives the shirt print area from the print aspect ratio, without millimetres', () => {
-    const wide = toEditorTshirtArticle(createShopTshirt({ printAspectRatio: '16:9' }))
-    const square = toEditorTshirtArticle(createShopTshirt({ printAspectRatio: '1:1' }))
-
-    expect(wide.printArea).toEqual({
-      aspectRatio: 16 / 9,
-      documentFormatWidthMm: null,
-      documentFormatHeightMm: null,
-    })
-    expect(square.printArea).toEqual({
+  it('gives a SPOD article a square print area without millimetres', () => {
+    expect(toEditorSpodArticle(createShopTee()).printArea).toEqual({
       aspectRatio: 1,
       documentFormatWidthMm: null,
       documentFormatHeightMm: null,
     })
   })
 
-  it('carries the print frame and the size chart of a shirt into the editor', () => {
-    const article = toEditorTshirtArticle(
-      createShopTshirt({
-        sizeChartImageFilename: 'chart.webp',
-        printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 28.125 },
-      }),
-    )
+  it('carries the print frame, the product type, the colours, and the size chart into the editor', () => {
+    const tee = createShopTee({
+      sizeChartImageFilename: 'chart.webp',
+      printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 28.125 },
+    })
+    const article = toEditorSpodArticle(tee)
 
-    expect(article.type).toBe('TSHIRT')
-    expect(article.printAspectRatio).toBe('16:9')
+    expect(article.type).toBe('SPOD')
+    expect(article.productTypeName).toBe("Men's Tee")
     expect(article.sizeChartImageFilename).toBe('chart.webp')
+    expect(article.appearances).toEqual(tee.appearances)
     expect(article.printFrame).toEqual({
       leftPct: 25,
       topPct: 20,
@@ -84,28 +71,26 @@ describe('editor type adapters', () => {
 
   it('dispatches on the article type of the storefront article', () => {
     expect(toEditorArticle(createShopMug({ id: 1 })).type).toBe('MUG')
-    expect(toEditorArticle(createShopTshirt({ id: 2 })).type).toBe('TSHIRT')
+    expect(toEditorArticle(createShopTee({ id: 2 })).type).toBe('SPOD')
   })
 
   it('maps a variant of either type and answers null for an unknown id', () => {
     const mug = createShopMug({ id: 1 })
-    const tshirt = createShopTshirt({
-      id: 2,
-      variants: [
-        createTshirtVariant({ id: 21, colorName: 'Black', colorHex: '#101010', size: 'M' }),
-      ],
-    })
+    const tee = createShopTee({ id: 2 })
 
     expect(toEditorArticleVariant(mug, mug.variants[0]!.id)).toMatchObject({
       type: 'MUG',
       outsideColorCode: '#ffffff',
     })
-    expect(toEditorArticleVariant(tshirt, 21)).toMatchObject({
-      type: 'TSHIRT',
-      colorName: 'Black',
-      colorHex: '#101010',
+    // Variant 25 is white (appearance 202) in M: the colour and its first listing image come along.
+    expect(toEditorArticleVariant(tee, 25)).toMatchObject({
+      type: 'SPOD',
+      appearanceId: 202,
+      colorName: 'White',
+      colorHex: '#ffffff',
       size: 'M',
+      exampleImageFilename: 'listing-202-front.webp',
     })
-    expect(toEditorArticleVariant(tshirt, 999)).toBeNull()
+    expect(toEditorArticleVariant(tee, 999)).toBeNull()
   })
 })

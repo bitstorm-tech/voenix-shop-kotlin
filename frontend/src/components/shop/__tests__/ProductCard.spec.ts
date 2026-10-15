@@ -6,8 +6,10 @@ import type { MugDto } from '@/stores/shop/catalog'
 import {
   createMugVariant,
   createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
+  createShopTee,
+  createShopTote,
+  createSpodAppearance,
+  createSpodVariant,
 } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
@@ -71,33 +73,33 @@ describe('ProductCard', () => {
     expect(wrapper.get('[data-testid="product-price-badge"]').text()).toBe('price.discountBadge 20')
   })
 
-  it('shows one swatch per shirt colour and the sizes as a range', async () => {
-    const tshirt = createShopTshirt({
+  it('shows one swatch per colour, the sizes as a range, and the colour photo', async () => {
+    const black = createSpodAppearance({ id: 1, colorName: 'Black', colorHex: '#101010' })
+    const white = createSpodAppearance({ id: 2, colorName: 'White', colorHex: '#ffffff' })
+    const tee = createShopTee({
       id: 20,
+      appearances: [black, white],
       variants: [
-        createTshirtVariant({ id: 201, colorName: 'Black', colorHex: '#101010', size: 'S' }),
-        createTshirtVariant({
+        createSpodVariant({ id: 201, name: 'Black / S', appearanceId: 1, size: 'S' }),
+        createSpodVariant({
           id: 202,
           name: 'Black / M',
-          colorName: 'Black',
-          colorHex: '#101010',
+          appearanceId: 1,
           size: 'M',
           isDefault: false,
         }),
         // The white shirt starts with M so that a swatch keeping the first size would be wrong.
-        createTshirtVariant({
+        createSpodVariant({
           id: 204,
           name: 'White / M',
-          colorName: 'White',
-          colorHex: '#ffffff',
+          appearanceId: 2,
           size: 'M',
           isDefault: false,
         }),
-        createTshirtVariant({
+        createSpodVariant({
           id: 203,
           name: 'White / S',
-          colorName: 'White',
-          colorHex: '#ffffff',
+          appearanceId: 2,
           size: 'S',
           isDefault: false,
         }),
@@ -106,8 +108,8 @@ describe('ProductCard', () => {
 
     const wrapper = mount(ProductCard, {
       props: {
-        article: tshirt,
-        activeVariant: tshirt.variants[0]!,
+        article: tee,
+        activeVariant: tee.variants[0]!,
         priceCents: 1990,
       },
     })
@@ -118,6 +120,10 @@ describe('ProductCard', () => {
     expect(swatches.map((swatch) => swatch.attributes('aria-label'))).toEqual(['Black', 'White'])
     expect(swatches[0]!.attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-testid="product-card-sizes"]').text()).toBe('productCard.sizes S – M')
+    // One picture per card: the first listing image of the active colour.
+    expect(wrapper.get('img').attributes('src')).toBe(
+      '/api/images/public/400/articles/spod/listing-images/listing-1-front.webp',
+    )
 
     await swatches[1]!.trigger('click')
 
@@ -125,26 +131,31 @@ describe('ProductCard', () => {
     expect(wrapper.emitted('select-variant')).toEqual([[203]])
   })
 
+  it('names no size range for a one-size article', () => {
+    const tote = createShopTote({ id: 3 })
+
+    const wrapper = mount(ProductCard, {
+      props: { article: tote, activeVariant: tote.variants[0]!, priceCents: 1990 },
+    })
+
+    expect(wrapper.findAllComponents(SwatchButton).length).toBeGreaterThan(1)
+    expect(wrapper.find('[data-testid="product-card-sizes"]').exists()).toBe(false)
+  })
+
   it('falls back to the colour first variant when it is not offered in the selected size', async () => {
-    const tshirt = createShopTshirt({
+    const tee = createShopTee({
       id: 21,
+      appearances: [createSpodAppearance({ id: 1 }), createSpodAppearance({ id: 2 })],
       variants: [
-        createTshirtVariant({ id: 211, colorName: 'Black', colorHex: '#101010', size: 'XL' }),
-        createTshirtVariant({
-          id: 212,
-          name: 'White / M',
-          colorName: 'White',
-          colorHex: '#ffffff',
-          size: 'M',
-          isDefault: false,
-        }),
+        createSpodVariant({ id: 211, appearanceId: 1, size: 'XL' }),
+        createSpodVariant({ id: 212, appearanceId: 2, size: 'M', isDefault: false }),
       ],
     })
 
     const wrapper = mount(ProductCard, {
       props: {
-        article: tshirt,
-        activeVariant: tshirt.variants[0]!,
+        article: tee,
+        activeVariant: tee.variants[0]!,
         priceCents: 1990,
       },
     })
@@ -157,14 +168,16 @@ describe('ProductCard', () => {
 
   it('folds many colours behind a +n button that keeps the selected colour visible', async () => {
     const colors = ['Black', 'Grey', 'Blue', 'Navy', 'Green', 'Red', 'White']
-    const tshirt = createShopTshirt({
+    const tee = createShopTee({
       id: 22,
+      appearances: colors.map((colorName, index) =>
+        createSpodAppearance({ id: index + 1, colorName, colorHex: `#00000${index}` }),
+      ),
       variants: colors.map((colorName, index) =>
-        createTshirtVariant({
+        createSpodVariant({
           id: 220 + index,
           name: `${colorName} / M`,
-          colorName,
-          colorHex: `#00000${index}`,
+          appearanceId: index + 1,
           isDefault: index === 0,
         }),
       ),
@@ -172,8 +185,8 @@ describe('ProductCard', () => {
 
     const wrapper = mount(ProductCard, {
       props: {
-        article: tshirt,
-        activeVariant: tshirt.variants[6]!,
+        article: tee,
+        activeVariant: tee.variants[6]!,
         priceCents: 1990,
       },
     })

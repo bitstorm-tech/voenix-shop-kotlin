@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from 'vue'
 import FormField from '@/components/admin/shared/FormField.vue'
-import { PRINT_ASPECT_RATIOS } from '@/components/shop/editor/types'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -56,6 +55,7 @@ const mockupRatio = computed(() =>
   mockupWidth.value > 0 && mockupHeight.value > 0 ? mockupWidth.value / mockupHeight.value : null,
 )
 
+const PRINT_ASPECT_RATIOS: Record<TshirtPrintAspectRatio, number> = { '16:9': 16 / 9, '1:1': 1 }
 const printRatio = computed(() => PRINT_ASPECT_RATIOS[props.printAspectRatio])
 
 /** The shape the drawn rectangle actually has, or `null` while the mockup size is unknown. */

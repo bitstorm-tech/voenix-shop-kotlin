@@ -25,7 +25,7 @@ defineProps<{
 }>()
 
 function variantImageUrl(filename: string, size: number) {
-  return variantExampleImageUrl('TSHIRT', filename, size)
+  return variantExampleImageUrl('SPOD', filename, size)
 }
 </script>
 

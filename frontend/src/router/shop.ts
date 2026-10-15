@@ -116,7 +116,7 @@ export const shopRoutes: RouteRecordRaw[] = [
       /**
        * The one product listing of the shop. It shows every article type in a single grid and
        * narrows through its query: `category`, `subcategory`, and the optional `type` (`MUG` or
-       * `TSHIRT`). The former `/mugs` route is gone without a redirect — nothing is in production
+       * `SPOD`). The former `/mugs` route is gone without a redirect — nothing is in production
        * yet, so there is no bookmark to keep alive.
        */
       {
