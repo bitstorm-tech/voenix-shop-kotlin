@@ -8,7 +8,7 @@ This guide explains the Kotlin code in
 The SPOD package is the one place in this backend that knows the HTTP API of
 the print-on-demand partner **Spreadconnect (SPOD)**. It owns the client, the
 vocabulary of a provider call (`SpodAccess`, `SpodEnvironment`, `SpodResult`,
-`SpodError`), the request and response shapes of the eight calls, and the one
+`SpodError`), the request and response shapes of the ten calls, and the one
 piece of interpretation the partner's answers need, `parseColorHex`.
 
 It is a **leaf module**: it depends on no other module of this backend, not
@@ -85,9 +85,10 @@ The ownership rules are:
 
 | File | Contents |
 | --- | --- |
-| [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
+| [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
 | [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
 | [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and `downloadUrl()`, the one reading of an image answer. |
+| [`SpodPreviews.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodPreviews.kt) | What the partner renders of a product type: the views answer (`SpodViews`, `SpodView`, `SpodHotspotName`, `SpodViewImage`) and the preview request and answer (`SpodPreviewRequest`, `SpodPreviewConfiguration`, `SpodPreviews`, `SpodPreviewImage`). |
 
 These types read only the keys a sync run uses, and each one it does read has a
 job. `SpodCatalogPage` carries the page's `items` and the catalog's total
@@ -125,7 +126,7 @@ the backoffice, and the shop stores all of them in the partner's order.
 
 This module serves **no** HTTP route. It is a client, not a surface: it has no
 `install…Module` function, no routes file, and no runtime handle. Its "API" is
-the eight calls it makes outwards.
+the ten calls it makes outwards.
 
 | Call | Partner endpoint | Answers |
 | --- | --- | --- |
@@ -137,10 +138,20 @@ the eight calls it makes outwards.
 | `articles(access, limit, offset)` | `GET /articles` | one page of the merchant's backoffice articles |
 | `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `sizeImageUrl` of that product type |
 | `download(url, timeoutSeconds)` | the URL a previous answer carried | the image bytes and their content type |
+| `views(access, productTypeId)` | `GET /productTypes/{id}/views` | each view's name, placement names, and mockup per colour |
+| `previews(access, productTypeId, request)` | `POST /productTypes/{id}/previews` | the URLs of the rendered previews, one per view |
 
 The first five produce an order and are described step by step in
-[SPOD fulfillment](spod-fulfillment.md); the last three read the catalog and
-are what a sync run is built from.
+[SPOD fulfillment](spod-fulfillment.md); the next three read the catalog and
+are what a sync run is built from; the last two calibrate a product type —
+what its sides look like, and where a design lands on them.
+
+The preview request is sent as
+`{ "configurations": [ { "designId", "hotspot" } ], "appearanceId": "<string>", "width": 1000, "height": 1000 }`;
+the partner accepts only multiples of 50 for the size. Both calibration
+endpoints write the colour id as a **string**, unlike the `Long` of an order's
+`appearanceId`, so `SpodViewImage` and `SpodPreviewRequest` carry a `String`. A
+missing `views` or `images` array reads as an empty list.
 
 ## The four rules of the client
 
@@ -272,14 +283,21 @@ The module's tests drive the real client against a `MockEngine`, which is how
 the exact request, the header, and the pacer's arithmetic are observable at
 all.
 
-- `SpodClientTest` — the exact request of every one of the eight calls
-  including the `X-SPOD-ACCESS-TOKEN` header, an id answered as a number
+- `SpodClientTest` — the exact request of every one of the order and catalog
+  calls including the `X-SPOD-ACCESS-TOKEN` header, an id answered as a number
   reading like a quoted one, the pacer's waiting arithmetic on a fake clock,
   `429` → `RATE_LIMITED`, a `4xx` known versus a `5xx` ambiguous, the article
   listing paging with `limit`/`offset` until the count is reached, the four
   refusals of `download` (not https, not an image, over the cap, refused by the
   host), that image downloads are *not* paced while the catalog calls are, and
   that neither the token nor a URL nor a provider body ever reaches a log line.
+- `SpodCalibrationCallsTest` — the exact request of `views` and `previews`
+  with the token, the configured timeout, and the exact preview JSON; an
+  unknown field ignored and a missing `views` or `images` array read as empty;
+  `429`, `5xx`, and `4xx` judged like every other call; and the two calls paced
+  like every other API call. The fixtures both client tests share — the
+  `MockEngine` client, the staging access, the token and the provider-body
+  marker — live in `SpodTestSupport.kt`.
 - `SpodCatalogImageTest` — the `lookupId` placeholder replaced by the product id
   and left alone without one.
 - `ParseColorHexTest` — three- and six-digit hex with and without `#`, the

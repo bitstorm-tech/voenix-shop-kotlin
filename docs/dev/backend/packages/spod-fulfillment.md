@@ -807,7 +807,7 @@ into the `spod` module it moved to.
 | File | Contents |
 | --- | --- |
 | [`spod/SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives in code. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
 | [`delivery/spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The worker stage, its creation and confirmation halves, and `SpodSubmissionError`. |
 | [`delivery/spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | The two tables, the scan, and the guarded writes. |
 | [`delivery/spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG with both budgets, and `PrintImageError`. |
