@@ -23,13 +23,14 @@ import shop.voenix.testing.PostgresIntegrationTest
  * article survives every run, and no run ever activates an article or deletes a variant.
  *
  * The engine records every request, which is how the third promise is checked at all — a second
- * identical run downloads nothing. A picture that did not change is not fetched again, and the file
- * the shop stored for it is still the file the row points at.
+ * identical run downloads no picture. A picture that did not change is not fetched again, and the
+ * file the shop stored for it is still the file the row points at. What every run *does* do again
+ * is measure the print frame; that is [SpodCatalogSyncCalibrationIntegrationTest]'s subject.
  *
  * This class holds the create, update, missing, and default-variant cases; listing failures,
  * pictures and downloads, the size chart, and the busy refusal are in
- * [SpodCatalogSyncListingIntegrationTest], and the fixtures of both are in
- * `SpodCatalogSyncTestSupport.kt`.
+ * [SpodCatalogSyncListingIntegrationTest], and the fixtures of all three are in
+ * `SpodCatalogSyncTestSupport.kt` and `CalibrationFixtures.kt`.
  */
 internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
     private val fixtures = SyncFixtures()
@@ -46,6 +47,8 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             assertEquals(1, report.fetchedArticles)
             assertEquals(listOf(1L), report.created.map(SpodSyncLine::articleId))
             assertEquals(4, report.created.single().variantsCreated)
+            assertEquals("FULL_FRONT", report.created.single().hotspot)
+            assertEquals(TEE_FRAME, report.created.single().printFrame)
             assertEquals(emptyList(), report.warnings)
 
             val article = storedArticle(dataSource, 1)
@@ -56,9 +59,9 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             assertEquals(SUPPLIER_ID, article.getLong("supplier_id"))
             assertNull(article.getObject("price_id"))
             assertNull(article.getObject("category_id"))
-            // Nothing has measured the print frame yet, so the article cannot be activated.
-            assertNull(article.getObject("print_frame_left_pct"))
-            assertNull(article.getObject("spod_hotspot"))
+            // The frame is the larger of the two printable front hotspots, measured to two
+            // decimals.
+            assertEquals(TEE_STORED_FRAME, storedFrame(dataSource, 1))
             assertEquals(PRODUCT_TYPE_ID, article.getLong("spod_product_type_id"))
             assertEquals(PRODUCT_TYPE_NAME, article.getString("spod_product_type_name"))
             assertEquals("a-1", article.getString("spod_article_id"))
@@ -78,9 +81,9 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 variants(dataSource, 1),
             )
             // Every image the partner lists for a colour, in its order and shared by that colour's
-            // sizes, plus the size chart — each image fetched with the product id in place of the
-            // partner's `lookupId` placeholder.
-            assertEquals(4, fixture.storage.storeCalls)
+            // sizes, the mockup of each colour, plus the size chart — each listing image fetched
+            // with the product id in place of the partner's `lookupId` placeholder.
+            assertEquals(6, fixture.storage.storeCalls)
             assertEquals(
                 listOf(
                     "/image-server/v1/products/$PRODUCT_ID/views/1,appearanceId=5,mediaType=png/a-1-i-1.png",
@@ -94,9 +97,16 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
                 listOf(
                     StoredListingImage(5, 1, "a-1-i-1", filename(0)),
                     StoredListingImage(5, 2, "a-1-i-2", filename(1)),
-                    StoredListingImage(6, 1, "a-1-i-3", filename(2)),
+                    StoredListingImage(6, 1, "a-1-i-3", filename(3)),
                 ),
                 listingImages(dataSource, 1),
+            )
+            assertEquals(
+                listOf(
+                    StoredMockup(5, filename(2), mockupUrl(PRODUCT_TYPE_ID, 5)),
+                    StoredMockup(6, filename(4), mockupUrl(PRODUCT_TYPE_ID, 6)),
+                ),
+                mockups(dataSource, 1),
             )
         }
     }
@@ -132,8 +142,13 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
         }
     }
 
+    /**
+     * The second run asks the partner for the listing, the views, and the size chart, and measures
+     * the frame again — one design upload, one preview per printable hotspot (issue #260, decision
+     * 11) — but fetches no picture it already has: neither a listing image nor a mockup.
+     */
     @Test
-    fun `an identical second run writes nothing and downloads nothing`() = runBlocking {
+    fun `an identical second run writes nothing and downloads no picture`() = runBlocking {
         migratedDataSource("spod-sync-noop-test").use { dataSource ->
             seed(dataSource)
             val fixture = fixtures.of(dataSource, catalog(twoColourShirt()))
@@ -149,12 +164,23 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             assertEquals(emptyList(), second.updated)
             assertEquals(emptyList(), second.deactivated)
             assertEquals(emptyList(), second.warnings)
+            assertEquals("FULL_FRONT", second.unchanged.single().hotspot)
             assertEquals(
-                listOf("/articles", "/productTypes/812/size-chart"),
+                listOf(
+                    "/articles",
+                    "/productTypes/812/views",
+                    "/designs/upload",
+                    "/productTypes/812/hotspots/design/$DESIGN_ID",
+                    "/productTypes/812/previews",
+                    "/previews/812/FULL_FRONT,mediaType=png",
+                    "/productTypes/812/previews",
+                    "/previews/812/MEDIUM_FRONT,mediaType=png",
+                    "/productTypes/812/size-chart",
+                ),
                 fixture.hits,
-                "The second run must not download a picture it already has",
+                "The second run measures again but must not download a picture it already has",
             )
-            assertEquals(4, fixture.storage.storeCalls)
+            assertEquals(6, fixture.storage.storeCalls)
             assertEquals(emptyList(), fixture.storage.deleted)
             assertEquals(storedVariants, variants(dataSource, 1))
             assertTrue(
@@ -181,9 +207,8 @@ internal class SpodCatalogSyncIntegrationTest : PostgresIntegrationTest() {
             assertEquals(true, article.getBoolean("active"))
             assertEquals(1L, article.getLong("category_id"))
             assertEquals(1L, article.getLong("price_id"))
-            // No run measures yet, so a frame that is there stays as it is.
-            assertEquals("11.00", article.getString("print_frame_left_pct"))
-            assertEquals("MEDIUM_FRONT", article.getString("spod_hotspot"))
+            // The frame is the partner's half: the run overwrites what was there.
+            assertEquals(TEE_STORED_FRAME, storedFrame(dataSource, 1))
             assertEquals(
                 listOf(false, false, true, false),
                 variants(dataSource, 1).map(StoredVariant::isDefault),

@@ -5,7 +5,6 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -15,16 +14,17 @@ import shop.voenix.article.spod.SpodSyncWarningCode
 
 /**
  * Brings the colours of [articleId] in line with [prepared]: a colour the shop does not have yet is
- * inserted, a stored one is written over when its name, swatch, or place changed, and its listing
- * images are rewritten when the ordered list of the partner's image ids differs from the stored
- * one. A colour the partner no longer lists keeps its row and its pictures — its variants go
- * inactive instead, and it may come back.
+ * inserted, a stored one is written over when its name, swatch, or place changed, its mockup is
+ * replaced when the run fetched a new one, and its listing images are rewritten when the ordered
+ * list of the partner's image ids differs from the stored one. A colour the partner no longer lists
+ * keeps its row and its pictures — its variants go inactive instead, and it may come back.
  *
  * This and the variant writer below are the other half of [ArticleSpodSyncRepository], in a file of
  * their own because they are a concern of their own: the article row is one `UPDATE`, while the
  * colours and the variant matrix are a small reconciliation with several outcomes per row and a
- * default variant that has to keep pointing at something a customer can buy. Everything in this
- * file runs inside the caller's transaction.
+ * default variant that has to keep pointing at something a customer can buy. The pictures of a
+ * colour are written by `ArticleSpodSyncImages.kt`. Everything in this file runs inside the
+ * caller's transaction.
  */
 internal fun writeAppearancesInTransaction(
     articleId: Long,
@@ -36,6 +36,7 @@ internal fun writeAppearancesInTransaction(
             .associateBy { row -> row[ArticleSpodAppearances.spodAppearanceId] }
     val ids = stored.mapValues { (_, row) -> row[ArticleSpodAppearances.id] }.toMutableMap()
     val replacedListingImages = mutableListOf<String>()
+    val replacedMockups = mutableListOf<String>()
     var touched = false
     prepared.appearances.forEach { appearance ->
         val row = stored[appearance.spodAppearanceId]
@@ -48,21 +49,26 @@ internal fun writeAppearancesInTransaction(
                 row[ArticleSpodAppearances.id]
             }
         ids[appearance.spodAppearanceId] = id
+        appearance.mockup?.let { mockup ->
+            touched = true
+            writeMockupInTransaction(id, mockup, replacedMockups)
+        }
         val images = appearance.listingImages ?: return@forEach
         if (writeListingImagesInTransaction(id, images, replacedListingImages)) touched = true
     }
-    return AppearanceWrite(ids, touched, replacedListingImages)
+    return AppearanceWrite(ids, touched, replacedListingImages, replacedMockups)
 }
 
 /**
  * What the colour statements did: the shop's id of every colour by the partner's appearance id,
- * whether anything was written, and the listing image files they dropped — the caller checks those
- * against every other row and deletes the ones nothing points at any more.
+ * whether anything was written, and the listing image and mockup files they dropped — the caller
+ * checks those against every other row and deletes the ones nothing points at any more.
  */
 internal class AppearanceWrite(
     val ids: Map<Long, Long>,
     val touched: Boolean,
     val replacedListingImages: List<String>,
+    val replacedMockups: List<String>,
 )
 
 private fun insertAppearanceInTransaction(
@@ -93,46 +99,6 @@ private fun writeAppearanceInTransaction(
         statement[colorName] = appearance.colorName
         statement[colorHex] = appearance.colorHex
         statement[position] = appearance.position
-    }
-    return true
-}
-
-/**
- * Replaces the listing images of the colour [appearanceId] with [images] when the ordered list of
- * the partner's image ids differs from the stored one, and answers whether it did. The file names
- * the old set held and the new one does not are added to [replaced].
- */
-private fun writeListingImagesInTransaction(
-    appearanceId: Long,
-    images: List<PreparedImage>,
-    replaced: MutableList<String>,
-): Boolean {
-    val listing =
-        (ArticleSpodImages.appearanceId eq appearanceId) and
-            (ArticleSpodImages.role eq LISTING_ROLE)
-    val stored =
-        ArticleSpodImages.selectAll()
-            .where { listing }
-            .orderBy(ArticleSpodImages.position to SortOrder.ASC)
-            .toList()
-    if (stored.map { row -> row[ArticleSpodImages.spodImageId] } == images.map { it.spodImageId }) {
-        return false
-    }
-
-    val kept = images.mapTo(mutableSetOf(), PreparedImage::filename)
-    replaced +=
-        stored
-            .map { row -> row[ArticleSpodImages.filename] }
-            .filterNot { filename -> filename in kept }
-    ArticleSpodImages.deleteWhere { listing }
-    images.forEachIndexed { index, image ->
-        ArticleSpodImages.insert { statement ->
-            statement[ArticleSpodImages.appearanceId] = appearanceId
-            statement[role] = LISTING_ROLE
-            statement[position] = index + 1
-            statement[spodImageId] = image.spodImageId
-            statement[filename] = image.filename
-        }
     }
     return true
 }

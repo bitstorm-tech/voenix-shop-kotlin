@@ -43,6 +43,10 @@ internal class SyncFixture(
  * Builds the fixtures of one test. Every fixture mints from its own stretch of the file-name list,
  * so a name says which run stored it; the counter lives per test instance, so the first fixture of
  * every test starts at [filename] `0`.
+ *
+ * The calibration calls and their downloads are answered by [CalibrationAnswers] before a test's
+ * own handler sees a request, so a test about the listing or the pictures does not have to know how
+ * a frame is measured; a test about the measurement passes its own answers.
  */
 internal class SyncFixtures {
     private var mintedFilenames = 0
@@ -51,8 +55,9 @@ internal class SyncFixtures {
         dataSource: DataSource,
         page: String,
         sizeChartUrl: String = SIZE_CHART_URL,
+        calibration: CalibrationAnswers = CalibrationAnswers(),
     ): SyncFixture =
-        of(dataSource) { request ->
+        of(dataSource, calibration) { request ->
             when {
                 request.url.encodedPath == "/articles" -> respondJson(page)
                 request.url.encodedPath.endsWith("/size-chart") ->
@@ -63,6 +68,7 @@ internal class SyncFixtures {
 
     fun of(
         dataSource: DataSource,
+        calibration: CalibrationAnswers = CalibrationAnswers(),
         answer: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
     ): SyncFixture {
         val hits = mutableListOf<String>()
@@ -73,7 +79,7 @@ internal class SyncFixtures {
         mintedFilenames += FILENAMES_PER_FIXTURE
         val engine = MockEngine { request ->
             hits += request.url.encodedPath
-            answer(request)
+            calibration.answer(this, request) ?: answer(request)
         }
         val service =
             SpodCatalogSyncService(
@@ -99,7 +105,7 @@ internal const val SIZE_CHART_ANSWER = """{"sizeImageUrl":"$SIZE_CHART_URL"}"""
 internal const val MOVED_SIZE_CHART_URL = "https://cdn.example.test/chart-2.png"
 
 /** More names than any single run of these tests stores, so no fixture runs out of them. */
-internal const val FILENAMES_PER_FIXTURE = 8
+internal const val FILENAMES_PER_FIXTURE = 16
 
 internal fun filename(index: Int): String = "%08d-0000-4000-8000-000000000000.webp".format(index)
 
@@ -128,8 +134,9 @@ internal fun seed(dataSource: DataSource) {
 
 /**
  * Everything an admin decides about an article, decided: it is on sale, in a category, with a price
- * and a default variant that is not the first one. Being on sale needs a measured frame, which no
- * run of T1 measures, so the frame is set here the way a measuring run will set it.
+ * and a default variant that is not the first one. Being on sale needs a measured frame; the one
+ * written here is deliberately *not* what the fixture measures, so a test can tell a frame the run
+ * wrote from one that was merely kept.
  */
 internal fun makeShopOwnedDecisions(dataSource: DataSource) {
     ArticleTestSchema.seedVat(dataSource)

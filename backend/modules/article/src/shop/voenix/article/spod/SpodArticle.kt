@@ -69,17 +69,18 @@ internal data class SpodArticleSync(
 /**
  * The rectangle of the mockup the generated design is placed in, in percent of the mockup.
  *
- * A sync run measures it; nobody types it. The admin and the storefront answer it with the same
- * type, because both only ever read it. The percentages are answered as `Double` although they are
- * stored as `numeric(5, 2)`: two decimals are exact enough for a CSS overlay, which is the only
- * thing this rectangle is used for.
+ * A sync run measures it (SPOD sync decision 7); nobody types it. The admin, the storefront, and
+ * the sync report answer it with the same type, because all three only ever read it — which is why
+ * it is public: the report is serialized by the production module. The percentages are answered as
+ * `Double` although they are stored as `numeric(5, 2)`: two decimals are what the measurement
+ * produces and exact enough for a CSS overlay, which is the only thing this rectangle is used for.
  */
 @Serializable
-internal data class PrintFrame(
-    val leftPct: Double,
-    val topPct: Double,
-    val widthPct: Double,
-    val heightPct: Double,
+public data class PrintFrame(
+    public val leftPct: Double,
+    public val topPct: Double,
+    public val widthPct: Double,
+    public val heightPct: Double,
 )
 
 /**

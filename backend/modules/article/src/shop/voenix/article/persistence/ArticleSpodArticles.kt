@@ -106,6 +106,10 @@ internal object ArticleSpodVariants : Table("article_spod_variants") {
 /**
  * The `article_spod_images` table created by Flyway: the pictures of one colour, each with its
  * [role] — every `LISTING` image the partner lists, and at most one `MOCKUP`.
+ *
+ * Each role has its own mark of "already stored": a listing image its partner id ([spodImageId]), a
+ * mockup the URL it was fetched from ([sourceUrl]). A sync run compares the mark and downloads only
+ * what differs.
  */
 internal object ArticleSpodImages : Table("article_spod_images") {
     val id = long("id").autoIncrement()
@@ -114,6 +118,7 @@ internal object ArticleSpodImages : Table("article_spod_images") {
     val position = integer("position")
     val spodImageId = varchar("spod_image_id", length = 64).nullable()
     val filename = varchar("filename", length = 255)
+    val sourceUrl = varchar("source_url", length = 1024).nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

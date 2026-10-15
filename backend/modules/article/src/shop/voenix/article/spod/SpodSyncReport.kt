@@ -48,10 +48,12 @@ public enum class SpodSyncStatus {
 
 /**
  * One article in one of the report's lists: which SPOD article it is here, which article it is over
- * there, and how many of its variants the run touched.
+ * there, how many of its variants the run touched, and what the run measured for it.
  *
  * [articleId] is `null` for an article that never became a row — one that failed before it could be
- * written.
+ * written. [hotspot] and [printFrame] are what the run wrote: the placement the customer gets and
+ * the frame the editor shows (SPOD sync decision 7), or `null` on both when the measurement failed
+ * — the `CALIBRATION_FAILED` warning next to it says why — and on a deactivated or failed line.
  */
 @Serializable
 public data class SpodSyncLine(
@@ -61,6 +63,8 @@ public data class SpodSyncLine(
     public val variantsCreated: Int = 0,
     public val variantsUpdated: Int = 0,
     public val variantsDeactivated: Int = 0,
+    public val hotspot: String? = null,
+    public val printFrame: PrintFrame? = null,
 )
 
 /** One thing the run degraded, coded so the admin screen can phrase it. */
@@ -112,6 +116,20 @@ public enum class SpodSyncWarningCode {
      * next run asks for it again.
      */
     IMAGE_DOWNLOAD_FAILED,
+
+    /**
+     * The partner answered no front mockup for the colour, or it could not be downloaded or stored;
+     * the variants of that colour are inactive, because the editor has nothing to lay the frame on,
+     * and the stored mockup, if any, is kept.
+     */
+    MOCKUP_UNAVAILABLE,
+
+    /**
+     * No front hotspot of the article's product type yielded a clean measurement, so the article
+     * has no frame and no hotspot, is inactive, and cannot be activated until a run measures one.
+     * The detail names the reason, per hotspot that was tried.
+     */
+    CALIBRATION_FAILED,
 
     /** The product type answered no size chart; the stored one, if any, was kept. */
     SIZE_CHART_UNAVAILABLE,

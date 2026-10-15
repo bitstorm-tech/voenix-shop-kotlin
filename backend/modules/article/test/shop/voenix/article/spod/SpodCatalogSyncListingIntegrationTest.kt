@@ -163,7 +163,11 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                     classicShirtRows(blackActive = true, whiteActive = false),
                     variants(dataSource, 1),
                 )
-                assertEquals(3, fixture.storage.storeCalls, "the first colour and the size chart")
+                assertEquals(
+                    5,
+                    fixture.storage.storeCalls,
+                    "the first colour, both mockups, and the size chart",
+                )
                 assertEquals(emptyList(), fixture.storage.deleted)
                 assertEquals(
                     listOf(filename(0), filename(1)),
@@ -368,8 +372,10 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                         SpodSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
                         SpodSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
                         SpodSyncWarningCode.COLOR_WITHOUT_IMAGE,
+                        SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
                         SpodSyncWarningCode.IMAGE_DOWNLOAD_FAILED,
                         SpodSyncWarningCode.COLOR_WITHOUT_IMAGE,
+                        SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
                         SpodSyncWarningCode.SIZE_CHART_UNAVAILABLE,
                     ),
                     first.warnings.map(SpodSyncWarning::code),
@@ -394,7 +400,12 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                     variants(dataSource, 1),
                 )
                 assertEquals(3, listingImages(dataSource, 1).size)
-                assertEquals(4, fixture.storage.storeCalls, "three images and the size chart")
+                assertEquals(2, mockups(dataSource, 1).size)
+                assertEquals(
+                    6,
+                    fixture.storage.storeCalls,
+                    "three images, two mockups, and the size chart",
+                )
             }
         }
 

@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory
 import shop.voenix.article.persistence.ArticleSpodSyncRepository
 import shop.voenix.article.persistence.PreparedAppearance
 import shop.voenix.article.persistence.PreparedImage
+import shop.voenix.article.persistence.PreparedMockup
 import shop.voenix.article.persistence.PreparedSizeChart
 import shop.voenix.article.persistence.PreparedSpodArticle
 import shop.voenix.article.persistence.PreparedVariant
@@ -33,8 +34,9 @@ import shop.voenix.spod.parseColorHex
  *
  * The shape of a run follows the SPOD sync decisions and is the same every time:
  * 1. read the *whole* listing, or give up — a partial listing may not deactivate anything;
- * 2. per article: judge it, resolve its colours and pictures, fetch what changed, and write it in
- *    one transaction of its own;
+ * 2. per article: judge it, resolve its colours and pictures, fetch what changed, measure where its
+ *    product type prints (once per product type, see [SpodCalibration]), and write it in one
+ *    transaction of its own;
  * 3. mark everything of this destination the listing did not contain;
  * 4. delete the picture files nothing refers to any more.
  *
@@ -54,6 +56,7 @@ internal class SpodCatalogSyncService(
     images: PublicImageStorage,
 ) : SpodCatalogSync {
     private val listingImages = ExampleImages(images, SPOD_LISTING_IMAGE_FOLDER, logger)
+    private val mockups = ExampleImages(images, SPOD_MOCKUP_FOLDER, logger)
     private val sizeCharts = ExampleImages(images, SPOD_SIZE_CHART_FOLDER, logger)
     private val destinationLocks = ConcurrentHashMap<Long, Mutex>()
 
@@ -69,14 +72,13 @@ internal class SpodCatalogSyncService(
 
     private suspend fun reconcile(source: SpodCatalogSource): SpodSyncReport {
         val startedAt = Instant.now()
+        val run = SyncRun(SpodCalibration(client, source.access))
         val listed =
             when (val listing = listArticles(source.access)) {
-                is Listing.Failed ->
-                    return report(source, startedAt, SyncRun(), failure = listing.error)
+                is Listing.Failed -> return report(source, startedAt, run, failure = listing.error)
                 is Listing.Complete -> listing.articles
             }
 
-        val run = SyncRun()
         run.fetchedArticles = listed.size
         listed.forEach { article -> reconcileArticle(source, article, run) }
         run.deactivated +=
@@ -227,39 +229,58 @@ internal class SpodCatalogSyncService(
             variants.map(SpodCatalogVariant::appearanceId).distinct().mapIndexed {
                 index,
                 appearanceId ->
-                resolveColor(source, article, appearanceId, index + 1, stored, run)
+                resolveColor(source, article, productTypeId, appearanceId, index + 1, stored, run)
             }
         val minted = colors.flatMap(ResolvedColor::minted)
+        val mintedMockups = colors.mapNotNull(ResolvedColor::mintedMockup)
 
+        val calibration = run.calibration.calibrate(productTypeId, variants.first().appearanceId)
         val sizeChart = sizeChart(source, article, productTypeId, stored, run)
         val outcome =
             repository.upsert(
                 destinationId = source.destinationId,
                 environment = source.environment.name,
                 supplierId = source.supplierId,
-                prepared = prepare(article, variants, productTypeId, colors, sizeChart, run),
+                prepared =
+                    prepare(article, variants, productTypeId, colors, calibration, sizeChart, run),
                 expectedExisting = stored != null,
                 now = Instant.now(),
             )
         if (outcome == null) {
             minted.forEach { filename -> listingImages.deleteObsolete(filename) }
+            mintedMockups.forEach { filename -> mockups.deleteObsolete(filename) }
             return true
         }
         run.record(outcome)
         outcome.obsoleteListingImages.forEach { filename -> listingImages.deleteObsolete(filename) }
+        outcome.obsoleteMockups.forEach { filename -> mockups.deleteObsolete(filename) }
         outcome.obsoleteSizeCharts.forEach { filename -> sizeCharts.deleteObsolete(filename) }
         return false
     }
 
+    /**
+     * The article as it will be written. A failed calibration is reported here, once per article of
+     * the product type, with the reasons the measurement produced: the article is written with no
+     * frame and no hotspot, which takes `active` off (issue #260, decision 12).
+     */
     @Suppress("LongParameterList")
     private fun prepare(
         article: SpodCatalogArticle,
         variants: List<SpodCatalogVariant>,
         productTypeId: Long,
         colors: List<ResolvedColor>,
+        calibration: Calibration,
         sizeChart: PreparedSizeChart?,
         run: SyncRun,
     ): PreparedSpodArticle {
+        if (calibration is Calibration.Failed) {
+            run.warn(
+                article,
+                SpodSyncWarningCode.CALIBRATION_FAILED,
+                "The print frame of product type $productTypeId could not be measured " +
+                    "(${calibration.detail})",
+            )
+        }
         val title = article.title.trim()
         if (title.length > NAME_MAX) {
             run.warn(article, SpodSyncWarningCode.TITLE_TRUNCATED, "The title did not fit")
@@ -282,6 +303,8 @@ internal class SpodCatalogSyncService(
             descriptionLong = article.description.take(DESCRIPTION_LONG_MAX),
             productTypeId = productTypeId,
             productTypeName = variants.first().productTypeName.trim().take(PRODUCT_TYPE_NAME_MAX),
+            hotspot = (calibration as? Calibration.Measured)?.hotspot,
+            printFrame = (calibration as? Calibration.Measured)?.frame,
             sizeChart = sizeChart,
             appearances = colors.map(ResolvedColor::prepared),
             variants =
@@ -300,25 +323,28 @@ internal class SpodCatalogSyncService(
     }
 
     /**
-     * The colour of one appearance and the listing images the shop shows it with: every image the
+     * The colour of one appearance and the pictures the shop shows it with: every listing image the
      * partner lists for that appearance, in the partner's order — the operator chose them in the
-     * backoffice, so the shop does not pick among them.
+     * backoffice, so the shop does not pick among them — and the blank front mockup the editor lays
+     * the frame on (issue #260, decision 15).
      *
      * Everything here degrades instead of failing (SPOD sync decision 6): a colour value this shop
      * cannot read becomes a neutral grey, and a colour without a single stored listing image — the
-     * partner lists none, or none of them could be fetched or stored — keeps whatever pictures it
-     * had. In each case the variants of that colour go inactive with a warning — nobody orders a
-     * product whose colour the shop had to invent or cannot show. One image that could not be
-     * fetched is left out and asked for again by the next run: the stored list of image ids then
-     * differs from the one the partner lists.
+     * partner lists none, or none of them could be fetched or stored — or without a mockup keeps
+     * whatever pictures it had. In each case the variants of that colour go inactive with a warning
+     * — nobody orders a product whose colour the shop had to invent or cannot show. One image that
+     * could not be fetched is left out and asked for again by the next run: the stored list of
+     * image ids then differs from the one the partner lists.
      *
-     * An unchanged picture is not fetched again. That is what the partner's image id is stored for,
-     * and it is why a second identical run downloads nothing at all.
+     * An unchanged picture is not fetched again. That is what the partner's image id and the
+     * mockup's source URL are stored for, and it is why a second identical run downloads nothing at
+     * all.
      */
     @Suppress("LongParameterList")
     private suspend fun resolveColor(
         source: SpodCatalogSource,
         article: SpodCatalogArticle,
+        productTypeId: Long,
         appearanceId: Long,
         position: Int,
         stored: StoredSyncArticle?,
@@ -358,6 +384,7 @@ internal class SpodCatalogSyncService(
                 "Appearance $appearanceId has no image this shop could store",
             )
         }
+        val mockup = mockup(source, article, productTypeId, appearanceId, stored, run)
         return ResolvedColor(
             prepared =
                 PreparedAppearance(
@@ -366,10 +393,51 @@ internal class SpodCatalogSyncService(
                     colorHex = colorHex ?: FALLBACK_COLOR_HEX,
                     position = position,
                     listingImages = images.ifEmpty { null },
+                    mockup = mockup.prepared,
                 ),
-            sellable = colorHex != null && images.isNotEmpty(),
+            sellable = colorHex != null && images.isNotEmpty() && mockup.available,
             minted = minted,
+            mintedMockup = mockup.prepared?.filename,
         )
+    }
+
+    /**
+     * The blank front mockup of one colour: the picture the partner's views answer for it, fetched
+     * unless the stored mockup came from the very same URL. A colour the partner answers no mockup
+     * for, or whose mockup cannot be fetched or stored, is warned about and is not for sale this
+     * run — the editor would have nothing to show the frame on.
+     */
+    @Suppress("LongParameterList", "ReturnCount")
+    private suspend fun mockup(
+        source: SpodCatalogSource,
+        article: SpodCatalogArticle,
+        productTypeId: Long,
+        appearanceId: Long,
+        stored: StoredSyncArticle?,
+        run: SyncRun,
+    ): ResolvedMockup {
+        val url = run.calibration.mockupUrl(productTypeId, appearanceId)
+        if (url == null || url.length > SOURCE_URL_MAX) {
+            run.warn(
+                article,
+                SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
+                "Appearance $appearanceId has no mockup this shop can store",
+            )
+            return ResolvedMockup(prepared = null, available = false)
+        }
+        if (url == stored?.mockupUrls?.get(appearanceId)) {
+            return ResolvedMockup(prepared = null, available = true)
+        }
+        val filename = store(source.access, url, mockups)
+        if (filename == null) {
+            run.warn(
+                article,
+                SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
+                "The mockup of appearance $appearanceId could not be stored",
+            )
+            return ResolvedMockup(prepared = null, available = false)
+        }
+        return ResolvedMockup(prepared = PreparedMockup(url, filename), available = true)
     }
 
     /**
@@ -482,8 +550,6 @@ private fun SpodCatalogArticle.hasUnusableId(variants: List<SpodCatalogVariant>)
 private fun product(variant: SpodCatalogVariant): Triple<Long, Long, Long> =
     Triple(variant.productTypeId, variant.appearanceId, variant.sizeId)
 
-private fun <T : Any> SpodResult<T>.valueOrNull(): T? = (this as? SpodResult.Answered)?.value
-
 /** The complete listing, or the bounded reason there is none. */
 private sealed interface Listing {
     class Complete(val articles: List<SpodCatalogArticle>) : Listing
@@ -494,20 +560,32 @@ private sealed interface Listing {
 /**
  * One colour of an article as the run resolved it, shared by every size of that colour.
  *
- * [minted] are the files *this* attempt stored. Only those may be deleted again when the attempt
- * produces no row; a reused one still belongs to the stored article.
+ * [minted] and [mintedMockup] are the files *this* attempt stored, in their two folders. Only those
+ * may be deleted again when the attempt produces no row; a reused one still belongs to the stored
+ * article.
  */
 private class ResolvedColor(
     val prepared: PreparedAppearance,
     val sellable: Boolean,
     val minted: List<String>,
+    val mintedMockup: String?,
 )
 
 /**
- * What one run has collected so far: the five lists of the report, its warnings, and the two
- * per-run caches that keep a size chart from being asked for once per article.
+ * The mockup of one colour as the run resolved it: [prepared] when it was fetched this run, `null`
+ * when the stored one stays or there is none — and [available] tells those two apart.
  */
-private class SyncRun {
+private class ResolvedMockup(
+    val prepared: PreparedMockup?,
+    val available: Boolean,
+)
+
+/**
+ * What one run has collected so far: the five lists of the report, its warnings, the [calibration]
+ * of every product type it met, and the two per-run caches that keep a size chart from being asked
+ * for once per article.
+ */
+private class SyncRun(val calibration: SpodCalibration) {
     val created = mutableListOf<SpodSyncLine>()
     val updated = mutableListOf<SpodSyncLine>()
     val unchanged = mutableListOf<SpodSyncLine>()
@@ -588,6 +666,7 @@ private const val MAX_PAGES = 100
 private const val SPOD_ID_MAX = 64
 
 private const val SIZE_CHART_URL_MAX = 1024
+private const val SOURCE_URL_MAX = 1024
 
 private const val NAME_MAX = 255
 private const val PRODUCT_TYPE_NAME_MAX = 255

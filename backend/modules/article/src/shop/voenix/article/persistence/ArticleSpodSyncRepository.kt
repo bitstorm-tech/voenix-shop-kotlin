@@ -1,5 +1,7 @@
 package shop.voenix.article.persistence
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.ZoneOffset
 import org.jetbrains.exposed.v1.core.JoinType
@@ -12,12 +14,14 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
+import shop.voenix.article.spod.PrintFrame
 import shop.voenix.article.spod.SpodSyncLine
 import shop.voenix.article.spod.SpodSyncWarning
 import shop.voenix.db.read
@@ -35,13 +39,14 @@ import shop.voenix.db.write
  * The class writes the SPOD-owned half of an article only. `active` (except the one rule that
  * switches it *off*), the category path, the position after the insert, the price, and which
  * variant is the default one belong to the shop and are never overwritten here. The print frame and
- * its hotspot are SPOD-owned but measured, not listed; no run writes them yet, so a new article
- * starts without them and cannot be activated until one does.
+ * its hotspot are SPOD-owned too, measured rather than listed, and every run writes what it
+ * measured — or `NULL` when it could not, which takes `active` off with it (SPOD sync decision 7).
  */
 internal class ArticleSpodSyncRepository(private val database: Database) {
     /**
      * What the run needs to know *before* it downloads anything: which listing images each colour
-     * of this article already has and which size chart URL it was stored from.
+     * of this article already has, which URL its mockup was fetched from, and which size chart URL
+     * the article was stored from.
      *
      * It is a separate read from the transaction that writes, and deliberately not authoritative:
      * it only decides what has to be fetched. [upsert] reads the rows again under its own lock and
@@ -56,25 +61,28 @@ internal class ArticleSpodSyncRepository(private val database: Database) {
             ArticleSpodArticles.selectAll()
                 .where { identity(destinationId, environment, spodArticleId) }
                 .singleOrNull() ?: return@read null
+        val images =
+            ArticleSpodImages.join(
+                    ArticleSpodAppearances,
+                    JoinType.INNER,
+                    additionalConstraint = {
+                        ArticleSpodImages.appearanceId eq ArticleSpodAppearances.id
+                    },
+                )
+                .select(
+                    ArticleSpodAppearances.spodAppearanceId,
+                    ArticleSpodImages.role,
+                    ArticleSpodImages.spodImageId,
+                    ArticleSpodImages.filename,
+                    ArticleSpodImages.sourceUrl,
+                )
+                .where { ArticleSpodAppearances.articleId eq article[ArticleSpodArticles.id] }
+                .toList()
         StoredSyncArticle(
             sizeChartUrl = article[ArticleSpodArticles.spodSizeChartUrl],
             listingImages =
-                ArticleSpodImages.join(
-                        ArticleSpodAppearances,
-                        JoinType.INNER,
-                        additionalConstraint = {
-                            ArticleSpodImages.appearanceId eq ArticleSpodAppearances.id
-                        },
-                    )
-                    .select(
-                        ArticleSpodAppearances.spodAppearanceId,
-                        ArticleSpodImages.spodImageId,
-                        ArticleSpodImages.filename,
-                    )
-                    .where {
-                        (ArticleSpodAppearances.articleId eq article[ArticleSpodArticles.id]) and
-                            (ArticleSpodImages.role eq LISTING_ROLE)
-                    }
+                images
+                    .filter { row -> row[ArticleSpodImages.role] == LISTING_ROLE }
                     .groupBy(
                         { row -> row[ArticleSpodAppearances.spodAppearanceId] },
                         { row ->
@@ -84,6 +92,15 @@ internal class ArticleSpodSyncRepository(private val database: Database) {
                             )
                         },
                     ),
+            mockupUrls =
+                images
+                    .filter { row -> row[ArticleSpodImages.role] == MOCKUP_ROLE }
+                    .mapNotNull { row ->
+                        row[ArticleSpodImages.sourceUrl]?.let { url ->
+                            row[ArticleSpodAppearances.spodAppearanceId] to url
+                        }
+                    }
+                    .toMap(),
         )
     }
 
@@ -185,8 +202,8 @@ internal class ArticleSpodSyncRepository(private val database: Database) {
  * with their pictures, and one row per prepared variant.
  *
  * Everything the shop owns starts at its neutral value — inactive, no category, no price — because
- * an operator, not a sync run, decides those (SPOD sync decision 2). The frame and the hotspot
- * start empty, because nothing has measured them. The first variant that can be sold becomes the
+ * an operator, not a sync run, decides those (SPOD sync decision 2). The frame and the hotspot are
+ * what the run measured, or empty when it could not. The first variant that can be sold becomes the
  * default one, so the article already has a picture when it appears in the admin list.
  */
 private fun insertInTransaction(
@@ -224,6 +241,7 @@ private fun insertInTransaction(
         statement[spodSizeChartUrl] = prepared.sizeChart?.url
         statement[spodProductTypeId] = prepared.productTypeId
         statement[spodProductTypeName] = prepared.productTypeName
+        statement.writeFrame(prepared)
     }
 
     val appearanceIds = writeAppearancesInTransaction(id, prepared).ids
@@ -245,6 +263,8 @@ private fun insertInTransaction(
                 spodArticleId = prepared.spodArticleId,
                 name = prepared.name,
                 variantsCreated = prepared.variants.size,
+                hotspot = prepared.hotspot,
+                printFrame = prepared.printFrame,
             ),
     )
 }
@@ -292,12 +312,19 @@ private fun updateInTransaction(
                 variantsCreated = variants.created,
                 variantsUpdated = variants.updated,
                 variantsDeactivated = variants.deactivated,
+                hotspot = prepared.hotspot,
+                printFrame = prepared.printFrame,
             ),
         warnings = warnings,
         obsoleteListingImages =
             unreferencedFilenamesInTransaction(
                 ArticleSpodImages.filename,
                 appearances.replacedListingImages,
+            ),
+        obsoleteMockups =
+            unreferencedFilenamesInTransaction(
+                ArticleSpodImages.filename,
+                appearances.replacedMockups,
             ),
         obsoleteSizeCharts = article.obsoleteSizeCharts,
     )
@@ -308,9 +335,11 @@ private fun updateInTransaction(
  * costs the `spod_synced_at` bump and nothing else.
  *
  * Two values are decided here rather than by the caller. `active` can only ever go *off*: an
- * article an admin activated stays active as long as one variant is still for sale, and the sync
- * never turns it on. A size chart the partner did not offer this time keeps the stored one, which
- * is why an absent size chart is a `null` in [PreparedSpodArticle] and not an erased column.
+ * article an admin activated stays active as long as one variant is still for sale and the run
+ * measured a frame, and the sync never turns it on. A size chart the partner did not offer this
+ * time keeps the stored one, which is why an absent size chart is a `null` in [PreparedSpodArticle]
+ * and not an erased column — unlike the frame, which is written as measured every time, `NULL`
+ * included (issue #260, decision 11).
  */
 private fun writeArticleInTransaction(
     existing: ResultRow,
@@ -327,13 +356,15 @@ private fun writeArticleInTransaction(
         statement[name] = prepared.name
         statement[descriptionShort] = prepared.descriptionShort
         statement[descriptionLong] = prepared.descriptionLong
-        statement[active] = existing[ArticleSpodArticles.active] && stillSellable
+        statement[active] =
+            existing[ArticleSpodArticles.active] && stillSellable && prepared.printFrame != null
         statement[sizeChartImageFilename] = sizeChartFilename
         statement[spodSizeChartUrl] = sizeChartUrl
         statement[spodSyncedAt] = now.atOffset(ZoneOffset.UTC)
         statement[spodMissingSince] = null
         statement[spodProductTypeId] = prepared.productTypeId
         statement[spodProductTypeName] = prepared.productTypeName
+        statement.writeFrame(prepared)
     }
     return ArticleWrite(
         changed =
@@ -343,6 +374,8 @@ private fun writeArticleInTransaction(
                 existing[ArticleSpodArticles.descriptionLong] != prepared.descriptionLong ||
                 existing[ArticleSpodArticles.spodProductTypeId] != prepared.productTypeId ||
                 existing[ArticleSpodArticles.spodProductTypeName] != prepared.productTypeName ||
+                existing[ArticleSpodArticles.spodHotspot] != prepared.hotspot ||
+                existing.toPrintFrame() != prepared.printFrame ||
                 previousSizeChart != sizeChartFilename ||
                 existing[ArticleSpodArticles.spodSizeChartUrl] != sizeChartUrl,
         obsoleteSizeCharts =
@@ -356,6 +389,25 @@ private fun writeArticleInTransaction(
             },
     )
 }
+
+/**
+ * The measured hotspot and frame of [prepared], or `NULL` in all five columns when the run could
+ * not measure (SPOD sync decision 7). The percentages are rounded to the two decimals the columns
+ * hold, which is also the precision the measurement answers.
+ */
+private fun UpdateBuilder<*>.writeFrame(prepared: PreparedSpodArticle) {
+    val frame = prepared.printFrame
+    this[ArticleSpodArticles.spodHotspot] = prepared.hotspot
+    this[ArticleSpodArticles.printFrameLeftPct] = frame?.leftPct?.toStoredPercent()
+    this[ArticleSpodArticles.printFrameTopPct] = frame?.topPct?.toStoredPercent()
+    this[ArticleSpodArticles.printFrameWidthPct] = frame?.widthPct?.toStoredPercent()
+    this[ArticleSpodArticles.printFrameHeightPct] = frame?.heightPct?.toStoredPercent()
+}
+
+private fun Double.toStoredPercent(): BigDecimal =
+    BigDecimal.valueOf(this).setScale(FRAME_SCALE, RoundingMode.HALF_UP)
+
+private const val FRAME_SCALE = 2
 
 /** Whether the article row really changed, and the size chart file its change orphaned. */
 private class ArticleWrite(
@@ -403,12 +455,13 @@ private fun absentFrom(spodArticleIds: Set<String>): Op<Boolean> =
 
 /**
  * What a stored article already has, as the deciding half of "does this have to be downloaded?":
- * the size chart URL it was stored from, and the listing images of each colour, keyed by the
- * partner's appearance id.
+ * the size chart URL it was stored from, and per colour — keyed by the partner's appearance id —
+ * its listing images and the URL its mockup was fetched from.
  */
 internal class StoredSyncArticle(
     val sizeChartUrl: String?,
     val listingImages: Map<Long, List<StoredListingImage>>,
+    val mockupUrls: Map<Long, String>,
 )
 
 internal class StoredListingImage(
@@ -421,7 +474,8 @@ internal class StoredListingImage(
  * and — where a picture changed — downloaded and stored under the file names below.
  *
  * A `null` size chart means *keep what is stored*: the size chart of the product type was unchanged
- * or unavailable.
+ * or unavailable. A `null` [printFrame] means the opposite — the run could not measure one, and the
+ * stored frame and [hotspot] are erased with it (issue #260, decision 11).
  */
 @Suppress("LongParameterList")
 internal class PreparedSpodArticle(
@@ -431,6 +485,8 @@ internal class PreparedSpodArticle(
     val descriptionLong: String,
     val productTypeId: Long,
     val productTypeName: String,
+    val hotspot: String?,
+    val printFrame: PrintFrame?,
     val sizeChart: PreparedSizeChart?,
     val appearances: List<PreparedAppearance>,
     val variants: List<PreparedVariant>,
@@ -443,7 +499,8 @@ internal class PreparedSizeChart(val url: String, val filename: String)
  *
  * [listingImages] are the pictures the partner lists for it, already stored. `null` means *keep
  * what is stored*: the partner listed no picture, or none of them could be fetched — and then the
- * variants of the colour are inactive anyway.
+ * variants of the colour are inactive anyway. [mockup] is the blank front picture, `null` with the
+ * same meaning: the stored one came from the same URL, or none could be fetched.
  */
 internal class PreparedAppearance(
     val spodAppearanceId: Long,
@@ -451,9 +508,13 @@ internal class PreparedAppearance(
     val colorHex: String,
     val position: Int,
     val listingImages: List<PreparedImage>?,
+    val mockup: PreparedMockup?,
 )
 
 internal class PreparedImage(val spodImageId: String, val filename: String)
+
+/** A freshly stored mockup and the partner URL it came from, which the next run compares. */
+internal class PreparedMockup(val sourceUrl: String, val filename: String)
 
 /** One colour × size; [appearanceId] is the partner's appearance id of its colour. */
 @Suppress("LongParameterList")
@@ -473,6 +534,7 @@ internal class SyncWriteOutcome(
     val line: SpodSyncLine,
     val warnings: List<SpodSyncWarning> = emptyList(),
     val obsoleteListingImages: List<String> = emptyList(),
+    val obsoleteMockups: List<String> = emptyList(),
     val obsoleteSizeCharts: List<String> = emptyList(),
 )
 

@@ -144,7 +144,10 @@ the ten calls it makes outwards.
 The first five produce an order and are described step by step in
 [SPOD fulfillment](spod-fulfillment.md); the next three read the catalog and
 are what a sync run is built from; the last two calibrate a product type —
-what its sides look like, and where a design lands on them.
+what its sides look like, and where a design lands on them. How the sync run
+turns them into a print frame, and what that costs of the 60-per-minute
+budget, is
+[SPOD sync decision 7](article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews).
 
 The preview request is sent as
 `{ "configurations": [ { "designId", "hotspot" } ], "appearanceId": "<string>", "width": 1000, "height": 1000 }`;

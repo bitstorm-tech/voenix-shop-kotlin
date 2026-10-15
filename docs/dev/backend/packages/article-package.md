@@ -189,6 +189,7 @@ article/
 |  |- PublicMugRoutes.kt
 |  `- PublicMugService.kt
 |- spod/
+|  |- PrintFrameMeasurement.kt
 |  |- PublicSpodArticle.kt
 |  |- PublicSpodArticleRoutes.kt
 |  |- PublicSpodArticleService.kt
@@ -196,6 +197,7 @@ article/
 |  |- SpodArticleInput.kt
 |  |- SpodArticleRoutes.kt
 |  |- SpodArticleService.kt
+|  |- SpodCalibration.kt
 |  |- SpodCatalogSync.kt
 |  |- SpodCatalogSyncService.kt
 |  `- SpodSyncReport.kt
@@ -209,6 +211,7 @@ article/
    |- ArticlePriceWrite.kt
    |- ArticleSpodArticles.kt
    |- ArticleSpodRepository.kt
+   |- ArticleSpodSyncImages.kt
    |- ArticleSpodSyncRepository.kt
    |- ArticleSpodSyncVariants.kt
    |- ArticleSubcategoryRepository.kt
@@ -242,7 +245,9 @@ article/
 - `spod` holds the SPOD article slice: the admin half, the storefront half, and
   the sync that writes the articles in the first place (`SpodCatalogSync.kt`
   with the exported capability and its input, `SpodCatalogSyncService.kt` with
-  one run, `SpodSyncReport.kt` with what a run answers). Do not confuse it with
+  one run, `SpodCalibration.kt` and `PrintFrameMeasurement.kt` with how a run
+  measures the print frame, `SpodSyncReport.kt` with what a run answers). Do
+  not confuse it with
   the leaf module `shop.voenix.spod`, which holds the partner's HTTP client: this
   package is `shop.voenix.article.spod`. It is a sibling of `mug` and not a
   generalization of it:
@@ -306,9 +311,9 @@ and mentions a file only where it matters which one owns a helper.
   type has to name it) are the public types of the catalog capability, and
   `SpodCatalogSync`, `SpodCatalogSource`, `SpodSyncResult`,
   `SpodSyncReport`, `SpodSyncStatus`, `SpodSyncLine`, `SpodSyncWarning`,
-  and `SpodSyncWarningCode` are the public types of the sync one — the
-  production route serializes the report it is handed. Everything else is
-  `internal`. `ArticleCatalogService` implements the capability
+  `SpodSyncWarningCode`, and `PrintFrame` (a report line carries the measured
+  frame) are the public types of the sync one — the production route serializes
+  the report it is handed. Everything else is `internal`. `ArticleCatalogService` implements the capability
   and `ArticleCatalogRepository` performs its stored reads: one query per article
   type, merged into one map;
   `StoredCatalogVariant` is what that read answers, with the price as a
@@ -435,10 +440,20 @@ and mentions a file only where it matters which one owns a helper.
   `SpodSyncWarningCode` enum next to it; `SpodCatalogSyncService` is one
   run — listing, per-article reconciliation, sweep, file cleanup — and holds
   the per-destination `Mutex` that makes a second concurrent run `Busy`.
+- `SpodCalibration` is the calibration half of one run, in `SpodCalibration.kt`:
+  it lives exactly as long as the run, uploads the calibration design once, and
+  measures each product type once, answering a `Calibration` — `Measured` with
+  the hotspot and frame, or `Failed` with the reasons in the shop's own words —
+  and the URL of each colour's blank front mockup
+  ([SPOD sync decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
+  `PrintFrameMeasurement.kt` is the pure half of it: `calibrationDesignPng()`
+  draws the magenta square and `measurePrintFrame(png)` reads the box back out
+  of a preview as a `PrintFrameMeasurement`, with `MeasurementFailure` as the
+  closed list of reasons; neither touches the partner, so both are unit-tested.
 - `PrintFrame` is the rectangle of the mockup a design is placed in, in percent
-  of the mockup. Admin and storefront answer it with the same type, because both
-  only read it: the frame is *measured* by a sync run, never typed. It is `null`
-  in the admin read until a run has measured one.
+  of the mockup. Admin, storefront, and the sync report answer it with the same
+  type, because all three only read it: the frame is *measured* by a sync run,
+  never typed. It is `null` in the admin read until a run has measured one.
 - `ArticleSpodArticles`, `ArticleSpodAppearances`, `ArticleSpodVariants`, and
   `ArticleSpodImages` map the four tables of the second article type, in
   `ArticleSpodArticles.kt`. The file also owns `spodVariantName(colorName,
@@ -463,10 +478,14 @@ and mentions a file only where it matters which one owns a helper.
 - `ArticleSpodSyncRepository` is the **writing half of the sync** and nothing
   else: one transaction per article (`upsert`) plus one `sweep` at the end, the
   read `findForSync` that decides what still has to be downloaded, and the
-  prepared values a run hands it (`PreparedSpodArticle`, `PreparedAppearance`,
-  `PreparedImage`, `PreparedVariant`, `PreparedSizeChart`, answered as a
-  `SyncWriteOutcome` of kind `CREATED`, `UPDATED`, or `UNCHANGED`). It writes
-  the SPOD-owned half only; `active` can go off but never on.
+  prepared values a run hands it (`PreparedSpodArticle` with the measured
+  hotspot and frame, `PreparedAppearance`, `PreparedImage`, `PreparedMockup`,
+  `PreparedVariant`, `PreparedSizeChart`, answered as a `SyncWriteOutcome` of
+  kind `CREATED`, `UPDATED`, or `UNCHANGED`). It writes the SPOD-owned half
+  only; `active` can go off but never on — and it goes off when the run could
+  not measure a frame. `ArticleSpodSyncImages.kt` writes the pictures of a
+  colour: the mockup, replaced when the run fetched a new one, and the listing
+  images, rewritten when the ordered list of image ids differs.
   `ArticleSpodSyncVariants.kt` holds the colour and variant half of that
   reconciliation — colours upserted by the partner's appearance id, listing
   images rewritten only when their ordered list of image ids changed, variants
@@ -1064,7 +1083,7 @@ owner decides who may write it (SPOD sync decision 2):
 | the whole variant array: size label, the three SPOD ids, `sku`, the partner's variant id | the price with its VAT choices |
 | the size-chart image | which variant is the default one |
 | a variant's `active` flag (stored listing image and readable colour → active) | |
-| `printFrame` and `hotspot`, measured from the partner's previews; empty until a run has measured them | |
+| `printFrame` and `hotspot`, measured from the partner's previews by every run (SPOD sync decision 7); empty when the last run could not measure them, and then the article is off | |
 | `supplierId` (the supplier behind the destination it was synced from) | |
 
 The partner's `b2bPrice` and `d2cPrice` are deliberately **not** stored (Joe,
@@ -1072,11 +1091,12 @@ decision D3 on issue #224): what the shop charges is the shop's own price row.
 
 The print frame changed owners with issue #260 (decision 6): an operator used
 to calibrate it by hand, and every frame typed that way was wrong. It is now
-the box SPOD itself renders for the chosen hotspot. Until the sync measures it
-(a later ticket of that issue), a synced article has no frame and no hotspot,
-and it cannot be activated. Because the measurement holds for a square design
-only, a SPOD article is always printed `1:1` and has no print aspect ratio of
-its own (decision 10).
+the box SPOD itself renders for the chosen hotspot, measured by every sync run
+([SPOD sync decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
+A run that cannot measure it writes no frame and no hotspot, and the article
+cannot be activated until a run can. Because the measurement holds for a square
+design only, a SPOD article is always printed `1:1` and has no print aspect
+ratio of its own (decision 10).
 
 #### The routes
 
@@ -1213,13 +1233,15 @@ measured frame, and a `sync` block of its own:
 - **A colour is a row of its own.** `appearances` are the partner's colours in
   the partner's order, each with its pictures: `listingImageFilenames` are every
   image the partner lists for that colour, in its order, and
-  `mockupImageFilename` is the blank front image the editor lays the frame on
-  (`null` until the sync stores mockups). The variants stay a **flat array** —
+  `mockupImageFilename` is the blank front image the editor lays the frame on,
+  fetched from the partner's views (`null` when no run could store one). The
+  variants stay a **flat array** —
   cart lines, the default variant, and the production tripwire all point at a
   variant id — and each one names its colour by `appearanceId`, the shop's id
   of the colour row. `spodAppearanceId` is the partner's id of the same colour.
 - **The variants come in the order of their colour**, then by id.
-- **`printFrame` and `hotspot` are `null`** for an article no run has measured.
+- **`printFrame` and `hotspot` are `null`** for an article the last run could
+  not measure; the sync report says why.
 
 The three parts of the identity are answered separately, because an admin
 screen shows them separately. `missingSince` is `null` for every article the
@@ -1263,10 +1285,15 @@ things every time:
    through the same `ExampleImages` rule an uploaded picture follows. Variants
    without all three product ids are dropped, duplicates of the product triple
    are dropped, then the colours are resolved in the order they first appear in
-   the variants: the colour value is parsed, and every image the listing names
+   the variants: the colour value is parsed, every image the listing names
    for that colour is stored, in the listing's order — downloaded from its
    `downloadUrl()` unless a stored image of the colour already has the same
-   partner image id. The product type name is taken from the variants, cut to
+   partner image id — and the colour's blank front mockup is stored from the
+   product type's views, unless the stored mockup came from the same URL. Then
+   the product type is **calibrated**, once per run: the run measures which
+   front hotspot prints largest and where, and writes that hotspot and frame
+   into the article ([decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
+   The product type name is taken from the variants, cut to
    255 characters, and stored as an empty string when the partner names none.
    The size chart is fetched once per product type per run. Everything that
    talks to the partner or to the image storage happens *before* the
@@ -1282,24 +1309,29 @@ things every time:
    come back.
 
 Inside the transaction the colours are upserted by the partner's appearance id,
-and a colour's listing images are rewritten only when the ordered list of image
-ids differs from the stored one — so an identical run writes no picture row at
-all. A colour the partner stopped listing keeps its row and its pictures; its
-variants go inactive. Variants are matched by the product triple and never
-deleted. The run writes no print frame and no hotspot (the measurement is a
-later ticket of issue #260), so a newly synced article starts without them.
+a colour's mockup is replaced only when the run fetched a new one, and its
+listing images are rewritten only when the ordered list of image ids differs
+from the stored one — so an identical run writes no picture row at all. A
+colour the partner stopped listing keeps its row and its pictures; its variants
+go inactive. Variants are matched by the product triple and never deleted. The
+hotspot and the four frame columns are written as measured, every run — `NULL`
+when the measurement failed, which also switches `active` off.
 
 Three properties are worth remembering:
 
 - **A run never activates an article.** `active` can only ever go *off* — when
-  the last sellable variant disappeared, or when the article did. Switching an
-  article on is an operator's decision, always.
+  the last sellable variant disappeared, when the article did, or when the run
+  could not measure its frame. Switching an article on is an operator's
+  decision, always.
 - **A reappearing article clears its missing marker but stays inactive**, with
   the warning `ARTICLE_REAPPEARED`.
-- **A second identical run is a no-op**: every article lands in `unchanged`,
-  nothing is downloaded (that is what the stored partner image ids and the
-  stored size-chart URL are for), and each article costs one `spod_synced_at`
-  bump.
+- **A second identical run is a no-op for the pictures and the rows**: every
+  article lands in `unchanged`, no picture is downloaded (that is what the
+  stored partner image ids, the stored mockup URLs, and the stored size-chart
+  URL are for), and each article costs one `spod_synced_at` bump. The frame is
+  the one thing measured again — one design upload and a few paced calls per
+  product type (decision 7) — and it lands in `unchanged` too when nothing
+  moved.
 
 An article is matched by `(destination, environment, SPOD article id)` and a
 variant by the product triple `(productTypeId, appearanceId, sizeId)` — never
@@ -1333,6 +1365,8 @@ next to a code names ids only, never partner text:
 | `COLOR_VALUE_UNREADABLE` | `appearanceColorValue` was not a colour; that colour's variants are inactive and wear a neutral grey |
 | `COLOR_WITHOUT_IMAGE` | not one listing image of the colour could be stored — the partner lists none, or none could be fetched; its variants are inactive and keep whatever pictures they had |
 | `IMAGE_DOWNLOAD_FAILED` | one listing image could not be downloaded or stored; it is left out, and the next run asks for it again |
+| `MOCKUP_UNAVAILABLE` | the partner answered no front mockup for the colour, or it could not be downloaded or stored; its variants are inactive — the editor has nothing to lay the frame on — and the stored mockup, if any, is kept |
+| `CALIBRATION_FAILED` | no front hotspot of the article's product type measured cleanly; the article has no frame and no hotspot, is inactive, and the detail names the reason per hotspot tried (`FULL_FRONT: LOW_FILL, MEDIUM_FRONT: NO_RECTANGLE`) or the one reason nothing could be tried (`NO_FRONT_VIEW`, `NO_PRINTABLE_HOTSPOT`, or a `SpodError`) |
 | `SIZE_CHART_UNAVAILABLE` | the product type answered no size chart, its URL was longer than the 1024-character column, or it could not be stored; the stored one, if any, is kept |
 | `DEFAULT_VARIANT_REPLACED` | the default variant is no longer active, so another active one took its place |
 | `EXAMPLE_IMAGE_REPLACED` | the picture the shop shows this article with — the first listing image of the default variant's colour — changed |
@@ -1383,7 +1417,10 @@ is not in production and holds no real order data.
 - **`article_spod_images`** holds the pictures of a colour with a `role`:
   `LISTING` for every image the partner lists (with its `spod_image_id`), and at
   most one `MOCKUP` per colour (a partial unique index), the blank front image
-  the editor lays the frame on.
+  the editor lays the frame on, with the `source_url` it was fetched from
+  ([`V30__article_spod_images_source_url.sql`](../../../../backend/modules/platform/resources/db/migration/V30__article_spod_images_source_url.sql))
+  — each role's own mark of "already stored", so the next run downloads only
+  what differs.
 
 The activation rules differ from the mug's, and the ownership is why: an active
 SPOD article needs a category, a price, a measured frame, and an active default
@@ -1459,12 +1496,62 @@ variant inactive with a bounded warning instead of failing the article or
 inventing data a customer would order by. A listing failure writes nothing and
 deactivates nothing; only a complete listing may sweep.
 
-##### Decision 7 — The print frame stays manual
+##### Decision 7 — The print frame is measured from SPOD previews
 
-The API offers no print-area geometry relative to a mockup — `printAreas` are
-millimetres of the garment, `views` carry images without coordinates — so the
-frame calibrator stays and a new shirt starts from the default frame. Recorded
-so the spike is not reopened.
+This supersedes the original decision 7, "the print frame stays manual", which
+left the frame to an admin calibrator — and every frame typed that way was
+wrong: both synced shirts carried the editor default while the partner printed
+somewhere else (issue #260). The API still offers no print-area geometry
+relative to a mockup — `printAreas` are millimetres of the garment, `views`
+carry images without coordinates — so the sync *looks* instead of asking
+(issue #260, decisions 6, 7, 10, 11, 12):
+
+- **The design is a magenta square.** The run draws a 2000 × 2000 opaque
+  `#FF00FF` PNG in code and uploads it once per run as a design
+  (`calibration-1x1.png`). Magenta is on no garment and no mockup background,
+  so every magenta pixel of a preview is the design. The square is `1:1`
+  because that is the one ratio a SPOD article prints (decision 10); the box
+  only holds for a design of that ratio, which is why the ratio left the
+  article.
+- **Per product type the run reads the views**, takes the one named `FRONT`
+  (its hotspot names and its blank mockup per colour), asks which of those
+  hotspots accept the design (`availableHotspots`), renders one preview per
+  accepted hotspot on the article's first colour at 1000 × 1000, downloads it
+  as PNG, and measures.
+- **The measurement rule** (`measurePrintFrame`): a pixel is magenta when it is
+  opaque (alpha ≥ 250 — the renderer blends a translucent rim around the
+  design, which is not the design) and within 24 of `#FF00FF` on every
+  channel; the frame is the bounding box of those pixels, in percent of the
+  picture with two decimals (half up; the right and bottom edges are rounded
+  on their own, so `left + width` never exceeds 100 by a rounding hair). The
+  measurement validates itself (decision 12): the box has to be at least 2 %
+  of the picture in both directions and at least 97 % of it has to be magenta,
+  else the result is `NO_RECTANGLE` or `LOW_FILL` and the article gets no frame
+  rather than a wrong one.
+- **The largest box wins** (decision 7): the hotspot with the largest measured
+  `width × height`, a tie going to the first in the view's order. There is no
+  name-based guessing and no admin field.
+- **Per product type, per run, stateless** (decision 11): one instance of
+  `SpodCalibration` lives as long as one run, caches the views and the
+  measurement per product type, and writes the same hotspot and frame into
+  every article of that type in the run; the box is the same on every colour,
+  so one measurement per type is enough (verified on staging, white and black
+  identical). Nothing survives the run and nothing is invalidated — a changed
+  mockup is simply measured again next time. The design stays in the partner's
+  account, like every per-order design production uploads; the API cannot
+  delete one.
+- **A failed measurement is visible, not silent.** The article is written with
+  `NULL` frame and hotspot, `active` goes off, and the report carries
+  `CALIBRATION_FAILED` with the reason per hotspot tried. The admin screen
+  shows the measured frame on the mockup and cannot change it (decision 13).
+
+**The rate budget.** The partner allows 60 requests per minute for the whole
+account, paced by the one `SpodClient`. Calibration costs, per product type met
+in a run, `2 + candidates` paced calls — the views, the hotspot check, and one
+preview per accepted hotspot, at most five — plus one design upload per run;
+the preview and mockup downloads hit the image server and are not paced. A
+catalog of twenty shirts of one type pays for one type. The run stays
+synchronous, as every run is: the admin who pressed the button waits for it.
 
 ##### Decision 8 — The name tripwire keeps firing on partner renames
 
@@ -2285,13 +2372,32 @@ one message per route.
   removes article, colours, pictures, variants, price, and all three kinds of
   file, the reorder with its answer and the gapped sequence it refuses, and the
   two `404` answers.
+- `PrintFrameMeasurementTest` holds the measurement rule to pictures it draws
+  itself, without partner or database: an exact box, a translucent rim that is
+  left out, a box with a hole (`LOW_FILL`), a picture without magenta and a box
+  below two percent (`NO_RECTANGLE`), a box touching the border that ends at
+  exactly 100 %, the half-up rounding to two decimals, bytes that are no
+  picture, and the calibration design itself measuring to the whole picture.
+- `SpodCatalogSyncCalibrationIntegrationTest` runs the measurement through
+  whole sync runs, with `CalibrationFixtures.kt` answering staging-like views,
+  hotspot lists, and preview pictures the test draws with a known box per
+  hotspot: two articles of one product type are measured once and both get the
+  larger hotspot's frame to two decimals, a second product type in the same
+  run gets its own frame from the one shared design, a box with a hole fails
+  the calibration — frame and hotspot `NULL`, article inactive,
+  `CALIBRATION_FAILED` naming both hotspots tried — a product type whose views
+  the partner refuses has no mockups and no frame, every colour gets its own
+  mockup in `articles/spod/mockups` and keeps it while the URL stays, and a
+  moved mockup URL replaces the stored file.
 - `SpodCatalogSyncIntegrationTest` runs whole sync runs against PostgreSQL and
   a `MockEngine` partner, through the real `SpodClient`: the first run that
   creates what the backoffice lists (one colour row per appearance in the
-  partner's order, one listing image row per listed image, no frame, no
-  hotspot), the product type name cut to its column or empty, the identical
-  second run that writes and downloads nothing, the run that overwrites the
-  product and leaves the shop-owned half alone, a dropped colour whose variants
+  partner's order, one listing image row per listed image, one mockup per
+  colour, the measured frame and hotspot on the row and on the report line),
+  the product type name cut to its column or empty, the identical second run
+  that writes nothing and downloads no picture while it measures again, the
+  run that overwrites the product — the frame included — and leaves the
+  shop-owned half alone, a dropped colour whose variants
   go inactive while their rows stay (and hand the default on when they carried
   it), a dropped article marked missing once and coming back inactive, an
   article of the *other* installation counted as missing even when its id is
