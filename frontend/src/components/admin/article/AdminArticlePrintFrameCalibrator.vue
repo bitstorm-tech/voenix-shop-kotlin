@@ -154,9 +154,31 @@ defineExpose({ fitToPrintRatio })
 </script>
 
 <template>
-  <div class="grid gap-5 lg:grid-cols-2">
+  <!-- The mockup with the frame on it is the thing being calibrated; the numbers beside it are
+       the fine adjustment. On a wide screen the preview takes the larger column. -->
+  <div class="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div
+      class="relative self-start overflow-hidden rounded-lg border border-border bg-muted/10"
+      data-testid="print-frame-preview"
+    >
+      <img
+        v-if="props.mockupUrl"
+        :src="props.mockupUrl"
+        alt="Product mockup of the default variant"
+        class="block w-full"
+        data-testid="print-frame-mockup"
+        @load="onMockupLoad"
+      />
+      <div v-else class="aspect-square w-full" />
+      <div
+        class="absolute border-2 border-dashed border-primary bg-primary/10"
+        :style="previewStyle"
+        data-testid="print-frame-rectangle"
+      />
+    </div>
+
     <div class="space-y-4">
-      <div class="grid gap-4 sm:grid-cols-2">
+      <div class="grid grid-cols-2 gap-3">
         <FormField
           label="Left (%)"
           for="tshirt-frame-left"
@@ -224,10 +246,10 @@ defineExpose({ fitToPrintRatio })
       </div>
 
       <div class="flex items-start gap-3">
-        <Checkbox id="tshirt-frame-keep-ratio" v-model="keepAspectRatio" />
+        <Checkbox id="tshirt-frame-keep-ratio" v-model="keepAspectRatio" class="mt-0.5" />
         <div>
           <Label for="tshirt-frame-keep-ratio">Keep the print aspect ratio</Label>
-          <p class="text-sm text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             The shop places the design at these four percentages, so the frame must have the shape
             the image is generated in ({{ props.printAspectRatio }}). Editing width or height then
             corrects the other side.
@@ -255,26 +277,6 @@ defineExpose({ fitToPrintRatio })
         The frame is not shaped like a {{ props.printAspectRatio }} print. The shop would show a
         frame the generated image does not fill — use "Fit height" or leave the ratio lock on.
       </Alert>
-    </div>
-
-    <div
-      class="relative overflow-hidden rounded-lg border border-border bg-muted/10"
-      data-testid="print-frame-preview"
-    >
-      <img
-        v-if="props.mockupUrl"
-        :src="props.mockupUrl"
-        alt="Product mockup of the default variant"
-        class="block w-full"
-        data-testid="print-frame-mockup"
-        @load="onMockupLoad"
-      />
-      <div v-else class="aspect-square w-full" />
-      <div
-        class="absolute border-2 border-dashed border-primary bg-primary/10"
-        :style="previewStyle"
-        data-testid="print-frame-rectangle"
-      />
     </div>
   </div>
 </template>

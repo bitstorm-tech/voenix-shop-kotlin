@@ -16,6 +16,7 @@ below.
 
 ```vue
 <AdminFormSection
+  id="section-details"
   title="Details"
   description="Physical mug characteristics. Required before the article can be set active."
 >
@@ -29,10 +30,81 @@ Why no tabs? There is one *Save* button, and it saves everything. With
 tabs, a user saw one tab but saved four, and a problem in a hidden tab had to be
 found by switching tabs. On one page, what you see is what you save.
 
+### The jump list beside the form
+
+A page with four or five sections still needs orientation. The article
+editors therefore put a jump list next to the form:
+[`AdminFormSectionNav`](../../../frontend/src/components/admin/shared/AdminFormSectionNav.vue)
+gets the sections in reading order (`{ id, label }`), renders one link per
+section, and highlights the one on screen. Every `AdminFormSection` the list
+points to carries the matching `id`. The list is `sticky` and shown from `lg`
+up; on a phone the page is simply scrolled.
+
+```vue
+<div class="lg:grid lg:grid-cols-[minmax(0,1fr)_10rem] lg:items-start lg:gap-8">
+  <form class="min-w-0 max-w-5xl space-y-4" @submit.prevent="saveArticle">
+    <AdminFormSection id="section-general" title="General">…</AdminFormSection>
+    …
+  </form>
+  <AdminFormSectionNav :sections="SECTIONS" class="hidden lg:sticky lg:top-6 lg:block" />
+</div>
+```
+
+This is not a tab bar in disguise: every section stays rendered and every
+section is saved, the list only scrolls. The prompt editor has two sections and
+no list.
+
+### The summary under the title
+
+The second half of the orientation is the line under the page title. The
+header (`AdminPageHeader`) has a `summary` slot, and the article editors fill it
+with
+[`AdminEditorSummary`](../../../frontend/src/components/admin/shared/AdminEditorSummary.vue):
+the *Active* switch with a badge that says whether the article is in the shop,
+a *Missing at Spreadconnect* badge where that applies, and short facts next to
+them — the category, the gross price, the supplier, the last sync. The facts are
+computed from the form state and the last calculated price, so they follow every
+edit.
+
+The *Active* switch lives up here and not in the *General* section on purpose.
+Activating is the one decision the whole page leads up to, and its preconditions
+(a category, a price, an active variant) are spread over every section. In the
+header, the switch and the facts that decide whether it may be flipped sit side
+by side. The rule message for it (`fieldErrors.active`) is shown right under
+the summary and carries `data-form-error` like any other.
+
+### Reading order
+
+The sections are ordered the way an operator works through the page, not the
+way the data is stored. The t-shirt editor starts with the *Spreadconnect*
+identity (name, descriptions, ids, sync time) — what the shirt *is* — then
+*General*, *Print*, *Price*, and last the synced *Variants* with the size chart.
+The mug editor goes *General*, *Details*, *Variants*, *Price*.
+
+### One card per section, not cards in cards
+
+A section is one card, and what is inside it is flat: a subsection is a
+heading (`h3`, `text-base`) above a `border-t`, not another card. The price
+editor used to be three cards inside the *Price* card; it is now three
+subsections (*Einkauf*, *Verkauf*, *Discount*) divided by lines, each with its
+amount table. Section titles are `text-xl`, descriptions `text-sm`, hints under
+an input `text-xs`, so the three levels of text are told apart at a glance.
+
+### Synced variants grouped by colour
+
+The t-shirt's variants are read-only and many — a few colours times a few
+sizes. [`AdminArticleTshirtVariantGroups`](../../../frontend/src/components/admin/article/AdminArticleTshirtVariantGroups.vue)
+shows one row per colour with the sizes as chips: a struck-through chip is a
+size the partner no longer offers, the highlighted one is the default variant.
+The partner's identifiers (variant id, SKU, product/appearance/size) sit behind
+a *Show technical IDs* toggle and then appear under every colour in the same
+columns — they are what an operator needs to find a row again in the
+Spreadconnect backoffice, and nothing an operator reads otherwise.
+
 A section that only **shows** data another system owns gets the `read-only`
 prop. It then has a grey background and a *Read-only* badge, so nobody looks for
-a way to edit it. The *Spreadconnect* section of the t-shirt editor is the
-example: a sync run writes it, the shop never does.
+a way to edit it. The *Spreadconnect* and *Variants* sections of the t-shirt
+editor are the examples: a sync run writes them, the shop never does.
 
 The price section is the same in both article editors, so it is a component of
 its own:

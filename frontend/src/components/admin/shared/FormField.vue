@@ -16,6 +16,6 @@ const props = defineProps<Props>()
     <Label :for="props.for">{{ label }}</Label>
     <slot />
     <p v-if="error" class="text-sm text-destructive" data-form-error>{{ error }}</p>
-    <p v-else-if="hint" class="text-sm text-muted-foreground">{{ hint }}</p>
+    <p v-else-if="hint" class="text-xs text-muted-foreground">{{ hint }}</p>
   </div>
 </template>

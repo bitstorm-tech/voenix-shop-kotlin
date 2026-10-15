@@ -284,7 +284,7 @@ filename or an id. All of them match the image module's routes
 | `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
 | `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
-| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/{size}/articles/tshirts/variant-example-images/{filename}` (the calibrator mockup here, the variant thumbnails in its `AdminArticleTshirtVariantTable`) and `/api/images/public/400/articles/tshirts/size-charts/{filename}` (both files now written by the sync, not by an upload) | same | #220, #231 |
+| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/{size}/articles/tshirts/variant-example-images/{filename}` (the calibrator mockup here, the variant thumbnails in its `AdminArticleTshirtVariantGroups`) and `/api/images/public/400/articles/tshirts/size-charts/{filename}` (both files now written by the sync, not by an upload) | same | #220, #231 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
