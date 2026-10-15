@@ -18,7 +18,7 @@ defineProps<{
 </script>
 
 <template>
-  <AdminFormSection title="Price">
+  <AdminFormSection id="section-price" title="Price">
     <Alert v-if="error" variant="destructive" data-form-error>
       {{ error }}
     </Alert>

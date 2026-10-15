@@ -110,8 +110,8 @@ function amountTestId(row: string, column: AmountColumn) {
 </script>
 
 <template>
-  <section class="overflow-hidden rounded-lg border border-border bg-background">
-    <div class="border-b border-border bg-muted/20 px-4 py-3">
+  <section class="space-y-3">
+    <div>
       <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h3 class="text-base font-semibold text-foreground">{{ title }}</h3>
@@ -154,7 +154,9 @@ function amountTestId(row: string, column: AmountColumn) {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 divide-y divide-border">
+    <div
+      class="grid grid-cols-1 divide-y divide-border overflow-hidden rounded-md border border-border"
+    >
       <div
         class="hidden grid-cols-[minmax(12rem,1.5fr)_repeat(3,minmax(7rem,1fr))] gap-2 bg-muted/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid"
       >

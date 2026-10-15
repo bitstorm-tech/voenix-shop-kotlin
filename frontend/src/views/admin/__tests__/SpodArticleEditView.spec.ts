@@ -224,17 +224,47 @@ describe('SpodArticleEditView', () => {
     mocks.fetchArticle.mockResolvedValue(spodArticle())
   })
 
-  it('loads an article from the SPOD route and shows its name and product type', async () => {
+  it('loads an article from the SPOD route and shows its name in the heading', async () => {
     const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
     expect(mocks.fetchArticle).toHaveBeenCalledWith(10)
     expect(wrapper.find('h1').text()).toBe('Edit SPOD article (Classic tee)')
-    const identity = wrapper.get('[data-testid="article-identity"]').text()
-    expect(identity).toContain('Classic tee')
-    expect(identity).toContain("Men's T-Shirt")
   })
 
-  it('shows the synced half read-only, with the inactive variants collapsed', async () => {
+  it('sums the article up in the header: the active switch, the product type, the price, the sync', async () => {
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+
+    const summary = wrapper.get('[data-testid="editor-summary"]')
+    expect(summary.find('#article-active').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="active-badge"]').text()).toBe('Not in shop')
+    expect(summary.text()).toContain("Men's T-Shirt")
+    expect(summary.text()).toContain('Category')
+    expect(summary.text()).toContain('11,90 EUR')
+    expect(summary.text()).toContain('Aug 20, 2026')
+    expect(wrapper.find('[data-testid="spod-missing-badge"]').exists()).toBe(false)
+
+    await wrapper.get('#article-active').trigger('click')
+    expect(wrapper.get('[data-testid="active-badge"]').text()).toBe('Visible in shop')
+
+    // The jump list names every section of the page, in reading order.
+    const navLabels = wrapper
+      .get('[data-testid="form-section-nav"]')
+      .findAll('a')
+      .map((link) => link.text())
+    expect(navLabels).toEqual(['Spreadconnect', 'General', 'Price', 'Print', 'Variants'])
+    const sectionIds = wrapper
+      .findAll('form section[id]')
+      .map((section) => section.attributes('id'))
+    expect(sectionIds).toEqual([
+      'section-spreadconnect',
+      'section-general',
+      'section-price',
+      'section-print',
+      'section-variants',
+    ])
+  })
+
+  it('shows the synced half read-only: the identity on top, the variants grouped by colour', async () => {
     const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
     const spodSection = wrapper.get('[data-testid="spod-section"]')
@@ -245,24 +275,31 @@ describe('SpodArticleEditView', () => {
     expect(spodIdentity.text()).toContain('STAGING')
     expect(wrapper.get('[data-testid="spod-synced-at"]').text()).toContain('Aug 20, 2026')
 
-    // The active variant is listed with the partner's own names for the row.
+    // Every colour is a row and every size a chip on it, the inactive one struck through — so the
+    // whole article is visible at once, without a toggle for the sizes the partner dropped. The
+    // colour comes from the appearance, its thumbnail is the colour's first listing image.
+    expect(wrapper.get('[data-testid="spod-variants-section"]').text()).toContain('Read-only')
+    const blackRow = wrapper.get('[data-testid="spod-colour-Black"]')
+    expect(blackRow.text()).toContain('Black')
+    expect(blackRow.get('[data-testid="spod-size-1"]').text()).toBe('M')
+    expect(blackRow.text()).toContain('1 of 1 active')
+    expect(blackRow.get('img').attributes('src')).toContain(
+      'articles/spod/listing-images/black-1.webp',
+    )
+    const whiteRow = wrapper.get('[data-testid="spod-colour-White"]')
+    expect(whiteRow.get('[data-testid="spod-size-2"]').classes()).toContain('line-through')
+    expect(whiteRow.text()).toContain('Inactive')
+
+    // The partner's identifiers are behind one toggle and then show for every colour in the same
+    // columns — the same row an operator has to find again in the backoffice.
+    expect(wrapper.find('[data-testid="spod-variant-1"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="technical-ids"]').trigger('click')
+    await flushPromises()
     const activeRow = wrapper.get('[data-testid="spod-variant-1"]')
-    expect(activeRow.text()).toContain('Black')
     expect(activeRow.text()).toContain('v-812-3-5')
     expect(activeRow.text()).toContain('SKU-1')
     expect(activeRow.text()).toContain('812 / 3 / 5')
-    expect(activeRow.text()).toContain('Default')
-    expect(activeRow.get('img').attributes('src')).toContain(
-      'articles/spod/listing-images/black-1.webp',
-    )
-
-    // The inactive one is behind the toggle and, once open, shows the same columns as the active
-    // one — the same row an operator has to find again in the backoffice.
-    expect(wrapper.find('[data-testid="spod-variant-2"]').exists()).toBe(false)
-    await wrapper.get('[data-testid="inactive-variants"]').trigger('click')
-    await flushPromises()
     const inactiveRow = wrapper.get('[data-testid="spod-variant-2"]')
-    expect(inactiveRow.text()).toContain('White')
     expect(inactiveRow.text()).toContain('L')
     expect(inactiveRow.text()).toContain('v-812-4-6')
     expect(inactiveRow.text()).toContain('812 / 4 / 6')
@@ -371,6 +408,9 @@ describe('SpodArticleEditView', () => {
     expect(wrapper.get('[data-testid="missing-alert"]').text()).toContain(
       'no longer lists this article',
     )
+    expect(wrapper.get('[data-testid="spod-missing-badge"]').text()).toBe(
+      'Missing at Spreadconnect',
+    )
 
     await wrapper.get('#article-active').trigger('click')
     await wrapper.find('form').trigger('submit')
@@ -380,6 +420,20 @@ describe('SpodArticleEditView', () => {
     expect(wrapper.text()).toContain(
       'An article that is missing at Spreadconnect cannot be activated.',
     )
+  })
+
+  it('shows a rejected write on the input that caused it', async () => {
+    mocks.updateArticle.mockRejectedValue(
+      new InvalidArticleRequestError('Validation failed', {
+        categoryId: ['Category 99 does not exist'],
+      }),
+    )
+
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('#section-general').text()).toContain('Category 99 does not exist')
   })
 
   // The backend owns the "no frame, no activation" rule, so the form lets the admin try and shows
@@ -408,7 +462,8 @@ describe('SpodArticleEditView', () => {
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
     expect((mocks.updateArticle.mock.calls[0]![1] as SaveAdminSpodArticleRequest).active).toBe(true)
-    const activeField = activeCheckbox.element.parentElement!
+    // The refusal sits under the summary that holds the Active switch.
+    const activeField = wrapper.get('[data-testid="editor-summary"]').element.parentElement!
     expect(activeField.textContent).toContain(
       'An article without a measured print frame cannot be activated',
     )

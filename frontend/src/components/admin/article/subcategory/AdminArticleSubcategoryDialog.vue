@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 import { useDialogForm } from '@/composables/useDialogForm'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { optionalText } from '@/lib/forms'
@@ -222,6 +223,11 @@ function onExampleImageChange(files: File[]) {
   emit('clearErrors')
 }
 
+useClipboardImagePaste(
+  (file) => onExampleImageChange([file]),
+  () => open.value && !props.saving && !props.deleting,
+)
+
 function removeImage() {
   clearSelectedExampleImage()
   fieldErrors.exampleImage = undefined
@@ -386,7 +392,7 @@ onBeforeUnmount(() => {
           label="Example image"
           for="article-subcategory-example-image"
           :error="exampleImageErrorMessage"
-          hint="Optional preview shown in the storefront super menu. JPG, PNG, or WebP, max 10 MB."
+          hint="Optional preview shown in the storefront super menu. JPG, PNG, or WebP, max 10 MB. You can also paste an image from the clipboard."
         >
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex min-w-0 items-center gap-3">

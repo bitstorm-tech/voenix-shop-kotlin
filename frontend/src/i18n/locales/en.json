@@ -925,7 +925,7 @@
     },
     "upload": {
       "title": "Upload an image for this product",
-      "body": "This design is already set up for the selected product and color. Add one image to begin editing.",
+      "body": "This design is already set up for the selected product and color. Add one image to begin editing. You can also paste it from the clipboard.",
       "action": "Upload image",
       "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF).",
       "errorFileSize": "File is too large. Maximum size is 10 MB."
@@ -996,7 +996,7 @@
       "uploadImage": {
         "label": "Upload Image",
         "title": "Upload & Crop Image",
-        "dropzoneTitle": "Drop your image here or click to browse",
+        "dropzoneTitle": "Drop or paste your image here, or click to browse",
         "dropzoneHint": "JPG, PNG, WebP, or GIF",
         "constraints": "Maximum file size: 10 MB",
         "previewAlt": "Uploaded image preview",

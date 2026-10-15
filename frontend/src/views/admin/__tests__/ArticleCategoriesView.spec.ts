@@ -332,6 +332,16 @@ async function setFileInput(selector: string, file: File) {
   await flushPromises()
 }
 
+async function pasteFiles(selector: string, files: File[]) {
+  const target = document.body.querySelector(selector)
+  expect(target).toBeTruthy()
+  const event = new Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'clipboardData', { value: { files } })
+  target?.dispatchEvent(event)
+  await flushPromises()
+  return event
+}
+
 describe('ArticleCategoriesView', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -458,6 +468,34 @@ describe('ArticleCategoriesView', () => {
       active: true,
     })
     expect(URL.createObjectURL).toHaveBeenCalledWith(file)
+  })
+
+  it('pre-uploads an example image pasted from the clipboard', async () => {
+    installObjectUrlMock()
+    mocks.categoriesState.categories = [mugCategory]
+    mocks.subcategoriesState.uploadExampleImage.mockResolvedValue('uploaded.png')
+    mocks.subcategoriesState.createSubcategory.mockImplementation(
+      async (payload: { name: string }) => ({ ...espressoSubcategory, id: 99, name: payload.name }),
+    )
+    const clipboardImage = new File(['image'], '', { type: 'image/png' })
+
+    await mountArticleCategoriesView()
+
+    await clickBySelector('[aria-label="Add subcategory to Mugs"]')
+    await setFieldValue('#article-subcategory-name', 'Latte')
+    const textPaste = await pasteFiles('#article-subcategory-name', [])
+    expect(textPaste.defaultPrevented).toBe(false)
+    const imagePaste = await pasteFiles('#article-subcategory-name', [clipboardImage])
+    expect(imagePaste.defaultPrevented).toBe(true)
+    expect(bodyText()).toContain('pasted-image.png')
+    await submitFieldForm('#article-subcategory-name')
+
+    const uploaded = mocks.subcategoriesState.uploadExampleImage.mock.calls[0]?.[0] as File
+    expect(uploaded.name).toBe('pasted-image.png')
+    expect(uploaded.type).toBe('image/png')
+    expect(mocks.subcategoriesState.createSubcategory).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Latte', exampleImageFilename: 'uploaded.png' }),
+    )
   })
 
   it('shows a rejected pre-upload on the example image field', async () => {

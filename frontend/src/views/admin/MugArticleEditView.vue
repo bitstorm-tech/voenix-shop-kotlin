@@ -5,7 +5,11 @@ import { RouterLink } from 'vue-router'
 import AdminArticleMugVariantDialog from '@/components/admin/article/AdminArticleMugVariantDialog.vue'
 import type { MugVariantFormValue } from '@/components/admin/article/mugVariantForm'
 import AdminArticlePriceSection from '@/components/admin/pricing/AdminArticlePriceSection.vue'
+import AdminEditorSummary, {
+  type EditorSummaryFact,
+} from '@/components/admin/shared/AdminEditorSummary.vue'
 import AdminFormSection from '@/components/admin/shared/AdminFormSection.vue'
+import AdminFormSectionNav from '@/components/admin/shared/AdminFormSectionNav.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
@@ -36,6 +40,7 @@ import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
 import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
 import { hasFormErrors, mapSaveErrors, MUG_SPEC } from '@/lib/adminArticleErrors'
+import { formatCents } from '@/lib/adminPrice'
 import { optionalText } from '@/lib/forms'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import { InvalidArticleRequestError } from '@/stores/admin/articles'
@@ -45,6 +50,18 @@ import {
   type SaveAdminMugArticleRequest,
   useAdminMugArticlesStore,
 } from '@/stores/admin/mugArticles'
+
+/**
+ * The sections of the page, in the order an operator works through them, for the jump list beside
+ * the form. The *Active* switch sits in the header: it is the one decision the whole page leads up
+ * to, and the summary next to it shows whether the page is ready for it.
+ */
+const SECTIONS = [
+  { id: 'section-general', label: 'General' },
+  { id: 'section-details', label: 'Details' },
+  { id: 'section-variants', label: 'Variants' },
+  { id: 'section-price', label: 'Price' },
+]
 
 interface EditorVariant {
   key: number
@@ -216,6 +233,27 @@ const pageTitle = computed(() => {
 
   const articleName = general.name.trim()
   return articleName === '' ? 'Edit Article' : `Edit Article (${articleName})`
+})
+
+/** What a reader wants to know before scrolling: where the mug is sorted, what it costs, who supplies it. */
+const summaryFacts = computed<EditorSummaryFact[]>(() => {
+  const category = categoriesStore.categories.find((entry) => entry.id === general.categoryId)
+  const supplier = suppliersStore.suppliers.find((entry) => entry.id === general.supplierId)
+  const price = articlePrice.lastCalculatedPrice.value
+  const activeVariantCount = variants.value.filter((variant) => variant.active).length
+
+  return [
+    { label: 'Category', value: category?.name ?? null },
+    { label: 'Price', value: price ? `${formatCents(price.salesTotal.gross)} EUR` : null },
+    { label: 'Supplier', value: supplier?.name ?? null },
+    {
+      label: 'Variants',
+      value:
+        variants.value.length === 0
+          ? null
+          : `${activeVariantCount} of ${variants.value.length} active`,
+    },
+  ]
 })
 
 const editingVariant = computed(() => {
@@ -507,8 +545,26 @@ function removeVariant(variant: EditorVariant) {
 </script>
 
 <template>
-  <section class="max-w-5xl space-y-4">
+  <section class="space-y-4">
     <AdminPageHeader :title="pageTitle">
+      <template v-if="!isLoading" #summary>
+        <AdminEditorSummary :facts="summaryFacts">
+          <div class="flex items-center gap-2">
+            <Checkbox id="article-active" v-model="general.active" />
+            <Label for="article-active" class="font-medium">Active</Label>
+            <Badge :variant="general.active ? 'success' : 'muted'" data-testid="active-badge">
+              {{ general.active ? 'Visible in shop' : 'Not in shop' }}
+            </Badge>
+          </div>
+        </AdminEditorSummary>
+        <p v-if="fieldErrors.active" class="text-sm text-destructive" data-form-error>
+          {{ fieldErrors.active }}
+        </p>
+        <p v-else class="text-xs text-muted-foreground">
+          An active mug needs a category, a price, complete mug details, and at least one active
+          variant.
+        </p>
+      </template>
       <template #actions>
         <Button as-child variant="outline" size="sm" class="self-start">
           <RouterLink :to="listLocation">
@@ -523,456 +579,453 @@ function removeVariant(variant: EditorVariant) {
       Loading article...
     </Card>
 
-    <form v-else class="space-y-4" @submit.prevent="saveArticle">
-      <Alert v-if="generalError" variant="destructive" data-form-error>
-        {{ generalError }}
-      </Alert>
+    <div v-else class="lg:grid lg:grid-cols-[minmax(0,1fr)_10rem] lg:items-start lg:gap-8">
+      <form class="min-w-0 max-w-5xl space-y-4" @submit.prevent="saveArticle">
+        <Alert v-if="generalError" variant="destructive" data-form-error>
+          {{ generalError }}
+        </Alert>
 
-      <AdminFormSection
-        title="General"
-        description="What the shop shows about this mug, where it is sorted, and who supplies it."
-      >
-        <FormField label="Name" for="article-name" :error="fieldErrors.name">
-          <Input
-            id="article-name"
-            v-model="general.name"
-            type="text"
-            placeholder="Article name"
-            :aria-invalid="fieldErrors.name ? true : undefined"
-          />
-        </FormField>
-
-        <FormField
-          label="Short description"
-          for="article-description-short"
-          :error="fieldErrors.descriptionShort"
+        <AdminFormSection
+          id="section-general"
+          title="General"
+          description="What the shop shows about this mug, where it is sorted, and who supplies it."
         >
-          <Textarea
-            id="article-description-short"
-            v-model="general.descriptionShort"
-            rows="2"
-            placeholder="Short description shown in listings"
-            :aria-invalid="fieldErrors.descriptionShort ? true : undefined"
-          />
-        </FormField>
-
-        <FormField
-          label="Long description"
-          for="article-description-long"
-          :error="fieldErrors.descriptionLong"
-        >
-          <Textarea
-            id="article-description-long"
-            v-model="general.descriptionLong"
-            rows="5"
-            placeholder="Detailed product description"
-            :aria-invalid="fieldErrors.descriptionLong ? true : undefined"
-          />
-        </FormField>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
-            <Select v-model="categorySelectValue">
-              <SelectTrigger id="article-category">
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem :value="NONE_VALUE">No category</SelectItem>
-                <SelectItem
-                  v-for="category in categoriesStore.categories"
-                  :key="category.id"
-                  :value="category.id.toString()"
-                >
-                  {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <FormField label="Name" for="article-name" :error="fieldErrors.name">
+            <Input
+              id="article-name"
+              v-model="general.name"
+              type="text"
+              placeholder="Article name"
+              :aria-invalid="fieldErrors.name ? true : undefined"
+            />
           </FormField>
 
           <FormField
-            label="Subcategory"
-            for="article-subcategory"
-            :error="fieldErrors.subcategoryId"
-            :hint="general.categoryId === null ? 'Select a category first.' : undefined"
+            label="Short description"
+            for="article-description-short"
+            :error="fieldErrors.descriptionShort"
           >
-            <Select v-model="subcategorySelectValue" :disabled="general.categoryId === null">
-              <SelectTrigger id="article-subcategory">
-                <SelectValue placeholder="Select subcategory" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
-                <SelectItem
-                  v-for="subcategory in filteredSubcategories"
-                  :key="subcategory.id"
-                  :value="subcategory.id.toString()"
-                >
-                  {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <Textarea
+              id="article-description-short"
+              v-model="general.descriptionShort"
+              rows="2"
+              placeholder="Short description shown in listings"
+              :aria-invalid="fieldErrors.descriptionShort ? true : undefined"
+            />
           </FormField>
-        </div>
 
-        <fieldset class="space-y-4 border-t border-border pt-5">
-          <legend class="text-base font-semibold text-foreground">Supplier</legend>
-          <div class="grid gap-4 md:grid-cols-3">
-            <FormField label="Supplier" for="article-supplier" :error="fieldErrors.supplierId">
-              <Select v-model="supplierSelectValue">
-                <SelectTrigger id="article-supplier">
-                  <SelectValue placeholder="Select supplier" />
+          <FormField
+            label="Long description"
+            for="article-description-long"
+            :error="fieldErrors.descriptionLong"
+          >
+            <Textarea
+              id="article-description-long"
+              v-model="general.descriptionLong"
+              rows="5"
+              placeholder="Detailed product description"
+              :aria-invalid="fieldErrors.descriptionLong ? true : undefined"
+            />
+          </FormField>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
+              <Select v-model="categorySelectValue">
+                <SelectTrigger id="article-category">
+                  <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem :value="NONE_VALUE">No supplier</SelectItem>
+                  <SelectItem :value="NONE_VALUE">No category</SelectItem>
                   <SelectItem
-                    v-for="supplier in suppliersStore.suppliers"
-                    :key="supplier.id"
-                    :value="supplier.id.toString()"
+                    v-for="category in categoriesStore.categories"
+                    :key="category.id"
+                    :value="category.id.toString()"
                   >
-                    {{ supplier.name }}
+                    {{ category.name }}{{ category.active ? '' : ' (Inactive)' }}
                   </SelectItem>
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField
-              label="Supplier article name"
-              for="article-supplier-article-name"
-              :error="fieldErrors.supplierArticleName"
-            >
-              <Input
-                id="article-supplier-article-name"
-                v-model="general.supplierArticleName"
-                type="text"
-                :aria-invalid="fieldErrors.supplierArticleName ? true : undefined"
-              />
-            </FormField>
-            <FormField
-              label="Supplier article number"
-              for="article-supplier-article-number"
-              :error="fieldErrors.supplierArticleNumber"
-            >
-              <Input
-                id="article-supplier-article-number"
-                v-model="general.supplierArticleNumber"
-                type="text"
-                :aria-invalid="fieldErrors.supplierArticleNumber ? true : undefined"
-              />
-            </FormField>
-          </div>
-        </fieldset>
 
-        <div class="flex items-center gap-3 border-t border-border pt-5">
-          <Checkbox id="article-active" v-model="general.active" />
-          <div>
-            <Label for="article-active">Active</Label>
-            <p class="text-sm text-muted-foreground">
-              Active articles are visible in the shop. Requires a category, a price, complete mug
-              details, and at least one active variant.
-            </p>
-            <p v-if="fieldErrors.active" class="text-sm text-destructive" data-form-error>
-              {{ fieldErrors.active }}
-            </p>
-          </div>
-        </div>
-      </AdminFormSection>
-
-      <AdminFormSection
-        title="Details"
-        description="Physical mug characteristics. Required before the article can be set active."
-      >
-        <div class="space-y-5">
-          <div class="grid gap-4 md:grid-cols-2">
-            <FormField label="Height (mm)" for="article-height" :error="fieldErrors.heightMm">
-              <Input
-                id="article-height"
-                v-model="details.heightMm"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                step="1"
-                placeholder="e.g. 95"
-                :aria-invalid="fieldErrors.heightMm ? true : undefined"
-              />
-            </FormField>
-            <FormField label="Diameter (mm)" for="article-diameter" :error="fieldErrors.diameterMm">
-              <Input
-                id="article-diameter"
-                v-model="details.diameterMm"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                step="1"
-                placeholder="e.g. 82"
-                :aria-invalid="fieldErrors.diameterMm ? true : undefined"
-              />
-            </FormField>
             <FormField
-              label="Print template width (mm)"
-              for="article-print-template-width"
-              :error="fieldErrors.printTemplateWidthMm"
+              label="Subcategory"
+              for="article-subcategory"
+              :error="fieldErrors.subcategoryId"
+              :hint="general.categoryId === null ? 'Select a category first.' : undefined"
             >
-              <Input
-                id="article-print-template-width"
-                v-model="details.printTemplateWidthMm"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                step="1"
-                placeholder="e.g. 200"
-                :aria-invalid="fieldErrors.printTemplateWidthMm ? true : undefined"
-              />
+              <Select v-model="subcategorySelectValue" :disabled="general.categoryId === null">
+                <SelectTrigger id="article-subcategory">
+                  <SelectValue placeholder="Select subcategory" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem :value="NONE_VALUE">No subcategory</SelectItem>
+                  <SelectItem
+                    v-for="subcategory in filteredSubcategories"
+                    :key="subcategory.id"
+                    :value="subcategory.id.toString()"
+                  >
+                    {{ subcategory.name }}{{ subcategory.active ? '' : ' (Inactive)' }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </FormField>
-            <FormField
-              label="Print template height (mm)"
-              for="article-print-template-height"
-              :error="fieldErrors.printTemplateHeightMm"
-            >
-              <Input
-                id="article-print-template-height"
-                v-model="details.printTemplateHeightMm"
-                type="number"
-                inputmode="numeric"
-                min="1"
-                step="1"
-                placeholder="e.g. 90"
-                :aria-invalid="fieldErrors.printTemplateHeightMm ? true : undefined"
-              />
-            </FormField>
-            <FormField
-              label="Filling quantity"
-              for="article-filling-quantity"
-              :error="fieldErrors.fillingQuantity"
-            >
-              <Input
-                id="article-filling-quantity"
-                v-model="details.fillingQuantity"
-                type="text"
-                placeholder="e.g. 325ml"
-                :aria-invalid="fieldErrors.fillingQuantity ? true : undefined"
-              />
-            </FormField>
-            <div class="flex items-center gap-3 md:pt-7">
-              <Checkbox id="article-dishwasher-safe" v-model="details.dishwasherSafe" />
-              <Label for="article-dishwasher-safe">Dishwasher safe</Label>
-            </div>
           </div>
 
           <fieldset class="space-y-4 border-t border-border pt-5">
-            <legend class="text-base font-semibold text-foreground">
-              Document format (optional)
-            </legend>
+            <legend class="text-base font-semibold text-foreground">Supplier</legend>
             <div class="grid gap-4 md:grid-cols-3">
+              <FormField label="Supplier" for="article-supplier" :error="fieldErrors.supplierId">
+                <Select v-model="supplierSelectValue">
+                  <SelectTrigger id="article-supplier">
+                    <SelectValue placeholder="Select supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem :value="NONE_VALUE">No supplier</SelectItem>
+                    <SelectItem
+                      v-for="supplier in suppliersStore.suppliers"
+                      :key="supplier.id"
+                      :value="supplier.id.toString()"
+                    >
+                      {{ supplier.name }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
               <FormField
-                label="Width (mm)"
-                for="article-document-width"
-                :error="fieldErrors.documentFormatWidthMm"
+                label="Supplier article name"
+                for="article-supplier-article-name"
+                :error="fieldErrors.supplierArticleName"
               >
                 <Input
-                  id="article-document-width"
-                  v-model="details.documentFormatWidthMm"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  step="1"
-                  :aria-invalid="fieldErrors.documentFormatWidthMm ? true : undefined"
+                  id="article-supplier-article-name"
+                  v-model="general.supplierArticleName"
+                  type="text"
+                  :aria-invalid="fieldErrors.supplierArticleName ? true : undefined"
                 />
               </FormField>
               <FormField
-                label="Height (mm)"
-                for="article-document-height"
-                :error="fieldErrors.documentFormatHeightMm"
+                label="Supplier article number"
+                for="article-supplier-article-number"
+                :error="fieldErrors.supplierArticleNumber"
               >
                 <Input
-                  id="article-document-height"
-                  v-model="details.documentFormatHeightMm"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  step="1"
-                  :aria-invalid="fieldErrors.documentFormatHeightMm ? true : undefined"
-                />
-              </FormField>
-              <FormField
-                label="Margin bottom (mm)"
-                for="article-document-margin-bottom"
-                :error="fieldErrors.documentFormatMarginBottomMm"
-              >
-                <Input
-                  id="article-document-margin-bottom"
-                  v-model="details.documentFormatMarginBottomMm"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  step="1"
-                  :aria-invalid="fieldErrors.documentFormatMarginBottomMm ? true : undefined"
+                  id="article-supplier-article-number"
+                  v-model="general.supplierArticleNumber"
+                  type="text"
+                  :aria-invalid="fieldErrors.supplierArticleNumber ? true : undefined"
                 />
               </FormField>
             </div>
           </fieldset>
-        </div>
-      </AdminFormSection>
+        </AdminFormSection>
 
-      <AdminFormSection
-        title="Variants"
-        description="Color variants of this article. Exactly one variant is the default."
-      >
-        <Alert v-if="fieldErrors.mugVariants" variant="destructive" data-form-error>
-          {{ fieldErrors.mugVariants }}
-        </Alert>
+        <AdminFormSection
+          id="section-details"
+          title="Details"
+          description="Physical mug characteristics. Required before the article can be set active."
+        >
+          <div class="space-y-5">
+            <div class="grid gap-4 md:grid-cols-2">
+              <FormField label="Height (mm)" for="article-height" :error="fieldErrors.heightMm">
+                <Input
+                  id="article-height"
+                  v-model="details.heightMm"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 95"
+                  :aria-invalid="fieldErrors.heightMm ? true : undefined"
+                />
+              </FormField>
+              <FormField
+                label="Diameter (mm)"
+                for="article-diameter"
+                :error="fieldErrors.diameterMm"
+              >
+                <Input
+                  id="article-diameter"
+                  v-model="details.diameterMm"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 82"
+                  :aria-invalid="fieldErrors.diameterMm ? true : undefined"
+                />
+              </FormField>
+              <FormField
+                label="Print template width (mm)"
+                for="article-print-template-width"
+                :error="fieldErrors.printTemplateWidthMm"
+              >
+                <Input
+                  id="article-print-template-width"
+                  v-model="details.printTemplateWidthMm"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 200"
+                  :aria-invalid="fieldErrors.printTemplateWidthMm ? true : undefined"
+                />
+              </FormField>
+              <FormField
+                label="Print template height (mm)"
+                for="article-print-template-height"
+                :error="fieldErrors.printTemplateHeightMm"
+              >
+                <Input
+                  id="article-print-template-height"
+                  v-model="details.printTemplateHeightMm"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 90"
+                  :aria-invalid="fieldErrors.printTemplateHeightMm ? true : undefined"
+                />
+              </FormField>
+              <FormField
+                label="Filling quantity"
+                for="article-filling-quantity"
+                :error="fieldErrors.fillingQuantity"
+              >
+                <Input
+                  id="article-filling-quantity"
+                  v-model="details.fillingQuantity"
+                  type="text"
+                  placeholder="e.g. 325ml"
+                  :aria-invalid="fieldErrors.fillingQuantity ? true : undefined"
+                />
+              </FormField>
+              <div class="flex items-center gap-3 md:pt-7">
+                <Checkbox id="article-dishwasher-safe" v-model="details.dishwasherSafe" />
+                <Label for="article-dishwasher-safe">Dishwasher safe</Label>
+              </div>
+            </div>
 
-        <div class="flex sm:justify-end">
-          <Button type="button" size="sm" @click="openCreateVariantDialog">
-            <Plus class="size-4" />
-            Add Variant
-          </Button>
-        </div>
+            <fieldset class="space-y-4 border-t border-border pt-5">
+              <legend class="text-base font-semibold text-foreground">
+                Document format (optional)
+              </legend>
+              <div class="grid gap-4 md:grid-cols-3">
+                <FormField
+                  label="Width (mm)"
+                  for="article-document-width"
+                  :error="fieldErrors.documentFormatWidthMm"
+                >
+                  <Input
+                    id="article-document-width"
+                    v-model="details.documentFormatWidthMm"
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    step="1"
+                    :aria-invalid="fieldErrors.documentFormatWidthMm ? true : undefined"
+                  />
+                </FormField>
+                <FormField
+                  label="Height (mm)"
+                  for="article-document-height"
+                  :error="fieldErrors.documentFormatHeightMm"
+                >
+                  <Input
+                    id="article-document-height"
+                    v-model="details.documentFormatHeightMm"
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    step="1"
+                    :aria-invalid="fieldErrors.documentFormatHeightMm ? true : undefined"
+                  />
+                </FormField>
+                <FormField
+                  label="Margin bottom (mm)"
+                  for="article-document-margin-bottom"
+                  :error="fieldErrors.documentFormatMarginBottomMm"
+                >
+                  <Input
+                    id="article-document-margin-bottom"
+                    v-model="details.documentFormatMarginBottomMm"
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    step="1"
+                    :aria-invalid="fieldErrors.documentFormatMarginBottomMm ? true : undefined"
+                  />
+                </FormField>
+              </div>
+            </fieldset>
+          </div>
+        </AdminFormSection>
+
+        <AdminFormSection
+          id="section-variants"
+          title="Variants"
+          description="Color variants of this article. Exactly one variant is the default."
+        >
+          <Alert v-if="fieldErrors.mugVariants" variant="destructive" data-form-error>
+            {{ fieldErrors.mugVariants }}
+          </Alert>
+
+          <div class="flex sm:justify-end">
+            <Button type="button" size="sm" @click="openCreateVariantDialog">
+              <Plus class="size-4" />
+              Add Variant
+            </Button>
+          </div>
+
+          <div
+            v-if="variants.length === 0"
+            class="rounded-lg border border-border bg-muted/10 px-4 py-12 text-center text-sm text-muted-foreground"
+          >
+            No variants yet. Add the first color variant of this article.
+          </div>
+
+          <div v-else class="overflow-hidden rounded-lg border border-border">
+            <div class="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Image</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Inside</TableHead>
+                    <TableHead>Outside</TableHead>
+                    <TableHead>Default</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead class="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="(variant, index) in variants" :key="variant.key">
+                    <TableCell class="whitespace-nowrap">
+                      <img
+                        v-if="variant.exampleImageFilename"
+                        :src="variantExampleImageUrl('MUG', variant.exampleImageFilename, 200)"
+                        :alt="`Example image of ${variant.name}`"
+                        class="size-10 rounded-md border border-border bg-muted/20 object-contain"
+                        data-testid="variant-example-image-thumbnail"
+                      />
+                      <span v-else class="text-muted-foreground">—</span>
+                    </TableCell>
+                    <TableCell class="min-w-32 font-medium text-foreground">
+                      {{ variant.name }}
+                      <p
+                        v-if="variantErrors[index]"
+                        class="text-sm font-normal text-destructive"
+                        data-testid="variant-field-error"
+                        data-form-error
+                      >
+                        {{ variantErrors[index] }}
+                      </p>
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap text-muted-foreground">
+                      <span class="inline-flex items-center gap-2">
+                        <span
+                          v-if="isValidColor(variant.insideColorCode)"
+                          class="size-4 rounded-full border border-border"
+                          :style="{ backgroundColor: variant.insideColorCode }"
+                        />
+                        {{ variant.insideColorCode }}
+                      </span>
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap text-muted-foreground">
+                      <span class="inline-flex items-center gap-2">
+                        <span
+                          v-if="isValidColor(variant.outsideColorCode)"
+                          class="size-4 rounded-full border border-border"
+                          :style="{ backgroundColor: variant.outsideColorCode }"
+                        />
+                        {{ variant.outsideColorCode }}
+                      </span>
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap">
+                      <Badge v-if="variant.isDefault" variant="success">Default</Badge>
+                      <span v-else class="text-muted-foreground">—</span>
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap">
+                      <Badge :variant="variant.active ? 'success' : 'muted'">
+                        {{ variant.active ? 'Active' : 'Inactive' }}
+                      </Badge>
+                    </TableCell>
+                    <TableCell class="whitespace-nowrap text-right">
+                      <div class="inline-flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          :aria-label="`Edit variant ${variant.name}`"
+                          @click="openEditVariantDialog(variant)"
+                        >
+                          <Pencil class="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          :aria-label="`Remove variant ${variant.name}`"
+                          @click="removeVariant(variant)"
+                        >
+                          <Trash2 class="size-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <p class="text-sm text-muted-foreground">
+            Variant changes are applied when the article is saved. This list is the complete state:
+            a removed variant is deleted together with its example image.
+          </p>
+        </AdminFormSection>
+
+        <AdminArticlePriceSection
+          :article-price="articlePrice"
+          :vat-options="priceVatOptions"
+          :error="fieldErrors.price"
+        />
 
         <div
-          v-if="variants.length === 0"
-          class="rounded-lg border border-border bg-muted/10 px-4 py-12 text-center text-sm text-muted-foreground"
+          class="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:gap-3 sm:p-4"
         >
-          No variants yet. Add the first color variant of this article.
-        </div>
-
-        <div v-else class="overflow-hidden rounded-lg border border-border">
-          <div class="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Inside</TableHead>
-                  <TableHead>Outside</TableHead>
-                  <TableHead>Default</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead class="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow v-for="(variant, index) in variants" :key="variant.key">
-                  <TableCell class="whitespace-nowrap">
-                    <img
-                      v-if="variant.exampleImageFilename"
-                      :src="variantExampleImageUrl('MUG', variant.exampleImageFilename, 200)"
-                      :alt="`Example image of ${variant.name}`"
-                      class="size-10 rounded-md border border-border bg-muted/20 object-contain"
-                      data-testid="variant-example-image-thumbnail"
-                    />
-                    <span v-else class="text-muted-foreground">—</span>
-                  </TableCell>
-                  <TableCell class="min-w-32 font-medium text-foreground">
-                    {{ variant.name }}
-                    <p
-                      v-if="variantErrors[index]"
-                      class="text-sm font-normal text-destructive"
-                      data-testid="variant-field-error"
-                      data-form-error
-                    >
-                      {{ variantErrors[index] }}
-                    </p>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    <span class="inline-flex items-center gap-2">
-                      <span
-                        v-if="isValidColor(variant.insideColorCode)"
-                        class="size-4 rounded-full border border-border"
-                        :style="{ backgroundColor: variant.insideColorCode }"
-                      />
-                      {{ variant.insideColorCode }}
-                    </span>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    <span class="inline-flex items-center gap-2">
-                      <span
-                        v-if="isValidColor(variant.outsideColorCode)"
-                        class="size-4 rounded-full border border-border"
-                        :style="{ backgroundColor: variant.outsideColorCode }"
-                      />
-                      {{ variant.outsideColorCode }}
-                    </span>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    <Badge v-if="variant.isDefault" variant="success">Default</Badge>
-                    <span v-else class="text-muted-foreground">—</span>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap">
-                    <Badge :variant="variant.active ? 'success' : 'muted'">
-                      {{ variant.active ? 'Active' : 'Inactive' }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-right">
-                    <div class="inline-flex items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        :aria-label="`Edit variant ${variant.name}`"
-                        @click="openEditVariantDialog(variant)"
-                      >
-                        <Pencil class="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        :aria-label="`Remove variant ${variant.name}`"
-                        @click="removeVariant(variant)"
-                      >
-                        <Trash2 class="size-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-
-        <p class="text-sm text-muted-foreground">
-          Variant changes are applied when the article is saved. This list is the complete state: a
-          removed variant is deleted together with its example image.
-        </p>
-      </AdminFormSection>
-
-      <AdminArticlePriceSection
-        :article-price="articlePrice"
-        :vat-options="priceVatOptions"
-        :error="fieldErrors.price"
-      />
-
-      <div
-        class="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur sm:gap-3 sm:p-4"
-      >
-        <Button type="submit" :disabled="isSaving || isDeleting">
-          {{ isSaving ? 'Saving...' : 'Save' }}
-        </Button>
-        <Button as-child type="button" variant="outline" :disabled="isDeleting">
-          <RouterLink :to="listLocation">Cancel</RouterLink>
-        </Button>
-
-        <template v-if="isEditMode">
-          <Button
-            type="button"
-            variant="destructive"
-            class="ml-auto"
-            aria-label="Delete"
-            :disabled="isSaving || isDeleting"
-            @click="isDeleteDialogOpen = true"
-          >
-            <Trash2 class="size-4" />
-            <span class="hidden sm:inline">Delete</span>
+          <Button type="submit" :disabled="isSaving || isDeleting">
+            {{ isSaving ? 'Saving...' : 'Save' }}
           </Button>
-          <ConfirmDeleteDialog
-            v-model:open="isDeleteDialogOpen"
-            title="Delete article?"
-            :description="`This permanently deletes ${general.name || 'this article'} including its mug details and variants. This action cannot be undone.`"
-            confirm-label="Delete"
-            :deleting="isDeleting"
-            confirm-test-id="confirm-delete-article"
-            @confirm="deleteCurrentArticle"
-          />
-        </template>
-      </div>
-    </form>
+          <Button as-child type="button" variant="outline" :disabled="isDeleting">
+            <RouterLink :to="listLocation">Cancel</RouterLink>
+          </Button>
+
+          <template v-if="isEditMode">
+            <Button
+              type="button"
+              variant="destructive"
+              class="ml-auto"
+              aria-label="Delete"
+              :disabled="isSaving || isDeleting"
+              @click="isDeleteDialogOpen = true"
+            >
+              <Trash2 class="size-4" />
+              <span class="hidden sm:inline">Delete</span>
+            </Button>
+            <ConfirmDeleteDialog
+              v-model:open="isDeleteDialogOpen"
+              title="Delete article?"
+              :description="`This permanently deletes ${general.name || 'this article'} including its mug details and variants. This action cannot be undone.`"
+              confirm-label="Delete"
+              :deleting="isDeleting"
+              confirm-test-id="confirm-delete-article"
+              @confirm="deleteCurrentArticle"
+            />
+          </template>
+        </div>
+      </form>
+
+      <AdminFormSectionNav :sections="SECTIONS" class="hidden lg:sticky lg:top-6 lg:block" />
+    </div>
 
     <AdminArticleMugVariantDialog
       v-model:open="isVariantDialogOpen"

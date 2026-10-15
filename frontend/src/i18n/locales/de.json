@@ -925,7 +925,7 @@
     },
     "upload": {
       "title": "Bild für dieses Produkt hochladen",
-      "body": "Dieses Design ist bereits für das gewählte Produkt und die Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen.",
+      "body": "Dieses Design ist bereits für das gewählte Produkt und die Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen. Du kannst es auch aus der Zwischenablage einfügen.",
       "action": "Bild hochladen",
       "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF).",
       "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB."
@@ -996,7 +996,7 @@
       "uploadImage": {
         "label": "Bild hochladen",
         "title": "Bild hochladen & zuschneiden",
-        "dropzoneTitle": "Bild hierher ziehen oder klicken zum Durchsuchen",
+        "dropzoneTitle": "Bild hierher ziehen, einfügen oder klicken zum Durchsuchen",
         "dropzoneHint": "JPG, PNG, WebP oder GIF",
         "constraints": "Maximale Dateigröße: 10 MB",
         "previewAlt": "Vorschau des hochgeladenen Bildes",

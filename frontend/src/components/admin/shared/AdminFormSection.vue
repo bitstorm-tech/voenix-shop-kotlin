@@ -9,6 +9,9 @@ import { cn } from '@/lib/utils'
  * section's inputs below. A form that shows everything on one page stacks these instead of hiding
  * its parts behind tabs, so each part stays recognisable while the whole form stays in view.
  *
+ * `id` makes the section a target of the page's `AdminFormSectionNav`: the nav scrolls to it and
+ * highlights it while it is on screen. The `scroll-mt` keeps the heading clear of the top edge.
+ *
  * `readOnly` marks a section that only shows data another system owns — for example the values a
  * Spreadconnect sync writes. It gets a muted background and a badge, so nobody looks for a way to
  * edit it.
@@ -16,6 +19,7 @@ import { cn } from '@/lib/utils'
 const props = defineProps<{
   title: string
   description?: string
+  id?: string
   readOnly?: boolean
 }>()
 
@@ -24,13 +28,16 @@ const headingId = useId()
 
 <template>
   <Card
+    :id="props.id"
     as="section"
     :aria-labelledby="headingId"
-    :class="cn('space-y-5 p-5', props.readOnly && 'bg-muted/30')"
+    :class="cn('scroll-mt-6 space-y-5 p-5', props.readOnly && 'bg-muted/30')"
   >
     <header class="space-y-1 border-b border-border pb-4">
       <div class="flex flex-wrap items-center gap-2">
-        <h2 :id="headingId" class="text-lg font-semibold text-foreground">{{ title }}</h2>
+        <h2 :id="headingId" class="text-xl font-semibold tracking-tight text-foreground">
+          {{ title }}
+        </h2>
         <Badge v-if="readOnly">Read-only</Badge>
       </div>
       <p v-if="description" class="text-sm text-muted-foreground">{{ description }}</p>

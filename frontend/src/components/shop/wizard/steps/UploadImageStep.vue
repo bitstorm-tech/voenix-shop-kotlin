@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Upload, Trash2, RefreshCw, Crop } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { FileInput } from '@/components/ui/file-input'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 import { useWizardStore, type CropState } from '@/stores/shop/wizard'
 import ImageUploadDropzone from '@/components/shop/ImageUploadDropzone.vue'
 import ImageCropDialog from '@/components/shop/wizard/ImageCropDialog.vue'
@@ -19,6 +20,9 @@ function handleUpload(file: File) {
     cropDialogOpen.value = true
   }
 }
+
+// While the crop dialog is open, a paste must not swap the image out from under it.
+useClipboardImagePaste(handleUpload, () => !cropDialogOpen.value)
 
 function onCropApplied(blob: Blob, cropState: CropState) {
   wizard.setCroppedImage(blob, cropState)

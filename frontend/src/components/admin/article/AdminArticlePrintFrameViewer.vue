@@ -36,32 +36,11 @@ const rectangleStyle = computed(() =>
     activated.
   </Alert>
 
-  <div v-else class="grid gap-5 lg:grid-cols-2">
-    <dl class="grid content-start gap-4 sm:grid-cols-2" data-testid="print-frame-values">
-      <div class="sm:col-span-2">
-        <dt class="text-sm text-muted-foreground">Hotspot</dt>
-        <dd class="text-foreground">{{ props.hotspot }}</dd>
-      </div>
-      <div>
-        <dt class="text-sm text-muted-foreground">Left</dt>
-        <dd class="text-foreground">{{ props.frame.leftPct }} %</dd>
-      </div>
-      <div>
-        <dt class="text-sm text-muted-foreground">Top</dt>
-        <dd class="text-foreground">{{ props.frame.topPct }} %</dd>
-      </div>
-      <div>
-        <dt class="text-sm text-muted-foreground">Width</dt>
-        <dd class="text-foreground">{{ props.frame.widthPct }} %</dd>
-      </div>
-      <div>
-        <dt class="text-sm text-muted-foreground">Height</dt>
-        <dd class="text-foreground">{{ props.frame.heightPct }} %</dd>
-      </div>
-    </dl>
-
+  <!-- The mockup with the frame on it is what a customer sees; the numbers beside it are the
+       detail. On a wide screen the preview takes the larger column. -->
+  <div v-else class="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
     <div
-      class="relative overflow-hidden rounded-lg border border-border bg-muted/10"
+      class="relative self-start overflow-hidden rounded-lg border border-border bg-muted/10"
       data-testid="print-frame-preview"
     >
       <img
@@ -78,5 +57,28 @@ const rectangleStyle = computed(() =>
         data-testid="print-frame-rectangle"
       />
     </div>
+
+    <dl class="grid grid-cols-2 content-start gap-4" data-testid="print-frame-values">
+      <div class="col-span-2">
+        <dt class="text-xs text-muted-foreground">Hotspot</dt>
+        <dd class="text-foreground">{{ props.hotspot }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted-foreground">Left</dt>
+        <dd class="text-foreground">{{ props.frame.leftPct }} %</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted-foreground">Top</dt>
+        <dd class="text-foreground">{{ props.frame.topPct }} %</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted-foreground">Width</dt>
+        <dd class="text-foreground">{{ props.frame.widthPct }} %</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted-foreground">Height</dt>
+        <dd class="text-foreground">{{ props.frame.heightPct }} %</dd>
+      </div>
+    </dl>
   </div>
 </template>

@@ -3,6 +3,7 @@ import { shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ImagePlus, Upload } from 'lucide-vue-next'
 import ImageUploadDropzone from '@/components/shop/ImageUploadDropzone.vue'
+import { useClipboardImagePaste } from '@/composables/useClipboardImagePaste'
 
 const emit = defineEmits<{
   upload: [file: File]
@@ -35,6 +36,8 @@ function handleUpload(file: File) {
 
   emit('upload', file)
 }
+
+useClipboardImagePaste(handleUpload, () => true)
 </script>
 
 <template>

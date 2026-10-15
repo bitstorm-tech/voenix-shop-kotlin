@@ -105,8 +105,9 @@ const emit = defineEmits<{
         </Button>
       </div>
 
-      <fieldset :disabled="props.disabled" class="min-w-0 space-y-4">
+      <fieldset :disabled="props.disabled" class="min-w-0 divide-y divide-border">
         <PriceSectionCard
+          class="py-5 first:pt-0"
           kind="purchase"
           title="Einkauf"
           subtitle="Einkaufspreise und Berechnungen"
@@ -129,6 +130,7 @@ const emit = defineEmits<{
         />
 
         <PriceSectionCard
+          class="py-5"
           kind="sales"
           title="Verkauf"
           subtitle="Verkaufspreise und Margenberechnungen"
@@ -151,6 +153,7 @@ const emit = defineEmits<{
         />
 
         <PriceDiscountCard
+          class="pt-5"
           :form="props.form"
           :fields="props.fields"
           :price="props.price"
