@@ -96,6 +96,11 @@ internal data class StoredOrder(
         val documentFormatWidthMm: Int?,
         val documentFormatHeightMm: Int?,
         val documentFormatMarginBottomMm: Int?,
+        /**
+         * The SPOD placement the customer previewed, snapshotted at placement; `null` for a mug.
+         * Production prints with this one, never with the catalog's current hotspot.
+         */
+        val spodHotspot: String?,
     )
 }
 

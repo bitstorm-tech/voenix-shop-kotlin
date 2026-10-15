@@ -513,10 +513,14 @@ internal object Orders : LongIdTable("orders") {
  * [articleId] and [variantId] are plain numbers on purpose: they carry no catalog foreign key, so a
  * deleted article cannot take an order line with it. Everything production and the confirmation
  * mail need is snapshotted next to them — the type, the names, the prices, the supplier article
- * number, and the five layout measurements in millimetres.
+ * number, the five layout measurements in millimetres, and the SPOD hotspot.
  *
  * [articleType] stores the name of a [ArticleType] constant, the same word the two article identity
  * registries store. It carries no foreign key either, for the same reason the ids do not.
+ *
+ * [spodHotspot] is the partner's placement the customer previewed, `null` for every line that is
+ * not a SPOD article. It is what production prints with — never today's catalog value (issue #260,
+ * decisions 8 and 14).
  */
 internal object OrderItems : LongIdTable("order_items") {
     val orderId = long("order_id")
@@ -532,6 +536,7 @@ internal object OrderItems : LongIdTable("order_items") {
     val documentFormatWidthMm = integer("document_format_width_mm").nullable()
     val documentFormatHeightMm = integer("document_format_height_mm").nullable()
     val documentFormatMarginBottomMm = integer("document_format_margin_bottom_mm").nullable()
+    val spodHotspot = varchar("spod_hotspot", 64).nullable()
     val quantity = integer("quantity")
     val priceCents = integer("price_cents")
     val promptPriceCents = integer("prompt_price_cents")
@@ -637,6 +642,7 @@ private fun insertLinesInTransaction(
             statement[documentFormatWidthMm] = snapshot.documentFormatWidthMm
             statement[documentFormatHeightMm] = snapshot.documentFormatHeightMm
             statement[documentFormatMarginBottomMm] = snapshot.documentFormatMarginBottomMm
+            statement[spodHotspot] = snapshot.spodHotspot
             statement[quantity] = line.quantity
             statement[priceCents] = line.priceCents
             statement[promptPriceCents] = line.promptPriceCents
@@ -738,6 +744,7 @@ private fun storedLinesInTransaction(orderId: Long): List<StoredOrder.Line> {
             documentFormatWidthMm = row[OrderItems.documentFormatWidthMm],
             documentFormatHeightMm = row[OrderItems.documentFormatHeightMm],
             documentFormatMarginBottomMm = row[OrderItems.documentFormatMarginBottomMm],
+            spodHotspot = row[OrderItems.spodHotspot],
         )
     }
 }

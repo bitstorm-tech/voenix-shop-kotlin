@@ -484,9 +484,10 @@ boundary (a test enforces this):
   source order, each item's supplier, quantity, generated image path, the
   optional mug-layout overrides in millimetres, and the optional
   `SpodProductRef`, the three ids the print-on-demand partner names a
-  printable product by. An item answers one *or* the other: a mug has the
-  measurements and no SPOD product, a t-shirt the SPOD product and no
-  measurements.
+  printable product by, together with the optional `spodHotspot`, the
+  partner's placement the order line snapshotted. An item answers one *or* the
+  other: a mug has the measurements and no SPOD product, a t-shirt the SPOD
+  product and hotspot and no measurements.
 - The contact data is on this view only. `FulfillmentOrder`, the view a
   supplier reads, deliberately carries neither and is not widened by it: a
   supplier surface cannot leak what it never receives.
@@ -497,7 +498,9 @@ boundary (a test enforces this):
   translates. It is also the one field of `ProductionItem` that is *not* a
   snapshot. Like `supplierId` it is resolved live on every load, which is why
   the submitting adapter compares the snapshotted `variantName` against what it
-  reads today.
+  reads today. The hotspot is a separate field and not part of
+  `SpodProductRef` precisely because it *is* a snapshot: production prints what
+  the customer previewed (issue #260, decision 8).
 - `ProductionPdfGenerator.generate(orderId)` is the on-demand capability for
   the authorized download. It returns a typed `ProductionPdfResult`:
   `Generated` with one `ProductionPdfDocument` per involved supplier,

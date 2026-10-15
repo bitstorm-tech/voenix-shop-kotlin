@@ -269,6 +269,7 @@ internal object OrderTestSupport {
         supplierId: Long? = SUPPLIER_ID,
         spodProduct: SpodProductRef? =
             SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+        spodHotspot: String? = "MEDIUM_FRONT",
     ): CatalogVariant =
         CatalogVariant(
             articleType = ArticleType.SPOD,
@@ -286,7 +287,7 @@ internal object OrderTestSupport {
             outsideColorCode = null,
             insideColorCode = null,
             spodProduct = spodProduct,
-            spodHotspot = "MEDIUM_FRONT",
+            spodHotspot = spodHotspot,
         )
 
     fun execute(

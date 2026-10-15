@@ -86,7 +86,7 @@ without giving this stage a lock first.
 
 The order comes through the shared `ProductionSource` with the shared
 `resolveOrder` codes (`SOURCE_NOT_FOUND`, `SOURCE_INVALID`,
-`SOURCE_UNAVAILABLE`). Then each line of the job is checked twice:
+`SOURCE_UNAVAILABLE`). Then the lines of the job are checked:
 
 - The live lines of this supplier must be **exactly** the snapshotted set: same
   count, every snapshotted position present, and never empty. Different →
@@ -95,6 +95,9 @@ The order comes through the shared `ProductionSource` with the shared
   appearance, size). Missing → `ITEM_WITHOUT_SPOD_PRODUCT`.
 - Its **current** composed variant name must equal the name the split
   snapshotted in `production_job_items`. Different → `SPOD_MAPPING_CHANGED`.
+- It must carry `spodHotspot`, the partner's placement the order line
+  snapshotted at placement (for example `MEDIUM_FRONT`). Missing →
+  `PLACEMENT_UNAVAILABLE`.
 
 The first check is the one a per-line check cannot do, because it is about a
 line that is *gone*. Reassigning an article to another supplier after the split
@@ -115,6 +118,16 @@ renamed in the backoffice reaches this shop on the next sync run and refuses
 the jobs of that colour that were already waiting. That case is a false alarm
 with a fixed resolution, and it has its own runbook section:
 [`SPOD_MAPPING_CHANGED` after a rename in the backoffice](#spod_mapping_changed-after-a-rename-in-the-backoffice).
+
+The hotspot check is different from the other two, because the hotspot is
+**not** live. The sync measures one hotspot per product type, and the live
+editor shows the customer exactly that frame. So `order_items.spod_hotspot`
+stores the hotspot when the order is placed, and production prints with that
+one — never with today's catalog value (issue #260, decisions 8 and 14). A SPOD
+line without one has no placement this stage could honestly print it with, so
+the job waits for a person before a single partner call is made. In practice
+it does not happen: an article without a hotspot is inactive and cannot be
+bought.
 
 ### 2. Convert and upload the designs
 
@@ -152,26 +165,20 @@ The request is built in one place (`SpodJobContext.request`) and carries:
   webhook can find the job and a human can read the same string on both
   screens;
 - `oneTimeItems`, grouped the partner's way: one entry per (product type,
-  design), with a `quantityItems` line per size and colour, and one
-  `configurations` entry placing the design at `view: FRONT`,
-  `hotspot: MEDIUM_FRONT`.
+  design, hotspot), with a `quantityItems` line per size and colour, and one
+  `configurations` entry placing the design at `view: FRONT` with the
+  **hotspot the order line snapshotted**. Two lines that were previewed with
+  different hotspots cannot share an entry, because an entry has exactly one
+  placement.
 
 If the partner *refuses* the creation with a `4xx`, it has stated that it
-created nothing — which is the one situation in which a second creation is
-safe. The stage then asks
-`GET /productTypes/{id}/hotspots/design/{designId}` for the placements this
-product type actually offers, takes the first front one, and creates once
-more. No front hotspot on offer is `PLACEMENT_UNAVAILABLE`; a second refusal
-is `ORDER_CREATE_REJECTED`. Both of them alert an operator (see
-[The ops alert](#the-ops-alert)).
-
-That endpoint answers **names only** — `LEFT_CHEST`, `MEDIUM_FRONT`,
-`LARGE_BACK` — and no view field, so which view a name belongs to has to be read
-off the name itself. Two families count as front: names containing `FRONT`, and
-chest names, which sit on the front of the garment without saying so. A `FRONT`
-name wins over a `CHEST` one — it is the placement this shop asks for by default
-— and the match is case-insensitive, so a lower-case `front` is not the
-difference between a printed shirt and a job for a human.
+created nothing, and the job fails with `ORDER_CREATE_REJECTED`, which alerts
+an operator (see [The ops alert](#the-ops-alert)). There is **no** second
+attempt with another placement. An earlier version asked the partner for the
+hotspots it offers and retried with the first front one — but that one could
+be smaller than what the customer saw in the editor. Print what was previewed,
+or nothing (issue #260, decision 8). The runbook says what to do:
+[`ORDER_CREATE_REJECTED` after a hotspot change](#order_create_rejected-after-a-hotspot-change).
 
 ### 4. Persist the id — in its own transaction, before anything else
 
@@ -640,6 +647,43 @@ snapshotting the three ids on `production_job_items` and comparing ids instead
 of names. Until it lands, expect one of these per backoffice rename of a colour
 that has jobs in flight.
 
+### `ORDER_CREATE_REJECTED` after a hotspot change
+
+The order line stores the hotspot the customer previewed (step 1). If the
+article was synced again after the order was placed and the run picked a
+**different** hotspot — or the partner stopped offering the old one — the
+partner may refuse the creation. The job then fails with
+`ORDER_CREATE_REJECTED` and the alert mail arrives. Nothing is retried with
+another placement, on purpose: a different hotspot can print the motif smaller
+or somewhere else than the customer saw it.
+
+How to resolve one:
+
+1. Compare the line's snapshot with today's article:
+
+   ```sql
+   SELECT oi.order_id, oi.position, oi.spod_hotspot AS ordered_hotspot,
+          a.spod_hotspot AS current_hotspot
+   FROM voenix.order_items oi
+   JOIN voenix.article_spod_articles a ON a.id = oi.article_id
+   WHERE oi.order_id = <order id>;
+   ```
+
+2. **Re-sync** the destination when the partner should accept the ordered
+   hotspot again (for example after a temporary change in the backoffice). A
+   re-sync does not touch the order line — the next scan still sends the
+   snapshotted hotspot, and if the partner accepts it, the job goes through on
+   its own.
+3. Otherwise **order the job by hand**: create the order in the Spreadconnect
+   backoffice in state `NEW`, with the ordered hotspot and the reference
+   `ORD-{orderId}-JOB-{jobId}`, and adopt it exactly like the "the order
+   exists" case of
+   [Reconciling a quarantined job](#reconciling-a-quarantined-job-outcome_unknown):
+   write its id into `external_reference`, set `create_state = 'CREATED'`, and
+   clear `last_error_code`. The next scan confirms it.
+4. If the partner accepts no placement that matches the preview, refund the
+   order manually (SPOD fulfillment decision 7).
+
 ## The bounded error codes
 
 Everything the stage can persist in `last_error_code`. All of them are
@@ -659,8 +703,8 @@ retryable — the job keeps its place in the queue — but "retryable" is not
 | `PROVIDER_UNAVAILABLE` | unreachable, timed out, or `5xx` |
 | `PROVIDER_ANSWER_UNREADABLE` | an answer arrived that could not be read |
 | `REFUSED` | the partner refused a call with a `4xx` |
-| `ORDER_CREATE_REJECTED` | the creation was refused, also with an offered placement |
-| `PLACEMENT_UNAVAILABLE` | no front placement exists for this design and product type |
+| `ORDER_CREATE_REJECTED` | the partner refused the creation with a `4xx` — for example a hotspot it no longer accepts; never retried with another placement, see [the runbook section](#order_create_rejected-after-a-hotspot-change) |
+| `PLACEMENT_UNAVAILABLE` | a line carries no snapshotted hotspot, so there is no placement to print it with |
 | `ORDER_ID_NOT_STORED` | the created order's id could not be written down |
 | `ORDER_CONFIRM_FAILED` | the partner refused to confirm a `NEW` order |
 | `ORDER_STATE_UNEXPECTED` | the partner reports a state this stage will not act on |
@@ -740,8 +784,13 @@ Upload the designs → `POST /orders`, always in state `NEW`, with
 deterministic `externalOrderReference = ORD-{orderId}-JOB-{jobId}` → **persist
 the returned order id before anything else** → confirm → set `prepared_at`. The
 confirmed state could be set at creation; that is deliberately never used.
-Placement is `view: FRONT`, hotspot `MEDIUM_FRONT`, falling back to the
-available-hotspots endpoint; no placement at all is `PLACEMENT_UNAVAILABLE`.
+Placement is `view: FRONT` with the hotspot snapshotted on the order line at
+placement; no fallback — a refusal holds the job with an ops alert
+(`ORDER_CREATE_REJECTED`), and a line without a hotspot is
+`PLACEMENT_UNAVAILABLE` (issue #260, decisions 8 and 14). This replaces the
+original rule of a default `MEDIUM_FRONT` with a fallback to the
+available-hotspots endpoint: that fallback could print something smaller than
+the customer previewed.
 
 An ambiguous creation outcome (timeout, reset, `5xx` after sending) permits
 **one** automatic re-create, because an orphaned `NEW` order is inert; a second
@@ -792,6 +841,10 @@ composed variant name with the order line's snapshotted `variant_name` and
 refuses on a mismatch with a retryable code, so a paid "Black / M" can never
 silently become a different garment.
 
+The hotspot is the exception: it is a snapshot, not a live value (decision 4).
+It decides *where and how big* the motif is printed, and that has to stay what
+the customer previewed.
+
 Since the t-shirt catalog is synced, the partner writes that name too, so a
 backoffice rename trips this check as a false alarm. That is accepted
 ([SPOD sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
@@ -827,9 +880,12 @@ into the `spod` module it moved to.
   partner that records every request: the happy path, the crash after the id
   was persisted (no second order, no second upload), the first ambiguity
   re-creating and the second quarantining, and the bounded codes for a missing
-  phone, a renamed variant, a withdrawn mapping, and a missing print image —
+  phone, a renamed variant, a withdrawn mapping, a missing hotspot, and a
+  missing print image; the snapshotted hotspot on the created order (while the
+  stub would offer another one), two hotspots becoming two order entries —
   plus the ops alert the quarantine enqueues exactly once, the refused line set
-  of a supplier reassignment, the alert a rejected creation enqueues once, and
+  of a supplier reassignment, the alert a rejected creation enqueues once (one `POST /orders`, no hotspot
+  lookup), and
   the cancelled order the scan drops while a needs-action one stays.
 - `SpodWebhookRouteTest` — the wrong secret refused before the body is read
   (counted in the receive pipeline), the exact `202 [accepted]` ack, the payload

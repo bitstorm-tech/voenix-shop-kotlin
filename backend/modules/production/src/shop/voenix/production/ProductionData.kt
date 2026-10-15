@@ -55,6 +55,11 @@ public data class ProductionData(
  * data on every load, exactly like [supplierId], so a corrected id reaches an order that is still
  * waiting to be submitted. That is why the submitting adapter compares [variantName] — which *is*
  * the snapshot — against what it reads today and refuses when the two disagree.
+ *
+ * [spodHotspot] is the partner's placement the order is printed with, such as `MEDIUM_FRONT`. It is
+ * kept apart from [spodProduct] because it *is* a snapshot: the order line stored the hotspot the
+ * customer previewed at placement, and a later catalog sync must not change what is printed
+ * (issue #260, decisions 8 and 14). It is `null` for every item that is not a SPOD article.
  */
 public data class ProductionItem(
     public val supplierId: Long?,
@@ -69,6 +74,7 @@ public data class ProductionItem(
     public val documentFormatHeightMm: Double? = null,
     public val documentFormatMarginBottomMm: Double? = null,
     public val spodProduct: SpodProductRef? = null,
+    public val spodHotspot: String? = null,
 )
 
 /**

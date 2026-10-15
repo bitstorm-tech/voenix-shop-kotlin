@@ -216,6 +216,7 @@ internal fun item(
     quantity: Int = 1,
     imagePath: Path? = null,
     spodProduct: SpodProductRef? = null,
+    spodHotspot: String? = null,
 ): ProductionItem =
     ProductionItem(
         supplierId = supplierId,
@@ -225,6 +226,7 @@ internal fun item(
         quantity = quantity,
         imagePath = imagePath,
         spodProduct = spodProduct,
+        spodHotspot = spodHotspot,
     )
 
 /**

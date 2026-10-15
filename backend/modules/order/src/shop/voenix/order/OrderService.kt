@@ -350,9 +350,10 @@ internal class OrderService(
      *   leaves `imagePath = null`, which production treats as a retryable generation failure rather
      *   than rendering a blank page;
      * - the five **measurements** are the ones snapshotted at placement, never today's, so a
-     *   catalog edit cannot silently re-lay-out an order that is already in production. So are the
-     *   two **names** — which is what lets the submitting adapter notice that a live SPOD product
-     *   no longer describes the variant that was ordered.
+     *   catalog edit cannot silently re-lay-out an order that is already in production. So is the
+     *   SPOD **hotspot** (issue #260, decision 8: print what was previewed), and so are the two
+     *   **names** — which is what lets the submitting adapter notice that a live SPOD product no
+     *   longer describes the variant that was ordered.
      *
      * The customer's **e-mail address and phone number** come from the order row, because the
      * print-on-demand channel puts both on the order it creates. They are on this view alone; the
@@ -396,6 +397,7 @@ internal class OrderService(
                         documentFormatHeightMm = line.documentFormatHeightMm?.toDouble(),
                         documentFormatMarginBottomMm =
                             line.documentFormatMarginBottomMm?.toDouble(),
+                        spodHotspot = line.spodHotspot,
                     )
                 },
         )

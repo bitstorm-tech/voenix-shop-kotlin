@@ -4,6 +4,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
@@ -22,6 +23,11 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
@@ -105,6 +111,73 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
             submitter.submitOpenJobs()
 
             assertEquals(emptyList<String>(), stub.calls, "a prepared job is never scanned again")
+        }
+    }
+
+    /**
+     * Print what was previewed (issue #260, decisions 8 and 14): the hotspot travels from the order
+     * line's snapshot. The stub's hotspot list offers a different placement today, as a re-synced
+     * catalog would — and the submitter neither asks for it nor uses it.
+     */
+    @Test
+    fun `the order is created with the hotspot the order line snapshotted`() = runBlocking {
+        migratedDataSource("spod-submission-hotspot-test").use { dataSource ->
+            val stub = SpodStub()
+            val submitter = prepared(dataSource, orderId = 15, stub = stub)
+
+            submitter.submitOpenJobs()
+
+            assertEquals(
+                listOf("MEDIUM_FRONT"),
+                stub.createdHotspots(),
+                "the snapshot, not the FULL_FRONT the partner would offer today",
+            )
+            assertFalse(stub.calls.any { call -> call.contains("/hotspots/") })
+        }
+    }
+
+    /**
+     * An entry of the partner's order has one placement, so two lines of one product type and one
+     * design that were previewed with different hotspots must travel as two entries.
+     */
+    @Test
+    fun `two lines with different hotspots become two order entries`() = runBlocking {
+        migratedDataSource("spod-submission-two-hotspots-test").use { dataSource ->
+            val stub = SpodStub()
+            val submitter =
+                prepared(dataSource, orderId = 16, stub = stub, lines = 2) { data ->
+                    data.copy(
+                        items =
+                            data.items.mapIndexed { index, line ->
+                                if (index == 1) line.copy(spodHotspot = "FULL_FRONT") else line
+                            }
+                    )
+                }
+
+            submitter.submitOpenJobs()
+
+            assertEquals(listOf("MEDIUM_FRONT", "FULL_FRONT"), stub.createdHotspots())
+        }
+    }
+
+    /**
+     * A line without a snapshotted hotspot has no placement it could honestly be printed with, so
+     * the job waits for a person before a single partner call is spent on it.
+     */
+    @Test
+    fun `a line without a hotspot is refused before any partner call`() = runBlocking {
+        migratedDataSource("spod-submission-no-hotspot-test").use { dataSource ->
+            val stub = SpodStub()
+            val submitter =
+                prepared(dataSource, orderId = 17, stub = stub) { data ->
+                    data.copy(items = data.items.map { line -> line.copy(spodHotspot = null) })
+                }
+
+            submitter.submitOpenJobs()
+
+            assertEquals(emptyList<String>(), stub.calls, "not even a design upload")
+            assertEquals("PLACEMENT_UNAVAILABLE", spodOrderRow(dataSource).errorCode)
+            assertEquals(listOf(1L), opsAlerts(dataSource))
         }
     }
 
@@ -286,7 +359,8 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
     /**
      * The case SPOD fulfillment decision 7 is about: an order the partner will not accept — an
      * unsupported delivery country reaches this shop as a create rejection — is a manual refund,
-     * and nobody would ever learn of it without the alert.
+     * and nobody would ever learn of it without the alert. A refused hotspot ends the same way: it
+     * is never retried with another placement (issue #260, decision 8).
      */
     @Test
     fun `a rejected creation alerts the operator, and a repeated one does not alert twice`() =
@@ -299,14 +373,9 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
                 submitter.submitOpenJobs()
 
                 assertEquals(
-                    listOf(
-                        "POST /designs/upload",
-                        "POST /orders",
-                        "GET /productTypes/812/hotspots/design/design-1",
-                        "POST /orders",
-                    ),
+                    listOf("POST /designs/upload", "POST /orders"),
                     stub.calls,
-                    "a stated 4xx is safe to answer with one placement retry",
+                    "a stated 4xx is final: no hotspot lookup, no second creation",
                 )
                 assertEquals("ORDER_CREATE_REJECTED", spodOrderRow(dataSource).errorCode)
                 assertEquals(listOf(1L), opsAlerts(dataSource))
@@ -462,6 +531,7 @@ internal class SpodOrderSubmissionIntegrationTest : PostgresIntegrationTest() {
                     imagePath = image,
                     spodProduct =
                         SpodProductRef(productTypeId = 812, appearanceId = 3, sizeId = sizeId),
+                    spodHotspot = "MEDIUM_FRONT",
                 )
             }
         return order(orderId, *items.toTypedArray())
@@ -582,16 +652,28 @@ private class SpodStub {
     val calls = mutableListOf<String>()
     var failCreatesWith: HttpStatusCode? = null
     var failReadsWith: HttpStatusCode? = null
+    private val createdOrders = mutableListOf<JsonObject>()
 
-    fun answer(scope: MockRequestHandleScope, request: HttpRequestData): HttpResponseData {
+    /** The hotspot of every entry of every `POST /orders` body, in the order they were sent. */
+    fun createdHotspots(): List<String> = createdOrders.flatMap { order ->
+        order.getValue("oneTimeItems").jsonArray.map { entry ->
+            val configuration = entry.jsonObject.getValue("configurations").jsonArray.single()
+            configuration.jsonObject.getValue("hotspot").jsonPrimitive.content
+        }
+    }
+
+    suspend fun answer(scope: MockRequestHandleScope, request: HttpRequestData): HttpResponseData {
         val path = request.url.encodedPath
         calls += "${request.method.value} $path"
+        if (path == "/orders") {
+            createdOrders +=
+                Json.parseToJsonElement(request.body.toByteArray().decodeToString()).jsonObject
+        }
         return when {
             path == "/designs/upload" -> scope.json("""{"designId":"design-1"}""")
-            // Names only, exactly as the partner's hotspots endpoint answers them: no view field,
-            // and a chest placement that is a front one without saying so.
-            path.contains("/hotspots/") ->
-                scope.json("""{"hotspots":[{"name":"LEFT_CHEST"},{"name":"LARGE_BACK"}]}""")
+            // A placement other than the snapshotted one, as a re-synced catalog would offer it.
+            // Production must never ask for it.
+            path.contains("/hotspots/") -> scope.json("""{"hotspots":[{"name":"FULL_FRONT"}]}""")
             path == "/orders" ->
                 failCreatesWith?.let { status -> scope.respondError(status, "partner said no") }
                     ?: scope.json("""{"id":"spod-1","state":"NEW"}""")

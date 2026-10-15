@@ -122,6 +122,17 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                 "each line stores the type of the article it was placed for",
             )
 
+            // The hotspot the customer previewed is snapshotted with the shirt line; a mug has none
+            // (issue #260, decisions 8 and 14).
+            assertEquals(
+                listOf(null, "MEDIUM_FRONT"),
+                OrderTestSupport.strings(
+                    fixture.dataSource,
+                    "SELECT spod_hotspot FROM voenix.order_items " +
+                        "WHERE order_id = ${placed.orderId} ORDER BY position",
+                ),
+            )
+
             // Every one of the five layout overrides is empty for the shirt line: they describe a
             // PDF page, and a shirt is never laid out into one.
             assertEquals(
