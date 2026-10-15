@@ -1,0 +1,185 @@
+import { sql, type Kysely, type Transaction } from 'kysely'
+import { read, write, type Tables } from '@/platform/db/database'
+import { executePostgresWrite } from '@/platform/db/postgres-write'
+import { lockSequence } from '../ordering'
+import '../schema'
+
+/** A slot; `variantCount` lets the admin list warn before a delete that would be refused. */
+export interface PromptSlot {
+  id: number
+  name: string
+  position: number
+  variantCount: number
+}
+
+/** A slot variant, flat: `slotId` to write back, `slotName` to display. */
+export interface PromptSlotVariant {
+  id: number
+  slotId: number
+  slotName: string
+  name: string
+  prompt: string
+  description: string | null
+  llm: string | null
+  /** How many prompts use the variant, which is when its delete is refused. */
+  assignedPromptCount: number
+}
+
+/** Every value a variant may change; its slot is not one of them. */
+export type SlotVariantValues = Pick<PromptSlotVariant, 'name' | 'prompt' | 'description' | 'llm'>
+
+export type PromptSlotRepository = ReturnType<typeof createPromptSlotRepository>
+
+function selectSlots(trx: Transaction<Tables>) {
+  return trx
+    .selectFrom('prompt_slots as slot')
+    .select(['slot.id', 'slot.name', 'slot.position'])
+    .select((eb) =>
+      eb
+        .selectFrom('prompt_slot_variants as variant')
+        .select(sql<number>`count(*)::int`.as('count'))
+        .whereRef('variant.slot_id', '=', 'slot.id')
+        .$asScalar()
+        .$notNull()
+        .as('variantCount'),
+    )
+}
+
+function selectVariants(trx: Transaction<Tables>) {
+  return trx
+    .selectFrom('prompt_slot_variants as variant')
+    .innerJoin('prompt_slots as slot', 'slot.id', 'variant.slot_id')
+    .select([
+      'variant.id',
+      'variant.slot_id as slotId',
+      'slot.name as slotName',
+      'variant.name',
+      'variant.prompt',
+      'variant.description',
+      'variant.llm',
+    ])
+    .select((eb) =>
+      eb
+        .selectFrom('prompt_slot_variant_mappings as mapping')
+        .select(sql<number>`count(*)::int`.as('count'))
+        .whereRef('mapping.slot_variant_id', '=', 'variant.id')
+        .$asScalar()
+        .$notNull()
+        .as('assignedPromptCount'),
+    )
+}
+
+const slotById = (trx: Transaction<Tables>, id: number) =>
+  selectSlots(trx).where('slot.id', '=', id)
+
+const variantById = (trx: Transaction<Tables>, id: number) =>
+  selectVariants(trx).where('variant.id', '=', id)
+
+/**
+ * Slots and their variants. A unique violation can only be the name: the position rule is deferred
+ * to `COMMIT` and unreachable under the `SLOT` anchor. A foreign-key violation has exactly one
+ * possible cause per statement: the missing slot of a variant insert, the variants of a slot
+ * delete, the prompts of a variant delete.
+ */
+export function createPromptSlotRepository(db: Kysely<Tables>) {
+  return {
+    listSlots: (): Promise<PromptSlot[]> =>
+      read(db, (trx) => selectSlots(trx).orderBy('slot.position').orderBy('slot.id').execute()),
+
+    findSlot: (id: number) => read(db, (trx) => slotById(trx, id).executeTakeFirst()),
+
+    /**
+     * Appends behind the highest position. Gaps a delete left stay empty: nothing reads the number,
+     * only the order it produces.
+     */
+    insertSlot: (name: string) =>
+      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+        write(db, async (trx): Promise<PromptSlot> => {
+          await lockSequence(trx, 'SLOT')
+          const { last } = await trx
+            .selectFrom('prompt_slots')
+            .select(sql<number>`coalesce(max(position), 0)`.as('last'))
+            .executeTakeFirstOrThrow()
+          const { id } = await trx
+            .insertInto('prompt_slots')
+            .values({ name, position: last + 1 })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+          return { id, name, position: last + 1, variantCount: 0 }
+        }),
+      ),
+
+    updateSlot: (id: number, name: string) =>
+      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+        write(db, async (trx) => {
+          const result = await trx
+            .updateTable('prompt_slots')
+            .set({ name })
+            .where('id', '=', id)
+            .executeTakeFirst()
+          return result.numUpdatedRows === 0n
+            ? 'notFound'
+            : slotById(trx, id).executeTakeFirstOrThrow()
+        }),
+      ),
+
+    /** The number of rows deleted, or `'inUse'` while variants reference the slot. */
+    deleteSlot: (id: number) =>
+      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
+        const result = await write(db, (trx) =>
+          trx.deleteFrom('prompt_slots').where('id', '=', id).executeTakeFirst(),
+        )
+        return Number(result.numDeletedRows)
+      }),
+
+    /** Every variant, in its slot's display order and then by name. */
+    listVariants: (): Promise<PromptSlotVariant[]> =>
+      read(db, (trx) =>
+        selectVariants(trx)
+          .orderBy('slot.position')
+          .orderBy('slot.id')
+          .orderBy('variant.name')
+          .orderBy('variant.id')
+          .execute(),
+      ),
+
+    findVariant: (id: number) => read(db, (trx) => variantById(trx, id).executeTakeFirst()),
+
+    insertVariant: (slotId: number, values: SlotVariantValues) =>
+      executePostgresWrite(
+        { uniqueViolation: 'conflict', foreignKeyViolation: 'slotNotFound' },
+        () =>
+          write(db, async (trx) => {
+            const { id } = await trx
+              .insertInto('prompt_slot_variants')
+              .values({ slot_id: slotId, ...values })
+              .returning('id')
+              .executeTakeFirstOrThrow()
+            return variantById(trx, id).executeTakeFirstOrThrow()
+          }),
+      ),
+
+    updateVariant: (id: number, values: SlotVariantValues) =>
+      executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
+        write(db, async (trx) => {
+          const result = await trx
+            .updateTable('prompt_slot_variants')
+            .set(values)
+            .where('id', '=', id)
+            .executeTakeFirst()
+          return result.numUpdatedRows === 0n
+            ? 'notFound'
+            : variantById(trx, id).executeTakeFirstOrThrow()
+        }),
+      ),
+
+    /** The number of rows deleted, or `'inUse'` while a prompt is composed of the variant. */
+    deleteVariant: (id: number) =>
+      executePostgresWrite({ foreignKeyViolation: 'inUse' }, async () => {
+        const result = await write(db, (trx) =>
+          trx.deleteFrom('prompt_slot_variants').where('id', '=', id).executeTakeFirst(),
+        )
+        return Number(result.numDeletedRows)
+      }),
+  }
+}
