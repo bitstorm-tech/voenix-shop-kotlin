@@ -1,10 +1,13 @@
 # Developer documentation
 
-This folder is the developer documentation of the Kotlin backend and the Vue
-frontend. It is written for developers who are still learning Kotlin and Ktor:
-every guide explains what the code does, which files do it, and why it is built
-that way. Start here; the reading order below takes you from an empty machine to
-a running shop to one package's internals.
+This folder is the developer documentation of the backends and the Vue
+frontend. The TypeScript backend in `backend-ts/` is the one being built
+(see [its technology-stack guide](backend-ts/conventions/technology-stack.md)
+for the decision); the Kotlin backend in `backend/` stays documented until it
+is removed. Every guide is written for developers who are still learning the
+language and the framework: it explains what the code does, which files do it,
+and why it is built that way. Start here; the reading order below takes you
+from an empty machine to a running shop to one package's internals.
 
 ## Where to start
 
@@ -30,8 +33,9 @@ a running shop to one package's internals.
 | Folder | What you find there |
 | --- | --- |
 | [`getting-started/`](getting-started/) | Running, seeding, importing data, building the deployable image. |
-| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: the technology stack, modules, file layout, code quality, results and errors, validation, limits, authentication. |
-| [`backend/packages/`](backend/packages/) | One guide per backend package (`shop.voenix.<name>`), plus the SPOD channel guide that belongs to the Production package. |
+| [`backend-ts/`](backend-ts/) | The TypeScript backend: `conventions/`, `packages/`, and `getting-started/` with the same skeletons as the Kotlin folders below. |
+| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the Kotlin backend: the technology stack, modules, file layout, code quality, results and errors, validation, limits, authentication. |
+| [`backend/packages/`](backend/packages/) | One guide per Kotlin backend package (`shop.voenix.<name>`), plus the SPOD channel guide that belongs to the Production package. |
 | [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls, plus frontend conventions such as landing pages and form controls. |
 | [`guides/`](guides/) | Operator how-tos that cross backend, frontend, and admin UI. |
 
@@ -41,6 +45,28 @@ developer documentation in this sense; the guides link into them where a
 migration record is the reason for a design. There are no separate decision
 records: the reason for a design, and the alternatives it beat, are written into
 the guide of the package it shapes.
+
+## TypeScript backend
+
+The guides of `backend-ts/`. A new module starts from the country package guide
+and the conventions it links.
+
+| Guide | What it answers |
+| --- | --- |
+| [Running the development server](backend-ts/getting-started/running-the-development-server.md) | How do I start `backend-ts`, and which environment variables configure it? |
+| [Seeding the development catalog](backend-ts/getting-started/seeding-the-development-catalog.md) | The unchanged seed script against the TypeScript backend. |
+| [The full-stack image](backend-ts/getting-started/full-stack-image.md) | What is decided about the one container with `backend-ts` and the frontend build. |
+| [The technology stack](backend-ts/conventions/technology-stack.md) | Why TypeScript on Bun with Hono, Zod, and Kysely, and which alternatives lost. |
+| [Backend modules](backend-ts/conventions/module-architecture.md) | The module graph, how ESLint enforces it, the module shape, and the one `Tables` type. |
+| [Source file organization](backend-ts/conventions/source-file-organization.md) | The five files of a module, factory functions instead of classes, tests next to the code. |
+| [Code quality](backend-ts/conventions/code-quality.md) | `bun run check`: what the type checker, ESLint, Prettier, and `bun test` enforce. |
+| [Shared operation results](backend-ts/conventions/operation-results.md) | `OperationResult<T>` as a union, and `respondResult` with the per-route messages. |
+| [Request validation](backend-ts/conventions/request-validation.md) | Zod at the route: `jsonBody`, the `400` contract, strict objects. |
+| [Backend persistence error handling](backend-ts/conventions/persistence-error-handling.md) | `executePostgresWrite`, `read`/`write`, and the statement bounds. |
+| [Request size limits](backend-ts/conventions/request-size-limits.md) | The 30,000,000-byte transfer bound and how Hono applies it. |
+| [Rate limiting](backend-ts/conventions/rate-limiting.md) | The per-IP limit of the image generation. |
+| [Authentication and authorization](backend-ts/conventions/authentication-and-authorization.md) | Sealed cookies, the principal, the four protections, CSRF, guests. |
+| [The Country package](backend-ts/packages/country-package.md) | The reference module every other module copies. |
 
 ## Getting started
 
@@ -114,8 +140,9 @@ order once you know the conventions.
 
 ## Writing a new guide
 
-- Put it into the folder whose question it answers; a new backend package gets
-  `backend/packages/<name>-package.md` with the skeleton above.
+- Put it into the folder whose question it answers; a new Kotlin package gets
+  `backend/packages/<name>-package.md`, a new TypeScript module
+  `backend-ts/packages/<name>-package.md`, both with the skeleton above.
 - Write for a reader who knows Java or another typed language but is new to
   Kotlin and Ktor: name the files, show the code path, explain the *why*.
 - Link to code with relative paths so the link is clickable in the repository.

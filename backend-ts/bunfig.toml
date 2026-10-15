@@ -1,0 +1,4 @@
+[test]
+# Starts one PostgreSQL container for the whole run and migrates the template database;
+# see test-support/preload.ts.
+preload = ["./test-support/preload.ts"]
