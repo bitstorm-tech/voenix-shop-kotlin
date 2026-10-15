@@ -97,7 +97,7 @@ internal object Application {
         // The master data every customer-facing module reads and none of them writes. It is the
         // first of the two consumers of the print-on-demand client: there is exactly one per
         // application, because one pacer has to hold the partner's request budget for all of it —
-        // the article module syncs the t-shirt catalog through it, production submits orders
+        // the article module syncs the SPOD article catalog through it, production submits orders
         // through it, and production closes it when the application stops.
         val catalog = installCatalogRuntime(database, images.publicStorage, spod)
 
@@ -114,7 +114,7 @@ internal object Application {
                 settings.production,
                 productionSource,
                 spod,
-                catalog.tshirtSync,
+                catalog.spodSync,
             )
 
         // The account module consumes nothing but the platform and the user mails, so it can be
@@ -187,7 +187,7 @@ internal object Application {
         // commits inside the module it calls. The catalog is the newest of the six and the only one
         // that is not a step: it answers what the cart lines are, which is what makes a phone
         // number
-        // required for a cart with a t-shirt in it (issue #205).
+        // required for a cart with a SPOD article in it (issue #205).
         installCheckoutModule(
             carts = cart.checkoutCarts,
             promotions = catalog.promotionCodes,

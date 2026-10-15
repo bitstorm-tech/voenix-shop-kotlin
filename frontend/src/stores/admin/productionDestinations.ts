@@ -1,6 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchJson, type ApiFieldErrors } from '@/lib/api'
+import type { PrintFrameDto } from '@/stores/shop/catalog'
 
 const DESTINATIONS_PATH = '/api/admin/production/destinations'
 
@@ -91,24 +92,29 @@ export interface SaveProductionDestinationRequest {
 }
 
 /** `COMPLETED` means the run read the catalog to the end; only such a run may deactivate anything. */
-export type TshirtSyncStatus = 'COMPLETED' | 'FAILED'
+export type SpodSyncStatus = 'COMPLETED' | 'FAILED'
 
 /** One article of a report's lists. `articleId` is `null` for one that never became a row. */
-export interface TshirtSyncLine {
+export interface SpodSyncLine {
   articleId: number | null
   spodArticleId: string
   name: string
+  /** The SPOD hotspot the sync chose as the print area, `null` when it could not measure one. */
+  hotspot: string | null
+  /** The print frame the sync measured from the hotspot preview, `null` together with `hotspot`. */
+  printFrame: PrintFrameDto | null
   variantsCreated: number
   variantsUpdated: number
   variantsDeactivated: number
 }
 
 /**
- * Everything a run reports short of failing. The backend's `TshirtSyncWarningCode` is a closed
+ * Everything a run reports short of failing. The backend's `SpodSyncWarningCode` is a closed
  * list, but the screen only prints the code it was given, so a code this frontend has never heard
- * of shows up as itself instead of forcing a release here.
+ * of shows up as itself instead of forcing a release here. The one code the screen singles out is
+ * `CALIBRATION_FAILED`: such an article has no print frame and cannot be activated.
  */
-export interface TshirtSyncWarning {
+export interface SpodSyncWarning {
   code: string
   spodArticleId: string | null
   detail: string
@@ -121,22 +127,22 @@ export interface TshirtSyncWarning {
  * A `FAILED` status means the catalog could not be read to the end. Nothing was written then, and
  * `failure` carries the bounded reason.
  */
-export interface TshirtSyncReport {
+export interface SpodSyncReport {
   destinationId: number
   supplierId: number
   environment: SpodEnvironment
-  status: TshirtSyncStatus
+  status: SpodSyncStatus
   /** The bounded reason of a `FAILED` run (`SpodError` on the backend), printed as it arrives. */
   failure: string | null
   startedAt: string
   finishedAt: string
   fetchedArticles: number
-  created: TshirtSyncLine[]
-  updated: TshirtSyncLine[]
-  unchanged: TshirtSyncLine[]
-  deactivated: TshirtSyncLine[]
-  failed: TshirtSyncLine[]
-  warnings: TshirtSyncWarning[]
+  created: SpodSyncLine[]
+  updated: SpodSyncLine[]
+  unchanged: SpodSyncLine[]
+  deactivated: SpodSyncLine[]
+  failed: SpodSyncLine[]
+  warnings: SpodSyncWarning[]
 }
 
 /** The two `409` codes of the sync route, in the words the admin screen shows. */
@@ -196,7 +202,7 @@ export const useAdminProductionDestinationsStore = defineStore(
     /** The destinations whose sync request is still in flight. A sync runs per destination. */
     const syncingDestinationIds = ref<number[]>([])
     /** The report of the last finished sync of a destination, kept until the page is left. */
-    const syncReports = ref<Record<number, TshirtSyncReport>>({})
+    const syncReports = ref<Record<number, SpodSyncReport>>({})
 
     function sortDestinations(items: AdminProductionDestinationDto[]) {
       return [...items].sort(
@@ -328,18 +334,18 @@ export const useAdminProductionDestinationsStore = defineStore(
       return syncingDestinationIds.value.includes(id)
     }
 
-    function syncReport(id: number): TshirtSyncReport | null {
+    function syncReport(id: number): SpodSyncReport | null {
       return syncReports.value[id] ?? null
     }
 
     /**
-     * Reads the destination's backoffice catalog into the shop's t-shirts and keeps what the run
+     * Reads the destination's backoffice catalog into the shop's SPOD articles and keeps what the run
      * did. The request is synchronous — a few seconds of partner calls — so the caller waits.
      *
      * A `FAILED` report is a normal answer and is stored like any other; only the `409` of a
      * destination that is already syncing, or of one without a catalog, comes back as an error.
      */
-    async function syncArticles(id: number): Promise<TshirtSyncReport> {
+    async function syncArticles(id: number): Promise<SpodSyncReport> {
       syncingDestinationIds.value = [...syncingDestinationIds.value, id]
 
       // The report of the previous run says nothing about the one that just started, and a run that
@@ -350,10 +356,9 @@ export const useAdminProductionDestinationsStore = defineStore(
       syncReports.value = remaining
 
       try {
-        const report = await fetchJson<TshirtSyncReport>(
-          `${DESTINATIONS_PATH}/${id}/sync-articles`,
-          { method: 'POST' },
-        )
+        const report = await fetchJson<SpodSyncReport>(`${DESTINATIONS_PATH}/${id}/sync-articles`, {
+          method: 'POST',
+        })
         syncReports.value = { ...syncReports.value, [id]: report }
         return report
       } catch (err) {

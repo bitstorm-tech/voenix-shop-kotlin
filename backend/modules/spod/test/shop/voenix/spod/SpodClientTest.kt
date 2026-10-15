@@ -9,7 +9,6 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.HttpRequestTimeoutException
-import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -548,29 +547,11 @@ internal class SpodClientTest {
     ): SpodCatalogPage =
         assertIs<SpodResult.Answered<SpodCatalogPage>>(articles(access, limit, offset)).value
 
-    private fun spodClient(
-        handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
-    ): SpodClient = SpodClient(engine = MockEngine(handler), nowMillis = { 0 }, pause = {})
-
-    private fun MockRequestHandleScope.respondJson(body: String): HttpResponseData =
-        respond(
-            content = body,
-            headers = headersOf(HttpHeaders.ContentType, "application/json"),
-        )
-
     private fun MockRequestHandleScope.respondImage(
         bytes: ByteArray,
         contentType: String,
     ): HttpResponseData =
         respond(content = bytes, headers = headersOf(HttpHeaders.ContentType, contentType))
-
-    private fun access(): SpodAccess =
-        SpodAccess(
-            destinationId = 5,
-            environment = SpodEnvironment.STAGING,
-            accessToken = ACCESS_TOKEN,
-            timeoutSeconds = 30,
-        )
 
     private fun sampleRequest(): SpodOrderRequest =
         SpodOrderRequest(
@@ -644,11 +625,6 @@ internal class SpodClientTest {
     }
 
     private companion object {
-        const val ACCESS_TOKEN = "spod-access-token-must-never-be-logged"
-
-        /** A marker no log line may ever contain: it stands in for whatever the partner writes. */
-        const val PROVIDER_BODY = "PROVIDER-SECRET-ECHO"
-
         val PNG_BYTES = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
 
         /** A CDN URL of the shape a catalog answer carries; its path may never be logged. */

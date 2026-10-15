@@ -50,9 +50,9 @@ internal data class OrderView(
  * answer, because a customer has no use for it.
  *
  * [articleType] is a snapshot like the names next to it, and it is what a client switches on to
- * render the line: a mug and a t-shirt of the same order look nothing alike. It is stored rather
- * than resolved, so the line still says what was bought after the article is renamed, retyped, or
- * deleted.
+ * render the line: a mug and a SPOD article of the same order look nothing alike. It is stored
+ * rather than resolved, so the line still says what was bought after the article is renamed,
+ * retyped, or deleted.
  */
 @Serializable
 internal data class OrderLineView(

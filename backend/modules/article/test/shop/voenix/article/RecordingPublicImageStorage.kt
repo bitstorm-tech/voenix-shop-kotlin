@@ -23,6 +23,9 @@ internal class RecordingPublicImageStorage(
     var storeCalls: Int = 0
         private set
 
+    /** The folder each stored file went to, by file name. */
+    val folders: MutableMap<String, String> = mutableMapOf()
+
     /** The file names that currently exist. */
     val files: List<String>
         get() = stored.toList()
@@ -47,6 +50,7 @@ internal class RecordingPublicImageStorage(
         val filename = mintedFilenames[storeCalls % mintedFilenames.size]
         storeCalls++
         stored.add(filename)
+        folders[filename] = folder.toString()
         return OperationResult.Success(StoredPublicImage(filename))
     }
 

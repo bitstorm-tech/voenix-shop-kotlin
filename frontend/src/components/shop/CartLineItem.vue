@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Minus, Plus, Shirt, Trash2 } from 'lucide-vue-next'
+import { Minus, Package, Plus, Trash2 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import { isTshirt, useCatalogStore } from '@/stores/shop/catalog'
+import {
+  appearanceOf,
+  isSpodArticle,
+  useCatalogStore,
+  variantPhotoFilename,
+  type SpodVariantDto,
+} from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
 
 const props = defineProps<{ item: CartItem }>()
@@ -28,13 +34,24 @@ const printImageUrl = computed(() =>
 /** The catalog entry of the ordered line; the catalog store answers it, not the cart line itself. */
 const catalogArticle = computed(() => catalogStore.getArticleById(props.item.articleId))
 
-/** The catalog photo of the ordered variant. */
+const catalogVariant = computed(() =>
+  catalogArticle.value?.variants.find((candidate) => candidate.id === props.item.variantId),
+)
+/** The colour of a SPOD line, whose hex tints the fallback icon. */
+const spodAppearance = computed(() => {
+  const article = catalogArticle.value
+  const variant = catalogVariant.value
+  return article && variant && isSpodArticle(article)
+    ? appearanceOf(article, variant as SpodVariantDto)
+    : null
+})
+
+/** The catalog photo of the ordered variant: a mug variant's own, or the first of its colour's. */
 const variantImageUrl = computed(() => {
   const article = catalogArticle.value
-  const variant = article?.variants.find((candidate) => candidate.id === props.item.variantId)
-  return article && variant?.exampleImageFilename
-    ? variantExampleImageUrl(article.articleType, variant.exampleImageFilename, 400)
-    : null
+  const variant = catalogVariant.value
+  const filename = article && variant ? variantPhotoFilename(article, variant) : null
+  return article && filename ? variantExampleImageUrl(article.articleType, filename, 400) : null
 })
 const colorStyle = computed(() => ({
   backgroundColor: props.item.outsideColorCode ?? 'transparent',
@@ -44,21 +61,11 @@ const colorStyle = computed(() => ({
 }))
 /**
  * Which shape the line falls back to while no variant photo is there. A mug is a circle of its two
- * colour codes, which a mug line carries itself; a shirt has no colour codes at all - its colour is
- * part of the composed variant name ("Black / M") and its hex only exists in the catalog, so the
- * silhouette is tinted from there and stays a grey outline when the catalog cannot answer.
+ * colour codes, which a mug line carries itself; a SPOD line has no colour codes at all - its colour
+ * is part of the composed variant name ("Black / M") and its hex only exists in the catalog, so the
+ * package icon is tinted from there and stays a grey outline when the catalog cannot answer.
  */
-const isTshirtLine = computed(() => props.item.articleType === 'TSHIRT')
-const shirtColorHex = computed(() => {
-  const article = catalogArticle.value
-  if (article === undefined || !isTshirt(article)) {
-    return null
-  }
-
-  return (
-    article.variants.find((candidate) => candidate.id === props.item.variantId)?.colorHex ?? null
-  )
-})
+const isSpodLine = computed(() => props.item.articleType === 'SPOD')
 const lineTotal = computed(() =>
   formatPrice((props.item.price + props.item.promptPrice) * props.item.quantity),
 )
@@ -84,11 +91,11 @@ const lineTotal = computed(() =>
           class="size-full object-cover"
         />
         <div v-else class="flex size-full items-center justify-center">
-          <Shirt
-            v-if="isTshirtLine"
+          <Package
+            v-if="isSpodLine"
             class="size-16 text-muted-foreground"
-            data-testid="cart-line-shirt-fallback"
-            :fill="shirtColorHex ?? 'none'"
+            data-testid="cart-line-spod-fallback"
+            :fill="spodAppearance?.colorHex ?? 'none'"
           />
           <div
             v-else

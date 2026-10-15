@@ -11,14 +11,15 @@ it can only produce states the application itself could produce: one VAT entry,
 one supplier, a mug category with two subcategories, three priced mugs with
 variants, a prompt category with a subcategory, and three priced prompts.
 
-The script seeds **mugs only**, and since the catalog sync it could not seed a shirt at
-all: a t-shirt is not created through the admin API but by a **sync run**
-against the Spreadconnect backoffice, which needs a real destination with a real
-token. To get shirts into a development database, set a SPOD destination up and
-press *Sync from Spreadconnect* on it — see
-[Configuring a t-shirt article](../guides/configuring-t-shirt-articles.md) for the
-whole set-up and the t-shirt section of [`article-package.md`](../backend/packages/article-package.md)
-for what a synced shirt carries.
+The script seeds **mugs only**, and it could not seed a SPOD article (a t-shirt,
+a tote bag) at all: a SPOD article is not created through the admin API but by
+a **sync run** against the Spreadconnect backoffice, which needs a real
+destination with a real token. To get SPOD articles into a development
+database, set a SPOD destination up and press *Sync from Spreadconnect* on it —
+see [Configuring a SPOD article](../guides/configuring-spod-articles.md) for the
+whole set-up and the SPOD section of
+[`article-package.md`](../backend/packages/article-package.md#spod-articles)
+for what a synced article carries.
 
 ## Prerequisites
 

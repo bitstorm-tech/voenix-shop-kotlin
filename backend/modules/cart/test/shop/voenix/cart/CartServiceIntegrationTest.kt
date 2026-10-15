@@ -341,7 +341,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     /**
      * The type is not stored on the line and is not the same for every line: it is what the catalog
      * answers for each reference, and it is what a client switches on to render a mug differently
-     * from a t-shirt (issue #205).
+     * from a SPOD article (issue #205).
      */
     @Test
     fun `each line carries the article type the catalog answers for it`() =
@@ -349,7 +349,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
             fixture.articles.variants =
                 mapOf(
                     CartTestSupport.REFERENCE to CartTestSupport.variant(),
-                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.tshirtVariant(),
+                    CartTestSupport.OTHER_REFERENCE to CartTestSupport.spodVariant(),
                 )
 
             fixture.service.addItem(GUEST, addInput()).expectSuccess()
@@ -365,7 +365,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
                     .expectSuccess()
 
             assertEquals(
-                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                listOf(ArticleType.MUG, ArticleType.SPOD),
                 view.items.map(CartLine::articleType),
             )
             assertEquals(listOf("White", "Black / M"), view.items.map(CartLine::variantName))

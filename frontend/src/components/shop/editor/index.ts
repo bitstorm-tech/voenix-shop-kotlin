@@ -6,12 +6,12 @@ export type {
   EditorMugArticle,
   EditorMugVariant,
   EditorPrintArea,
-  EditorTshirtArticle,
-  EditorTshirtVariant,
+  EditorSpodArticle,
+  EditorSpodVariant,
 } from './types'
 export {
   toEditorArticle,
   toEditorArticleVariant,
   toEditorMugArticle,
-  toEditorTshirtArticle,
+  toEditorSpodArticle,
 } from './types'

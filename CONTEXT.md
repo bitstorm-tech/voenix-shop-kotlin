@@ -1,8 +1,8 @@
 # Voenix Shop
 
-An e-commerce shop for personalized print products (mugs and t-shirts), being
-migrated module by module from a legacy .NET backend to Kotlin. One bounded
-context; the Kotlin modules share this language.
+An e-commerce shop for personalized print products (mugs, t-shirts, tote
+bags), being migrated module by module from a legacy .NET backend to Kotlin.
+One bounded context; the Kotlin modules share this language.
 
 ## Language
 
@@ -23,34 +23,84 @@ the Article migration and is retired (decision by Joe, 2026-07-28).
 _Avoid_: taxonomy, Taxonomie, classification
 
 **Article type**:
-The kind of product an article is (today: mug or t-shirt). Each type owns its
-own tables and admin routes; the category structure is shared across all types.
-It is also the discriminator the frontend switches on: the storefront, the cart,
-and the placed order carry `articleType` per article or per line, and on an
-ordered line it is snapshotted like every other line field, so a later type
+The channel an article is produced through, not the kind of product it is:
+`MUG` is laid out into a PDF that a supplier fetches over SFTP, `SPOD` is
+ordered from the print-on-demand partner Spreadconnect. Which product an
+article is — a mug, a t-shirt, a tote bag — is data: the category it is filed
+under and, for a SPOD article, the partner's `productTypeName`. A new kind of
+SPOD product therefore needs no new type and no code. Each type owns its own
+tables and admin routes; the category structure is shared across all types.
+It is also the discriminator the frontend switches on: the storefront, the
+cart, and the placed order carry `articleType` per article or per line, and on
+an ordered line it is snapshotted like every other line field, so a later type
 change in the catalog cannot rewrite what was bought.
+_Avoid_: t-shirt article or `TSHIRT` as a type name (the type was renamed to
+`SPOD` in issue #260), product type (that is the partner's garment or bag
+model, a SPOD id)
 
-**Synced t-shirt article**:
-A t-shirt article, and there is no other kind: it comes into
-being when a **sync run** reads the merchant's Spreadconnect (SPOD) backoffice
-for one production destination, and it has two owners for life. The backoffice
-owns the garment — name, descriptions, the variants with their colours, sizes,
-SKUs and the three partner ids, the mockup image per colour, the size chart —
-and every run overwrites that half. The shop owns what the shop decides —
-`active`, category and subcategory, display position, price, print frame and
-print aspect ratio, default variant — and no run ever touches it. A run never
-activates an article; an article the backoffice stopped listing is deactivated
-and marked *missing at Spreadconnect*, never deleted, and comes back inactive.
-Its identity is (destination, environment, backoffice article id), and a
-variant's is the product triple (product type, appearance, size).
-_Avoid_: creating a t-shirt in the admin (there is no create route), variant
-matrix (the editor that typed one is gone), importing (a sync is a
-reconciliation, not a one-time import)
+**SPOD article**:
+Every article of type `SPOD`: a product the print-on-demand partner prints one
+motif on its front, always in the ratio `1:1`, whether a t-shirt or a tote bag.
+It comes into being when a **sync run** reads the merchant's Spreadconnect
+backoffice for one production destination, and it has two owners for life. The
+backoffice owns the product — name, descriptions, the product type and its
+name, the colours, the sizes, the SKUs and the three partner ids, the listing
+images and the mockup image per colour, the size chart, and the print frame
+with its **hotspot**, which every run measures (**calibration**) — and every run
+overwrites that half. The shop owns what the shop decides — `active`, category
+and subcategory, display position, price, default variant — and no run ever
+touches it. A run never activates an article; one it could not calibrate, and
+one the backoffice stopped listing, is deactivated, never deleted. An article
+that is missing at Spreadconnect is marked so and comes back inactive. Its
+identity is (destination, environment, backoffice article id), and a variant's
+is the product triple (product type, appearance, size).
+_Avoid_: synced t-shirt article, t-shirt article (a t-shirt is one product a
+SPOD article can be), creating a SPOD article in the admin (there is no create
+route), variant matrix (the editor that typed one is gone), importing (a sync
+is a reconciliation, not a one-time import)
+
+**Hotspot**:
+The partner's name of a print position on a view of a product type, such as
+`MEDIUM_FRONT` or `FULL_FRONT`. The sync picks, per product type, the front
+hotspot whose measured print frame is largest and stores it on the SPOD
+article; the order line snapshots it at placement, and production orders the
+print at exactly that hotspot, with no fallback.
+_Avoid_: print area (the partner's millimetre geometry of the product, which
+the shop does not use)
+
+**Calibration**:
+The part of a sync run that measures the print frame of a product type: the run
+uploads one magenta square as a design, lets the partner render a preview of it
+on every front hotspot, and takes the bounding box of the magenta pixels as the
+frame, in percent of the mockup image. It is per product type, per run, and
+stateless; a measurement that is not a clean rectangle fails, and then the
+article has no frame and no hotspot and cannot be activated
+(`CALIBRATION_FAILED` in the sync report).
+_Avoid_: calibrating the frame by hand, frame editor (the admin only shows the
+measured frame; nobody types one)
+
+**Mockup image**:
+The one blank front image of a SPOD article's colour, taken from the product
+type's views. It is the editor's backdrop and the only picture the print frame
+is laid on, because it is pixel-identical to the calibration preview.
+_Avoid_ in prose: example image (that is a mug variant's uploaded picture),
+product photo
+
+**Listing image**:
+Every picture the partner lists for one colour of a SPOD article, in the
+partner's order, as chosen in the backoffice. The storefront, the wizard, the
+cart, and the checkout show these; the storefront listing shows the first one
+of the default colour. A colour is sellable only with its mockup image and at
+least one listing image.
+_Avoid_ in prose: example image (for a SPOD colour), mockup (for a listing
+photo) — do not call a SPOD colour's listing image an example image in prose;
+the field `exampleImageFilename` shared with mugs on the admin list and the
+`EXAMPLE_IMAGE_REPLACED` warning keep their names.
 
 **Price discount / Preisrabatt**:
 An optional reduction stored on one Price: either a percentage or a fixed
-number of cents, always applied to the gross sales total. Mugs, t-shirts, and
-prompts share it, because all three own a Price. It has no code, no activity
+number of cents, always applied to the gross sales total. Mugs, SPOD
+articles, and prompts share it, because all three own a Price. It has no code, no activity
 window, and no name — it is on whenever it is configured and off when it is
 cleared — and the amount everything charges (`salesTotal`) is already reduced
 by it.

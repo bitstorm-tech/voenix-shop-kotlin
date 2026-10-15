@@ -142,7 +142,7 @@ private suspend fun ApplicationCall.respondFailure(result: CheckoutResult) {
         CheckoutResult.PhoneRequired ->
             respondFieldError(
                 "shippingAddress.phone",
-                "Phone is required for orders containing t-shirts",
+                "Phone is required for orders containing print-on-demand articles",
             )
         is CheckoutResult.PromotionRejected -> {
             val (status, error) = result.reason.toApiError()

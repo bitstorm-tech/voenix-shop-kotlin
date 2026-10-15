@@ -140,13 +140,13 @@ internal class CheckoutServiceTest {
     }
 
     /**
-     * The t-shirt rule (issue #205, D2): the print-on-demand partner refuses an order without a
+     * The SPOD phone rule (issue #205, D2): the print-on-demand partner refuses an order without a
      * phone number, so a cart containing one is refused before anything is written — and refused on
      * the field the customer can still change.
      */
     @Test
-    fun `a cart with a t-shirt in it is refused without a phone number`() {
-        val world = World(cart = reservedCart(), articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+    fun `a cart with a SPOD article in it is refused without a phone number`() {
+        val world = World(cart = reservedCart(), articleTypes = mapOf(LINE to ArticleType.SPOD))
 
         assertEquals(CheckoutResult.PhoneRequired, world.checkout())
         assertEquals(
@@ -163,7 +163,7 @@ internal class CheckoutServiceTest {
 
     @Test
     fun `the same cart is placed once a phone number is given`() {
-        val world = World(articleTypes = mapOf(LINE to ArticleType.TSHIRT))
+        val world = World(articleTypes = mapOf(LINE to ArticleType.SPOD))
 
         val result = world.checkout(request = frontendRequest(phone = " +49 89 123456 "))
 
@@ -191,11 +191,11 @@ internal class CheckoutServiceTest {
     }
 
     /**
-     * A line the catalog no longer answers is not a t-shirt: the checkout must send that customer
-     * to the placement's `ItemUnavailable`, not to a phone field that would not help them.
+     * A line the catalog no longer answers is not a SPOD article: the checkout must send that
+     * customer to the placement's `ItemUnavailable`, not to a phone field that would not help them.
      */
     @Test
-    fun `a line the catalog cannot resolve is not treated as a t-shirt`() {
+    fun `a line the catalog cannot resolve is not treated as a SPOD article`() {
         val world =
             World(
                 placement = OrderPlacementResult.UnknownArticleReference,
@@ -820,8 +820,8 @@ internal class CheckoutServiceTest {
     /**
      * The article catalog as a map of types, and a record of every question it was asked.
      *
-     * The record is half of what the t-shirt rule owes: that the checkout asks *only* when there is
-     * no phone number to check is as much part of the rule as the refusal itself.
+     * The record is half of what the SPOD phone rule owes: that the checkout asks *only* when there
+     * is no phone number to check is as much part of the rule as the refusal itself.
      */
     private class FakeArticles(
         private val types: Map<ArticleVariantReference, ArticleType>,
@@ -900,6 +900,7 @@ internal class CheckoutServiceTest {
                 outsideColorCode = null,
                 insideColorCode = null,
                 spodProduct = null,
+                spodHotspot = null,
             )
 
         fun cart(

@@ -27,10 +27,9 @@ export function sortSizes(sizes: readonly string[]): string[] {
     .map(({ size }) => size)
 }
 
-/** "S – 5XL" for several sizes, the size itself for one, `null` for none. */
+/** "S – 5XL" for several sizes, `null` for one or none: a single size is no choice worth naming. */
 export function sizeRange(sizes: readonly string[]): string | null {
   const sorted = sortSizes(sizes)
-  if (sorted.length === 0) return null
-  if (sorted.length === 1) return sorted[0]!
+  if (sorted.length < 2) return null
   return `${sorted[0]} – ${sorted[sorted.length - 1]}`
 }

@@ -35,7 +35,7 @@ const props = withDefaults(
     showEmail?: boolean
     showPhone?: boolean
     /**
-     * Whether the phone number is mandatory. It is for a cart that contains a t-shirt: the shirt is
+     * Whether the phone number is mandatory. It is for a cart that contains a SPOD article: it is
      * shipped by the print-on-demand partner, who needs a number to deliver, and the backend
      * refuses such a checkout without one (issue #205).
      */

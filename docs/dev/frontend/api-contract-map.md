@@ -51,7 +51,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **140 rows** and **10** Kotlin routes that no
+That currently yields **141 rows** and **10** Kotlin routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
@@ -74,21 +74,24 @@ that client and the conventions the stores follow.
 | --- | --- | --- | --- |
 | `stores/shop/articleCategories.ts` | `GET /api/articles/categories` | same | #217 |
 | `stores/shop/catalog.ts` | `GET /api/articles/mugs` | same | #88 |
-| `stores/shop/catalog.ts` | `GET /api/articles/tshirts` | same | #217 |
+| `stores/shop/catalog.ts` | `GET /api/articles/spod` | same | #217, #260 |
 | `stores/shop/prompts.ts` | `GET /api/prompts?categoryId={id}` | same | #88 |
 
 The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
-(`docs/dev/backend/packages/article-package.md`, "The storefront"). With the t-shirt the
-path lost its type as well: `GET /api/articles/mugs/categories` is gone and
+(`docs/dev/backend/packages/article-package.md`, "The storefront"). With the
+second article type (the t-shirt, #205) the path lost its type as well: `GET /api/articles/mugs/categories` is gone and
 `GET /api/articles/categories` answers the navigation over *every* visible
-article, because one menu leads to mugs and shirts alike.
+article, because one menu leads to mugs and SPOD articles alike.
 
 `stores/shop/catalog.ts` reads both article routes in parallel and merges them
 into one discriminated union over `articleType` (`ShopArticle = MugDto |
-TshirtDto`), which is why two rows point at the same store file. That merged
+SpodArticleDto`), which is why two rows point at the same store file. Since #260
+the second family is the generic SPOD article (a tee, a tote bag, ...): its
+colours are an `appearances` array with the mockup and the listing images, and
+its `variants` stay a flat list in which each variant names its `appearanceId`. That merged
 list is what the combined listing page `/products` renders since #217: one grid
 for both types, narrowed by its `category`, `subcategory`, and optional `type`
 query. It is also what the wizard's article step picks from. The optional
@@ -97,7 +100,7 @@ asks the backend for one category instead of filtering a full list in the
 browser.
 
 Since the price discount (#238) each of the three payloads carries a second,
-optional amount next to the one the customer pays: a mug and a shirt answer
+optional amount next to the one the customer pays: a mug and a SPOD article answer
 `regularPrice` next to `price`, a prompt answers `regularSalesTotalGross` inside
 its `price` block. Both are `null` unless the article's or prompt's price really
 has a discount, and both are the price *before* it — `price` and
@@ -133,11 +136,11 @@ Every mutation answers the complete recalculated `CartView`, so the store holds
 exactly one cart type and re-applies it after each call. The line fields are the
 backend's: `imageId`, `price`, `promptPrice`, and the `available` flag.
 
-A line also carries `articleType` (`MUG | TSHIRT | null`), which is what the
+A line also carries `articleType` (`MUG | SPOD | null`), which is what the
 client renders it by: a mug falls back to a circle of its two colour codes, a
-t-shirt to the mockup of its variant and, while no mockup exists, to a
-silhouette tinted with the `colorHex` the catalog store answers, since a shirt
-line has no colour codes of its own. It is `null` for exactly the lines whose
+SPOD line shows the first listing image of its colour and, while that colour has
+none, a package icon tinted with the `colorHex` the catalog store answers, since
+a SPOD line has no colour codes of its own. It is `null` for exactly the lines whose
 names are `null`, the ones the catalog no longer resolves (issue #205).
 
 Nothing here pins how a guest cart becomes a user cart. The store refetches after
@@ -178,10 +181,10 @@ line and only resolve the article through the catalog store when they open the
 editor for a reorder or a redesign (issue #205).
 
 `POST /api/checkout` has one field error the storefront localizes itself, next to
-the unshippable country: a cart containing a t-shirt without a phone number is a
+the unshippable country: a cart containing a SPOD article without a phone number is a
 `400` keyed by the **nested** path `shippingAddress.phone`, not a bare `phone`,
 and it carries no `code` either. The checkout form therefore makes the phone
-field required as soon as `cartStore.hasTshirtItem` is true, and maps that path
+field required as soon as `cartStore.hasSpodItem` is true, and maps that path
 onto the same inline message (`docs/dev/backend/packages/checkout-package.md`).
 
 Status strings are uppercase on the wire and the TypeScript unions repeat them
@@ -271,20 +274,21 @@ filename or an id. All of them match the image module's routes
 
 | Frontend file | Built URL | Kotlin route | Closed by |
 | --- | --- | --- | --- |
-| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/{mugs\|tshirts}/variant-example-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97, #217 |
+| `lib/variantExampleImage.ts` | `/api/images/public/{size}/articles/mugs/variant-example-images/{filename}` and `/api/images/public/{size}/articles/spod/listing-images/{filename}` | `GET /api/images/public/{size}/{filename...}` | #97, #217, #260 |
+| `lib/variantExampleImage.ts` (`spodMockupImageUrl`) | `/api/images/public/{size}/articles/spod/mockups/{filename}` | same | #260 |
 | `lib/promptExampleImage.ts` | `/api/images/public/{size}/prompt-example-images/{filename}` | same | #99 |
 | `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | none |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
-| `lib/variantExampleImage.ts` (`sizeChartImageUrl`) | `/api/images/public/{size}/articles/tshirts/size-charts/{filename}` | same | #218 |
-| `components/shop/wizard/steps/SelectArticleStep.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` and `/api/images/public/1000/articles/tshirts/size-charts/{filename}` (via the two helpers in `lib/variantExampleImage.ts`) | same | #218 |
-| `components/shop/editor/ProductEditor.vue` | `/api/images/public/1000/articles/tshirts/variant-example-images/{filename}` (shirt mockup backdrop, via `lib/variantExampleImage.ts`) | same | #218 |
-| `components/shop/editor/ProductContextBar.vue` | `/api/images/public/200/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | same | #217 |
-| `components/shop/CartLineItem.vue` | `/api/images/public/400/articles/{type}/variant-example-images/{filename}` (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | none |
-| `components/shop/ProductCard.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (the `/products` grid card, via `lib/variantExampleImage.ts`) | same | #217 |
+| `lib/variantExampleImage.ts` (`sizeChartImageUrl`) | `/api/images/public/{size}/articles/spod/size-charts/{filename}` | same | #218, #260 |
+| `components/shop/wizard/steps/SelectArticleStep.vue` | the variant photo at 400 (a mug's example image, a SPOD colour's first listing image) and `/api/images/public/1000/articles/spod/size-charts/{filename}` (via the two helpers in `lib/variantExampleImage.ts`) | same | #218, #260 |
+| `components/shop/editor/ProductEditor.vue` | `/api/images/public/1000/articles/spod/mockups/{filename}` (the mockup of the selected colour as the backdrop, via `spodMockupImageUrl`) | same | #218, #260 |
+| `components/shop/editor/ProductContextBar.vue` | the variant photo at 200 (via `lib/variantExampleImage.ts`) | same | #217, #260 |
+| `components/shop/CartLineItem.vue` | the variant photo at 400 (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | #260 |
+| `components/shop/ProductCard.vue` | the variant photo at 400 (the `/products` grid card, one picture per card, via `lib/variantExampleImage.ts`) | same | #217, #260 |
 | `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
 | `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
-| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/{size}/articles/tshirts/variant-example-images/{filename}` (the calibrator mockup here, the variant thumbnails in its `AdminArticleTshirtVariantGroups`) and `/api/images/public/400/articles/tshirts/size-charts/{filename}` (both files now written by the sync, not by an upload) | same | #220, #231 |
+| `views/admin/SpodArticleEditView.vue` | `/api/images/public/1000/articles/spod/mockups/{filename}` (the mockup the read-only print frame is drawn on, via `spodMockupImageUrl`), `/api/images/public/{size}/articles/spod/listing-images/{filename}` (the variant thumbnails in its `AdminArticleSpodVariantGroups`), and `/api/images/public/400/articles/spod/size-charts/{filename}` (all written by the sync, not by an upload) | same | #220, #231, #260 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
@@ -354,7 +358,7 @@ uploaded first, to `…/subcategories/example-images`, which answers the stored
 name; the write then names it. The legacy `FormData` with a `removeExampleImage`
 flag is gone. Removing the image is `exampleImageFilename: null`.
 
-## Admin: mugs and t-shirts
+## Admin: mugs and SPOD articles
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
@@ -365,11 +369,11 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 | `stores/admin/mugArticles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
 | `stores/admin/mugArticles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
 | `stores/admin/mugArticles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
-| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220, #228 |
-| `stores/admin/tshirtArticles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
+| `stores/admin/spodArticles.ts` | `GET /api/admin/articles/spod` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `GET /api/admin/articles/spod/{id}` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `PUT /api/admin/articles/spod/{id}` | same | #220, #228, #260 |
+| `stores/admin/spodArticles.ts` | `DELETE /api/admin/articles/spod/{id}` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `PUT /api/admin/articles/spod/order` | same | #220, #260 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
@@ -377,41 +381,42 @@ Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
-The t-shirt family used to be that same shape a second time. Since the catalog sync it
-is **five rows instead of eight**: a shirt is created by a sync run against the
-Spreadconnect backoffice, so the store has no create action and no upload
-action, and the two pre-uploads and the `POST` are gone from the backend as
-well (a create attempt answers `405`, the upload paths `404`). What the shirt
-store *does* have is the pair of sync fields on its list row (`syncedAt`,
+The SPOD article family (the t-shirt family until #260) used to be that same
+shape a second time. Since the catalog sync it is **five rows instead of
+eight**: a SPOD article is created by a sync run against the Spreadconnect
+backoffice, so the store has no create action and no upload action, and the two
+pre-uploads and the `POST` are gone from the backend as well (a create attempt
+answers `405`, the upload paths `404`). What the SPOD store *does* have is the pair of sync fields on its list row (`syncedAt`,
 `missingAtSpreadconnect`) and the `sync` block on the detail read. The sync
 itself is triggered on the destination, so its row is in
 [Admin: production jobs and supplier logins](#admin-production-jobs-and-supplier-logins).
 
 The admin surface still mirrors the per-type routes all the way
 up: one store per type (`stores/admin/mugArticles.ts`,
-`stores/admin/tshirtArticles.ts`, sharing the list row shape and the error
+`stores/admin/spodArticles.ts`, sharing the list row shape and the error
 classes in `stores/admin/articles.ts`; only the mug store uses its pre-upload
 helper) and one list page per
-type (`/admin/articles/mugs`, `/admin/articles/tshirts`). Nothing merges the
+type (`/admin/articles/mugs`, `/admin/articles/spod`). Nothing merges the
 types, so no request and no response needs an `articleType` — a page always
 knows which type it is showing. Positions count per type, and `PUT …/order`
 moves an article only within its own type.
 
-The shirt's `PUT` body is the shop-owned half of a synced article and nothing
-else: `active`, `categoryId`, `subcategoryId`, `printAspectRatio` (`16:9` or
-`1:1`, defaulted to the square chest print when omitted), the nested
-`printFrame` of four percentages, `defaultVariantId`, and `price`. Name,
-descriptions, supplier, size chart, and the whole variant array are
-response-only — a sync run owns them, and a client that still sends them is
-ignored rather than rejected. There is no `supplierArticleName` and no
-`supplierArticleNumber` on a shirt: it is ordered from the print-on-demand
-partner by the three `spod*` ids of its variant.
+The SPOD article's `PUT` body is the shop-owned half of a synced article and
+nothing else: `active`, `categoryId`, `subcategoryId`, `defaultVariantId`, and
+`price`. Name, product type, descriptions, supplier, size chart, colours
+(`appearances`), the variant array (`spodVariants`), and the print frame with its
+`hotspot` are response-only — a sync run owns them, and a client that still
+sends them is ignored rather than rejected. The print frame is measured by the
+sync, never edited, so it is `null` when the sync could not measure it, and
+activating such an article answers `400` with a field error on `active`. There
+is no `supplierArticleName` and no `supplierArticleNumber` on a SPOD article: it
+is ordered from the print-on-demand partner by the three `spod*` ids of its
+variant.
 
-The image URLs a shirt renders are unchanged
-(`articles/tshirts/variant-example-images/…` and
-`articles/tshirts/size-charts/…` under `GET /api/images/public/{size}/…`); only
-who *writes* those files changed — the sync downloads them from the partner
-instead of an admin uploading them.
+The images a SPOD article renders live under `articles/spod/…` (`mockups/`,
+`listing-images/`, `size-charts/`, all under `GET /api/images/public/{size}/…`);
+the sync downloads every one of them from the partner instead of an admin
+uploading them.
 
 ## Admin: prompt categories and subcategories
 
@@ -523,9 +528,9 @@ wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
 
 The five CRUD destination routes were dispositioned as "no admin UI" until
-the t-shirt work needed one (#205): a SPOD destination is how a shirt order
-reaches the print-on-demand partner, so an operator has to be able to enter and
-rotate that account. Their bodies are **asymmetric in one direction only**: a
+the t-shirt work needed one (#205): a SPOD destination is how an order of a
+SPOD article reaches the print-on-demand partner, so an operator has to be
+able to enter and rotate that account. Their bodies are **asymmetric in one direction only**: a
 request carries the secret of its channel (the SFTP password, the SPOD access
 token) and no response ever carries either one back, which is why the store's
 response types have no field for them at all. Which detail block belongs to a
@@ -539,9 +544,11 @@ Spreadconnect* button `views/admin/ProductionDestinationsView.vue` shows on
 every SPOD row, enabled and disabled alike. The store holds the per-destination
 loading state and the last report; the request is synchronous and may take a
 while, so the button stays disabled while it runs and there is no polling. The
-`200` answer is the run's report — counts for created, updated, unchanged,
-deactivated, and failed, an expandable warning list of code, article, and
-detail, and a destructive alert with the bounded failure code when the run's
+`200` answer is the run's report (`SpodSyncReport`) — counts for created,
+updated, unchanged, deactivated, and failed, the hotspot the run chose for each
+created and updated article, a destructive alert naming the articles whose print
+frame could not be measured (`CALIBRATION_FAILED`), an expandable warning list of
+code, article, and detail, and a destructive alert with the bounded failure code when the run's
 status is `FAILED`. This route's `409` is the second one of the family and
 means something else than the delete's: either the destination is not a SPOD
 one (`CHANNEL_WITHOUT_CATALOG`) or a run of it is still working
@@ -594,7 +601,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 140 |
+| Frontend rows, all matching | 141 |
 | Backend routes with no caller, all dispositioned | 10 |
 | Call sites with an open contract gap | 0 |
 
@@ -607,5 +614,7 @@ t-shirt routes and the five destination ones, and took the same five off the
 uncalled list. The synced t-shirt catalog (#224) subtracted four rows — the create route and
 the two pre-uploads no longer exist, and neither does the variant editor whose
 thumbnails were the fourth — and added the destination's `sync-articles`, which
-is how 143 became 140. Keep it that way: a new `/api/…` literal belongs in this file in
+is how 143 became 140. The generic SPOD article (#260) renamed the storefront
+route to `GET /api/articles/spod` and added the mockup folder of
+`spodMockupImageUrl`, which is how 140 became 141. Keep it that way: a new `/api/…` literal belongs in this file in
 the same commit that introduces it.

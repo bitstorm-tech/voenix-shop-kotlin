@@ -8,12 +8,12 @@ import shop.voenix.validation.ValidationErrorsBuilder
  *
  * They are module-local on purpose: there is no platform-wide `requiredText` or `positiveId`,
  * because a message text is part of the HTTP contract of the module that sends it and the modules
- * do not word these rules alike. Inside this module they do — the mug and the shirt slice were
+ * do not word these rules alike. Inside this module they do — the mug and the SPOD slice were
  * written from the same matrix — so a single declaration here is what keeps them from drifting
  * apart silently.
  *
  * [field] is the key the error is reported under, which for an entry of a variant array is the
- * whole path including the index, such as `tshirtVariants[0].colorName`.
+ * whole path including the index, such as `mugVariants[0].name`.
  */
 internal fun ValidationErrorsBuilder.requiredText(
     field: String,
@@ -35,22 +35,6 @@ internal fun ValidationErrorsBuilder.positiveId(
     value: Long?,
 ) {
     if (value != null && value <= 0) add(field, "$displayName must be positive")
-}
-
-/**
- * The submitted ratio must be one this shop prints. The message names the supported ones, because
- * they are a closed pair a client cannot look up anywhere else. An absent field is no error: each
- * article type falls back to the ratio it is printed in by default.
- */
-internal fun ValidationErrorsBuilder.addPrintAspectRatioError(printAspectRatio: String?) {
-    val submitted = printAspectRatio?.trim() ?: return
-    if (PrintAspectRatio.ofWireValue(submitted) == null) {
-        add(
-            "printAspectRatio",
-            "PrintAspectRatio must be one of " +
-                PrintAspectRatio.entries.joinToString { ratio -> ratio.wireValue },
-        )
-    }
 }
 
 /**

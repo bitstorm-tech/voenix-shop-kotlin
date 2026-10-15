@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { shallowRef, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeftRight, RefreshCw, Ruler, Shirt } from 'lucide-vue-next'
+import { ArrowLeftRight, Package, RefreshCw, Ruler } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -17,15 +17,17 @@ import ProductCard from '@/components/shop/ProductCard.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import {
+  appearanceOf,
   isMug,
-  isTshirt,
+  isSpodArticle,
   useCatalogStore,
+  variantPhotoFilename,
   type MugDto,
   type MugVariantDto,
   type ShopArticle,
   type ShopArticleVariant,
-  type TshirtDto,
-  type TshirtVariantDto,
+  type SpodArticleDto,
+  type SpodVariantDto,
 } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
@@ -77,9 +79,9 @@ const selectedMug = computed<MugDto | null>(() => {
   return article !== null && isMug(article) ? article : null
 })
 
-const selectedTshirt = computed<TshirtDto | null>(() => {
+const selectedSpodArticle = computed<SpodArticleDto | null>(() => {
   const article = selectedArticle.value
-  return article !== null && isTshirt(article) ? article : null
+  return article !== null && isSpodArticle(article) ? article : null
 })
 
 // The selected variant always comes from the selected article's own variant list, a correlation
@@ -89,42 +91,35 @@ const selectedMugVariant = computed<MugVariantDto | null>(() =>
   selectedMug.value !== null ? (selectedVariant.value as MugVariantDto | null) : null,
 )
 
-const selectedTshirtVariant = computed<TshirtVariantDto | null>(() =>
-  selectedTshirt.value !== null ? (selectedVariant.value as TshirtVariantDto | null) : null,
+const selectedSpodVariant = computed<SpodVariantDto | null>(() =>
+  selectedSpodArticle.value !== null ? (selectedVariant.value as SpodVariantDto | null) : null,
 )
 
-/** One swatch per shirt *colour*: a shirt offers the same colour once per size. */
-const tshirtColors = computed(() => {
-  const article = selectedTshirt.value
-  if (!article) return []
-
-  const colors = new Map<string, { colorName: string; colorHex: string }>()
-  for (const variant of article.variants) {
-    if (!colors.has(variant.colorName)) {
-      colors.set(variant.colorName, { colorName: variant.colorName, colorHex: variant.colorHex })
-    }
-  }
-
-  return [...colors.values()]
+const selectedAppearance = computed(() => {
+  const article = selectedSpodArticle.value
+  const variant = selectedSpodVariant.value
+  return article && variant ? appearanceOf(article, variant) : null
 })
 
 /** The sizes the selected colour is offered in, in the order the catalog lists them. */
-const tshirtSizes = computed<TshirtVariantDto[]>(() => {
-  const article = selectedTshirt.value
-  const selectedColorName = selectedTshirtVariant.value?.colorName
-  if (!article || selectedColorName === undefined) return []
+const spodSizes = computed<SpodVariantDto[]>(() => {
+  const article = selectedSpodArticle.value
+  const appearanceId = selectedSpodVariant.value?.appearanceId
+  if (!article || appearanceId === undefined) return []
 
-  return article.variants.filter((variant) => variant.colorName === selectedColorName)
+  return article.variants.filter((variant) => variant.appearanceId === appearanceId)
 })
 
 const sizeChartUrl = computed(() => {
-  const filename = selectedTshirt.value?.sizeChartImageFilename
+  const filename = selectedSpodArticle.value?.sizeChartImageFilename
   return filename ? sizeChartImageUrl(filename, 1000) : null
 })
 
+/** A mug variant shows its own photo, a SPOD variant the first listing image of its colour. */
 const selectedImageUrl = computed(() => {
   const article = selectedArticle.value
-  const filename = selectedVariant.value?.exampleImageFilename
+  const variant = selectedVariant.value
+  const filename = article && variant ? variantPhotoFilename(article, variant) : null
   if (!article || !filename) return null
 
   return variantExampleImageUrl(article.articleType, filename, 400)
@@ -153,12 +148,14 @@ function onSelectVariant(article: ShopArticle, variantId: number) {
 }
 
 /** A colour switch keeps the selected size whenever that colour is offered in it. */
-function onSelectTshirtColor(colorName: string) {
-  const article = selectedTshirt.value
+function onSelectSpodAppearance(appearanceId: number) {
+  const article = selectedSpodArticle.value
   if (!article) return
 
-  const selectedSize = selectedTshirtVariant.value?.size
-  const variantsOfColor = article.variants.filter((variant) => variant.colorName === colorName)
+  const selectedSize = selectedSpodVariant.value?.size
+  const variantsOfColor = article.variants.filter(
+    (variant) => variant.appearanceId === appearanceId,
+  )
   const variant =
     variantsOfColor.find((item) => item.size === selectedSize) ?? variantsOfColor[0] ?? null
   if (!variant) return
@@ -225,9 +222,9 @@ onMounted(async () => {
           />
         </div>
         <div v-else class="relative z-[2] flex size-full items-center justify-center">
-          <Shirt
+          <Package
             class="size-28 sm:size-32"
-            :style="{ color: selectedTshirtVariant?.colorHex ?? undefined }"
+            :style="{ color: selectedAppearance?.colorHex ?? undefined }"
             aria-hidden="true"
           />
         </div>
@@ -264,33 +261,33 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Shirt color variants -->
-        <div v-if="selectedTshirt && tshirtColors.length > 1" class="mt-4">
+        <!-- SPOD colours -->
+        <div v-if="selectedSpodArticle && selectedSpodArticle.appearances.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.colors') }}
           </p>
-          <div class="flex flex-wrap gap-2" data-testid="wizard-tshirt-colors">
+          <div class="flex flex-wrap gap-2" data-testid="wizard-spod-colors">
             <SwatchButton
-              v-for="color in tshirtColors"
-              :key="color.colorName"
+              v-for="appearance in selectedSpodArticle.appearances"
+              :key="appearance.id"
               class="size-6 p-0 transition-transform data-[state=selected]:scale-110 data-[state=unselected]:hover:scale-105"
-              :color="color.colorHex"
-              :label="color.colorName"
-              :selected="selectedTshirtVariant?.colorName === color.colorName"
-              :title="color.colorName"
-              @click="onSelectTshirtColor(color.colorName)"
+              :color="appearance.colorHex"
+              :label="appearance.colorName"
+              :selected="selectedSpodVariant?.appearanceId === appearance.id"
+              :title="appearance.colorName"
+              @click="onSelectSpodAppearance(appearance.id)"
             />
           </div>
         </div>
 
-        <!-- Shirt sizes -->
-        <div v-if="selectedTshirt && tshirtSizes.length > 0" class="mt-4">
+        <!-- SPOD sizes: one size is no choice, so it gets neither buttons nor a size chart -->
+        <div v-if="selectedSpodArticle && spodSizes.length > 1" class="mt-4">
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.sizes') }}
           </p>
-          <div class="flex flex-wrap gap-2" data-testid="wizard-tshirt-sizes">
+          <div class="flex flex-wrap gap-2" data-testid="wizard-spod-sizes">
             <Button
-              v-for="variant in tshirtSizes"
+              v-for="variant in spodSizes"
               :key="variant.id"
               type="button"
               variant="outline"
@@ -298,7 +295,7 @@ onMounted(async () => {
               class="min-w-11"
               :class="{ 'border-primary text-primary': selectedVariant.id === variant.id }"
               :aria-pressed="selectedVariant.id === variant.id"
-              @click="onSelectVariant(selectedTshirt, variant.id)"
+              @click="onSelectVariant(selectedSpodArticle, variant.id)"
             >
               {{ variant.size }}
             </Button>

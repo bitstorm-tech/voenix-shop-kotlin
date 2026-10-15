@@ -135,8 +135,8 @@ inputs, a small helper does the mapping. See
 [`lib/adminArticleErrors.ts`](../../../frontend/src/lib/adminArticleErrors.ts)
 for the pattern. That module carries one mapping per article type: a mug's
 `mugDetails.heightMm` folds onto the `heightMm` input of the details section, while a
-shirt's `printFrame.widthPct` keeps its whole path, because the calibrator has one
-input per percentage and the path is already the name of that input.
+SPOD article only knows its four shop-owned fields (`active`, `categoryId`,
+`subcategoryId`, `defaultVariantId`) and sends every other path into the summary.
 
 ## CSRF: handled for you, except where the backend does not ask
 
@@ -193,14 +193,14 @@ compare them line by line.
 There is exactly one deliberate exception, and it is worth knowing because it
 looks like the adapter layer this rule forbids: the **shop catalog store stamps
 `articleType` onto what it returns**. The article routes are one family per
-type (`/api/articles/mugs`, `/api/articles/tshirts`), so the type is the *path*
+type (`/api/articles/mugs`, `/api/articles/spod`), so the type is the *path*
 and not a field of the body. `stores/shop/catalog.ts` reads both families and
 merges them into one catalog, which would otherwise hand the UI a union nothing
 can narrow. Stamping the discriminator the path already stated is not renaming a
 field; it is writing down which request the row came from, and `ShopArticle` is
 a discriminated union over that tag. The admin surface does not need the stamp:
 it has one store and one list page per type (`stores/admin/mugArticles.ts`,
-`stores/admin/tshirtArticles.ts`), so nothing there ever merges the types.
+`stores/admin/spodArticles.ts`), so nothing there ever merges the types.
 
 The same applies to values. Statuses are uppercase on the wire, so the unions are
 uppercase:

@@ -51,7 +51,7 @@ function parseRouteNumberParam(value?: LocationQueryValue | LocationQueryValue[]
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
-const ARTICLE_TYPES: ShopArticleType[] = ['MUG', 'TSHIRT']
+const ARTICLE_TYPES: ShopArticleType[] = ['MUG', 'SPOD']
 
 /** The optional type narrows the grid to one article type; anything else reads as "all types". */
 function parseArticleTypeParam(

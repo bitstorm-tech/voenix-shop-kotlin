@@ -6,10 +6,10 @@ import { ApiError, fetchForm, type ApiFieldErrors } from '@/lib/api'
  * the pieces all of them use: the list row shape, the error classes, the error mapping, and the
  * image pre-upload.
  *
- * The per-type stores are `stores/admin/mugArticles.ts` and `stores/admin/tshirtArticles.ts`. A new
+ * The per-type stores are `stores/admin/mugArticles.ts` and `stores/admin/spodArticles.ts`. A new
  * article type gets a new store next to them.
  */
-export type AdminArticleType = 'MUG' | 'TSHIRT'
+export type AdminArticleType = 'MUG' | 'SPOD'
 
 /**
  * One row of an admin article overview, exactly as a type route answers it.
@@ -42,9 +42,9 @@ export interface AdminArticleListItemDto {
 /**
  * What a **synced** type adds to its list rows.
  *
- * Only the t-shirt list carries them: a shirt has two owners since the catalog sync, so its
- * overview has to say how current the garment data is ([syncedAt]) and warn about a shirt the
- * print-on-demand partner no longer lists. A mug has one owner and carries neither field.
+ * Only the SPOD list carries them: a SPOD article has two owners, so its overview has to say
+ * how current the partner's data is ([syncedAt]) and warn about an article the print-on-demand
+ * partner no longer lists. A mug has one owner and carries neither field.
  */
 export interface AdminArticleSyncListFields {
   syncedAt: string
@@ -72,8 +72,8 @@ export class ArticleNotFoundError extends Error {
  *
  * Apart from the reorder, an article write has no `409` at all: every reference problem is a field
  * error here. The keys are JSON paths of the submitted body — `categoryId`, `subcategoryId`,
- * `supplierId`, `mugVariants` / `tshirtVariants`, `price`, `printFrame.widthPct`, and
- * `tshirtVariants[0].colorHex` for one variant. A rejected pre-upload sits on `file`.
+ * `supplierId`, `mugVariants`, `price`, `active`, and
+ * `mugVariants[0].exampleImageFilename` for one variant. A rejected pre-upload sits on `file`.
  */
 export class InvalidArticleRequestError extends Error {
   readonly fieldErrors: ApiFieldErrors

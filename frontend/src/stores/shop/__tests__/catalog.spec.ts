@@ -1,7 +1,17 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useCatalogStore, type MugDto, type TshirtDto } from '@/stores/shop/catalog'
-import { createShopMug as makeMug, createShopTshirt as makeTshirt } from '@/testing/shopCatalog'
+import {
+  useCatalogStore,
+  variantPhotoFilename,
+  type MugDto,
+  type SpodArticleDto,
+} from '@/stores/shop/catalog'
+import {
+  createMugVariant,
+  createShopMug as makeMug,
+  createShopTee as makeTee,
+  createSpodAppearance,
+} from '@/testing/shopCatalog'
 import { resetApiClientForTests } from '@/lib/api'
 
 /** The document of `GET /api/articles/mugs`, verbatim from `docs/dev/backend/packages/article-package.md`. */
@@ -41,10 +51,10 @@ const PUBLIC_MUG_RESPONSE = [
   },
 ] satisfies MugDto[]
 
-/** The document of `GET /api/articles/tshirts`, from the same guide. */
-const PUBLIC_TSHIRT_RESPONSE = [
+/** The document of `GET /api/articles/spod`, from the same guide. */
+const PUBLIC_SPOD_RESPONSE = [
   {
-    articleType: 'TSHIRT',
+    articleType: 'SPOD',
     id: 31,
     position: 1,
     name: 'Classic tee',
@@ -52,24 +62,23 @@ const PUBLIC_TSHIRT_RESPONSE = [
     descriptionLong: 'A classic heavy cotton tee',
     categoryId: 8,
     subcategoryId: 51,
-    price: 1990,
-    regularPrice: null,
-    printAspectRatio: '16:9',
-    sizeChartImageFilename: '0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp',
-    printFrame: { leftPct: 25.0, topPct: 20.0, widthPct: 50.0, heightPct: 40.5 },
-    variants: [
+    price: 1592,
+    regularPrice: 1990,
+    productTypeName: "Men's Tee",
+    sizeChartImageFilename: null,
+    printFrame: { leftPct: 35.6, topPct: 18.9, widthPct: 28.4, heightPct: 28.4 },
+    appearances: [
       {
-        id: 88,
-        name: 'Black / M',
+        id: 3,
         colorName: 'Black',
         colorHex: '#101010',
-        size: 'M',
-        isDefault: true,
-        exampleImageFilename: '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.webp',
+        mockupImageFilename: '7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp',
+        listingImageFilenames: ['8b1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d.webp'],
       },
     ],
+    variants: [{ id: 88, name: 'Black / M', appearanceId: 3, size: 'M', isDefault: true }],
   },
-] satisfies TshirtDto[]
+] satisfies SpodArticleDto[]
 
 /** Answers each catalog route with its own body, so a merged read can be told apart. */
 function omitArticleType<T extends { articleType: string }>(row: T): Omit<T, 'articleType'> {
@@ -81,7 +90,7 @@ function omitArticleType<T extends { articleType: string }>(row: T): Omit<T, 'ar
 function stubCatalogFetch(
   bodies: Record<string, unknown> = {
     '/api/articles/mugs': PUBLIC_MUG_RESPONSE,
-    '/api/articles/tshirts': PUBLIC_TSHIRT_RESPONSE,
+    '/api/articles/spod': PUBLIC_SPOD_RESPONSE,
   },
   init: ResponseInit = {},
 ) {
@@ -116,27 +125,27 @@ describe('shop catalog store', () => {
     await store.fetchArticles()
 
     expect(fetchMock).toHaveBeenCalledWith('/api/articles/mugs')
-    expect(fetchMock).toHaveBeenCalledWith('/api/articles/tshirts')
+    expect(fetchMock).toHaveBeenCalledWith('/api/articles/spod')
     // Both requests are in flight before either answer is awaited.
     expect(fetchMock.mock.invocationCallOrder[1]! - fetchMock.mock.invocationCallOrder[0]!).toBe(1)
-    expect(store.articles).toEqual([...PUBLIC_MUG_RESPONSE, ...PUBLIC_TSHIRT_RESPONSE])
+    expect(store.articles).toEqual([...PUBLIC_MUG_RESPONSE, ...PUBLIC_SPOD_RESPONSE])
     expect(store.mugs).toEqual(PUBLIC_MUG_RESPONSE)
-    expect(store.tshirts).toEqual(PUBLIC_TSHIRT_RESPONSE)
+    expect(store.spodArticles).toEqual(PUBLIC_SPOD_RESPONSE)
     expect(store.error).toBeNull()
   })
 
   it('stamps the discriminator from the route a row came from', async () => {
     const store = useCatalogStore()
     const mugWithoutType = omitArticleType(PUBLIC_MUG_RESPONSE[0]!)
-    const tshirtWithoutType = omitArticleType(PUBLIC_TSHIRT_RESPONSE[0]!)
+    const spodWithoutType = omitArticleType(PUBLIC_SPOD_RESPONSE[0]!)
     stubCatalogFetch({
       '/api/articles/mugs': [mugWithoutType],
-      '/api/articles/tshirts': [tshirtWithoutType],
+      '/api/articles/spod': [spodWithoutType],
     })
 
     await store.fetchArticles()
 
-    expect(store.articles.map((article) => article.articleType)).toEqual(['MUG', 'TSHIRT'])
+    expect(store.articles.map((article) => article.articleType)).toEqual(['MUG', 'SPOD'])
   })
 
   it('answers an article lookup by id', async () => {
@@ -146,7 +155,7 @@ describe('shop catalog store', () => {
     await store.fetchArticles()
 
     expect(store.getArticleById(12)).toEqual(PUBLIC_MUG_RESPONSE[0])
-    expect(store.getArticleById(31)).toEqual(PUBLIC_TSHIRT_RESPONSE[0])
+    expect(store.getArticleById(31)).toEqual(PUBLIC_SPOD_RESPONSE[0])
     expect(store.getArticleById(999)).toBeUndefined()
   })
 
@@ -163,7 +172,7 @@ describe('shop catalog store', () => {
   it('fails the whole read when one of the two routes fails', async () => {
     const store = useCatalogStore()
     const fetchMock = vi.fn(async (input: string) =>
-      input === '/api/articles/tshirts'
+      input === '/api/articles/spod'
         ? new Response(JSON.stringify({ message: 'Internal server error' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -185,16 +194,16 @@ describe('shop catalog store', () => {
     const store = useCatalogStore()
     store.articles = [
       makeMug({ id: 10, position: 1, categoryId: 7 }),
-      makeTshirt({ id: 20, position: 2, categoryId: 7 }),
-      makeTshirt({ id: 30, position: 3, categoryId: 8 }),
+      makeTee({ id: 20, position: 2, categoryId: 7 }),
+      makeTee({ id: 30, position: 3, categoryId: 8 }),
     ]
 
     expect(store.getDisplayArticles(null).map((article) => article.id)).toEqual([10, 20, 30])
     expect(store.getDisplayArticles(null, null, 'MUG').map((article) => article.id)).toEqual([10])
-    expect(store.getDisplayArticles(null, null, 'TSHIRT').map((article) => article.id)).toEqual([
+    expect(store.getDisplayArticles(null, null, 'SPOD').map((article) => article.id)).toEqual([
       20, 30,
     ])
-    expect(store.getDisplayArticles(7, null, 'TSHIRT').map((article) => article.id)).toEqual([20])
+    expect(store.getDisplayArticles(7, null, 'SPOD').map((article) => article.id)).toEqual([20])
   })
 
   it('orders an unfiltered display list by position and then ID without reordering the source', () => {
@@ -234,7 +243,7 @@ describe('shop catalog store', () => {
     store.articles = [
       makeMug({ id: 30, position: 1, name: 'Zulu', categoryId: 10, subcategoryId: 100 }),
       makeMug({ id: 20, position: 4, name: 'Alpha', categoryId: 10, subcategoryId: 100 }),
-      makeTshirt({ id: 10, position: 3, name: 'Alpha', categoryId: 10, subcategoryId: 100 }),
+      makeTee({ id: 10, position: 3, name: 'Alpha', categoryId: 10, subcategoryId: 100 }),
       makeMug({ id: 40, position: 2, name: 'Bravo', categoryId: 10, subcategoryId: 200 }),
     ]
     const sourceOrder = store.articles.map((article) => article.id)
@@ -259,7 +268,7 @@ describe('shop catalog store', () => {
 
     store.articles = [
       ...store.articles,
-      makeTshirt({ id: 20, position: 2, name: 'Bravo', categoryId: 20, subcategoryId: 200 }),
+      makeTee({ id: 20, position: 2, name: 'Bravo', categoryId: 20, subcategoryId: 200 }),
     ]
 
     expect(store.getDisplayArticles(null).map((article) => article.id)).toEqual([10, 20, 30])
@@ -274,5 +283,23 @@ describe('shop catalog store', () => {
 
     expect(store.articles).toHaveLength(1)
     expect(store.getArticleById(7)?.name).toBe('Second')
+  })
+})
+
+describe('variantPhotoFilename', () => {
+  it('answers the own photo of a mug variant and the first listing image of a SPOD colour', () => {
+    const mug = makeMug({ variants: [createMugVariant({ exampleImageFilename: 'mug-red.webp' })] })
+    const tee = makeTee({
+      appearances: [
+        createSpodAppearance({ id: 201 }),
+        createSpodAppearance({ id: 202, listingImageFilenames: [] }),
+      ],
+    })
+
+    expect(variantPhotoFilename(mug, mug.variants[0]!)).toBe('mug-red.webp')
+    expect(variantPhotoFilename(tee, tee.variants.find((v) => v.appearanceId === 201)!)).toBe(
+      'listing-201-front.webp',
+    )
+    expect(variantPhotoFilename(tee, tee.variants.find((v) => v.appearanceId === 202)!)).toBeNull()
   })
 })

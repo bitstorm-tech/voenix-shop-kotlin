@@ -2,9 +2,9 @@ package shop.voenix.production
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import shop.voenix.article.tshirt.TshirtCatalogSync
-import shop.voenix.article.tshirt.TshirtSyncReport
-import shop.voenix.article.tshirt.TshirtSyncResult
+import shop.voenix.article.spod.SpodCatalogSync
+import shop.voenix.article.spod.SpodSyncReport
+import shop.voenix.article.spod.SpodSyncResult
 import shop.voenix.operation.OperationResult
 import shop.voenix.operation.databaseOperation
 import shop.voenix.production.delivery.ProductionChannels
@@ -35,7 +35,7 @@ import shop.voenix.validation.buildValidationErrors
 internal class ProductionDestinationService(
     private val repository: ProductionDestinationRepository,
     private val spodConfigured: Boolean,
-    private val tshirtCatalogSync: TshirtCatalogSync,
+    private val spodCatalogSync: SpodCatalogSync,
 ) : ProductionDestinationOperations {
     override suspend fun list(): OperationResult<List<ProductionDestination>> =
         logger.databaseOperation(
@@ -111,7 +111,7 @@ internal class ProductionDestinationService(
 
     /**
      * Reads the destination and hands its catalog source to the article module's sync, which does
-     * the whole run before this call returns (t-shirt sync decision 5).
+     * the whole run before this call returns (SPOD sync decision 5).
      *
      * The run is not wrapped in a transaction and opens none: every write it makes belongs to the
      * article module. What this service contributes is the one destination read the sync cannot do
@@ -120,17 +120,16 @@ internal class ProductionDestinationService(
      */
     override suspend fun syncArticles(id: Long): DestinationSyncResult =
         logger.databaseOperation(
-            "Failed to sync the t-shirt catalog of production destination $id",
+            "Failed to sync the SPOD article catalog of production destination $id",
             DestinationSyncResult.Failed,
         ) {
             when (val lookup = repository.catalogSource(id)) {
                 ProductionDestinationCatalogSource.NotFound -> DestinationSyncResult.NotFound
                 ProductionDestinationCatalogSource.NotSyncable -> DestinationSyncResult.NotSyncable
                 is ProductionDestinationCatalogSource.Found ->
-                    when (val result = tshirtCatalogSync.sync(lookup.source)) {
-                        is TshirtSyncResult.Reported ->
-                            DestinationSyncResult.Reported(result.report)
-                        TshirtSyncResult.Busy -> DestinationSyncResult.Busy
+                    when (val result = spodCatalogSync.sync(lookup.source)) {
+                        is SpodSyncResult.Reported -> DestinationSyncResult.Reported(result.report)
+                        SpodSyncResult.Busy -> DestinationSyncResult.Busy
                     }
             }
         }
@@ -285,7 +284,7 @@ internal interface ProductionDestinationOperations {
  * run, because reading the destination threw.
  */
 internal sealed interface DestinationSyncResult {
-    data class Reported(val report: TshirtSyncReport) : DestinationSyncResult
+    data class Reported(val report: SpodSyncReport) : DestinationSyncResult
 
     data object NotFound : DestinationSyncResult
 

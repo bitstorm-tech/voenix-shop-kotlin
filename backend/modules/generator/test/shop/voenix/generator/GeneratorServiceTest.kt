@@ -54,7 +54,8 @@ internal class GeneratorServiceTest {
 
     /**
      * The shape the article is printed in is what the provider is asked for, in the article's own
-     * wire spelling — a mug is wide, a t-shirt is square, and nothing in between translates it.
+     * wire spelling — a mug is wide, a SPOD article is square, and nothing in between translates
+     * it.
      */
     @Test
     fun `the article's print aspect ratio is what the generator is asked for`() = runBlocking {

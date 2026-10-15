@@ -35,7 +35,7 @@ internal class PublicArticleCategoryRepository(private val database: Database) {
  * it uses when it has one.
  *
  * Reducing both queries to this shape before merging is what makes the merge type-agnostic — the
- * mug and the shirt query select the same seven category columns, so nothing below this line knows
+ * mug and the SPOD query select the same seven category columns, so nothing below this line knows
  * which table a row came from.
  */
 private data class NavigationRow(
@@ -57,13 +57,16 @@ private class NavigationCategory(
  * tie-breaker on both levels.
  *
  * The sort happens here rather than in the queries, because two ordered answers do not merge into
- * an ordered one: a category that only shirts use has to take its place among the categories that
- * only mugs use.
+ * an ordered one: a category that only SPOD articles use has to take its place among the categories
+ * that only mugs use.
  */
 private fun listInTransaction(): List<PublicArticleCategory> {
     val rows =
         navigationRowsInTransaction(visibleMugsWithCategories(), visibleMugCondition()) +
-            navigationRowsInTransaction(visibleTshirtsWithCategories(), visibleTshirtCondition())
+            navigationRowsInTransaction(
+                visibleSpodArticlesWithCategories(),
+                visibleSpodArticleCondition(),
+            )
 
     val categories = LinkedHashMap<Long, NavigationCategory>()
     rows.forEach { row ->

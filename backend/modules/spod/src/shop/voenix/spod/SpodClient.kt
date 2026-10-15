@@ -41,11 +41,12 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 /**
- * The one place in this backend that knows the print-on-demand partner's HTTP API. Eight calls go
- * out — five that produce an order (upload a design, create it, read it, confirm it, ask which
- * placements a product type offers for a design) and three that read the merchant's catalog (list
- * the articles, read a size chart, download one of the images those answers point at) — and
- * everything that can come back other than a usable answer becomes a bounded [SpodError].
+ * The one place in this backend that knows the print-on-demand partner's HTTP API. Ten calls go out
+ * — five that produce an order (upload a design, create it, read it, confirm it, ask which
+ * placements a product type offers for a design), three that read the merchant's catalog (list the
+ * articles, read a size chart, download one of the images those answers point at), and two that
+ * calibrate a product type (read its views, render a preview of a design on it) — and everything
+ * that can come back other than a usable answer becomes a bounded [SpodError].
  *
  * Four rules shape every line of it.
  *
@@ -71,10 +72,10 @@ import org.slf4j.LoggerFactory
  * serves every supplier — and paces all of them together, which is what a per-account rate limit
  * deserves the day a shop grows a second account.
  *
- * [download] is the one documented exception to the last rule (t-shirt sync decision 5): its URL
- * comes out of an answer the partner gave this shop, not out of [SpodEnvironment]. It is bounded
- * instead — https only, no token, images only, [MAX_IMAGE_BYTES] at most — and it is not paced,
- * because a CDN is not the rate-limited API.
+ * [download] is the one documented exception to the last rule (SPOD sync decision 5): its URL comes
+ * out of an answer the partner gave this shop, not out of [SpodEnvironment]. It is bounded instead
+ * — https only, no token, images only, [MAX_IMAGE_BYTES] at most — and it is not paced, because a
+ * CDN is not the rate-limited API.
  */
 public class SpodClient
 private constructor(
@@ -202,8 +203,8 @@ private constructor(
         }
 
     /**
-     * One page of the merchant's backoffice articles — the source of truth for every synced t-shirt
-     * (t-shirt sync decision 1).
+     * One page of the merchant's backoffice articles — the source of truth for every synced SPOD
+     * article (SPOD sync decision 1).
      *
      * Paging is the caller's: the answer carries the total [SpodCatalogPage.count], and the sync
      * asks for the next [offset] until it has seen them all. Doing it here would hide from the sync
@@ -237,6 +238,39 @@ private constructor(
             client
                 .get(access.url("/productTypes/$productTypeId/size-chart")) { spodRequest(access) }
                 .answered { body -> JSON.decodeFromString<SpodSizeChart>(body) }
+        }
+
+    /**
+     * The views of one product type — each side with its placement names and a mockup per colour.
+     * The sync reads its mockups and its placements from here.
+     */
+    public suspend fun views(
+        access: SpodAccess,
+        productTypeId: Long,
+    ): SpodResult<SpodViews> =
+        call(access, "reading views") {
+            client
+                .get(access.url("/productTypes/$productTypeId/views")) { spodRequest(access) }
+                .answered { body -> JSON.decodeFromString<SpodViews>(body) }
+        }
+
+    /**
+     * Renders [request]'s designs on one colour of a product type and answers where the pictures
+     * are. The sync calibrates a product type's print frame from them.
+     */
+    public suspend fun previews(
+        access: SpodAccess,
+        productTypeId: Long,
+        request: SpodPreviewRequest,
+    ): SpodResult<SpodPreviews> =
+        call(access, "rendering previews") {
+            client
+                .post(access.url("/productTypes/$productTypeId/previews")) {
+                    spodRequest(access)
+                    contentType(ContentType.Application.Json)
+                    setBody(JSON.encodeToString(request))
+                }
+                .answered { body -> JSON.decodeFromString<SpodPreviews>(body) }
         }
 
     /**
@@ -288,6 +322,13 @@ private constructor(
     /**
      * Runs one paced API call under [guarded], with [what] naming the call in this adapter's own
      * words and the destination id as the context that may be logged.
+     *
+     * Pacing blocks until at least [MIN_REQUEST_INTERVAL_MILLIS] have passed since the previous
+     * request this client made, and books the current one. The lock is held across the wait on
+     * purpose: the point of a pacer is that concurrent callers queue up behind each other instead
+     * of all sleeping the same interval and then firing together. The clock is monotonic, so a
+     * wall-clock adjustment can neither make the pacer wait for hours nor make it stop pacing at
+     * all.
      */
     private suspend fun <T : Any> call(
         access: SpodAccess,
@@ -295,7 +336,12 @@ private constructor(
         step: suspend () -> SpodResult<T>,
     ): SpodResult<T> =
         guarded("destination ${access.destinationId}: $what") {
-            pace()
+            pacer.withLock {
+                val now = nowMillis()
+                val waitMillis = earliestNextRequestMillis?.minus(now)?.coerceAtLeast(0) ?: 0
+                if (waitMillis > 0) pause(waitMillis)
+                earliestNextRequestMillis = now + waitMillis + MIN_REQUEST_INTERVAL_MILLIS
+            }
             step()
         }
 
@@ -359,24 +405,6 @@ private constructor(
         return SpodResult.Failed(SpodError.PROVIDER_UNAVAILABLE, ambiguous = true)
     }
 
-    /**
-     * Blocks until at least [MIN_REQUEST_INTERVAL_MILLIS] have passed since the previous request
-     * this client made, and books the current one.
-     *
-     * The lock is held across the wait on purpose: the point of a pacer is that concurrent callers
-     * queue up behind each other instead of all sleeping the same interval and then firing
-     * together. The clock is monotonic, so a wall-clock adjustment can neither make the pacer wait
-     * for hours nor make it stop pacing at all.
-     */
-    private suspend fun pace() {
-        pacer.withLock {
-            val now = nowMillis()
-            val waitMillis = earliestNextRequestMillis?.minus(now)?.coerceAtLeast(0) ?: 0
-            if (waitMillis > 0) pause(waitMillis)
-            earliestNextRequestMillis = now + waitMillis + MIN_REQUEST_INTERVAL_MILLIS
-        }
-    }
-
     internal companion object {
         /**
          * The partner allows 60 requests per minute. One second would be exactly the limit and
@@ -392,8 +420,8 @@ private constructor(
 
         /**
          * How much of a catalog image is ever held in memory. It is the same 10 MiB a visitor may
-         * upload, because a mockup of a shirt has no business being larger than the picture that
-         * gets printed on it.
+         * upload, because a product image has no business being larger than the picture that gets
+         * printed on it.
          */
         const val MAX_IMAGE_BYTES: Int = 10 * 1024 * 1024
 
@@ -711,9 +739,8 @@ public data class SpodConfiguration(
 /** An order's answer, in the two fields this module reads. */
 @Serializable private data class SpodOrderResponse(val id: String, val state: String? = null)
 
-@Serializable private data class SpodHotspotsResponse(val hotspots: List<SpodHotspot> = emptyList())
-
-@Serializable private data class SpodHotspot(val name: String)
+@Serializable
+private data class SpodHotspotsResponse(val hotspots: List<SpodHotspotName> = emptyList())
 
 /**
  * Everything about the client that is a decision rather than an engine.

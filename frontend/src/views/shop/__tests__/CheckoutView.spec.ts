@@ -364,7 +364,7 @@ describe('CheckoutView', () => {
     expect(findSubmitButton(wrapper).attributes('disabled')).toBeUndefined()
   })
 
-  // A t-shirt is shipped by the print-on-demand partner, who needs a phone number. The backend
+  // A SPOD article is shipped by the print-on-demand partner, who needs a phone number. The backend
   // refuses such a checkout without one, so the form asks for it before it submits (issue #205).
   it('leaves the phone optional for a cart of mugs alone', async () => {
     const checkoutStore = useCheckoutStore()
@@ -382,9 +382,9 @@ describe('CheckoutView', () => {
     expect(submitCheckout).toHaveBeenCalled()
   })
 
-  it('demands the phone number when the cart contains a t-shirt', async () => {
+  it('demands the phone number when the cart contains a SPOD article', async () => {
     const cartStore = useCartStore()
-    cartStore.items = [item, createCartItem({ id: 2, articleType: 'TSHIRT' })]
+    cartStore.items = [item, createCartItem({ id: 2, articleType: 'SPOD' })]
     const checkoutStore = useCheckoutStore()
     const submitCheckout = vi.spyOn(checkoutStore, 'submitCheckout')
     const { wrapper } = await mountCheckout()
@@ -399,12 +399,10 @@ describe('CheckoutView', () => {
 
     expect(submitCheckout).not.toHaveBeenCalled()
     expect(toastMock).toHaveBeenCalledWith({
-      title: 'checkout.errors.phoneRequiredForTshirt',
+      title: 'checkout.errors.phoneRequiredForSpod',
       variant: 'destructive',
     })
-    expect(addressForm(wrapper, 0).props('phoneError')).toBe(
-      'checkout.errors.phoneRequiredForTshirt',
-    )
+    expect(addressForm(wrapper, 0).props('phoneError')).toBe('checkout.errors.phoneRequiredForSpod')
 
     checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, phone: '+4915112345678' }
     submitCheckout.mockResolvedValue({ orderId: 22, checkoutUrl: null })
@@ -417,19 +415,17 @@ describe('CheckoutView', () => {
   // The backend keys this refusal by the nested path, not by a bare `phone`.
   it('maps the server refusal on shippingAddress.phone to the phone field', async () => {
     const cartStore = useCartStore()
-    cartStore.items = [createCartItem({ id: 2, articleType: 'TSHIRT' })]
+    cartStore.items = [createCartItem({ id: 2, articleType: 'SPOD' })]
     const checkoutStore = useCheckoutStore()
     checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, phone: '+4915112345678' }
 
     const { wrapper } = await mountRefusedCheckout(null, 'Validation failed', {
-      'shippingAddress.phone': ['Phone is required for orders containing t-shirts'],
+      'shippingAddress.phone': ['Phone is required for orders containing print-on-demand articles'],
     })
 
-    expect(addressForm(wrapper, 0).props('phoneError')).toBe(
-      'checkout.errors.phoneRequiredForTshirt',
-    )
+    expect(addressForm(wrapper, 0).props('phoneError')).toBe('checkout.errors.phoneRequiredForSpod')
     expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
-      'checkout.errors.phoneRequiredForTshirt',
+      'checkout.errors.phoneRequiredForSpod',
     )
 
     addressForm(wrapper, 0).vm.$emit('update:modelValue', {

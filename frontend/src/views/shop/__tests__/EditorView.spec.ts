@@ -11,14 +11,9 @@ import {
   useCatalogStore,
   type MugDto,
   type ShopArticle,
-  type TshirtDto,
+  type SpodArticleDto,
 } from '@/stores/shop/catalog'
-import {
-  createMugVariant,
-  createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
-} from '@/testing/shopCatalog'
+import { createMugVariant, createShopMug, createShopTee } from '@/testing/shopCatalog'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 vi.mock('vue-i18n', () => ({
@@ -121,13 +116,11 @@ async function mountAt(router: Router, path: string) {
   return wrapper
 }
 
-function makeTshirt(id = 2): TshirtDto {
-  return createShopTshirt({
+function makeTee(id = 2): SpodArticleDto {
+  return createShopTee({
     id,
     name: 'Heavy Shirt',
-    printAspectRatio: '16:9',
-    printFrame: { leftPct: 30, topPct: 24, widthPct: 40, heightPct: 22.5 },
-    variants: [createTshirtVariant({ id: 21, exampleImageFilename: 'black-shirt.webp' })],
+    printFrame: { leftPct: 30, topPct: 24, widthPct: 40, heightPct: 40 },
   })
 }
 
@@ -296,7 +289,7 @@ describe('EditorView', () => {
     })
     expect(router.currentRoute.value.name).not.toBe('cart')
   })
-  it('previews a shirt draft on its mockup and still composes the print at the shirt ratio', async () => {
+  it('previews a SPOD draft on its colour mockup and still composes the print square', async () => {
     const editorStore = useEditorStore()
     const draft = editorStore.createDraftFromGeneratedImages({
       articleId: 2,
@@ -304,7 +297,7 @@ describe('EditorView', () => {
       images: [generatedImage('image-1')],
     })
     const router = createRouterForEditor()
-    mockLoadedArticles([makeMug(), makeTshirt()])
+    mockLoadedArticles([makeMug(), makeTee()])
     const cartStore = useCartStore()
     vi.spyOn(cartStore, 'addToCart').mockResolvedValue()
     mockComposeCanvas()
@@ -313,16 +306,16 @@ describe('EditorView', () => {
 
     expect(wrapper.get('[data-testid="editor-product-context"]').text()).toContain('Heavy Shirt')
     expect(wrapper.get('[data-testid="editor-mockup-image"]').attributes('src')).toBe(
-      '/api/images/public/1000/articles/tshirts/variant-example-images/black-shirt.webp',
+      '/api/images/public/1000/articles/spod/mockups/mockup-201.webp',
     )
 
     await wrapper.get('[data-testid="editor-add-to-cart"]').trigger('click')
     await flushPromises()
 
-    // The mockup photo is a backdrop only: the composed print image is the design in the shirt's
-    // print ratio, with no mockup pixel in it.
+    // The mockup photo is a backdrop only: the composed print image is the square design, with no
+    // mockup pixel in it.
     expect(composeImage).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrl: draft.images[0]!.url, frameAspectRatio: 16 / 9 }),
+      expect.objectContaining({ imageUrl: draft.images[0]!.url, frameAspectRatio: 1 }),
     )
   })
 })

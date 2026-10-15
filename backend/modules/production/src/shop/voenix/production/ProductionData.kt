@@ -12,7 +12,7 @@ import java.time.LocalDate
  * notification.
  *
  * [customerEmail] and [customerPhone] are the customer's contact data as the order stored it, and
- * they are here for one channel only: the print-on-demand partner a t-shirt is ordered from
+ * they are here for one channel only: the print-on-demand partner a SPOD article is ordered from
  * requires both on the order it receives. Nothing that goes to a *supplier* carries them — the
  * fulfillment view a supplier reads is a separate, deliberately minimal type (`FulfillmentOrder`)
  * and stays that way. [customerPhone] is nullable because a mug-only order needs no number; the
@@ -50,11 +50,16 @@ public data class ProductionData(
  * [spodProduct] is the other channel's answer to the same question the five measurements answer for
  * the PDF: *what exactly is to be produced?* It carries the three ids the print-on-demand partner
  * identifies one printable product by, and it is `null` for every item that is not produced that
- * way — a mug answers `null` here and a t-shirt answers `null` for the five measurements. Unlike
- * everything else on this item it is **not** a snapshot: the source resolves it from current master
- * data on every load, exactly like [supplierId], so a corrected id reaches an order that is still
- * waiting to be submitted. That is why the submitting adapter compares [variantName] — which *is*
- * the snapshot — against what it reads today and refuses when the two disagree.
+ * way — a mug answers `null` here and a SPOD article answers `null` for the five measurements.
+ * Unlike everything else on this item it is **not** a snapshot: the source resolves it from current
+ * master data on every load, exactly like [supplierId], so a corrected id reaches an order that is
+ * still waiting to be submitted. That is why the submitting adapter compares [variantName] — which
+ * *is* the snapshot — against what it reads today and refuses when the two disagree.
+ *
+ * [spodHotspot] is the partner's placement the order is printed with, such as `MEDIUM_FRONT`. It is
+ * kept apart from [spodProduct] because it *is* a snapshot: the order line stored the hotspot the
+ * customer previewed at placement, and a later catalog sync must not change what is printed
+ * (issue #260, decisions 8 and 14). It is `null` for every item that is not a SPOD article.
  */
 public data class ProductionItem(
     public val supplierId: Long?,
@@ -69,6 +74,7 @@ public data class ProductionItem(
     public val documentFormatHeightMm: Double? = null,
     public val documentFormatMarginBottomMm: Double? = null,
     public val spodProduct: SpodProductRef? = null,
+    public val spodHotspot: String? = null,
 )
 
 /**

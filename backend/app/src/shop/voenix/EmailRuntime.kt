@@ -2,7 +2,7 @@ package shop.voenix
 
 import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.spod.SpodCatalogSync
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.EmailSettings
 import shop.voenix.email.QueuedEmail
@@ -39,9 +39,9 @@ internal class EmailRuntime(
  * aggregated queued source, install the full production module against the returned real
  * [EmailOutbox], and bind production's own mail branch. `Application` and the composition
  * integration test share this function, so the test exercises the real wiring instead of mirroring
- * it; only the settings, the [ProductionSource], and the two capabilities of the t-shirt sync — the
- * application's single [SpodClient] and the article module's [TshirtCatalogSync] — are injection
- * points.
+ * it; only the settings, the [ProductionSource], and the two capabilities of the SPOD article sync
+ * — the application's single [SpodClient] and the article module's [SpodCatalogSync] — are
+ * injection points.
  *
  * Production's branch covers both of its kinds, and its shipping half is closed later, inside the
  * module, by `installProductionFulfillment` — until then a shipping notification fails retryably.
@@ -55,7 +55,7 @@ internal fun Application.installEmailRuntime(
     productionSettings: ProductionSettings,
     productionSource: ProductionSource,
     spod: SpodClient,
-    tshirtCatalogSync: TshirtCatalogSync,
+    spodCatalogSync: SpodCatalogSync,
 ): EmailRuntime {
     val queuedEmails = AggregatedQueuedEmailSource()
     val email = installEmailModule(database, emailSettings, queuedEmails)
@@ -66,7 +66,7 @@ internal fun Application.installEmailRuntime(
             email.outbox,
             productionSource,
             spod,
-            tshirtCatalogSync,
+            spodCatalogSync,
         )
     queuedEmails.bindProductionEmails(production.queuedEmails)
     return EmailRuntime(

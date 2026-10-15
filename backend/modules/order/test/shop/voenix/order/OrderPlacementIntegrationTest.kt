@@ -117,9 +117,20 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     .expectPlaced()
 
             assertEquals(
-                listOf("MUG", "TSHIRT"),
+                listOf("MUG", "SPOD"),
                 fixture.articleTypesOf(placed.orderId),
                 "each line stores the type of the article it was placed for",
+            )
+
+            // The hotspot the customer previewed is snapshotted with the shirt line; a mug has none
+            // (issue #260, decisions 8 and 14).
+            assertEquals(
+                listOf(null, "MEDIUM_FRONT"),
+                OrderTestSupport.strings(
+                    fixture.dataSource,
+                    "SELECT spod_hotspot FROM voenix.order_items " +
+                        "WHERE order_id = ${placed.orderId} ORDER BY position",
+                ),
             )
 
             // Every one of the five layout overrides is empty for the shirt line: they describe a
@@ -137,7 +148,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     "SELECT print_template_width_mm, print_template_height_mm, " +
                         "document_format_width_mm, document_format_height_mm, " +
                         "document_format_margin_bottom_mm FROM voenix.order_items " +
-                        "WHERE order_id = ${placed.orderId} AND article_type = 'TSHIRT'",
+                        "WHERE order_id = ${placed.orderId} AND article_type = 'SPOD'",
                 ),
             )
 
@@ -148,7 +159,7 @@ internal class OrderPlacementIntegrationTest : OrderServiceTestBase() {
                     .order(placed.orderId, null, OrderTestSupport.GUEST_TOKEN)
                     .expectSuccess()
             assertEquals(
-                listOf(ArticleType.MUG, ArticleType.TSHIRT),
+                listOf(ArticleType.MUG, ArticleType.SPOD),
                 stored.items.map(OrderLineView::articleType),
             )
         }

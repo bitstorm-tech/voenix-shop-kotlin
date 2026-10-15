@@ -17,7 +17,7 @@ import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertAndGetId
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
-import shop.voenix.article.tshirt.SpodCatalogSource
+import shop.voenix.article.spod.SpodCatalogSource
 import shop.voenix.db.executePostgresWrite
 import shop.voenix.db.read
 import shop.voenix.db.write
@@ -53,13 +53,13 @@ internal class ProductionDestinationRepository(private val database: Database) {
     }
 
     /**
-     * What a t-shirt sync of this destination reads with: the supplier its shirts belong to and the
-     * SPOD access of the row, access token included. It is the second destination read that carries
-     * a secret — a sync has to authenticate, exactly like the order submission does — which is why
-     * it selects the token column the other reads deliberately leave out.
+     * What a SPOD article sync of this destination reads with: the supplier its articles belong to
+     * and the SPOD access of the row, access token included. It is the second destination read that
+     * carries a secret — a sync has to authenticate, exactly like the order submission does — which
+     * is why it selects the token column the other reads deliberately leave out.
      *
-     * `enabled` is not part of the query: a disabled destination may still sync (t-shirt sync
-     * decision 4). Only the channel is checked, and a destination that has no catalog answers
+     * `enabled` is not part of the query: a disabled destination may still sync (SPOD sync decision
+     * 4). Only the channel is checked, and a destination that has no catalog answers
      * [ProductionDestinationCatalogSource.NotSyncable] rather than nothing at all, so the caller
      * can tell it apart from an unknown id.
      */
@@ -461,8 +461,8 @@ internal sealed interface ProductionDestinationWriteResult {
 
     /**
      * The replace names a different supplier. A destination belongs to the supplier it was created
-     * for: its open `production_deliveries` rows and — since the catalog sync — every t-shirt a
-     * sync of it created carry that supplier, and moving the destination would leave all of them
+     * for: its open `production_deliveries` rows and — since the catalog sync — every SPOD article
+     * a sync of it created carry that supplier, and moving the destination would leave all of them
      * behind.
      */
     data object SupplierImmutable : ProductionDestinationWriteResult

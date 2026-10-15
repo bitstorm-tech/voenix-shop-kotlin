@@ -62,7 +62,7 @@ internal data class CartView(
  * disappearing: the customer must see the line they put in the cart, and why they cannot buy it.
  *
  * [articleType] is the same kind of live answer and is what a client switches on to render the
- * line: a mug shows its two colour codes, a t-shirt shows the colour and size its [variantName]
+ * line: a mug shows its two colour codes, a SPOD article the colour and size its [variantName]
  * spells (issue #205). Nothing about it is stored on the cart line — `cart_items` points at the
  * identity registries, and the type is one of the answers `ArticleCatalog` gives for that pair — so
  * it is `null` for exactly the lines whose names are `null`: the ones the catalog no longer

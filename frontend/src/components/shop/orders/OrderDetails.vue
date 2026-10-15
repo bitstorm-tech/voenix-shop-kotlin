@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Coffee, Loader2, Paintbrush, Shirt, ShoppingCart } from 'lucide-vue-next'
+import { Coffee, Loader2, Package, Paintbrush, ShoppingCart } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/formatPrice'
 import type { Order, OrderItem } from '@/stores/shop/orders'
@@ -47,7 +47,7 @@ function getImageUrl(item: OrderItem) {
  * still says what was bought after the article was renamed, retyped, or deleted (issue #205).
  */
 function getItemFallbackIcon(item: OrderItem) {
-  return item.articleType === 'TSHIRT' ? Shirt : Coffee
+  return item.articleType === 'SPOD' ? Package : Coffee
 }
 
 function getItemUnitPrice(item: OrderItem) {

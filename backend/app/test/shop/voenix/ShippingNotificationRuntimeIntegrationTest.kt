@@ -106,7 +106,7 @@ internal class ShippingNotificationRuntimeIntegrationTest : PostgresIntegrationT
                     // Nothing in this journey renders a PDF; a load would fail loudly.
                     ProductionSource { error("A shipping notification reads no production data") },
                     SpodClient(),
-                    { source -> error("unexpected t-shirt sync of $source") },
+                    { source -> error("unexpected SPOD sync of $source") },
                 )
             installProductionFulfillment(
                 production = emails.production,

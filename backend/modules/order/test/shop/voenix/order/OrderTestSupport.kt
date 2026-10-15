@@ -81,7 +81,7 @@ internal object OrderTestSupport {
     val OTHER_REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = OTHER_ARTICLE_ID, variantId = OTHER_VARIANT_ID)
 
-    /** The t-shirt line every test that is about the second article type orders. */
+    /** The SPOD line every test that is about the second article type orders. */
     val SHIRT_REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = SHIRT_ARTICLE_ID, variantId = SHIRT_VARIANT_ID)
 
@@ -119,11 +119,11 @@ internal object OrderTestSupport {
                 "($OTHER_PRINT_IMAGE_ID, '$OTHER_PRINT_IMAGE_FILENAME', '$GUEST_TOKEN')",
             "INSERT INTO voenix.article_identities (id, article_type) VALUES " +
                 "($ARTICLE_ID, 'MUG'), ($OTHER_ARTICLE_ID, 'MUG'), " +
-                "($SHIRT_ARTICLE_ID, 'TSHIRT')",
+                "($SHIRT_ARTICLE_ID, 'SPOD')",
             "INSERT INTO voenix.article_variant_identities (id, article_id, article_type) VALUES " +
                 "($VARIANT_ID, $ARTICLE_ID, 'MUG'), " +
                 "($OTHER_VARIANT_ID, $OTHER_ARTICLE_ID, 'MUG'), " +
-                "($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'TSHIRT')",
+                "($SHIRT_VARIANT_ID, $SHIRT_ARTICLE_ID, 'SPOD')",
         )
     }
 
@@ -254,12 +254,13 @@ internal object OrderTestSupport {
             outsideColorCode = "#ffffff",
             insideColorCode = "#ff0000",
             spodProduct = null,
+            spodHotspot = null,
         )
 
     /**
-     * A purchasable t-shirt variant: the mirror image of [variant]. It carries the three SPOD ids
-     * and none of the five print measurements, because a shirt is ordered from a remote printer
-     * instead of being laid out into a PDF.
+     * A purchasable SPOD variant (a t-shirt): the mirror image of [variant]. It carries the three
+     * SPOD ids and none of the five print measurements, because a SPOD article is ordered from a
+     * remote printer instead of being laid out into a PDF.
      */
     fun shirtVariant(
         articleName: String = "Classic shirt",
@@ -268,9 +269,10 @@ internal object OrderTestSupport {
         supplierId: Long? = SUPPLIER_ID,
         spodProduct: SpodProductRef? =
             SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
+        spodHotspot: String? = "MEDIUM_FRONT",
     ): CatalogVariant =
         CatalogVariant(
-            articleType = ArticleType.TSHIRT,
+            articleType = ArticleType.SPOD,
             articleName = articleName,
             variantName = variantName,
             purchasable = true,
@@ -285,6 +287,7 @@ internal object OrderTestSupport {
             outsideColorCode = null,
             insideColorCode = null,
             spodProduct = spodProduct,
+            spodHotspot = spodHotspot,
         )
 
     fun execute(

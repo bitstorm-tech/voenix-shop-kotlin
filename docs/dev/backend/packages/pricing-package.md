@@ -251,7 +251,7 @@ shop never charges a negative amount.
 
 ### The storefront fields
 
-`PublicMug.regularPrice`, `PublicTshirt.regularPrice`, and
+`PublicMug.regularPrice`, `PublicSpodArticle.regularPrice`, and
 `PromptPrice.regularSalesTotalGross` are `null` unless the price has a
 discount. The key is nevertheless always present in the JSON, because the
 application serializes with `explicitNulls = true`: a null field is written as

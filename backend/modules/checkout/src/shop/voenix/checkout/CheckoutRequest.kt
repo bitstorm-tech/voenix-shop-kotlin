@@ -81,10 +81,10 @@ internal data class CheckoutRequest(
          * normalization every phoneless checkout would be rejected by the order module, which
          * refuses a blank phone but accepts an absent one.
          *
-         * `null` is also exactly what the service's t-shirt guard asks about (issue #205, D2): a
-         * blank number and no number at all are the same missing number there, so the rule needs no
-         * second notion of "given". The rule itself cannot live in this class, because what makes a
-         * phone number required is the *cart*, not the request.
+         * `null` is also exactly what the service's SPOD article guard asks about (issue #205, D2):
+         * a blank number and no number at all are the same missing number there, so the rule needs
+         * no second notion of "given". The rule itself cannot live in this class, because what
+         * makes a phone number required is the *cart*, not the request.
          */
         val normalizedPhone: String?
             get() = phone?.trim()?.takeIf(String::isNotEmpty)

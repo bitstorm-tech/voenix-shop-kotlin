@@ -95,7 +95,7 @@ The module owns eight responsibilities:
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
 - **Print-on-demand submission.** The second channel's counterpart of
-  artifact generation and delivery: a t-shirt job's designs are uploaded, the
+  artifact generation and delivery: a SPOD job's designs are uploaded, the
   partner's order is created, its id is persisted, and the order is confirmed.
   It has its own guide, [SPOD fulfillment](spod-fulfillment.md).
 - **Fulfillment.** What a supplier and an admin work with: the job list, the
@@ -193,7 +193,7 @@ the worker stages, and the channel adapters:
 | [`ProducerNotificationResolver.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProducerNotificationResolver.kt) | The producer mail resolver. |
 | [`ProductionSourceResolution.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/ProductionSourceResolution.kt) | `resolveOrder` and the cancellation rethrow every stage shares. |
 | [`sftp/SftpProductionDelivery.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/sftp/SftpProductionDelivery.kt) | The SFTP adapter and its single blocking upload attempt. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | In the `spod` module since the catalog sync, shared with the article module's catalog sync: the print-on-demand HTTP adapter with its eight calls (five of them this module's), the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary (see the [SPOD package guide](spod-package.md)). |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | In the `spod` module since the catalog sync, shared with the article module's catalog sync: the print-on-demand HTTP adapter with its ten calls (five of them this module's), the request pacer, the request and response shapes, and the `SpodResult`/`SpodError` vocabulary (see the [SPOD package guide](spod-package.md)). |
 | [`spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The submission stage with its creation and confirmation halves, and the `SpodSubmissionError` codes. |
 | [`spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | Remote-order state with the `production_spod_orders` and `production_spod_designs` tables, `OpenSpodJob`, and the supplier's destination read. |
 | [`spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG inside production, with the pixel cap, the byte budget, and `PrintImageError`. |
@@ -308,27 +308,28 @@ are enforced before any handler runs:
 | `POST /api/admin/production/destinations` | `201` + `Location` | Create a destination |
 | `GET /api/admin/production/destinations/{id}` | `200` | Read one destination |
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
-| `POST /api/admin/production/destinations/{id}/sync-articles` | `200` | Sync this destination's t-shirt catalog from the Spreadconnect backoffice |
+| `POST /api/admin/production/destinations/{id}/sync-articles` | `200` | Sync this destination's SPOD article catalog from the Spreadconnect backoffice |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
 
-### Syncing the t-shirt catalog of a destination
+### Syncing the SPOD article catalog of a destination
 
 `POST …/{id}/sync-articles` is the trigger of the sync described in the
-[Article package guide](article-package.md#t-shirts) (t-shirt sync decision 1). The run itself
+[Article package guide](article-package.md#spod-articles) (SPOD sync decision 1). The run itself
 belongs to the article module, which owns the tables it writes; this module owns
 the button, because a run is scoped to one destination's token. The service does
 the one read the sync cannot do itself — the supplier, the installation, and the
-token — and hands over a `SpodCatalogSource`. It opens no transaction of its
-own.
+token — and hands over a `SpodCatalogSource` to the article module's
+`SpodCatalogSync`, which answers a `SpodSyncResult`. It opens no transaction of
+its own.
 
 The admin **waits** for the answer: a sync is a few seconds of partner calls,
 not a job to watch, and there is no polling and no background machinery.
 
 | Answer | When |
 | --- | --- |
-| `200` with the `TshirtSyncReport` | the run happened — including a run whose `status` is `FAILED`, because a failed run still reports why |
+| `200` with the `SpodSyncReport` | the run happened — including a run whose `status` is `FAILED`, because a failed run still reports why |
 | `404 Production destination not found` | no destination with that id |
-| `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a t-shirt catalog to sync* |
+| `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a SPOD catalog to sync* |
 | `409` with code `SYNC_RUNNING` | that destination is already syncing: *This destination is already syncing; wait for that run to finish* |
 | `500` | the route itself broke — a database failure while reading the destination, for instance. A run that reached the partner and came back empty-handed is not this: that is the `200` above with `status: "FAILED"` |
 
@@ -413,9 +414,9 @@ it.
 - The **channel and the supplier are fixed after creation.** A `PUT` that names
   another one is a field error — `channel`: *Channel cannot be changed after
   creation*, `supplierId`: *Supplier cannot be changed after creation*. The
-  supplier rule joined the older channel rule with the catalog sync: a synced t-shirt
-  carries the supplier of the destination it came from, so moving a destination
-  to another supplier would silently re-own every shirt it wrote.
+  supplier rule joined the older channel rule with the catalog sync: a synced SPOD
+  article carries the supplier of the destination it came from, so moving a
+  destination to another supplier would silently re-own every article it wrote.
 - `enabled` defaults to `true`. Disabling a destination
   (`"enabled": false` in a `PUT`) is the operational off-switch: the rows and
   their credentials survive, but the delivery worker skips it with the
@@ -459,8 +460,9 @@ SQL states, never constraint names:
   `409 Conflict` response. `production_deliveries` references destinations
   with `ON DELETE RESTRICT`, so `enabled = false` is the only way to switch
   off a destination that has delivery history. Since `V27` a second table
-  references it the same way: `article_tshirts.spod_destination_id`, so a
-  destination that ever synced shirts can be disabled but not deleted.
+  references it the same way — today `article_spod_articles.spod_destination_id`
+  (`V29`) — so a destination that ever synced articles can be disabled but not
+  deleted.
 
 The reverse direction is protected too: deleting a Supplier that still owns
 destinations returns `409` from the Supplier API (see
@@ -482,9 +484,10 @@ boundary (a test enforces this):
   source order, each item's supplier, quantity, generated image path, the
   optional mug-layout overrides in millimetres, and the optional
   `SpodProductRef`, the three ids the print-on-demand partner names a
-  printable product by. An item answers one *or* the other: a mug has the
-  measurements and no SPOD product, a t-shirt the SPOD product and no
-  measurements.
+  printable product by, together with the optional `spodHotspot`, the
+  partner's placement the order line snapshotted. An item answers one *or* the
+  other: a mug has the measurements and no SPOD product, a SPOD article the SPOD
+  product and hotspot and no measurements.
 - The contact data is on this view only. `FulfillmentOrder`, the view a
   supplier reads, deliberately carries neither and is not widened by it: a
   supplier surface cannot leak what it never receives.
@@ -495,7 +498,9 @@ boundary (a test enforces this):
   translates. It is also the one field of `ProductionItem` that is *not* a
   snapshot. Like `supplierId` it is resolved live on every load, which is why
   the submitting adapter compares the snapshotted `variantName` against what it
-  reads today.
+  reads today. The hotspot is a separate field and not part of
+  `SpodProductRef` precisely because it *is* a snapshot: production prints what
+  the customer previewed (issue #260, decision 8).
 - `ProductionPdfGenerator.generate(orderId)` is the on-demand capability for
   the authorized download. It returns a typed `ProductionPdfResult`:
   `Generated` with one `ProductionPdfDocument` per involved supplier,

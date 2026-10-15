@@ -139,17 +139,25 @@ describe('adminRoutes', () => {
 
     expect(router.resolve('/admin/articles/mugs').name).toBe('admin-mug-articles')
     expect(router.resolve('/admin/articles/mugs').meta.title).toBe('Mugs')
-    expect(router.resolve('/admin/articles/tshirts').name).toBe('admin-tshirt-articles')
-    expect(router.resolve('/admin/articles/tshirts').meta.title).toBe('T-Shirts')
+    expect(router.resolve('/admin/articles/spod').name).toBe('admin-spod-articles')
+    expect(router.resolve('/admin/articles/spod').meta.title).toBe('SPOD articles')
+    expect(router.resolve('/admin/articles/spod/12/edit').name).toBe('admin-spod-article-edit')
   })
 
-  // A shirt is created by a sync run against the Spreadconnect backoffice (t-shirt sync decision
-  // 1), so only the mug has a create page.
+  it('has no route for the retired t-shirt pages and no redirect from them', () => {
+    const router = createRouterWithNotFound()
+
+    expect(router.resolve('/admin/articles/tshirts').name).toBe('not-found')
+    expect(router.resolve('/admin/articles/tshirts/12/edit').name).toBe('not-found')
+  })
+
+  // A SPOD article is created by a sync run against the Spreadconnect backoffice, so only the mug
+  // has a create page.
   it('registers a create route for the mug only', () => {
     const paths = getAdminChildRoutes().map((route) => route.path)
 
     expect(paths).toContain('articles/mugs/new')
-    expect(paths).not.toContain('articles/tshirts/new')
+    expect(paths).not.toContain('articles/spod/new')
   })
 
   it('resolves the retired merged article list URL through the normal not-found route', () => {

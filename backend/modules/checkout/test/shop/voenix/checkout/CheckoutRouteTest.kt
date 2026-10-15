@@ -164,21 +164,26 @@ internal class CheckoutRouteTest {
         }
 
     @Test
-    fun `a cart with a t-shirt lands on the phone field, in the same shape`() = testApplication {
-        val checkouts = StubCheckoutOperations(CheckoutResult.PhoneRequired)
-        application { installCheckoutTestApplication(checkouts) }
-        val guest = createClient { install(HttpCookies) }
+    fun `a cart with a SPOD article lands on the phone field, in the same shape`() =
+        testApplication {
+            val checkouts = StubCheckoutOperations(CheckoutResult.PhoneRequired)
+            application { installCheckoutTestApplication(checkouts) }
+            val guest = createClient { install(HttpCookies) }
 
-        val response = guest.checkout(antiforgeryToken(guest), FRONTEND_BODY)
+            val response = guest.checkout(antiforgeryToken(guest), FRONTEND_BODY)
 
-        assertEquals(HttpStatusCode.BadRequest, response.status)
-        assertEquals("Validation failed", response.message())
-        assertNull(response.code(), "A field error is not something a frontend branches on")
-        assertEquals(
-            """{"shippingAddress.phone":["Phone is required for orders containing t-shirts"]}""",
-            Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("errors").toString(),
-        )
-    }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals("Validation failed", response.message())
+            assertNull(response.code(), "A field error is not something a frontend branches on")
+            val phoneError = "Phone is required for orders containing print-on-demand articles"
+            assertEquals(
+                """{"shippingAddress.phone":["$phoneError"]}""",
+                Json.parseToJsonElement(response.bodyAsText())
+                    .jsonObject
+                    .getValue("errors")
+                    .toString(),
+            )
+        }
 
     @Test
     fun `the retry route answers the same body with 200 and no location`() = testApplication {

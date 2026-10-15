@@ -89,7 +89,7 @@ internal class EmailRuntimeCompositionIntegrationTest : PostgresIntegrationTest(
                     productionSettings(),
                     ProductionSource { orderId -> order(orderId) },
                     SpodClient(),
-                    { source -> error("unexpected t-shirt sync of $source") },
+                    { source -> error("unexpected SPOD sync of $source") },
                 )
             }
             startApplication()

@@ -101,7 +101,7 @@ internal class OrderConfirmationRuntimeIntegrationTest : PostgresIntegrationTest
                     productionSettings(),
                     productionSource,
                     SpodClient(),
-                    { source -> error("unexpected t-shirt sync of $source") },
+                    { source -> error("unexpected SPOD sync of $source") },
                 )
             val order =
                 installOrderModule(

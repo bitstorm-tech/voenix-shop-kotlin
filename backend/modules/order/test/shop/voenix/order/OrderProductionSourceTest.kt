@@ -170,6 +170,8 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
      * submitted. The contact data comes from the order row, so it is the address and the number the
      * customer gave at checkout. What must *not* move is the pair of names: they are the snapshot
      * the submitting adapter compares the live ids against, and this is the test that pins them.
+     * Nor must the hotspot: a re-sync that picks another one cannot change what is printed
+     * (issue #260, decision 8 — print what was previewed).
      */
     @Test
     fun `a shirt is produced from its live SPOD product and the stored contact data`() =
@@ -183,6 +185,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                 SpodProductRef(productTypeId = 300, appearanceId = 4, sizeId = 12),
                 before.items.single().spodProduct,
             )
+            assertEquals("MEDIUM_FRONT", before.items.single().spodHotspot)
 
             // The admin corrects the matrix and renames the article afterwards.
             fixture.articles.variants =
@@ -197,6 +200,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
                                     appearanceId = 5,
                                     sizeId = 13,
                                 ),
+                            spodHotspot = "FULL_FRONT",
                         )
                 )
 
@@ -208,6 +212,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
             )
             assertEquals("Classic shirt", after.articleName, "the stored name, not today's")
             assertEquals("Black / M", after.variantName, "the name the adapter compares against")
+            assertEquals("MEDIUM_FRONT", after.spodHotspot, "the snapshotted hotspot, not today's")
         }
 
     @Test
@@ -219,7 +224,10 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
 
             assertNull(data.customerPhone, "a checkout without a number stores none")
             assertEquals(OrderTestSupport.EMAIL, data.customerEmail)
-            data.items.forEach { item -> assertNull(item.spodProduct) }
+            data.items.forEach { item ->
+                assertNull(item.spodProduct)
+                assertNull(item.spodHotspot)
+            }
         }
 
     @Test
@@ -284,7 +292,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
         val articles: OrderTestSupport.FakeArticles,
         val printImages: OrderTestSupport.FakePrintImages,
     ) {
-        /** One t-shirt line: the order the print-on-demand channel is fed from. */
+        /** One SPOD line: the order the print-on-demand channel is fed from. */
         suspend fun placeShirtOrder(): Long {
             val result =
                 service.place(

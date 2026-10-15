@@ -72,11 +72,11 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'articles/tshirts',
-        name: 'admin-tshirt-articles',
-        component: () => import('@/views/admin/TshirtArticlesView.vue'),
+        path: 'articles/spod',
+        name: 'admin-spod-articles',
+        component: () => import('@/views/admin/SpodArticlesView.vue'),
         meta: {
-          title: 'T-Shirts',
+          title: 'SPOD articles',
         },
       },
       {
@@ -112,11 +112,11 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'articles/tshirts/:id/edit',
-        name: 'admin-tshirt-article-edit',
-        component: () => import('@/views/admin/TshirtArticleEditView.vue'),
+        path: 'articles/spod/:id/edit',
+        name: 'admin-spod-article-edit',
+        component: () => import('@/views/admin/SpodArticleEditView.vue'),
         meta: {
-          title: 'Edit T-Shirt',
+          title: 'Edit SPOD article',
         },
       },
       {

@@ -1,12 +1,12 @@
-import type { MugDto, ShopArticle, TshirtDto } from '@/stores/shop/catalog'
+import type { MugDto, ShopArticle, SpodArticleDto } from '@/stores/shop/catalog'
 
 export const DEV_EDITOR_ARTICLE_ID = 900001
 export const DEV_EDITOR_VARIANT_ID = 900011
 export const DEV_EDITOR_DRAFT_ID = 'test'
 
-export const DEV_EDITOR_TSHIRT_ARTICLE_ID = 900002
-export const DEV_EDITOR_TSHIRT_VARIANT_ID = 900021
-export const DEV_EDITOR_TSHIRT_DRAFT_ID = 'test-shirt'
+export const DEV_EDITOR_SPOD_ARTICLE_ID = 900002
+export const DEV_EDITOR_SPOD_VARIANT_ID = 900021
+export const DEV_EDITOR_SPOD_DRAFT_ID = 'test-spod'
 
 export function createDevEditorMug(): MugDto {
   return {
@@ -44,10 +44,20 @@ export function createDevEditorMug(): MugDto {
   }
 }
 
-export function createDevEditorTshirt(): TshirtDto {
+/** A tee in two colours and three sizes. Its mockups do not exist, so the frame is drawn alone. */
+export function createDevEditorSpodArticle(): SpodArticleDto {
+  const appearances = [
+    { id: 900101, colorName: 'Black', colorHex: '#101010' },
+    { id: 900102, colorName: 'White', colorHex: '#ffffff' },
+  ].map((color) => ({
+    ...color,
+    mockupImageFilename: `dev-mockup-${color.id}.webp`,
+    listingImageFilenames: [],
+  }))
+
   return {
-    articleType: 'TSHIRT',
-    id: DEV_EDITOR_TSHIRT_ARTICLE_ID,
+    articleType: 'SPOD',
+    id: DEV_EDITOR_SPOD_ARTICLE_ID,
     position: 2,
     name: 'Development Shirt',
     descriptionShort: 'Local editor fixture',
@@ -56,35 +66,25 @@ export function createDevEditorTshirt(): TshirtDto {
     subcategoryId: null,
     price: 2499,
     regularPrice: null,
-    printAspectRatio: '16:9',
+    productTypeName: "Men's Tee",
     sizeChartImageFilename: null,
-    printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 22.5 },
-    variants: [
-      {
-        id: DEV_EDITOR_TSHIRT_VARIANT_ID,
-        name: 'Black / M',
-        colorName: 'Black',
-        colorHex: '#101010',
-        size: 'M',
-        isDefault: true,
-        exampleImageFilename: null,
-      },
-      {
-        id: DEV_EDITOR_TSHIRT_VARIANT_ID + 1,
-        name: 'Black / L',
-        colorName: 'Black',
-        colorHex: '#101010',
-        size: 'L',
-        isDefault: false,
-        exampleImageFilename: null,
-      },
-    ],
+    printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 40 },
+    appearances,
+    variants: appearances.flatMap((appearance, colorIndex) =>
+      ['S', 'M', 'L'].map((size, sizeIndex) => ({
+        id: DEV_EDITOR_SPOD_VARIANT_ID + colorIndex * 3 + sizeIndex,
+        name: `${appearance.colorName} / ${size}`,
+        appearanceId: appearance.id,
+        size,
+        isDefault: colorIndex === 0 && sizeIndex === 0,
+      })),
+    ),
   }
 }
 
 /** Every article the development fixtures need, so the editor can upsert them in one go. */
 export function createDevEditorArticles(): ShopArticle[] {
-  return [createDevEditorMug(), createDevEditorTshirt()]
+  return [createDevEditorMug(), createDevEditorSpodArticle()]
 }
 
 const DEV_EDITOR_DRAFT_FIXTURES: Record<
@@ -96,10 +96,10 @@ const DEV_EDITOR_DRAFT_FIXTURES: Record<
     articleId: DEV_EDITOR_ARTICLE_ID,
     variantId: DEV_EDITOR_VARIANT_ID,
   },
-  [DEV_EDITOR_TSHIRT_DRAFT_ID]: {
-    id: DEV_EDITOR_TSHIRT_DRAFT_ID,
-    articleId: DEV_EDITOR_TSHIRT_ARTICLE_ID,
-    variantId: DEV_EDITOR_TSHIRT_VARIANT_ID,
+  [DEV_EDITOR_SPOD_DRAFT_ID]: {
+    id: DEV_EDITOR_SPOD_DRAFT_ID,
+    articleId: DEV_EDITOR_SPOD_ARTICLE_ID,
+    variantId: DEV_EDITOR_SPOD_VARIANT_ID,
   },
 }
 

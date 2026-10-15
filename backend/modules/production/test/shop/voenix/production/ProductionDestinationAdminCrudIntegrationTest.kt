@@ -32,7 +32,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
-import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.spod.SpodCatalogSync
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -530,7 +530,7 @@ internal class ProductionDestinationAdminCrudIntegrationTest : PostgresIntegrati
     /**
      * The two things a replace may never touch, both fixed at creation: the channel, because open
      * `production_deliveries` rows point at it and nothing would invalidate them, and the supplier,
-     * which owns those deliveries and — since the catalog sync — every t-shirt a sync of the
+     * which owns those deliveries and — since the catalog sync — every SPOD article a sync of the
      * destination created. An admin who wants either creates a destination instead.
      */
     @Test
@@ -631,7 +631,7 @@ private fun io.ktor.server.application.Application.installDestinationTestApplica
     installAuthModule(AuthSettings("production-destination-crud-session-secret"))
     installProductionModule(
         database,
-        TshirtCatalogSync { error("no journey of this suite syncs anything") },
+        SpodCatalogSync { error("no journey of this suite syncs anything") },
         spodConfigured = spodConfigured,
     )
     routing {

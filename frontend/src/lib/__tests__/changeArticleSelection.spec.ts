@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveDefaultVariant, resolveDisplayVariant } from '@/lib/changeArticleSelection'
-import {
-  createMugVariant,
-  createShopMug,
-  createShopTshirt,
-  createTshirtVariant,
-} from '@/testing/shopCatalog'
+import { createMugVariant, createShopMug, createShopTee } from '@/testing/shopCatalog'
 
 function mugArticle(id: number) {
   return createShopMug({
@@ -13,24 +8,6 @@ function mugArticle(id: number) {
     variants: [
       createMugVariant({ id: id * 10 + 1, isDefault: false }),
       createMugVariant({ id: id * 10 + 2, name: 'Black', isDefault: true }),
-    ],
-  })
-}
-
-function shirtArticle(id: number) {
-  return createShopTshirt({
-    id,
-    variants: [
-      createTshirtVariant({ id: id * 10 + 1, name: 'Black / M', size: 'M', isDefault: true }),
-      createTshirtVariant({ id: id * 10 + 2, name: 'Black / L', size: 'L', isDefault: false }),
-      createTshirtVariant({
-        id: id * 10 + 3,
-        name: 'White / M',
-        colorName: 'White',
-        colorHex: '#ffffff',
-        size: 'M',
-        isDefault: false,
-      }),
     ],
   })
 }
@@ -53,7 +30,8 @@ describe('variant resolution', () => {
   })
 
   it('shows the selected variant only for the selected article', () => {
-    const shirt = shirtArticle(2)
+    // The tee's default variant is 21; 23 is black in L.
+    const shirt = createShopTee({ id: 2 })
 
     expect(resolveDisplayVariant(shirt, 2, 23)?.id).toBe(23)
     // The colour and the size of another article do not carry over to this one.

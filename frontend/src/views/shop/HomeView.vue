@@ -70,7 +70,7 @@ const productItems: ProductItem[] = [
     key: 'shirt',
     thumbClass: 'bg-background-soft',
     imageClass: 'object-cover',
-    to: '/products?type=TSHIRT',
+    to: '/products?type=SPOD',
     image: GenTshirt2Image,
     imageWidth: 512,
     imageHeight: 512,

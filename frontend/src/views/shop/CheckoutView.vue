@@ -74,11 +74,11 @@ const isInitialLoading = computed(
 )
 
 /**
- * A t-shirt is shipped by the print-on-demand partner, who needs a phone number to deliver. The
+ * A SPOD article is shipped by the print-on-demand partner, who needs a phone number to deliver. The
  * backend refuses a checkout of such a cart without one, so the form demands it before it submits
  * and stays optional for a cart of mugs alone (issue #205, decision D2).
  */
-const isPhoneRequired = computed(() => cartStore.hasTshirtItem)
+const isPhoneRequired = computed(() => cartStore.hasSpodItem)
 const isPhoneMissing = computed(
   () => isPhoneRequired.value && checkoutStore.shippingAddress.phone.trim() === '',
 )
@@ -147,13 +147,13 @@ const shippingCountryError = computed(() =>
 
 /**
  * The phone message, from whichever of the two says it first: the browser, once the customer has
- * tried to submit a shirt cart without a number, or the backend, which keys its own refusal by the
+ * tried to submit a SPOD cart without a number, or the backend, which keys its own refusal by the
  * nested path. Both mean the same thing, so both read the same localized sentence.
  */
 const phoneError = computed(() =>
   checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD] ||
   (hasAttemptedSubmit.value && isPhoneMissing.value)
-    ? t('checkout.errors.phoneRequiredForTshirt')
+    ? t('checkout.errors.phoneRequiredForSpod')
     : null,
 )
 
@@ -172,7 +172,7 @@ const submitError = computed(() => {
   }
 
   if (checkoutStore.fieldErrors[SHIPPING_PHONE_FIELD]) {
-    return t('checkout.errors.phoneRequiredForTshirt')
+    return t('checkout.errors.phoneRequiredForSpod')
   }
 
   return checkoutStore.error
@@ -229,7 +229,7 @@ async function handleSubmit() {
   // Named separately from the other required fields, because "fill in all required fields" would
   // not explain why a field that was optional a moment ago now is not.
   if (isPhoneMissing.value) {
-    toast({ title: t('checkout.errors.phoneRequiredForTshirt'), variant: 'destructive' })
+    toast({ title: t('checkout.errors.phoneRequiredForSpod'), variant: 'destructive' })
     return
   }
 

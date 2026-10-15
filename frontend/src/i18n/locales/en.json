@@ -834,11 +834,11 @@
       "email": "Email",
       "phone": "Phone (optional)",
       "phoneRequired": "Phone",
-      "phoneRequiredHint": "Orders containing t-shirts are delivered by a shipping partner who needs your phone number."
+      "phoneRequiredHint": "Orders containing items from our print partner need a phone number for delivery."
     },
     "errors": {
       "requiredFields": "Please fill in all required fields.",
-      "phoneRequiredForTshirt": "Please enter a phone number. Orders containing t-shirts need one for delivery.",
+      "phoneRequiredForSpod": "Please enter a phone number. Orders containing items from our print partner need one for delivery.",
       "invalidEmail": "Please enter a valid email address.",
       "termsNotAccepted": "Please accept the Terms and Conditions.",
       "countriesUnavailable": "Countries could not be loaded. Please try again.",
@@ -919,7 +919,7 @@
       "label": "Product context",
       "printArea": "Print area {width} x {height} mm",
       "printAreaUnknown": "Print area unavailable",
-      "printRatio": "Print format {ratio}",
+      "printAreaSquare": "Square print area",
       "outsideColor": "Outside color",
       "insideColor": "Inside color"
     },

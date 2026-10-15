@@ -151,7 +151,7 @@ Three details of that shape are deliberate:
   to `null` after validation; without that, every phoneless checkout would be
   rejected by the order module, which refuses a blank phone but accepts an absent
   one. Since issue #205 a phone number is nevertheless **required for a cart
-  containing a t-shirt**, see below. `orders.phone` stays nullable, and a
+  containing a SPOD article**, see below. `orders.phone` stays nullable, and a
   mug-only cart is still placed without one.
 - **`billingAddress: null` is not missing data.** It is the customer saying
   "same address", and the order module resolves it into the stored columns.
@@ -178,14 +178,14 @@ this kind (issue #205):
   treats a blank one as no number at all. Both are properties of the request.
 - `CheckoutService` asks the article catalog what the stored cart lines **are**,
   and refuses a checkout without a phone number when one of them is a
-  `TSHIRT`, because the print-on-demand partner rejects an order that carries
+  `SPOD` article, because the print-on-demand partner rejects an order that carries
   no phone. What is in the cart is not a property of the request either, and it
   is decided on the **resolved** type of the lines, never on a flag a client
   sends.
 
 The catalog is only asked when the request carries no number, so an ordinary
 checkout pays for no extra lookup, and a line the catalog no longer resolves is
-not treated as a t-shirt: that checkout is refused a moment later with
+not treated as a SPOD article: that checkout is refused a moment later with
 `CART_ITEM_UNAVAILABLE`, which is the answer that actually helps the customer.
 
 What reaches the order, and from there the print-on-demand partner, is the
@@ -202,7 +202,7 @@ country it ships to, and inventing a format rule would refuse real customers.
 | `400` | none | the request broke its field rules (the Request Validation plugin, before any operation runs) |
 | `400` | `CART_EMPTY` | no cookie, no cart, or a cart without a line |
 | `400` | none | the shop does not ship to `shippingAddress.country`. This is a **field error**, see below |
-| `400` | none | the cart contains a t-shirt and the request carries no phone. This is a **field error** on `shippingAddress.phone` |
+| `400` | none | the cart contains a SPOD article and the request carries no phone. This is a **field error** on `shippingAddress.phone` |
 | `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved. The status and code come from the promotion module's own matrix |
 | `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
 | `409` | `CART_IMAGE_UNAVAILABLE` | a line names a print image that is gone |
@@ -228,7 +228,7 @@ designed mechanism does not already cover:
 1. **Read the cart, and check the destination.** No identity at all, no cart, or
    an empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
    fit `Int` cents → `409`. A shipping country the shop does not ship to → `400`
-   with a field error. A cart containing a t-shirt without a phone number → `400`
+   with a field error. A cart containing a SPOD article without a phone number → `400`
    with a field error on `shippingAddress.phone`. All four run before anything is
    written, so no coupon is held and no order exists for a checkout that could
    never succeed, and the cart stays `ACTIVE` for the customer's corrected second
@@ -291,7 +291,7 @@ in the exact shape the Request Validation plugin produces for a malformed body:
 {
   "message": "Validation failed",
   "errors": {
-    "shippingAddress.phone": ["Phone is required for orders containing t-shirts"]
+    "shippingAddress.phone": ["Phone is required for orders containing print-on-demand articles"]
   }
 }
 ```
@@ -383,12 +383,12 @@ Run the module's own suites with
 - `CheckoutRouteTest` covers the HTTP surface against a stub operation: the
   exact request the frontend sends today, the ignored billing contact fields,
   the explicit `null` URL of a free order, the field-error bodies of an
-  unshippable country and of a phoneless t-shirt cart, and every refusal with
+  unshippable country and of a phoneless SPOD cart, and every refusal with
   its status and stable code.
 - `CheckoutServiceTest` covers the orchestration against fakes: what runs, in
   which order, and above all what does *not* run after a refusal, including
   that an unshippable country reserves nothing, that a *billing* country is
-  never even asked about, and the t-shirt phone rule: refused before anything
+  never even asked about, and the SPOD phone rule: refused before anything
   is written, placed once a number is given, the catalog untouched when one
   already is, and a mug-only cart still placed without one.
 

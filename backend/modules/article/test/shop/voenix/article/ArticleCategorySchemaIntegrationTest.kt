@@ -100,7 +100,7 @@ internal class ArticleCategorySchemaIntegrationTest : PostgresIntegrationTest() 
                 }
             }
         // One row per article type, seeded by the migration that creates that type's table.
-        assertEquals(listOf("MUG", "TSHIRT"), types.sorted())
+        assertEquals(listOf("MUG", "SPOD"), types.sorted())
 
         assertSqlState(
             "23503",

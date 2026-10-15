@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { useImageCoverRect } from '@/composables/useImageCoverRect'
 import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
-import { variantExampleImageUrl } from '@/lib/variantExampleImage'
+import { spodMockupImageUrl } from '@/lib/variantExampleImage'
 import { clampCropTransform } from '@/lib/cropTransform'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
@@ -70,25 +70,23 @@ const hasPrintArea = computed(() => props.article.printArea != null)
 const frameAspectRatio = computed(() => props.article.printArea?.aspectRatio ?? 1)
 
 /**
- * A shirt is previewed on its mockup photo: the photo is the backdrop, and the print frame is laid
- * over it at the percentages the admin calibrated. The mockup is only ever a backdrop - it never
- * reaches `composeImage`, so no mockup pixel can end up in the print image.
+ * A SPOD article is previewed on the mockup photo of the selected colour: the photo is the
+ * backdrop, and the print frame is laid over it at the percentages the sync measured. The mockup is
+ * only ever a backdrop - it never reaches `composeImage`, so no mockup pixel can end up in the print
+ * image.
  */
 const mockupImageUrl = computed(() => {
-  const article = props.article
   const variant = props.variant
-  if (article.type !== 'TSHIRT' || variant.type !== 'TSHIRT' || !variant.exampleImageFilename) {
-    return null
-  }
+  if (variant.type !== 'SPOD' || variant.mockupImageFilename === null) return null
 
-  return variantExampleImageUrl('TSHIRT', variant.exampleImageFilename, 1000)
+  return spodMockupImageUrl(variant.mockupImageFilename, 1000)
 })
 
 const hasMockupPreview = computed(() => mockupImageUrl.value !== null && !mockupLoadFailed.value)
 
 const mockupFrameStyle = computed(() => {
   const article = props.article
-  if (article.type !== 'TSHIRT') return undefined
+  if (article.type !== 'SPOD') return undefined
 
   const { leftPct, topPct, widthPct, heightPct } = article.printFrame
   return {
@@ -132,7 +130,7 @@ const canAddToCart = computed(() => hasCurrentImage.value && !isAddingToCart.val
 
 const editImageRect = useImageCoverRect(imageContainerRef, imageRef)
 const editFrameRect = ref<Rect>({ x: 0, y: 0, width: 0, height: 0 })
-/** Where the print frame sits inside the stage - `0/0` for a mug, the mockup inset for a shirt. */
+/** Where the print frame sits inside the stage - `0/0` for a mug, the mockup inset for a SPOD article. */
 const printFrameOffset = ref<{ x: number; y: number }>({ x: 0, y: 0 })
 
 function updateEditFrameRect() {
@@ -243,7 +241,7 @@ const transformedImageBounds = computed(() => {
 
 /**
  * The overscan band shows what the crop pushes out of the frame. It only works while the frame
- * fills the workspace, so a shirt - whose frame sits somewhere on a mockup photo - has none.
+ * fills the workspace, so a SPOD article - whose frame sits somewhere on a mockup photo - has none.
  */
 const cropOverscan = computed(() => {
   if (!isCropFrameVisible.value || hasMockupPreview.value) return { x: 0, y: 0 }

@@ -7,8 +7,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * The pin between the two lists of print aspect ratios that must stay identical: the constants of
- * [PrintAspectRatio] and the values the database CHECKs of `article_mugs` and `article_tshirts`
- * allow.
+ * [PrintAspectRatio] and the values the database CHECK of `article_mugs` allows. A SPOD article has
+ * no ratio column — it is always printed square — so the mug column is the only one there is.
  *
  * They cannot be derived from one another — one lives in Kotlin, the other in a migration Flyway
  * has already run everywhere — so a third ratio added on one side alone is exactly the mistake this
@@ -18,18 +18,14 @@ import kotlinx.serialization.json.Json
 internal class PrintAspectRatioTest {
     @Test
     fun `the enum carries exactly the ratios the database CHECK allows`() {
-        // Every article type declares the same closed pair on its own column, so every one of them
-        // is pinned here.
-        MIGRATION_RESOURCES.forEach { resource ->
-            val checkValues = checkValuesOf(resource)
+        val checkValues = checkValuesOf(MUG_MIGRATION)
 
-            assertEquals(
-                listOf("16:9", "1:1"),
-                checkValues,
-                "The CHECK in $resource is the wire contract this enum spells out",
-            )
-            assertEquals(checkValues, PrintAspectRatio.entries.map(PrintAspectRatio::wireValue))
-        }
+        assertEquals(
+            listOf("16:9", "1:1"),
+            checkValues,
+            "The CHECK in $MUG_MIGRATION is the wire contract this enum spells out",
+        )
+        assertEquals(checkValues, PrintAspectRatio.entries.map(PrintAspectRatio::wireValue))
     }
 
     /** The values the `print_aspect_ratio` CHECK of [resource] allows, in the order it lists. */
@@ -67,10 +63,6 @@ internal class PrintAspectRatioTest {
     }
 
     private companion object {
-        val MIGRATION_RESOURCES =
-            listOf(
-                "db/migration/V19__article_print_aspect_ratio.sql",
-                "db/migration/V20__create_article_tshirts.sql",
-            )
+        const val MUG_MIGRATION = "db/migration/V19__article_print_aspect_ratio.sql"
     }
 }

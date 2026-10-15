@@ -7,15 +7,17 @@ import { SegmentedControl } from '@/components/ui/segmented-control'
 import { SelectableCard } from '@/components/ui/selectable-card'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useCatalogStore, type MugDto, type TshirtDto } from '@/stores/shop/catalog'
+import { useCatalogStore, type MugDto, type SpodArticleDto } from '@/stores/shop/catalog'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { useWizardStore } from '@/stores/shop/wizard'
 import {
   createMugVariant,
   createShopMug,
   createShopPrompt,
-  createShopTshirt,
-  createTshirtVariant,
+  createShopTee,
+  createShopTote,
+  createSpodAppearance,
+  createSpodVariant,
 } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
@@ -68,25 +70,34 @@ function makeMug(id: number, categoryId: number, overrides: Partial<MugDto> = {}
   })
 }
 
-function makeTshirt(id: number, categoryId: number, overrides: Partial<TshirtDto> = {}): TshirtDto {
-  return createShopTshirt({
+/** A tee in black (M, L) and white (L only), so a colour switch has a size to keep. */
+function makeTee(id: number, categoryId: number): SpodArticleDto {
+  const black = createSpodAppearance({ id: 1, colorName: 'Black', colorHex: '#101010' })
+  const white = createSpodAppearance({ id: 2, colorName: 'White', colorHex: '#ffffff' })
+
+  return createShopTee({
     id,
     name: `Shirt ${id}`,
     categoryId,
     sizeChartImageFilename: 'size-chart.webp',
+    appearances: [black, white],
     variants: [
-      createTshirtVariant({ id: id * 10 + 1, name: 'Black / M', size: 'M', isDefault: true }),
-      createTshirtVariant({ id: id * 10 + 2, name: 'Black / L', size: 'L', isDefault: false }),
-      createTshirtVariant({
+      createSpodVariant({ id: id * 10 + 1, name: 'Black / M', appearanceId: 1, size: 'M' }),
+      createSpodVariant({
+        id: id * 10 + 2,
+        name: 'Black / L',
+        appearanceId: 1,
+        size: 'L',
+        isDefault: false,
+      }),
+      createSpodVariant({
         id: id * 10 + 3,
         name: 'White / L',
-        colorName: 'White',
-        colorHex: '#ffffff',
+        appearanceId: 2,
         size: 'L',
         isDefault: false,
       }),
     ],
-    ...overrides,
   })
 }
 
@@ -345,7 +356,7 @@ describe('wizard selection controls', () => {
 
   it('picks a shirt colour and size and offers its size chart', async () => {
     const catalogStore = useCatalogStore()
-    catalogStore.articles = [makeTshirt(5, 20)]
+    catalogStore.articles = [makeTee(5, 20)]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
@@ -353,7 +364,7 @@ describe('wizard selection controls', () => {
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
     const wizard = useWizardStore()
-    wizard.selectArticle('TSHIRT', 5, 51)
+    wizard.selectArticle('SPOD', 5, 51)
 
     const wrapper = mount(SelectArticleStep)
 
@@ -364,23 +375,63 @@ describe('wizard selection controls', () => {
     expect(swatches).toHaveLength(2)
     expect(swatches[0]!.attributes('data-state')).toBe('selected')
 
-    const sizeButtons = wrapper.findAll('[data-testid="wizard-tshirt-sizes"] button')
+    const sizeButtons = wrapper.findAll('[data-testid="wizard-spod-sizes"] button')
     expect(sizeButtons.map((button) => button.text())).toEqual(['M', 'L'])
+
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
 
     await sizeButtons[1]!.trigger('click')
     expect(wizard.selectedVariantId).toBe(52)
 
-    // White is only offered in L, and the selected size survives the colour switch.
+    // White is only offered in L, and the selected size survives the colour switch. One size is no
+    // choice, so white shows neither size buttons nor the size chart.
     await swatches[1]!.trigger('click')
     expect(wizard.selectedVariantId).toBe(53)
-    expect(wizard.selectedArticleType).toBe('TSHIRT')
+    expect(wizard.selectedArticleType).toBe('SPOD')
+    expect(wrapper.find('[data-testid="wizard-spod-sizes"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)
+  })
 
-    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
+  it('shows the first listing image of the selected colour', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [makeTee(5, 20)]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+    vi.spyOn(useArticleCategoriesStore(), 'fetchCategories').mockResolvedValue()
+    useWizardStore().selectArticle('SPOD', 5, 51)
+
+    const wrapper = mount(SelectArticleStep)
+    await flushPromises()
+
+    const image = () => wrapper.get('[data-testid="wizard-selected-article"] img')
+    expect(image().attributes('src')).toBe(
+      '/api/images/public/400/articles/spod/listing-images/listing-1-front.webp',
+    )
+
+    await wrapper.findAllComponents(SwatchButton)[1]!.trigger('click')
+
+    expect(image().attributes('src')).toBe(
+      '/api/images/public/400/articles/spod/listing-images/listing-2-front.webp',
+    )
+  })
+
+  it('offers a one-size tote its colours but neither size buttons nor a size chart', async () => {
+    const catalogStore = useCatalogStore()
+    catalogStore.articles = [createShopTote({ id: 6, sizeChartImageFilename: 'size-chart.webp' })]
+    vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+    vi.spyOn(useArticleCategoriesStore(), 'fetchCategories').mockResolvedValue()
+    useWizardStore().selectArticle('SPOD', 6, 61)
+
+    const wrapper = mount(SelectArticleStep)
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="wizard-spod-colors"] button')).toHaveLength(8)
+    expect(wrapper.find('[data-testid="wizard-spod-sizes"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)
   })
 
   it('opens the selected article panel after a shirt is picked in the grid', async () => {
     const catalogStore = useCatalogStore()
-    catalogStore.articles = [makeTshirt(5, 20)]
+    catalogStore.articles = [makeTee(5, 20)]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
 
     const categoriesStore = useArticleCategoriesStore()
@@ -402,9 +453,9 @@ describe('wizard selection controls', () => {
     const panel = wrapper.get('[data-testid="wizard-selected-article"]')
     expect(wizard.selectedVariantId).toBe(51)
     expect(
-      panel.findAll('[data-testid="wizard-tshirt-sizes"] button').map((button) => button.text()),
+      panel.findAll('[data-testid="wizard-spod-sizes"] button').map((button) => button.text()),
     ).toEqual(['M', 'L'])
-    expect(panel.find('[data-testid="wizard-tshirt-colors"]').exists()).toBe(true)
+    expect(panel.find('[data-testid="wizard-spod-colors"]').exists()).toBe(true)
     expect(panel.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
     expect(wrapper.findAll('.product-card')).toHaveLength(0)
 

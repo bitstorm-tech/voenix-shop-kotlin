@@ -7,7 +7,7 @@ import {
   DestinationNotFoundError,
   InvalidDestinationRequestError,
   type SaveProductionDestinationRequest,
-  type TshirtSyncReport,
+  type SpodSyncReport,
   useAdminProductionDestinationsStore,
 } from '@/stores/admin/productionDestinations'
 
@@ -48,7 +48,7 @@ function spodDestination(
   }
 }
 
-function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport {
+function syncReport(overrides: Partial<SpodSyncReport> = {}): SpodSyncReport {
   return {
     destinationId: 1,
     supplierId: 3,
@@ -63,6 +63,8 @@ function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport
         articleId: 11,
         spodArticleId: 'spod-1',
         name: 'Classic Tee',
+        hotspot: 'front',
+        printFrame: { leftPct: 30, topPct: 20, widthPct: 40, heightPct: 45 },
         variantsCreated: 4,
         variantsUpdated: 0,
         variantsDeactivated: 0,
@@ -288,7 +290,7 @@ describe('admin production destinations store', () => {
     stubFetch(() =>
       jsonResponse(
         {
-          message: 'Only print-on-demand destinations have a t-shirt catalog to sync',
+          message: 'Only print-on-demand destinations have a SPOD catalog to sync',
           code: 'CHANNEL_WITHOUT_CATALOG',
         },
         { status: 409 },

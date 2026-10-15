@@ -4,7 +4,7 @@ import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.jdbc.Database
 import shop.voenix.article.ArticleCatalog
 import shop.voenix.article.installArticleModule
-import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.spod.SpodCatalogSync
 import shop.voenix.country.ShippableCountries
 import shop.voenix.country.installCountryModule
 import shop.voenix.image.PublicImageStorage
@@ -37,7 +37,7 @@ internal class CatalogRuntime(
     val shippableCountries: ShippableCountries,
     val suppliers: SupplierReader,
     /** Handed on to the production module, whose destination screen triggers a run. */
-    val tshirtSync: TshirtCatalogSync,
+    val spodSync: SpodCatalogSync,
 )
 
 /**
@@ -46,8 +46,8 @@ internal class CatalogRuntime(
  * price something — each installed after everything it consumes.
  *
  * [images] is the public image storage an article and a prompt store their pictures in, and [spod]
- * is the application's single print-on-demand client the article module's t-shirt sync reads the
- * backoffice with; those two are the only capabilities this group needs from outside itself.
+ * is the application's single print-on-demand client the article module's SPOD article sync reads
+ * the backoffice with; those two are the only capabilities this group needs from outside itself.
  */
 internal fun Application.installCatalogRuntime(
     database: Database,
@@ -67,6 +67,6 @@ internal fun Application.installCatalogRuntime(
         promotionCodes = promotionCodes,
         shippableCountries = countries.shippableCountries,
         suppliers = suppliers,
-        tshirtSync = articles.tshirtSync,
+        spodSync = articles.spodSync,
     )
 }

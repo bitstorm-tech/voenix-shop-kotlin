@@ -54,7 +54,10 @@ import shop.voenix.spod.SpodShipping
  *    unreadable answer, or a `5xx` may or may not have created an order. The first one is repeated
  *    — worst case one inert orphan. The second quarantines the job as `OUTCOME_UNKNOWN`, and a
  *    human reads the partner's backoffice. A refusal the partner *stated* (`4xx`) is not ambiguous
- *    at all: nothing was created, and the job is simply retried later.
+ *    at all: nothing was created, and the job is held as
+ *    [SpodSubmissionError.ORDER_CREATE_REJECTED] for a human. It is never re-sent with another
+ *    placement: what is printed is the hotspot the customer previewed, or nothing (issue #260,
+ *    decision 8).
  *
  * The confirmation follows the same logic from the other end: it reads `GET /orders/{id}` first and
  * confirms only while the order is still `NEW`, so a repeated attempt after a crash never confirms
@@ -142,6 +145,9 @@ internal class SpodOrderSubmitter(
      * shortens the live share of this supplier, and the missing lines are silently the trailing
      * ones — so without [SpodSubmissionError.ITEM_SET_CHANGED] a fully paid order would travel to
      * the partner as a partial one, or, when the supplier lost every line, as nothing at all.
+     *
+     * A line without a snapshotted hotspot is refused here too, before a single partner call: there
+     * is no placement this stage could honestly print it with.
      */
     private suspend fun resolveLines(job: OpenSpodJob, order: ProductionData): List<SpodLine>? {
         val snapshot = orders.itemVariantNames(job.id)
@@ -256,97 +262,27 @@ private class SpodOrderCreator(
     }
 
     /**
-     * Sends the creation with the default placement and, if the partner refuses it, once more with
-     * a placement it says the product type actually offers.
-     *
-     * A second creation is only safe because the first one was refused with a `4xx`: the partner
-     * stated it created nothing. Every other failure ends the attempt here.
+     * Sends the creation once. A stated refusal is final for this job: the partner created nothing,
+     * and the only other placement it might accept is one the customer never saw.
      */
     private suspend fun send(
         context: SpodJobContext,
         designs: Map<Int, String>,
         phone: String,
-    ): String? {
-        val request = context.request(designs, phone, hotspots = emptyMap())
-        return when (val created = client.createOrder(context.destination, request)) {
-            is SpodResult.Answered -> persist(context, created.value)
-            is SpodResult.Failed -> afterFailedCreate(context, designs, phone, created)
-        }
-    }
-
-    private suspend fun afterFailedCreate(
-        context: SpodJobContext,
-        designs: Map<Int, String>,
-        phone: String,
-        failure: SpodResult.Failed,
     ): String? =
-        when {
-            failure.ambiguous -> null.also { recordAmbiguity(context, failure) }
-            failure.error == SpodError.REFUSED -> withResolvedHotspots(context, designs, phone)
-            else -> null.also { orders.fail(context.job.id, failure.error) }
-        }
-
-    private suspend fun withResolvedHotspots(
-        context: SpodJobContext,
-        designs: Map<Int, String>,
-        phone: String,
-    ): String? {
-        val hotspots = resolveHotspots(context, designs) ?: return null
-        val request = context.request(designs, phone, hotspots)
-        return when (val created = client.createOrder(context.destination, request)) {
+        when (
+            val created = client.createOrder(context.destination, context.request(designs, phone))
+        ) {
             is SpodResult.Answered -> persist(context, created.value)
-            is SpodResult.Failed -> null.also { afterRejectedRetry(context, created) }
+            is SpodResult.Failed -> null.also { afterFailedCreate(context, created) }
         }
-    }
 
-    private suspend fun afterRejectedRetry(context: SpodJobContext, failure: SpodResult.Failed) {
-        if (failure.ambiguous) {
-            recordAmbiguity(context, failure)
-        } else {
-            orders.fail(context.job.id, SpodSubmissionError.ORDER_CREATE_REJECTED)
-        }
-    }
-
-    /**
-     * A front placement per line, asked from the partner per distinct product type and design.
-     *
-     * The hotspot names are the partner's own vocabulary, and the endpoint answers only the ones
-     * that fit this design on this product type. A front print is what this shop sells (issue #205,
-     * product decision 3), so the first front hotspot on offer is taken; a product type that offers
-     * none is [SpodSubmissionError.PLACEMENT_UNAVAILABLE] and a job for a human.
-     */
-    private suspend fun resolveHotspots(
-        context: SpodJobContext,
-        designs: Map<Int, String>,
-    ): Map<Int, String>? {
-        val byPlacement =
-            context.lines.groupBy { line ->
-                line.product.productTypeId to designs.getValue(line.position)
-            }
-        val resolved = mutableMapOf<Int, String>()
-        val failure =
-            byPlacement.entries.firstNotNullOfOrNull { (placement, group) ->
-                resolveHotspot(context, placement, group, resolved)
-            }
-        failure?.let { code -> orders.recordFailure(context.job.id, code) }
-        return resolved.takeIf { failure == null }
-    }
-
-    private suspend fun resolveHotspot(
-        context: SpodJobContext,
-        placement: Pair<Long, String>,
-        group: List<SpodLine>,
-        into: MutableMap<Int, String>,
-    ): String? {
-        val (productTypeId, designId) = placement
-        val answer = client.availableHotspots(context.destination, productTypeId, designId)
-        return when (answer) {
-            is SpodResult.Failed -> answer.error.name
-            is SpodResult.Answered -> {
-                val hotspot = answer.value.frontHotspot()
-                hotspot?.let { name -> group.forEach { line -> into[line.position] = name } }
-                if (hotspot == null) SpodSubmissionError.PLACEMENT_UNAVAILABLE.name else null
-            }
+    private suspend fun afterFailedCreate(context: SpodJobContext, failure: SpodResult.Failed) {
+        when {
+            failure.ambiguous -> recordAmbiguity(context, failure)
+            failure.error == SpodError.REFUSED ->
+                orders.fail(context.job.id, SpodSubmissionError.ORDER_CREATE_REJECTED)
+            else -> orders.fail(context.job.id, failure.error)
         }
     }
 
@@ -453,6 +389,10 @@ private data class SpodLine(val position: Int, val item: ProductionItem) {
     val product: SpodProductRef
         get() = checkNotNull(item.spodProduct)
 
+    /** Valid only after [problem] answered `null`, like [product]. */
+    val hotspot: String
+        get() = checkNotNull(item.spodHotspot)
+
     /**
      * Callable only after `setProblem` answered `null`, which is what makes the snapshot lookup
      * total: the live positions are then exactly the snapshotted ones.
@@ -462,6 +402,7 @@ private data class SpodLine(val position: Int, val item: ProductionItem) {
             item.spodProduct == null -> SpodSubmissionError.ITEM_WITHOUT_SPOD_PRODUCT
             snapshot.getValue(position) != item.variantName ->
                 SpodSubmissionError.SPOD_MAPPING_CHANGED
+            item.spodHotspot == null -> SpodSubmissionError.PLACEMENT_UNAVAILABLE
             else -> null
         }
 }
@@ -473,15 +414,14 @@ private data class SpodLine(val position: Int, val item: ProductionItem) {
  * two reasons: the webhook finds the job by it without a second lookup table, and a human comparing
  * this shop's admin with the partner's backoffice reads the same string on both screens.
  *
- * The lines are grouped the way the partner groups them: one entry per product type and design,
- * with one quantity line per size and colour. Two shirt lines that differ only in size therefore
- * travel as one entry with two quantity lines, which is also how the partner prices and packs them.
+ * The lines are grouped the way the partner groups them: one entry per product type, design, and
+ * hotspot, with one quantity line per size and colour. Two shirt lines that differ only in size
+ * therefore travel as one entry with two quantity lines, which is also how the partner prices and
+ * packs them. Two lines with different hotspots cannot share an entry, because an entry has one
+ * placement. The hotspot is the one each order line snapshotted at placement (issue #260, decision
+ * 14), never one resolved now.
  */
-private fun SpodJobContext.request(
-    designs: Map<Int, String>,
-    phone: String,
-    hotspots: Map<Int, String>,
-): SpodOrderRequest =
+private fun SpodJobContext.request(designs: Map<Int, String>, phone: String): SpodOrderRequest =
     SpodOrderRequest(
         externalOrderReference = spodOrderReference(order.orderId, job.id),
         email = order.customerEmail,
@@ -489,9 +429,15 @@ private fun SpodJobContext.request(
         shipping = SpodShipping(address = order.address()),
         oneTimeItems =
             lines
-                .groupBy { line -> line.product.productTypeId to designs.getValue(line.position) }
+                .groupBy { line ->
+                    Triple(
+                        line.product.productTypeId,
+                        designs.getValue(line.position),
+                        line.hotspot,
+                    )
+                }
                 .map { (placement, group) ->
-                    val (productTypeId, designId) = placement
+                    val (productTypeId, designId, hotspot) = placement
                     SpodOneTimeItem(
                         productTypeId = productTypeId,
                         quantityItems =
@@ -507,29 +453,12 @@ private fun SpodJobContext.request(
                                 SpodConfiguration(
                                     image = SpodConfigurationImage(designId = designId),
                                     view = FRONT_VIEW,
-                                    hotspot =
-                                        hotspots[group.first().position] ?: DEFAULT_FRONT_HOTSPOT,
+                                    hotspot = hotspot,
                                 )
                             ),
                     )
                 },
     )
-
-/**
- * The front placement among the names the partner offers, or `null` when it offers none.
- *
- * The endpoint answers **names only** — `LEFT_CHEST`, `MEDIUM_FRONT`, `LARGE_BACK` — and no view
- * field, so which view a name belongs to has to be read off the name itself. Two families are front
- * placements: the ones that say `FRONT`, and the chest ones, which sit on the front of the garment
- * without saying so. A name that says `FRONT` is preferred, because it is the placement this shop
- * asks for by default and the one a chest hotspot only stands in for.
- *
- * The match is case-insensitive: the partner's vocabulary is upper case today, and a lower-case
- * `front` must not be the difference between a printed shirt and a job for a human.
- */
-private fun List<String>.frontHotspot(): String? =
-    firstOrNull { name -> name.contains(FRONT_VIEW, ignoreCase = true) }
-        ?: firstOrNull { name -> name.contains(CHEST_PLACEMENT, ignoreCase = true) }
 
 /** The partner wants one street line; the shop stores two fields. An empty number adds nothing. */
 private fun ProductionData.address(): SpodAddress =
@@ -584,13 +513,8 @@ private suspend fun SpodOrderRepository.fail(jobId: Long, error: SpodError) {
     recordFailure(jobId, error.name)
 }
 
-/** The one view this shop prints on, and the placement it asks for first. */
+/** The one view this shop prints on. */
 private const val FRONT_VIEW = "FRONT"
-
-private const val DEFAULT_FRONT_HOTSPOT = "MEDIUM_FRONT"
-
-/** A chest placement is a front placement the partner's name does not spell `FRONT`. */
-private const val CHEST_PLACEMENT = "CHEST"
 
 /** The two order states the partner's API knows. */
 private const val SPOD_STATE_NEW = "NEW"
@@ -630,10 +554,14 @@ internal enum class SpodSubmissionError {
     /** The order carries no phone number, which the partner requires on every order. */
     PHONE_MISSING,
 
-    /** The partner refused the creation, also with a placement it said it offers. */
+    /**
+     * The partner refused the creation with a `4xx` — for example a hotspot it no longer accepts,
+     * or a delivery country it does not serve. It is not re-sent with another placement
+     * (issue #260, decision 8).
+     */
     ORDER_CREATE_REJECTED,
 
-    /** No front placement is available for this design on this product type. */
+    /** A line carries no snapshotted hotspot, so there is no placement it may be printed with. */
     PLACEMENT_UNAVAILABLE,
 
     /** The created order's id could not be written down; a human has to reconcile this one. */

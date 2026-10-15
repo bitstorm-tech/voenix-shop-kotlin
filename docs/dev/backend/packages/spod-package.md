@@ -8,7 +8,7 @@ This guide explains the Kotlin code in
 The SPOD package is the one place in this backend that knows the HTTP API of
 the print-on-demand partner **Spreadconnect (SPOD)**. It owns the client, the
 vocabulary of a provider call (`SpodAccess`, `SpodEnvironment`, `SpodResult`,
-`SpodError`), the request and response shapes of the eight calls, and the one
+`SpodError`), the request and response shapes of the ten calls, and the one
 piece of interpretation the partner's answers need, `parseColorHex`.
 
 It is a **leaf module**: it depends on no other module of this backend, not
@@ -19,13 +19,13 @@ handle. What it has is one class, `SpodClient`, and two modules consume it:
   in state `NEW`, read it, confirm it, and ask which placements a product type
   offers (see [SPOD fulfillment](spod-fulfillment.md));
 - `article` reads the merchant's backoffice catalog through it and turns it
-  into this shop's t-shirts — list the articles, read a size chart, download an
-  image one of those answers points at (see the
-  [Article package guide](article-package.md#t-shirts)).
+  into this shop's SPOD articles — list the articles, read a size chart,
+  download an image one of those answers points at (see the
+  [Article package guide](article-package.md#spod-articles)).
 
-The client used to live inside `production`. It moved here when the t-shirt
-catalog became synced data
-([t-shirt sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
+The client used to live inside `production`. It moved here when the SPOD
+catalog (then the t-shirt catalog) became synced data
+([SPOD sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
 two modules needed the same client, and the alternative — `article` depending
 on `production`, or a second client next to the first — would either have
 inverted the layering or split the partner's request budget in two.
@@ -34,7 +34,7 @@ inverted the layering or split the partner's request budget in two.
 
 ```mermaid
 flowchart TB
-    Article["article<br/>TshirtCatalogSyncService"]
+    Article["article<br/>SpodCatalogSyncService"]
     Production["production<br/>SpodOrderSubmitter"]
     Client["SpodClient<br/>one instance per application"]
     Pacer["the pacer<br/>≥ 1050 ms between two API requests"]
@@ -85,21 +85,25 @@ The ownership rules are:
 
 | File | Contents |
 | --- | --- |
-| [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
+| [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
 | [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
-| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and the three readings of an image answer: `downloadUrl()`, `showsModel`, and `SpodCatalogArticle.frontImage(appearanceId)`. |
+| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and `downloadUrl()`, the one reading of an image answer. |
+| [`SpodPreviews.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodPreviews.kt) | What the partner renders of a product type: the views answer (`SpodViews`, `SpodView`, `SpodHotspotName`, `SpodViewImage`) and the preview request and answer (`SpodPreviewRequest`, `SpodPreviewConfiguration`, `SpodPreviews`, `SpodPreviewImage`). |
 
 These types read only the keys a sync run uses, and each one it does read has a
 job. `SpodCatalogPage` carries the page's `items` and the catalog's total
 `count`; the `count` is nullable, because a page that carries none is a
 malformed answer the caller has to refuse rather than a listing that happens to
 end early (the paging cursor is the `limit`/`offset` the *caller* passed, so the
-echo of them in the body is not read at all). `SpodCatalogVariant` likewise
-answers no image id list: which picture a colour gets is decided from
-`SpodCatalogArticle`'s images, not from the variant.
+echo of them in the body is not read at all). `SpodCatalogVariant` carries the
+three product ids, the colour's name and value, the size, the `sku`, and
+`productTypeName` — the partner's name of the product kind, which the shop
+stores as an article's subtitle. It answers no image id list: which pictures a
+colour gets is decided from `SpodCatalogArticle`'s images, every one whose
+`appearanceId` is that colour, in the listing's order.
 
-Three things about an image answer are undocumented and live next to the type,
-so the article module never reads the partner's URL format itself:
+One thing about an image answer is undocumented and lives next to the type, so
+the article module never reads the partner's URL format itself:
 
 - **`downloadUrl()`** — the partner writes the Spreadshirt image server's URL
   with the literal placeholder `lookupId` where the product id belongs
@@ -112,18 +116,17 @@ so the article module never reads the partner's URL format itself:
   used as it is. The partner's support says to use the URL exactly as
   answered (2026-10), but the staging CDN still answers it with that `404`
   (checked again on 2026-10-06), so the replacement stays.
-- **`showsModel`** — a colour lists two or three mockups under the same
-  `perspective`: the garment alone and one or two photos of a model wearing it,
-  told apart by `modelId=` in the URL.
-- **`frontImage(appearanceId)`** — the mockup a colour is shown with: the
-  exact `perspective` word `front` first, then anything containing it, then any
-  picture of that colour, and at every step the garment alone before a model.
+
+Which of a colour's images the shop shows used to be a guess here as well — a
+`frontImage` ranking over the undocumented `perspective` and the `modelId=` of a
+model photo. Issue #260 deleted it: the operator chooses a colour's images in
+the backoffice, and the shop stores all of them in the partner's order.
 
 ## The HTTP API
 
 This module serves **no** HTTP route. It is a client, not a surface: it has no
 `install…Module` function, no routes file, and no runtime handle. Its "API" is
-the eight calls it makes outwards.
+the ten calls it makes outwards.
 
 | Call | Partner endpoint | Answers |
 | --- | --- | --- |
@@ -135,10 +138,23 @@ the eight calls it makes outwards.
 | `articles(access, limit, offset)` | `GET /articles` | one page of the merchant's backoffice articles |
 | `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `sizeImageUrl` of that product type |
 | `download(url, timeoutSeconds)` | the URL a previous answer carried | the image bytes and their content type |
+| `views(access, productTypeId)` | `GET /productTypes/{id}/views` | each view's name, placement names, and mockup per colour |
+| `previews(access, productTypeId, request)` | `POST /productTypes/{id}/previews` | the URLs of the rendered previews, one per view |
 
 The first five produce an order and are described step by step in
-[SPOD fulfillment](spod-fulfillment.md); the last three read the catalog and
-are what a sync run is built from.
+[SPOD fulfillment](spod-fulfillment.md); the next three read the catalog and
+are what a sync run is built from; the last two calibrate a product type —
+what its sides look like, and where a design lands on them. How the sync run
+turns them into a print frame, and what that costs of the 60-per-minute
+budget, is
+[SPOD sync decision 7](article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews).
+
+The preview request is sent as
+`{ "configurations": [ { "designId", "hotspot" } ], "appearanceId": "<string>", "width": 1000, "height": 1000 }`;
+the partner accepts only multiples of 50 for the size. Both calibration
+endpoints write the colour id as a **string**, unlike the `Long` of an order's
+`appearanceId`, so `SpodViewImage` and `SpodPreviewRequest` carry a `String`. A
+missing `views` or `images` array reads as an empty list.
 
 ## The four rules of the client
 
@@ -182,7 +198,7 @@ because its answers carry far more than what is read here.
 `download(url, timeoutSeconds)` is the only call whose URL does **not** come
 from `SpodEnvironment`. It comes out of an answer the partner gave this shop —
 a mockup image of a colour, or a size chart — so it is *bounded* instead of
-trusted (t-shirt sync decision 5):
+trusted (SPOD sync decision 5):
 
 - **https only.** A `http` URL, a relative one, or anything that is not a URL
   is refused before a request goes out.
@@ -202,7 +218,7 @@ trusted (t-shirt sync decision 5):
 - **At most 10 MiB is read**, whatever the answer's `Content-Length` claims.
   The channel is cancelled the moment the cap is exceeded — this is an answer,
   not a request, and refusing to keep paying for it is the point of the cap.
-  It is the same 10 MiB a visitor may upload: a mockup of a shirt has no
+  It is the same 10 MiB a visitor may upload: a product image has no
   business being larger than the picture printed on it.
 - **It is not paced.** The 60-per-minute budget belongs to the API; pacing a
   few hundred CDN images behind it would make a sync take minutes for nothing.
@@ -216,7 +232,7 @@ three refusals in the same way.
 
 ## The catalog answers are read leniently
 
-Two decisions run through every type in `SpodCatalog.kt`, both from the t-shirt
+Two decisions run through every type in `SpodCatalog.kt`, both from the SPOD
 sync decisions (6 and 4).
 
 **Every field except an id has a default.** The partner documents neither which
@@ -261,7 +277,7 @@ also **closes** it when the application stops.
 
 Both consuming modules declare the dependency as `exported`, because their own
 public signatures name types of this module: `installArticleModule` and
-`createProductionModule` take a `SpodClient`, `TshirtCatalogSync` takes a
+`createProductionModule` take a `SpodClient`, `SpodCatalogSync` takes a
 `SpodAccess`, and the sync report answers a `SpodError`.
 
 ## Tests
@@ -270,17 +286,23 @@ The module's tests drive the real client against a `MockEngine`, which is how
 the exact request, the header, and the pacer's arithmetic are observable at
 all.
 
-- `SpodClientTest` — the exact request of every one of the eight calls
-  including the `X-SPOD-ACCESS-TOKEN` header, an id answered as a number
+- `SpodClientTest` — the exact request of every one of the order and catalog
+  calls including the `X-SPOD-ACCESS-TOKEN` header, an id answered as a number
   reading like a quoted one, the pacer's waiting arithmetic on a fake clock,
   `429` → `RATE_LIMITED`, a `4xx` known versus a `5xx` ambiguous, the article
   listing paging with `limit`/`offset` until the count is reached, the four
   refusals of `download` (not https, not an image, over the cap, refused by the
   host), that image downloads are *not* paced while the catalog calls are, and
   that neither the token nor a URL nor a provider body ever reaches a log line.
+- `SpodCalibrationCallsTest` — the exact request of `views` and `previews`
+  with the token, the configured timeout, and the exact preview JSON; an
+  unknown field ignored and a missing `views` or `images` array read as empty;
+  `429`, `5xx`, and `4xx` judged like every other call; and the two calls paced
+  like every other API call. The fixtures both client tests share — the
+  `MockEngine` client, the staging access, the token and the provider-body
+  marker — live in `SpodTestSupport.kt`.
 - `SpodCatalogImageTest` — the `lookupId` placeholder replaced by the product id
-  and left alone without one, `showsModel`, and the front-image ranking with the
-  garment alone before a model.
+  and left alone without one.
 - `ParseColorHexTest` — three- and six-digit hex with and without `#`, the
   first colour of a two-tone value, the normalization to lowercase, and the
   values that answer `null`.

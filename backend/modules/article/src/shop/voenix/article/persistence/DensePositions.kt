@@ -22,7 +22,7 @@ import org.jetbrains.exposed.v1.jdbc.update
  * broken sequence would come back repaired and every row a client sees would have moved although it
  * asked to move one. Refusing the move with a retryable conflict instead is what the legacy backend
  * did before its own rewrite, and it leaves the evidence in place. The four reorders of this module
- * — mugs, t-shirts, categories, subcategories — therefore ask this one question with this one
+ * — mugs, SPOD articles, categories, subcategories — therefore ask this one question with this one
  * implementation.
  */
 internal fun <T> List<T>.isDenseBy(position: (T) -> Int): Boolean =

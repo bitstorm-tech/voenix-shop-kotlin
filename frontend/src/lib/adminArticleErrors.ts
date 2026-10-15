@@ -5,14 +5,14 @@ import type { ApiFieldErrors } from '@/lib/api'
  *
  * An article write reports every problem it blames on the request as a `400` with field errors keyed
  * by the **JSON path** of the offending value: `categoryId`, `supplierId`, `mugDetails.heightMm`,
- * `printFrame.widthPct`, `price.salesVatId`, `tshirtVariants[0].colorHex`. Nothing arrives as a
+ * `price.salesVatId`, `mugVariants[0].exampleImageFilename`. Nothing arrives as a
  * conflict — the reorder is the only article route with a `409` at all.
  *
  * The shape is shared by both types because both editors show errors the same way: on an input, on
  * a variant row, or — for a path no input owns — in a summary next to the form.
  */
 export interface AdminArticleSaveErrors {
-  /** Messages keyed by the editor field, e.g. `name`, `categoryId`, `heightMm`, `printFrame.topPct`. */
+  /** Messages keyed by the editor field, e.g. `name`, `categoryId`, `heightMm`, `active`. */
   fields: Record<string, string>
   /** Messages of one submitted variant, keyed by its index in the variant array. */
   variants: Record<number, string>
@@ -31,7 +31,7 @@ export interface AdminArticleSaveErrors {
 export interface ArticleErrorSpec {
   /**
    * Matches `mugVariants[3]…` and captures the index. Only a type whose editor writes its variants
-   * has one — a t-shirt's variants belong to the sync, so a shirt write cannot be refused for them.
+   * has one — a SPOD article's variants belong to the sync, so its write cannot be refused for them.
    */
   variantPath?: RegExp
   /** The renderable field keys of the editor. */
@@ -68,27 +68,12 @@ const MUG_FIELDS = new Set([
 ])
 
 /**
- * The shop-owned half of a synced shirt, and no more. The name, the descriptions, the supplier, and
- * the variants are the partner's (t-shirt sync decision 2), so a shirt write never carries them and
- * the editor has no input that could show a message about them.
- *
- * The four frame percentages keep their full JSON path as their key, because the calibrator renders
- * one input per percentage and can therefore show the backend's message exactly where the number is
- * typed. `printFrame` itself has no input — the print section shows it as its own alert — but it is
- * renderable and therefore listed.
+ * The shop-owned half of a synced SPOD article, and no more. The name, the descriptions, the
+ * supplier, the variants, and the print frame are the partner's or the sync's (the frame is
+ * measured, never edited), so a SPOD write never carries them and the editor has no input that
+ * could show a message about them.
  */
-const TSHIRT_FIELDS = new Set([
-  'active',
-  'categoryId',
-  'subcategoryId',
-  'defaultVariantId',
-  'printAspectRatio',
-  'printFrame',
-  'printFrame.leftPct',
-  'printFrame.topPct',
-  'printFrame.widthPct',
-  'printFrame.heightPct',
-])
+const SPOD_FIELDS = new Set(['active', 'categoryId', 'subcategoryId', 'defaultVariantId'])
 
 /** How a **mug** write's paths fold onto the mug editor. `mugDetails.heightMm` becomes `heightMm`
  * because the details section names its inputs that way. */
@@ -100,11 +85,9 @@ export const MUG_SPEC: ArticleErrorSpec = {
     path.startsWith('mugDetails.') ? path.slice('mugDetails.'.length) : collapsePrice(path),
 }
 
-/** How a **t-shirt** write's paths fold onto the shirt editor. Unlike the mug's `mugDetails.*`, the
- * four `printFrame.*` paths are kept whole: the calibrator has one input per percentage, so the path
- * is already the name of the input that shows the message. */
-export const TSHIRT_SPEC: ArticleErrorSpec = {
-  fields: TSHIRT_FIELDS,
+/** How a **SPOD** write's paths fold onto the SPOD editor. */
+export const SPOD_SPEC: ArticleErrorSpec = {
+  fields: SPOD_FIELDS,
   toField: collapsePrice,
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Coffee, Shirt } from 'lucide-vue-next'
+import { Coffee, Package } from 'lucide-vue-next'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { EditorArticle, EditorArticleVariant } from './types'
@@ -23,17 +23,15 @@ const shouldShowVariantImage = computed(
   () => variantImageUrl.value !== null && !imageLoadFailed.value,
 )
 /** The fallback while a photo is missing: the shape of the thing, per article type. */
-const placeholderIcon = computed(() => (props.article.type === 'TSHIRT' ? Shirt : Coffee))
+const placeholderIcon = computed(() => (props.article.type === 'SPOD' ? Package : Coffee))
 
 /**
- * A mug is described in millimetres, a shirt only by the ratio its design is printed in - so the
- * line says whichever of the two the article really knows.
+ * A mug is described in millimetres; a SPOD design is always square - so the line says whichever
+ * of the two the article really knows.
  */
 const printAreaLabel = computed(() => {
   const article = props.article
-  if (article.type === 'TSHIRT') {
-    return t('editor.context.printRatio', { ratio: article.printAspectRatio })
-  }
+  if (article.type === 'SPOD') return t('editor.context.printAreaSquare')
 
   const printArea = article.printArea
   if (!printArea || printArea.documentFormatWidthMm === null)
@@ -67,6 +65,13 @@ watch(variantImageUrl, () => {
 
     <div class="product-context-main">
       <h1 class="product-context-title">{{ article.name }}</h1>
+      <p
+        v-if="article.type === 'SPOD' && article.productTypeName"
+        class="product-context-detail"
+        data-testid="editor-product-type"
+      >
+        {{ article.productTypeName }}
+      </p>
       <p class="product-context-detail">
         {{ variant.name }} -
         <ProductPrice :cents="article.price" :regular-cents="article.regularPrice" size="sm" />

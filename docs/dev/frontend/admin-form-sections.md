@@ -1,7 +1,7 @@
 # Long admin forms on one page
 
 Most admin entities are edited in a dialog. Three editors are the exception:
-the two article editors (`MugArticleEditView`, `TshirtArticleEditView`) and the
+the two article editors (`MugArticleEditView`, `SpodArticleEditView`) and the
 prompt editor (`PromptEditView`). They are full pages, because an article or a
 prompt with its price has too much to fit into a dialog. This guide explains how
 such a page is laid out and how it shows problems when a save is stopped.
@@ -62,13 +62,16 @@ with
 [`AdminEditorSummary`](../../../frontend/src/components/admin/shared/AdminEditorSummary.vue):
 the *Active* switch with a badge that says whether the article is in the shop,
 a *Missing at Spreadconnect* badge where that applies, and short facts next to
-them — the category, the gross price, the supplier, the last sync. The facts are
+them — the category, the gross price, the supplier, the last sync (the SPOD
+article editor also names its product type there, for example *Men's
+T-Shirt*). The facts are
 computed from the form state and the last calculated price, so they follow every
 edit.
 
 The *Active* switch lives up here and not in the *General* section on purpose.
 Activating is the one decision the whole page leads up to, and its preconditions
-(a category, a price, an active variant) are spread over every section. In the
+(a category, a price, an active variant, for a SPOD article also a measured
+print frame) are spread over every section. In the
 header, the switch and the facts that decide whether it may be flipped sit side
 by side. The rule message for it (`fieldErrors.active`) is shown right under
 the summary and carries `data-form-error` like any other.
@@ -76,9 +79,9 @@ the summary and carries `data-form-error` like any other.
 ### Reading order
 
 The sections are ordered the way an operator works through the page, not the
-way the data is stored. The t-shirt editor starts with the *Spreadconnect*
-identity (name, descriptions, ids, sync time) — what the shirt *is* — then
-*General*, *Print*, *Price*, and last the synced *Variants* with the size chart.
+way the data is stored. The SPOD article editor starts with the *Spreadconnect*
+identity (name, descriptions, ids, sync time) — what the article *is* — then
+*General*, *Price*, *Print*, and last the synced *Variants* with the size chart.
 The mug editor goes *General*, *Details*, *Variants*, *Price*.
 
 ### One card per section, not cards in cards
@@ -92,9 +95,11 @@ an input `text-xs`, so the three levels of text are told apart at a glance.
 
 ### Synced variants grouped by colour
 
-The t-shirt's variants are read-only and many — a few colours times a few
-sizes. [`AdminArticleTshirtVariantGroups`](../../../frontend/src/components/admin/article/AdminArticleTshirtVariantGroups.vue)
-shows one row per colour with the sizes as chips: a struck-through chip is a
+A SPOD article's variants are read-only and many — a few colours times a few
+sizes. [`AdminArticleSpodVariantGroups`](../../../frontend/src/components/admin/article/AdminArticleSpodVariantGroups.vue)
+gets the article's `spodVariants` and `appearances` and shows one row per
+colour (appearance) — its name, its colour swatch, and its first listing image
+as the thumbnail — with the sizes as chips in garment order: a struck-through chip is a
 size the partner no longer offers, the highlighted one is the default variant.
 The partner's identifiers (variant id, SKU, product/appearance/size) sit behind
 a *Show technical IDs* toggle and then appear under every colour in the same
@@ -103,8 +108,23 @@ Spreadconnect backoffice, and nothing an operator reads otherwise.
 
 A section that only **shows** data another system owns gets the `read-only`
 prop. It then has a grey background and a *Read-only* badge, so nobody looks for
-a way to edit it. The *Spreadconnect* and *Variants* sections of the t-shirt
-editor are the examples: a sync run writes them, the shop never does.
+a way to edit it. The SPOD article editor has three of them:
+
+- *Spreadconnect* shows what the backoffice owns: the name, the descriptions,
+  the partner's ids, and the time of the last sync.
+- *Print* shows the print frame the last sync measured from the Spreadconnect
+  hotspot: the rectangle drawn on the mockup of the default variant's colour,
+  with the hotspot's name and the four percentages as text beside it
+  ([`AdminArticlePrintFrameViewer`](../../../frontend/src/components/admin/article/AdminArticlePrintFrameViewer.vue)).
+  Nobody calibrates the frame by hand any more. When the sync could not measure
+  it, the section shows an alert instead, and the backend refuses to activate the
+  article — that refusal appears under the *Active* switch.
+- *Variants* shows the variants grouped by colour, as described above, and the
+  size chart.
+
+A sync run writes these sections, the shop never does. What the form saves is
+exactly the shop's half: `active`, `categoryId`, `subcategoryId`,
+`defaultVariantId`, and the price.
 
 The price section is the same in both article editors, so it is a component of
 its own:

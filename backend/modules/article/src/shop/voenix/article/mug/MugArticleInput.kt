@@ -2,7 +2,6 @@ package shop.voenix.article.mug
 
 import kotlinx.serialization.Serializable
 import shop.voenix.article.PrintAspectRatio
-import shop.voenix.article.addPrintAspectRatioError
 import shop.voenix.article.positiveId
 import shop.voenix.article.requiredText
 import shop.voenix.pricing.PriceInput
@@ -223,5 +222,21 @@ internal data class MugVariantInput(
         ): String = "$MUG_VARIANTS_FIELD[$index].$field"
 
         private const val MAXIMUM_TEXT_LENGTH = 255
+    }
+}
+
+/**
+ * The submitted ratio must be one this shop prints. The message names the supported ones, because
+ * they are a closed pair a client cannot look up anywhere else. An absent field is no error: the
+ * mug falls back to the wide print it has always been printed in.
+ */
+private fun ValidationErrorsBuilder.addPrintAspectRatioError(printAspectRatio: String?) {
+    val submitted = printAspectRatio?.trim() ?: return
+    if (PrintAspectRatio.ofWireValue(submitted) == null) {
+        add(
+            "printAspectRatio",
+            "PrintAspectRatio must be one of " +
+                PrintAspectRatio.entries.joinToString { ratio -> ratio.wireValue },
+        )
     }
 }

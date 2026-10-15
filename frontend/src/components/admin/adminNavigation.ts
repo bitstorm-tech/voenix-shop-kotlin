@@ -65,10 +65,10 @@ export const adminNavigationItems: AdminNavItem[] = [
       },
       {
         type: 'link',
-        title: 'T-Shirts',
-        to: '/admin/articles/tshirts',
-        // A shirt is created by a sync run, not by an admin, so there is no `/new` page.
-        activePatterns: ['/admin/articles/tshirts', '/admin/articles/tshirts/:id/edit'],
+        title: 'SPOD articles',
+        to: '/admin/articles/spod',
+        // A SPOD article is created by a sync run, not by an admin, so there is no `/new` page.
+        activePatterns: ['/admin/articles/spod', '/admin/articles/spod/:id/edit'],
       },
       {
         type: 'link',

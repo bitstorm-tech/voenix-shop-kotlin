@@ -1,6 +1,7 @@
 # SPOD fulfillment: the print-on-demand channel
 
-This page explains how a t-shirt job is produced. It belongs to the
+This page explains how the job of a SPOD article — a t-shirt, a tote bag, any
+product the print-on-demand partner makes — is produced. It belongs to the
 [Production package guide](production-package.md), which describes everything
 the two fulfillment channels share; here we look only at the second one, the
 print-on-demand partner **Spreadconnect (SPOD)**.
@@ -13,7 +14,7 @@ number ("SPOD fulfillment decision 7").
 
 ## Two channels, one worker
 
-A mug reaches its producer as a PDF pushed over SFTP. A t-shirt reaches its
+A mug reaches its producer as a PDF pushed over SFTP. A SPOD article reaches its
 producer as a conversation with a REST API. The split worker decides which of
 the two a job belongs to when it creates the job, from the supplier's enabled
 destinations, and freezes that decision in `production_jobs.fulfillment_channel`.
@@ -86,7 +87,7 @@ without giving this stage a lock first.
 
 The order comes through the shared `ProductionSource` with the shared
 `resolveOrder` codes (`SOURCE_NOT_FOUND`, `SOURCE_INVALID`,
-`SOURCE_UNAVAILABLE`). Then each line of the job is checked twice:
+`SOURCE_UNAVAILABLE`). Then the lines of the job are checked:
 
 - The live lines of this supplier must be **exactly** the snapshotted set: same
   count, every snapshotted position present, and never empty. Different →
@@ -95,6 +96,9 @@ The order comes through the shared `ProductionSource` with the shared
   appearance, size). Missing → `ITEM_WITHOUT_SPOD_PRODUCT`.
 - Its **current** composed variant name must equal the name the split
   snapshotted in `production_job_items`. Different → `SPOD_MAPPING_CHANGED`.
+- It must carry `spodHotspot`, the partner's placement the order line
+  snapshotted at placement (for example `MEDIUM_FRONT`). Missing →
+  `PLACEMENT_UNAVAILABLE`.
 
 The first check is the one a per-line check cannot do, because it is about a
 line that is *gone*. Reassigning an article to another supplier after the split
@@ -107,7 +111,7 @@ The second check is the safety net of SPOD fulfillment decision 8, and it is wor
 understanding. The three partner ids are read from *today's* master data on
 every load, deliberately: a mapping an admin fixes today heals every order
 still waiting to be submitted. But the same liveness would let a corrected
-mapping silently turn a paid "Schwarz / M" into a different garment. The
+mapping silently turn a paid "Schwarz / M" into a different product. The
 snapshotted name is the tripwire — production refuses rather than guesses.
 
 Since the catalog is synced, the partner can trip that wire too: a colour
@@ -115,6 +119,16 @@ renamed in the backoffice reaches this shop on the next sync run and refuses
 the jobs of that colour that were already waiting. That case is a false alarm
 with a fixed resolution, and it has its own runbook section:
 [`SPOD_MAPPING_CHANGED` after a rename in the backoffice](#spod_mapping_changed-after-a-rename-in-the-backoffice).
+
+The hotspot check is different from the other two, because the hotspot is
+**not** live. The sync measures one hotspot per product type, and the live
+editor shows the customer exactly that frame. So `order_items.spod_hotspot`
+stores the hotspot when the order is placed, and production prints with that
+one — never with today's catalog value (issue #260, decisions 8 and 14). A SPOD
+line without one has no placement this stage could honestly print it with, so
+the job waits for a person before a single partner call is made. In practice
+it does not happen: an article without a hotspot is inactive and cannot be
+bought.
 
 ### 2. Convert and upload the designs
 
@@ -146,32 +160,26 @@ The request is built in one place (`SpodJobContext.request`) and carries:
 - `state: "NEW"` — never `CONFIRMED`, even though the API would allow it;
 - `shipping.preferredType: "STANDARD"` (the customer never chooses);
 - the customer's `email` and `phone`, both required by the partner. Checkout
-  already requires a phone whenever the cart holds a shirt, so a missing one is
+  already requires a phone whenever the cart holds a SPOD article, so a missing one is
   a defensive `PHONE_MISSING` — checked *before* a design is uploaded;
 - `externalOrderReference = "ORD-{orderId}-JOB-{jobId}"`, deterministic so the
   webhook can find the job and a human can read the same string on both
   screens;
 - `oneTimeItems`, grouped the partner's way: one entry per (product type,
-  design), with a `quantityItems` line per size and colour, and one
-  `configurations` entry placing the design at `view: FRONT`,
-  `hotspot: MEDIUM_FRONT`.
+  design, hotspot), with a `quantityItems` line per size and colour, and one
+  `configurations` entry placing the design at `view: FRONT` with the
+  **hotspot the order line snapshotted**. Two lines that were previewed with
+  different hotspots cannot share an entry, because an entry has exactly one
+  placement.
 
 If the partner *refuses* the creation with a `4xx`, it has stated that it
-created nothing — which is the one situation in which a second creation is
-safe. The stage then asks
-`GET /productTypes/{id}/hotspots/design/{designId}` for the placements this
-product type actually offers, takes the first front one, and creates once
-more. No front hotspot on offer is `PLACEMENT_UNAVAILABLE`; a second refusal
-is `ORDER_CREATE_REJECTED`. Both of them alert an operator (see
-[The ops alert](#the-ops-alert)).
-
-That endpoint answers **names only** — `LEFT_CHEST`, `MEDIUM_FRONT`,
-`LARGE_BACK` — and no view field, so which view a name belongs to has to be read
-off the name itself. Two families count as front: names containing `FRONT`, and
-chest names, which sit on the front of the garment without saying so. A `FRONT`
-name wins over a `CHEST` one — it is the placement this shop asks for by default
-— and the match is case-insensitive, so a lower-case `front` is not the
-difference between a printed shirt and a job for a human.
+created nothing, and the job fails with `ORDER_CREATE_REJECTED`, which alerts
+an operator (see [The ops alert](#the-ops-alert)). There is **no** second
+attempt with another placement. An earlier version asked the partner for the
+hotspots it offers and retried with the first front one — but that one could
+be smaller than what the customer saw in the editor. Print what was previewed,
+or nothing (issue #260, decision 8). The runbook says what to do:
+[`ORDER_CREATE_REJECTED` after a hotspot change](#order_create_rejected-after-a-hotspot-change).
 
 ### 4. Persist the id — in its own transaction, before anything else
 
@@ -212,7 +220,7 @@ counterpart of "the PDF exists": the moment the job becomes shippable.
 
 The client does not live in this module any more. Since the catalog sync it is the
 leaf module `spod` (`modules/spod/src/shop/voenix/spod/SpodClient.kt`), because
-a second module needs it: the t-shirt catalog is synced from the same partner's
+a second module needs it: the SPOD catalog is synced from the same partner's
 API by the article module. The whole client is described in
 [The SPOD package](spod-package.md); this section keeps what a reader of the
 submission stage has to know about it.
@@ -278,7 +286,7 @@ position)` and the `design_id`, cascading with the order row above.
 ## The webhook: how a shipment comes back
 
 The partner produces and ships; nobody in this shop presses a button for a
-t-shirt. `POST /api/production/webhooks/spod/{secret}` is where that comes
+SPOD article. `POST /api/production/webhooks/spod/{secret}` is where that comes
 back, and it follows the Mollie webhook of the payment module exactly
 (SPOD fulfillment decision 5):
 
@@ -430,7 +438,7 @@ settings dump at startup cannot spill it.
 ### Setting a supplier up, staging first
 
 The step-by-step operator manual for this, from the configuration block to the
-first test order, is [Configuring a t-shirt article](../../guides/configuring-t-shirt-articles.md);
+first test order, is [Configuring a SPOD article](../../guides/configuring-spod-articles.md);
 this section keeps the reasons.
 
 The partner runs two installations, and this shop picks between them with the
@@ -452,16 +460,17 @@ one installation is refused by the other, which reaches this shop as the bounded
    notification
    address, and the `spod` block — `environment`, `accessToken`,
    `timeoutSeconds` (1…3600; 30 is a sane start).
-2. Create the shirt in the **Spreadconnect backoffice** — the garment, its
-   colours, and its sizes — and press *Sync from Spreadconnect* on the
+2. Create the article in the **Spreadconnect backoffice** — the product type,
+   its colours, and its sizes — and press *Sync from Spreadconnect* on the
    destination row. The sync writes the partner's three product ids onto every
-   variant; nobody types them any more (t-shirt sync decision 1). Without a synced shirt there
+   variant and measures the hotspot and the print frame; nobody types them any
+   more (SPOD sync decisions 1 and 7). Without a synced article there
    is nothing to sell, and a variant without the ids could not exist at all —
    submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
    goes out.
 3. Register the webhook subscriptions (next section) against the **same**
    installation.
-4. Order one shirt end to end and watch the job on the *Logistics* page: it must
+4. Order one article end to end and watch the job on the *Logistics* page: it must
    reach `prepared_at`, then arrive as a shipment through the webhook.
 
 Only one **enabled** SPOD destination per supplier is allowed (a partial unique
@@ -608,14 +617,15 @@ for a reference whose subject has moved on.
 
 ### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
 
-Since the t-shirt catalog is synced (t-shirt sync decision 1), the partner is a second author
+Since the SPOD catalog is synced (SPOD sync decision 1), the partner is a second author
 of a variant's name: renaming a colour in the Spreadconnect backoffice and
-pressing *Sync from Spreadconnect* rewrites `colorName` on every variant of
+pressing *Sync from Spreadconnect* rewrites the colour's `color_name` in
+`article_spod_appearances`, and with it the composed name of every variant of
 that colour. The name tripwire of step 1 then compares today's composed name
 with the one the split snapshotted and refuses every job of that colour that
 was already waiting, with `SPOD_MAPPING_CHANGED`.
 
-**That is a false alarm, and it is accepted on purpose** (t-shirt sync decision 8;
+**That is a false alarm, and it is accepted on purpose** (SPOD sync decision 8;
 Joe's decision D1 on issue #224). The check exists to catch a *mapping* that
 changed under a paid order, and a rename changes no mapping at all — the three
 ids the order is placed with are untouched.
@@ -624,21 +634,58 @@ How to resolve one:
 
 1. Read the job's items and today's variant with the SQL of
    [Reading a job's state](#reading-a-jobs-state), and compare the **three SPOD
-   ids** (`spod_product_type_id`, `spod_appearance_id`, `spod_size_id`) of the
-   variant with what `production_job_items` snapshotted. Unchanged ids plus a
-   changed name means a rename, and the shirt in the parcel is the one the
-   customer bought.
+   ids** (`spod_product_type_id` and `spod_size_id` of the variant,
+   `spod_appearance_id` of its colour row) with what `production_job_items`
+   snapshotted. Unchanged ids plus a changed name means a rename, and the
+   product in the parcel is the one the customer bought.
 2. Unchanged ids, changed name → resolve it by hand: update
    `production_job_items.variant_name` to today's composed name
    (`"<colour> / <size>"`), and the next scan submits the job normally.
 3. **Changed ids** are the real alarm this check was built for. Do not touch
-   the snapshot: something re-pointed the variant at a different garment, and
+   the snapshot: something re-pointed the variant at a different product, and
    the order must be looked at before anything is printed.
 
 Issue #225 is the follow-up that removes the false alarm for good, by
 snapshotting the three ids on `production_job_items` and comparing ids instead
 of names. Until it lands, expect one of these per backoffice rename of a colour
 that has jobs in flight.
+
+### `ORDER_CREATE_REJECTED` after a hotspot change
+
+The order line stores the hotspot the customer previewed (step 1). If the
+article was synced again after the order was placed and the run picked a
+**different** hotspot — or the partner stopped offering the old one — the
+partner may refuse the creation. The job then fails with
+`ORDER_CREATE_REJECTED` and the alert mail arrives. Nothing is retried with
+another placement, on purpose: a different hotspot can print the motif smaller
+or somewhere else than the customer saw it.
+
+How to resolve one:
+
+1. Compare the line's snapshot with today's article:
+
+   ```sql
+   SELECT oi.order_id, oi.position, oi.spod_hotspot AS ordered_hotspot,
+          a.spod_hotspot AS current_hotspot
+   FROM voenix.order_items oi
+   JOIN voenix.article_spod_articles a ON a.id = oi.article_id
+   WHERE oi.order_id = <order id>;
+   ```
+
+2. **Re-sync** the destination when the partner should accept the ordered
+   hotspot again (for example after a temporary change in the backoffice). A
+   re-sync does not touch the order line — the next scan still sends the
+   snapshotted hotspot, and if the partner accepts it, the job goes through on
+   its own.
+3. Otherwise **order the job by hand**: create the order in the Spreadconnect
+   backoffice in state `NEW`, with the ordered hotspot and the reference
+   `ORD-{orderId}-JOB-{jobId}`, and adopt it exactly like the "the order
+   exists" case of
+   [Reconciling a quarantined job](#reconciling-a-quarantined-job-outcome_unknown):
+   write its id into `external_reference`, set `create_state = 'CREATED'`, and
+   clear `last_error_code`. The next scan confirms it.
+4. If the partner accepts no placement that matches the preview, refund the
+   order manually (SPOD fulfillment decision 7).
 
 ## The bounded error codes
 
@@ -659,8 +706,8 @@ retryable — the job keeps its place in the queue — but "retryable" is not
 | `PROVIDER_UNAVAILABLE` | unreachable, timed out, or `5xx` |
 | `PROVIDER_ANSWER_UNREADABLE` | an answer arrived that could not be read |
 | `REFUSED` | the partner refused a call with a `4xx` |
-| `ORDER_CREATE_REJECTED` | the creation was refused, also with an offered placement |
-| `PLACEMENT_UNAVAILABLE` | no front placement exists for this design and product type |
+| `ORDER_CREATE_REJECTED` | the partner refused the creation with a `4xx` — for example a hotspot it no longer accepts; never retried with another placement, see [the runbook section](#order_create_rejected-after-a-hotspot-change) |
+| `PLACEMENT_UNAVAILABLE` | a line carries no snapshotted hotspot, so there is no placement to print it with |
 | `ORDER_ID_NOT_STORED` | the created order's id could not be written down |
 | `ORDER_CONFIRM_FAILED` | the partner refused to confirm a `NEW` order |
 | `ORDER_STATE_UNEXPECTED` | the partner reports a state this stage will not act on |
@@ -673,9 +720,10 @@ enum entry.
 
 ## The design decisions
 
-These eight decisions were made together when t-shirts arrived (issue #205),
-by the council with the contested points decided by Joe. They are numbered
-because the code cites them by number. Before them, the production module knew
+These eight decisions were made together when the first SPOD article — the
+t-shirt — arrived (issue #205), by the council with the contested points
+decided by Joe; issue #260 made them hold for every SPOD article and amended
+decision 4. They are numbered because the code cites them by number. Before them, the production module knew
 exactly one way to reach a producer: render an immutable PDF per job and push
 it over SFTP. Every mechanism assumed that shape — the artifact generation was
 the exactly-once anchor of the `production_job_items` snapshot, the delivery
@@ -740,8 +788,13 @@ Upload the designs → `POST /orders`, always in state `NEW`, with
 deterministic `externalOrderReference = ORD-{orderId}-JOB-{jobId}` → **persist
 the returned order id before anything else** → confirm → set `prepared_at`. The
 confirmed state could be set at creation; that is deliberately never used.
-Placement is `view: FRONT`, hotspot `MEDIUM_FRONT`, falling back to the
-available-hotspots endpoint; no placement at all is `PLACEMENT_UNAVAILABLE`.
+Placement is `view: FRONT` with the hotspot snapshotted on the order line at
+placement; no fallback — a refusal holds the job with an ops alert
+(`ORDER_CREATE_REJECTED`), and a line without a hotspot is
+`PLACEMENT_UNAVAILABLE` (issue #260, decisions 8 and 14). This replaces the
+original rule of a default `MEDIUM_FRONT` with a fallback to the
+available-hotspots endpoint: that fallback could print something smaller than
+the customer previewed.
 
 An ambiguous creation outcome (timeout, reset, `5xx` after sending) permits
 **one** automatic re-create, because an orphaned `NEW` order is inert; a second
@@ -772,7 +825,7 @@ allowed as the fallback for a lost webhook.
 ### Decision 6 — The order carries the customer's contact data
 
 The partner gets the **customer's** phone and email (Joe). Checkout therefore
-requires a phone whenever the cart contains a t-shirt line; `orders.phone`
+requires a phone whenever the cart contains a SPOD article line; `orders.phone`
 stays nullable for mug-only orders. `ProductionData` — the production view, not
 the supplier's `FulfillmentOrder`, whose data minimization is untouched —
 carries both.
@@ -790,14 +843,18 @@ at submission time through `CatalogVariant`, like supplier routing — a mapping
 fix heals every pending order. The safety net: the stage compares today's
 composed variant name with the order line's snapshotted `variant_name` and
 refuses on a mismatch with a retryable code, so a paid "Black / M" can never
-silently become a different garment.
+silently become a different product.
 
-Since the t-shirt catalog is synced, the partner writes that name too, so a
+The hotspot is the exception: it is a snapshot, not a live value (decision 4).
+It decides *where and how big* the motif is printed, and that has to stay what
+the customer previewed.
+
+Since the SPOD catalog is synced, the partner writes that name too, so a
 backoffice rename trips this check as a false alarm. That is accepted
-([t-shirt sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
+([SPOD sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
 until issue #225 compares ids instead of names. Orders stay `oneTimeItems` and
 never use the synced articles' SKUs
-([t-shirt sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
+([SPOD sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
 
 ## Production file map
 
@@ -807,7 +864,7 @@ into the `spod` module it moved to.
 | File | Contents |
 | --- | --- |
 | [`spod/SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives in code. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The eight calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
+| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
 | [`delivery/spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The worker stage, its creation and confirmation halves, and `SpodSubmissionError`. |
 | [`delivery/spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | The two tables, the scan, and the guarded writes. |
 | [`delivery/spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG with both budgets, and `PrintImageError`. |
@@ -827,9 +884,12 @@ into the `spod` module it moved to.
   partner that records every request: the happy path, the crash after the id
   was persisted (no second order, no second upload), the first ambiguity
   re-creating and the second quarantining, and the bounded codes for a missing
-  phone, a renamed variant, a withdrawn mapping, and a missing print image —
+  phone, a renamed variant, a withdrawn mapping, a missing hotspot, and a
+  missing print image; the snapshotted hotspot on the created order (while the
+  stub would offer another one), two hotspots becoming two order entries —
   plus the ops alert the quarantine enqueues exactly once, the refused line set
-  of a supplier reassignment, the alert a rejected creation enqueues once, and
+  of a supplier reassignment, the alert a rejected creation enqueues once (one `POST /orders`, no hotspot
+  lookup), and
   the cancelled order the scan drops while a needs-action one stays.
 - `SpodWebhookRouteTest` — the wrong secret refused before the body is read
   (counted in the receive pipeline), the exact `202 [accepted]` ack, the payload

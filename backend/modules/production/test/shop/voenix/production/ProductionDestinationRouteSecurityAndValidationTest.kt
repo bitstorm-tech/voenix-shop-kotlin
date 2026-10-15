@@ -31,8 +31,8 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
-import shop.voenix.article.tshirt.TshirtSyncReport
-import shop.voenix.article.tshirt.TshirtSyncStatus
+import shop.voenix.article.spod.SpodSyncReport
+import shop.voenix.article.spod.SpodSyncStatus
 import shop.voenix.auth.AuthRouting
 import shop.voenix.auth.AuthSettings
 import shop.voenix.auth.UserSession
@@ -207,7 +207,7 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         assertApiError(
             admin.sync(token),
             HttpStatusCode.Conflict,
-            "Only print-on-demand destinations have a t-shirt catalog to sync",
+            "Only print-on-demand destinations have a SPOD catalog to sync",
             code = "CHANNEL_WITHOUT_CATALOG",
         )
 
@@ -296,11 +296,11 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         /** A run that read nothing and says so: the report of a `FAILED` sync is still a `200`. */
         var syncResult: DestinationSyncResult =
             DestinationSyncResult.Reported(
-                TshirtSyncReport(
+                SpodSyncReport(
                     destinationId = 1,
                     supplierId = 1,
                     environment = SpodEnvironment.STAGING,
-                    status = TshirtSyncStatus.FAILED,
+                    status = SpodSyncStatus.FAILED,
                     failure = SpodError.PROVIDER_UNAVAILABLE,
                     startedAt = Instant.EPOCH,
                     finishedAt = Instant.EPOCH,

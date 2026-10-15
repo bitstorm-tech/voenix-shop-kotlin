@@ -11,7 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.select
-import shop.voenix.article.tshirt.TshirtCatalogSync
+import shop.voenix.article.spod.SpodCatalogSync
 import shop.voenix.db.read
 import shop.voenix.email.EmailOutbox
 import shop.voenix.email.QueuedEmailSource
@@ -97,7 +97,7 @@ internal fun createProductionModule(
     spodClient: SpodClient,
     spod: ProductionSpodSettings? = null,
     productionSource: ProductionSource,
-    tshirtCatalogSync: TshirtCatalogSync,
+    spodCatalogSync: SpodCatalogSync,
 ): ProductionModule {
     val requests = ProductionRequestRepository(database)
     val spodOrders = SpodOrderRepository(database, emailOutbox)
@@ -109,7 +109,7 @@ internal fun createProductionModule(
             ProductionDestinationService(
                 ProductionDestinationRepository(database),
                 spodConfigured = spod != null,
-                tshirtCatalogSync = tshirtCatalogSync,
+                spodCatalogSync = spodCatalogSync,
             ),
         pdfGenerator = ProductionPdfService(productionSource, renderer),
         outbox = ProductionOutbox { orderId -> requests.requestInCurrentTransaction(orderId) },
@@ -156,22 +156,22 @@ internal fun createProductionModule(
  */
 internal fun Application.installProductionModule(
     database: Database,
-    tshirtCatalogSync: TshirtCatalogSync,
+    spodCatalogSync: SpodCatalogSync,
     spodConfigured: Boolean = true,
 ) =
     installDestinationRoutes(
         ProductionDestinationService(
             ProductionDestinationRepository(database),
             spodConfigured = spodConfigured,
-            tshirtCatalogSync = tshirtCatalogSync,
+            spodCatalogSync = spodCatalogSync,
         )
     )
 
 /**
  * [spodClient] is the application's single print-on-demand client — one pacer for the partner's
- * request budget — which this module shares with the article module's t-shirt sync and closes when
- * the application stops. [tshirtCatalogSync] is that sync: the run belongs to the module that owns
- * the articles, the button belongs to the destination screen this module owns (t-shirt sync
+ * request budget — which this module shares with the article module's SPOD article sync and closes
+ * when the application stops. [spodCatalogSync] is that sync: the run belongs to the module that
+ * owns the articles, the button belongs to the destination screen this module owns (SPOD sync
  * decision 5).
  *
  * The parameter list is long for the same reason [createProductionModule]'s is: the dependencies
@@ -184,7 +184,7 @@ public fun Application.installProductionModule(
     emailOutbox: EmailOutbox,
     source: ProductionSource,
     spodClient: SpodClient,
-    tshirtCatalogSync: TshirtCatalogSync,
+    spodCatalogSync: SpodCatalogSync,
 ): ProductionModule {
     // Before anything of this module runs: a deployment whose destinations say "print on demand"
     // while its configuration says nothing must not submit a single order. The check used to sit in
@@ -199,7 +199,7 @@ public fun Application.installProductionModule(
             spodClient = spodClient,
             spod = settings.spod,
             productionSource = source,
-            tshirtCatalogSync = tshirtCatalogSync,
+            spodCatalogSync = spodCatalogSync,
         )
     installDestinationRoutes(module.destinations)
     module.startWorker(this)
@@ -209,9 +209,9 @@ public fun Application.installProductionModule(
 /**
  * The print-on-demand configuration, checked against the destinations this deployment actually has.
  *
- * A shop with a print-on-demand destination and no webhook secret is a shop whose t-shirt orders
- * are produced and shipped and whose customers are never told — the partner reports every shipment
- * to a callback that does not exist. That is worth refusing to start over, so the check runs at
+ * A shop with a print-on-demand destination and no webhook secret is a shop whose SPOD orders are
+ * produced and shipped and whose customers are never told — the partner reports every shipment to a
+ * callback that does not exist. That is worth refusing to start over, so the check runs at
  * installation and blocks the startup thread for one `EXISTS`-shaped query the way Flyway blocks it
  * for the migrations a moment earlier.
  *
@@ -314,7 +314,7 @@ internal constructor(webhookSecret: String, alertEmail: String) {
         /**
          * The block, or `null` when this deployment configures no print-on-demand channel at all. A
          * half-filled block is a configuration mistake and fails in the constructor rather than
-         * starting a shop whose t-shirt orders can never report a shipment.
+         * starting a shop whose SPOD orders can never report a shipment.
          */
         fun from(config: ApplicationConfig): ProductionSpodSettings? {
             val webhookSecret = config.spodValue("webhookSecret")

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasFormErrors, mapSaveErrors, MUG_SPEC, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { hasFormErrors, mapSaveErrors, MUG_SPEC, SPOD_SPEC } from '@/lib/adminArticleErrors'
 
 describe('mug save errors', () => {
   it('puts every reference problem on the field it names', () => {
@@ -113,70 +113,50 @@ describe('errors the form shows', () => {
     [{ mugVariants: ['x'] }, MUG_SPEC],
     [{ 'mugVariants[1].exampleImageFilename': ['x'] }, MUG_SPEC],
     [{ price: ['x'] }, MUG_SPEC],
-    [{ defaultVariantId: ['x'] }, TSHIRT_SPEC],
-    [{ 'printFrame.leftPct': ['x'] }, TSHIRT_SPEC],
-    [{ price: ['x'] }, TSHIRT_SPEC],
+    [{ defaultVariantId: ['x'] }, SPOD_SPEC],
+    [{ active: ['x'] }, SPOD_SPEC],
+    [{ price: ['x'] }, SPOD_SPEC],
   ])('counts %o as shown on the form', (fieldErrors, spec) => {
     expect(hasFormErrors(mapSaveErrors(fieldErrors, spec))).toBe(true)
   })
 
   it('counts nothing as shown when no path maps onto a field', () => {
     expect(hasFormErrors(mapSaveErrors({ somethingElse: ['x'] }, MUG_SPEC))).toBe(false)
-    expect(hasFormErrors(mapSaveErrors({ somethingElse: ['x'] }, TSHIRT_SPEC))).toBe(false)
+    expect(hasFormErrors(mapSaveErrors({ somethingElse: ['x'] }, SPOD_SPEC))).toBe(false)
   })
 })
 
-describe('t-shirt save errors', () => {
+describe('SPOD save errors', () => {
   it('puts every reference problem on the field it names', () => {
     const errors = mapSaveErrors(
       {
         categoryId: ['Article category does not exist'],
         defaultVariantId: ['The default variant is not an active variant of this article'],
-        active: ['An article that is missing at Spreadconnect cannot be activated'],
-        printAspectRatio: ['PrintAspectRatio must be one of 16:9, 1:1'],
+        active: ['An article without a measured print frame cannot be activated'],
         price: ['An active article requires a price'],
       },
-      TSHIRT_SPEC,
+      SPOD_SPEC,
     )
 
     expect(errors.fields).toEqual({
       categoryId: 'Article category does not exist',
       defaultVariantId: 'The default variant is not an active variant of this article',
-      active: 'An article that is missing at Spreadconnect cannot be activated',
-      printAspectRatio: 'PrintAspectRatio must be one of 16:9, 1:1',
+      active: 'An article without a measured print frame cannot be activated',
       price: 'An active article requires a price',
     })
     expect(errors.other).toEqual([])
   })
 
-  // The calibrator has one input per percentage, so the path is already the name of the input that
-  // shows the message and is kept whole.
-  it('keeps the four print-frame paths as the calibrator spells them', () => {
-    const errors = mapSaveErrors(
-      {
-        'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
-        'printFrame.topPct': ['TopPct is required'],
-      },
-      TSHIRT_SPEC,
-    )
-
-    expect(errors.fields).toEqual({
-      'printFrame.widthPct': 'LeftPct plus WidthPct must be at most 100',
-      'printFrame.topPct': 'TopPct is required',
-    })
-    expect(errors.other).toEqual([])
-  })
-
-  // The shirt editor writes no variants at all since the catalog sync, and it has no name,
-  // description, or supplier input either — such a message belongs in the summary, not on an input
-  // that is gone.
+  // The SPOD editor writes no variants and no print frame — the sync owns both — and it has no name,
+  // description, or supplier input either, so such a message belongs in the summary.
   it.each([
-    ['tshirtVariants[0].colorHex', 'ColorHex must be a six-digit hex color such as #1a2b3c'],
+    ['spodVariants[0].sku', 'Sku is required'],
+    ['printFrame.widthPct', 'LeftPct plus WidthPct must be at most 100'],
     ['name', 'Name is required'],
     ['supplierId', 'Supplier does not exist'],
     ['mugDetails.heightMm', 'Height must be positive'],
   ])('routes the path %s into the summary', (path, message) => {
-    const errors = mapSaveErrors({ [path]: [message] }, TSHIRT_SPEC)
+    const errors = mapSaveErrors({ [path]: [message] }, SPOD_SPEC)
 
     expect(errors.fields).toEqual({})
     expect(errors.variants).toEqual({})

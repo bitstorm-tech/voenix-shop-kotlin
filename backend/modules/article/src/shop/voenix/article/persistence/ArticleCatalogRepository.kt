@@ -20,7 +20,7 @@ import shop.voenix.db.read
  * It reads only, so it takes no `PriceCatalog` — the price is a reference here, resolved for the
  * whole batch by the service, exactly as the storefront read does it.
  *
- * One query per article type answers a batch: one for the mugs and one for the t-shirts, both
+ * One query per article type answers a batch: one for the mugs and one for the SPOD articles, both
  * inside the same transaction and merged into the same map. Nothing about the reference or the
  * answer changes with a type — a third one adds a third query here and nothing anywhere else. The
  * variant id alone is what a query filters on, because every variant id in the system was minted by
@@ -35,21 +35,22 @@ internal class ArticleCatalogRepository(private val database: Database) {
     ): Map<ArticleVariantReference, StoredCatalogVariant> {
         if (references.isEmpty()) return emptyMap()
         return database.read {
-            mugVariantsInTransaction(references) + tshirtVariantsInTransaction(references)
+            mugVariantsInTransaction(references) + spodVariantsInTransaction(references)
         }
     }
 
     /**
      * The print aspect ratio of each known article among [articleIds].
      *
-     * Per article type, exactly like [find]: one query for the mugs and one for the t-shirts, whose
-     * rows are merged into the same map. An id that names no article of any type contributes no
-     * entry.
+     * Per article type, exactly like [find]: one query for the mugs and one for the SPOD articles,
+     * whose rows are merged into the same map. An id that names no article of any type contributes
+     * no entry. A SPOD article is always printed square — its print frame is measured for a square
+     * design — so its query reads ids only.
      */
     suspend fun printFormats(articleIds: Set<Long>): Map<Long, PrintAspectRatio> {
         if (articleIds.isEmpty()) return emptyMap()
         return database.read {
-            mugPrintFormatsInTransaction(articleIds) + tshirtPrintFormatsInTransaction(articleIds)
+            mugPrintFormatsInTransaction(articleIds) + spodPrintFormatsInTransaction(articleIds)
         }
     }
 }
@@ -82,6 +83,7 @@ internal data class StoredCatalogVariant(
     val outsideColorCode: String?,
     val insideColorCode: String?,
     val spodProduct: SpodProductRef?,
+    val spodHotspot: String?,
 )
 
 /** The referenced mug variants, keyed by the reference that asked for them. */
@@ -132,13 +134,11 @@ private fun mugPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, Print
             row[ArticleMugs.id] to row.toPrintAspectRatio(ArticleMugs.printAspectRatio)
         }
 
-/** The print aspect ratio of the t-shirts among [articleIds], keyed by article id. */
-private fun tshirtPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
-    ArticleTshirts.select(ArticleTshirts.id, ArticleTshirts.printAspectRatio)
-        .where { ArticleTshirts.id inList articleIds }
-        .associate { row ->
-            row[ArticleTshirts.id] to row.toPrintAspectRatio(ArticleTshirts.printAspectRatio)
-        }
+/** The SPOD articles among [articleIds], each printed square, keyed by article id. */
+private fun spodPrintFormatsInTransaction(articleIds: Set<Long>): Map<Long, PrintAspectRatio> =
+    ArticleSpodArticles.select(ArticleSpodArticles.id)
+        .where { ArticleSpodArticles.id inList articleIds }
+        .associate { row -> row[ArticleSpodArticles.id] to PrintAspectRatio.SQUARE }
 
 private fun ResultRow.toStoredCatalogVariant(): StoredCatalogVariant =
     StoredCatalogVariant(
@@ -162,58 +162,67 @@ private fun ResultRow.toStoredCatalogVariant(): StoredCatalogVariant =
         // A mug is laid out into a PDF and printed by the supplier itself, so there is no
         // print-on-demand product behind it.
         spodProduct = null,
+        spodHotspot = null,
     )
 
-/** The referenced t-shirt variants, keyed by the reference that asked for them. */
-private fun tshirtVariantsInTransaction(
+/** The referenced SPOD variants, keyed by the reference that asked for them. */
+private fun spodVariantsInTransaction(
     references: Set<ArticleVariantReference>
 ): Map<ArticleVariantReference, StoredCatalogVariant> =
-    ArticleTshirtVariants.join(
-            ArticleTshirts,
+    ArticleSpodVariants.join(
+            ArticleSpodArticles,
             JoinType.INNER,
-            additionalConstraint = { ArticleTshirtVariants.articleId eq ArticleTshirts.id },
+            additionalConstraint = { ArticleSpodVariants.articleId eq ArticleSpodArticles.id },
+        )
+        .join(
+            ArticleSpodAppearances,
+            JoinType.INNER,
+            additionalConstraint = {
+                ArticleSpodVariants.appearanceId eq ArticleSpodAppearances.id
+            },
         )
         .select(
-            ArticleTshirtVariants.id,
-            ArticleTshirtVariants.articleId,
-            ArticleTshirtVariants.colorName,
-            ArticleTshirtVariants.sizeLabel,
-            ArticleTshirtVariants.active,
-            ArticleTshirtVariants.spodProductTypeId,
-            ArticleTshirtVariants.spodAppearanceId,
-            ArticleTshirtVariants.spodSizeId,
-            ArticleTshirts.name,
-            ArticleTshirts.active,
-            ArticleTshirts.priceId,
-            ArticleTshirts.supplierId,
+            ArticleSpodVariants.id,
+            ArticleSpodVariants.articleId,
+            ArticleSpodVariants.sizeLabel,
+            ArticleSpodVariants.active,
+            ArticleSpodVariants.spodProductTypeId,
+            ArticleSpodVariants.spodSizeId,
+            ArticleSpodAppearances.colorName,
+            ArticleSpodAppearances.spodAppearanceId,
+            ArticleSpodArticles.name,
+            ArticleSpodArticles.active,
+            ArticleSpodArticles.priceId,
+            ArticleSpodArticles.supplierId,
+            ArticleSpodArticles.spodHotspot,
         )
         .where {
-            ArticleTshirtVariants.id inList
+            ArticleSpodVariants.id inList
                 references.mapTo(mutableSetOf(), ArticleVariantReference::variantId)
         }
         .associateBy { row ->
             ArticleVariantReference(
-                articleId = row[ArticleTshirtVariants.articleId],
-                variantId = row[ArticleTshirtVariants.id],
+                articleId = row[ArticleSpodVariants.articleId],
+                variantId = row[ArticleSpodVariants.id],
             )
         }
         .filterKeys { reference -> reference in references }
-        .mapValues { (_, row) -> row.toStoredTshirtCatalogVariant() }
+        .mapValues { (_, row) -> row.toStoredSpodCatalogVariant() }
 
-private fun ResultRow.toStoredTshirtCatalogVariant(): StoredCatalogVariant =
+private fun ResultRow.toStoredSpodCatalogVariant(): StoredCatalogVariant =
     StoredCatalogVariant(
-        articleType = ArticleType.TSHIRT,
-        articleName = this[ArticleTshirts.name],
+        articleType = ArticleType.SPOD,
+        articleName = this[ArticleSpodArticles.name],
         variantName =
-            tshirtVariantName(
-                colorName = this[ArticleTshirtVariants.colorName],
-                sizeLabel = this[ArticleTshirtVariants.sizeLabel],
+            spodVariantName(
+                colorName = this[ArticleSpodAppearances.colorName],
+                sizeLabel = this[ArticleSpodVariants.sizeLabel],
             ),
-        articleActive = this[ArticleTshirts.active],
-        variantActive = this[ArticleTshirtVariants.active],
-        priceId = this[ArticleTshirts.priceId],
-        supplierId = this[ArticleTshirts.supplierId],
-        // A shirt is ordered from the print-on-demand partner by its three ids, so the article
+        articleActive = this[ArticleSpodArticles.active],
+        variantActive = this[ArticleSpodVariants.active],
+        priceId = this[ArticleSpodArticles.priceId],
+        supplierId = this[ArticleSpodArticles.supplierId],
+        // A SPOD article is ordered from the print-on-demand partner by its three ids, so it
         // carries no supplier article number and no PDF layout at all.
         supplierArticleNumber = null,
         printTemplateWidthMm = null,
@@ -221,14 +230,15 @@ private fun ResultRow.toStoredTshirtCatalogVariant(): StoredCatalogVariant =
         documentFormatWidthMm = null,
         documentFormatHeightMm = null,
         documentFormatMarginBottomMm = null,
-        // The colour of a shirt is part of its name, not a pair of codes a consumer renders a mug
-        // with.
+        // The colour of a SPOD variant is part of its name, not a pair of codes a consumer renders
+        // a mug with.
         outsideColorCode = null,
         insideColorCode = null,
         spodProduct =
             SpodProductRef(
-                productTypeId = this[ArticleTshirtVariants.spodProductTypeId],
-                appearanceId = this[ArticleTshirtVariants.spodAppearanceId],
-                sizeId = this[ArticleTshirtVariants.spodSizeId],
+                productTypeId = this[ArticleSpodVariants.spodProductTypeId],
+                appearanceId = this[ArticleSpodAppearances.spodAppearanceId],
+                sizeId = this[ArticleSpodVariants.spodSizeId],
             ),
+        spodHotspot = this[ArticleSpodArticles.spodHotspot],
     )
