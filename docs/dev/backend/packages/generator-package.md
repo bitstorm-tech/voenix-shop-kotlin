@@ -16,7 +16,7 @@ Everything the endpoint needs it borrows from other modules:
 
 - the prompt text comes from the prompt module's `PromptCatalog`;
 - the shape the image must have comes from the article module's `ArticleCatalog`:
-  a mug is printed wide, a t-shirt square, and the generator asks the article it
+  a mug is printed wide, a SPOD article square, and the generator asks the article it
   generates for;
 - the coin balance comes from the magic-coins module's `GenerationCoins`;
 - the visitor's identity comes from `platform` (session cookie or guest cookie);
@@ -307,7 +307,7 @@ Four properties of the adapter are deliberate:
 
 `aspect_ratio` is not the adapter's decision. It is the article's
 `PrintAspectRatio`, passed down as its wire value and written into the provider
-request verbatim: `16:9` for a mug, `1:1` for a t-shirt. The enum's wire values,
+request verbatim: `16:9` for a mug, `1:1` for a SPOD article. The enum's wire values,
 the `CHECK` constraints of the article tables, and fal's own enum are the same
 three spellings on purpose, so nothing between the article table and the
 provider translates anything (issue #205).

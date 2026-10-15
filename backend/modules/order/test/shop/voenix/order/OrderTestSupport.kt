@@ -81,7 +81,7 @@ internal object OrderTestSupport {
     val OTHER_REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = OTHER_ARTICLE_ID, variantId = OTHER_VARIANT_ID)
 
-    /** The t-shirt line every test that is about the second article type orders. */
+    /** The SPOD line every test that is about the second article type orders. */
     val SHIRT_REFERENCE: ArticleVariantReference =
         ArticleVariantReference(articleId = SHIRT_ARTICLE_ID, variantId = SHIRT_VARIANT_ID)
 

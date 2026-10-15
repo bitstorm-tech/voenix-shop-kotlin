@@ -405,7 +405,7 @@ and mentions a file only where it matters which one owns a helper.
   `PublicArticleCategoryRepository`, and `installPublicArticleCategoryRoutes`
   serve the one route `GET /api/articles/categories`. The mug-only
   `GET /api/articles/mugs/categories` was **removed** with the second article
-  type rather than joined by a shirt twin: it could only ever answer half a
+  type rather than joined by a SPOD twin: it could only ever answer half a
   menu, and there is no compatibility layer for it.
 - `PublicArticleVisibility.kt` holds the join and the condition that decide what
   a customer may see, once per article type. All three storefront reads start
@@ -1046,9 +1046,9 @@ reporting it as obsolete.
 
 ### SPOD articles
 
-How an operator gets a t-shirt into the shop — in the Spreadconnect backoffice
-first, then in this admin — is the manual
-[Configuring a t-shirt article](../../guides/configuring-t-shirt-articles.md). This
+How an operator gets a SPOD article into the shop — in the Spreadconnect
+backoffice first, then in this admin — is the manual
+[Configuring a SPOD article](../../guides/configuring-spod-articles.md). This
 section describes the contract behind that screen.
 
 A *SPOD article* is the second article type: every product the print-on-demand
@@ -1428,20 +1428,21 @@ variant, and it may not be one the partner no longer lists.
 
 #### The sync decisions
 
-The synced SPOD article rests on eight decisions made together for issue #224,
-when the type was still the t-shirt, by the council with the contested points
-decided by Joe; issue #260 made them hold for every SPOD article. Most of them are explained in
+The synced SPOD article rests on nine decisions. The first eight were made
+together for issue #224, when the type was still the t-shirt, by the council
+with the contested points decided by Joe; issue #260 made them hold for every
+SPOD article, rewrote decision 7, and added decision 9. Most of them are explained in
 the sections above; this list gathers them with their reasons, and the code
 cites them by number ("SPOD sync decision 4"). Two facts of the
 [official API docs](https://api.spreadconnect.app/docs/) shaped them:
 `GET /articles` lists the merchant's backoffice articles with the three product
-ids, `sku`, and `appearanceColorValue` per variant and the mockup images per
-article, while the formats of `appearanceColorValue` and `perspective` are
+ids, `sku`, and `appearanceColorValue` per variant and the listing images per
+colour, while the formats of `appearanceColorValue` and `perspective` are
 undocumented.
 
-##### Decision 1 — One backoffice article is one shop shirt, synced, never typed
+##### Decision 1 — One backoffice article is one shop article, synced, never typed
 
-The backoffice is the source of truth for the garment. Retyping the three
+The backoffice is the source of truth for the product. Retyping the three
 partner ids into every colour × size variant and re-uploading the partner's
 mockups was double bookkeeping and the main way to produce a wrong mapping, so
 manual creation, the variant matrix editor, and the two picture pre-uploads
@@ -1473,7 +1474,7 @@ unrelated: without it, production article *n* would silently merge into
 staging article *n* and inherit its shop-owned data. Variants are matched by the
 product triple, never by the partner's variant id. Nothing is deleted on
 disappearance, only deactivated; `DELETE` stays as the manual retirement (Joe).
-A destination with synced shirts can be disabled but not deleted, its supplier
+A destination with synced articles can be disabled but not deleted, its supplier
 is immutable after creation, and a disabled destination may still sync (Joe) —
 only the channel is checked.
 
@@ -1550,7 +1551,7 @@ account, paced by the one `SpodClient`. Calibration costs, per product type met
 in a run, `2 + candidates` paced calls — the views, the hotspot check, and one
 preview per accepted hotspot, at most five — plus one design upload per run;
 the preview and mockup downloads hit the image server and are not paced. A
-catalog of twenty shirts of one type pays for one type. The run stays
+catalog of twenty articles of one product type pays for one product type. The run stays
 synchronous, as every run is: the admin who pressed the button waits for it.
 
 ##### Decision 8 — The name tripwire keeps firing on partner renames
@@ -1562,6 +1563,37 @@ therefore quarantines in-flight jobs of that colour as a false alarm. Joe
 accepted this operationally — the alert is visible and resolved by hand, see
 [the runbook](spod-fulfillment.md#spod_mapping_changed-after-a-rename-in-the-backoffice)
 — until issue #225 snapshots the three ids and compares ids instead of names.
+
+##### Decision 9 — Appearances and images are tables of their own
+
+The partner's own model is article → appearance (colour) → size: `/articles`
+names `appearanceId`, `appearanceName`, `appearanceColorValue`, and the image
+ids per variant, and it lists the images per colour. The shop mirrors that
+(issue #260, decision 15) instead of repeating the colour and its picture on
+every size row, as the t-shirt tables did:
+
+- **A colour is a row.** `article_spod_appearances` holds the name, the hex
+  value, and the partner's order once per colour. The variant keeps the size
+  and the ids an order needs and points at its colour; cart lines, the default
+  variant, and the production tripwire keep pointing at the variant id, so
+  nothing outside this package changed shape.
+- **A mockup image is not a listing image.** `article_spod_images` holds both,
+  told apart by `role`. The `MOCKUP` is exactly one per colour, the blank front
+  image of the product type's views: it is the editor's backdrop and the only
+  picture the frame is laid on, because it is pixel-identical to the preview the
+  frame was measured on ([decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
+  The `LISTING` images are every picture the partner lists for that colour, in
+  its order, as chosen in the backoffice — the product photos the wizard, the
+  cart, and the checkout show. A listing photo may show a model or an angle the
+  frame does not fit, so it can never be the backdrop, and the blank mockup is
+  no product photo. The old guess at "the front image without a model" went
+  away with the split.
+- **A colour is sellable only with both**: its mockup and at least one listing
+  image. Otherwise its variants are inactive (`MOCKUP_UNAVAILABLE`,
+  `COLOR_WITHOUT_IMAGE`), the same rule a failed download always followed.
+- **The storefront listing still shows one picture** — the first listing image
+  of the default variant's colour. A gallery over all listing images is a later
+  issue; the table already holds what it will need.
 
 ### The storefront
 
@@ -2018,6 +2050,12 @@ unique index for the one default variant; between the two sit the colours
 (`article_spod_appearances`), and below the colours their pictures
 (`article_spod_images`). What each of them holds, and which CHECK guards the
 frame, is in [The tables of a SPOD article](#the-tables-of-a-spod-article).
+Two small migrations followed `V29`:
+[`V30__article_spod_images_source_url.sql`](../../../../backend/modules/platform/resources/db/migration/V30__article_spod_images_source_url.sql)
+gives a picture row the URL a mockup was fetched from, and
+[`V31__order_items_spod_hotspot.sql`](../../../../backend/modules/platform/resources/db/migration/V31__order_items_spod_hotspot.sql)
+belongs to the order module: it snapshots the hotspot on the order line (see
+the [Order package guide](order-package.md)).
 
 Only what a SPOD article really is differs from a mug. It carries no
 measurements and no supplier article data and no print ratio; instead it has
@@ -2389,8 +2427,12 @@ one message per route.
   the partner refuses has no mockups and no frame, every colour gets its own
   mockup in `articles/spod/mockups` and keeps it while the URL stays, and a
   moved mockup URL replaces the stored file.
-- `SpodCatalogSyncIntegrationTest` runs whole sync runs against PostgreSQL and
-  a `MockEngine` partner, through the real `SpodClient`: the first run that
+- `SpodCatalogSyncIntegrationTest` and `SpodCatalogSyncListingIntegrationTest`
+  run whole sync runs against PostgreSQL and a `MockEngine` partner, through
+  the real `SpodClient`, with their fixtures in `SpodCatalogSyncTestSupport.kt`.
+  The first is about what a run writes, the second about what the partner's
+  answers can do to a run (incomplete listings, failed downloads, ids that do
+  not fit, the size chart, the busy destination). Together they cover the first run that
   creates what the backoffice lists (one colour row per appearance in the
   partner's order, one listing image row per listed image, one mockup per
   colour, the measured frame and hotspot on the row and on the report line),

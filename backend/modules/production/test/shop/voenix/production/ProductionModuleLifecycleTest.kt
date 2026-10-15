@@ -46,7 +46,7 @@ internal class ProductionModuleLifecycleTest : PostgresIntegrationTest() {
                     },
                     spodClient = SpodClient(MockEngine { error("unexpected SPOD request") }),
                     productionSource = { orderId -> order(orderId) },
-                    spodCatalogSync = { source -> error("unexpected t-shirt sync of $source") },
+                    spodCatalogSync = { source -> error("unexpected SPOD sync of $source") },
                 )
             withContext(Dispatchers.IO) {
                 suspendTransaction(db = database) {

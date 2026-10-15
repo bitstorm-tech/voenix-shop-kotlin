@@ -81,10 +81,10 @@ The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
 `allCategories['MUG']`. The Kotlin route answers a bare array of categories with
 their subcategories nested, and the article type never appears
-(`docs/dev/backend/packages/article-package.md`, "The storefront"). With the t-shirt the
-path lost its type as well: `GET /api/articles/mugs/categories` is gone and
+(`docs/dev/backend/packages/article-package.md`, "The storefront"). With the
+second article type (the t-shirt, #205) the path lost its type as well: `GET /api/articles/mugs/categories` is gone and
 `GET /api/articles/categories` answers the navigation over *every* visible
-article, because one menu leads to mugs and shirts alike.
+article, because one menu leads to mugs and SPOD articles alike.
 
 `stores/shop/catalog.ts` reads both article routes in parallel and merges them
 into one discriminated union over `articleType` (`ShopArticle = MugDto |
@@ -100,7 +100,7 @@ asks the backend for one category instead of filtering a full list in the
 browser.
 
 Since the price discount (#238) each of the three payloads carries a second,
-optional amount next to the one the customer pays: a mug and a shirt answer
+optional amount next to the one the customer pays: a mug and a SPOD article answer
 `regularPrice` next to `price`, a prompt answers `regularSalesTotalGross` inside
 its `price` block. Both are `null` unless the article's or prompt's price really
 has a discount, and both are the price *before* it — `price` and
@@ -528,9 +528,9 @@ wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
 
 The five CRUD destination routes were dispositioned as "no admin UI" until
-the t-shirt work needed one (#205): a SPOD destination is how a shirt order
-reaches the print-on-demand partner, so an operator has to be able to enter and
-rotate that account. Their bodies are **asymmetric in one direction only**: a
+the t-shirt work needed one (#205): a SPOD destination is how an order of a
+SPOD article reaches the print-on-demand partner, so an operator has to be
+able to enter and rotate that account. Their bodies are **asymmetric in one direction only**: a
 request carries the secret of its channel (the SFTP password, the SPOD access
 token) and no response ever carries either one back, which is why the store's
 response types have no field for them at all. Which detail block belongs to a

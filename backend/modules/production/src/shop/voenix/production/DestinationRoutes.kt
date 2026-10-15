@@ -385,7 +385,7 @@ private suspend fun ApplicationCall.respondSync(result: DestinationSyncResult) {
             respond(
                 HttpStatusCode.Conflict,
                 ApiError(
-                    "Only print-on-demand destinations have a t-shirt catalog to sync",
+                    "Only print-on-demand destinations have a SPOD catalog to sync",
                     code = "CHANNEL_WITHOUT_CATALOG",
                 ),
             )

@@ -156,7 +156,7 @@ answers keeps its snapshot price and renders with `articleType: null`, `null`
 names, and `available: false` instead of disappearing. The `CheckoutCart`
 snapshot this package hands the checkout carries no type for the same reason —
 it is a list of references and amounts — which is why the checkout asks the
-catalog itself when it needs to know whether a cart holds a shirt (see the
+catalog itself when it needs to know whether a cart holds a SPOD article (see the
 [Checkout package guide](checkout-package.md)).
 
 ## Who a cart belongs to

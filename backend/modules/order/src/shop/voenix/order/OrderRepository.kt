@@ -753,7 +753,7 @@ private fun storedLinesInTransaction(orderId: Long): List<StoredOrder.Line> {
  * The snapshotted article type of one line.
  *
  * A word this backend does not know is loud rather than silently mapped to a default: it can only
- * come from a hand-written row, and guessing `MUG` for it would route a t-shirt into the PDF
+ * come from a hand-written row, and guessing `MUG` for it would route a SPOD article into the PDF
  * pipeline.
  */
 private fun ResultRow.storedArticleType(): ArticleType =

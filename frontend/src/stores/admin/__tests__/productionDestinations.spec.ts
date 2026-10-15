@@ -290,7 +290,7 @@ describe('admin production destinations store', () => {
     stubFetch(() =>
       jsonResponse(
         {
-          message: 'Only print-on-demand destinations have a t-shirt catalog to sync',
+          message: 'Only print-on-demand destinations have a SPOD catalog to sync',
           code: 'CHANNEL_WITHOUT_CATALOG',
         },
         { status: 409 },

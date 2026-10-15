@@ -80,7 +80,7 @@ order once you know the conventions.
 | [The VAT package](backend/packages/vat-package.md) | `vat` | VAT rates. |
 | [The Supplier package](backend/packages/supplier-package.md) | `supplier` | Suppliers (printers and the print-on-demand partner). |
 | [The Pricing package](backend/packages/pricing-package.md) | `pricing` | Prices, VAT calculation, the `PriceCatalog` capability. |
-| [The Article package](backend/packages/article-package.md) | `article` | Articles (mugs, t-shirts), variants, categories, the storefront catalog. |
+| [The Article package](backend/packages/article-package.md) | `article` | Articles (mugs and SPOD articles), variants, categories, the storefront catalog. |
 | [The Prompt package](backend/packages/prompt-package.md) | `prompt` | Generation prompts, slots, prompt categories, the storefront prompt list. |
 | [The Image package](backend/packages/image-package.md) | `image` | Image storage, delivery routes, decode and upload limits. |
 | [The Generator package](backend/packages/generator-package.md) | `generator` | One image generation: upload, fal.ai call, who pays. |
@@ -109,7 +109,7 @@ order once you know the conventions.
 
 | Guide | What it answers |
 | --- | --- |
-| [Configuring a t-shirt article](guides/configuring-t-shirt-articles.md) | The operator's manual: everything that has to exist before a shirt can be sold and produced. |
+| [Configuring a SPOD article](guides/configuring-spod-articles.md) | The operator's manual for print-on-demand products (t-shirt, tote bag, …): partner account, destination, sync, the measured print frame, and activation. |
 
 ## Writing a new guide
 

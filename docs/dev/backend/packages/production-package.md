@@ -95,7 +95,7 @@ The module owns eight responsibilities:
   `EmailOutbox`, atomically with `delivered_at`. See
   [producer notification](#producer-notification).
 - **Print-on-demand submission.** The second channel's counterpart of
-  artifact generation and delivery: a t-shirt job's designs are uploaded, the
+  artifact generation and delivery: a SPOD job's designs are uploaded, the
   partner's order is created, its id is persisted, and the order is confirmed.
   It has its own guide, [SPOD fulfillment](spod-fulfillment.md).
 - **Fulfillment.** What a supplier and an admin work with: the job list, the
@@ -329,7 +329,7 @@ not a job to watch, and there is no polling and no background machinery.
 | --- | --- |
 | `200` with the `SpodSyncReport` | the run happened — including a run whose `status` is `FAILED`, because a failed run still reports why |
 | `404 Production destination not found` | no destination with that id |
-| `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a t-shirt catalog to sync* |
+| `409` with code `CHANNEL_WITHOUT_CATALOG` | the destination is an `SFTP` one: *Only print-on-demand destinations have a SPOD catalog to sync* |
 | `409` with code `SYNC_RUNNING` | that destination is already syncing: *This destination is already syncing; wait for that run to finish* |
 | `500` | the route itself broke — a database failure while reading the destination, for instance. A run that reached the partner and came back empty-handed is not this: that is the `200` above with `status: "FAILED"` |
 
@@ -486,7 +486,7 @@ boundary (a test enforces this):
   `SpodProductRef`, the three ids the print-on-demand partner names a
   printable product by, together with the optional `spodHotspot`, the
   partner's placement the order line snapshotted. An item answers one *or* the
-  other: a mug has the measurements and no SPOD product, a t-shirt the SPOD
+  other: a mug has the measurements and no SPOD product, a SPOD article the SPOD
   product and hotspot and no measurements.
 - The contact data is on this view only. `FulfillmentOrder`, the view a
   supplier reads, deliberately carries neither and is not widened by it: a

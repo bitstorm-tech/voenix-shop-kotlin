@@ -16,7 +16,7 @@ interface Props {
   articleType: AdminArticleType
   /** The route that edits this row. There is one editor per type, not one union form. */
   editRouteName: string
-  /** Shows this row's sync cell. Only the t-shirt list passes it — see `AdminArticlesTable`. */
+  /** Shows this row's sync cell. Only the SPOD list passes it — see `AdminArticlesTable`. */
   syncColumn?: boolean
   dragging?: boolean
   reorderDisabled?: boolean

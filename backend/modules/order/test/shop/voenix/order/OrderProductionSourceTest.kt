@@ -292,7 +292,7 @@ internal class OrderProductionSourceTest : PostgresIntegrationTest() {
         val articles: OrderTestSupport.FakeArticles,
         val printImages: OrderTestSupport.FakePrintImages,
     ) {
-        /** One t-shirt line: the order the print-on-demand channel is fed from. */
+        /** One SPOD line: the order the print-on-demand channel is fed from. */
         suspend fun placeShirtOrder(): Long {
             val result =
                 service.place(

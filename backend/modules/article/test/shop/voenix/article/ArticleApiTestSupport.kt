@@ -45,7 +45,7 @@ private val apiErrorJson = Json { encodeDefaults = true }
 /**
  * The Spreadconnect client of every test that does not sync anything.
  *
- * `installArticleModule` needs one because the t-shirt sync is part of the module, and a test of a
+ * `installArticleModule` needs one because the SPOD sync is part of the module, and a test of a
  * route that never triggers a sync should not have to invent a catalog. The engine refuses every
  * request, so a test that reaches the partner by accident fails instead of hanging.
  */

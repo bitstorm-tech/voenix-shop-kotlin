@@ -50,8 +50,8 @@ internal object CartTestSupport {
      * Empties every table a cart test writes and re-seeds the master data its foreign keys need:
      * two article variants, one prompt, and two users.
      *
-     * The two articles are deliberately of different types — a mug and a t-shirt (issue #205) — so
-     * a test that renders both lines has two honest identity rows behind them. The cart itself
+     * The two articles are deliberately of different types — a mug and a SPOD article (issue #205)
+     * — so a test that renders both lines has two honest identity rows behind them. The cart itself
      * stores no type: `cart_items` points at the identity registries, and what a line *is* comes
      * from the catalog on every read.
      */

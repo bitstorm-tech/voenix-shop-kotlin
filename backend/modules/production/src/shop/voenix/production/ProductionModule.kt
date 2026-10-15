@@ -209,9 +209,9 @@ public fun Application.installProductionModule(
 /**
  * The print-on-demand configuration, checked against the destinations this deployment actually has.
  *
- * A shop with a print-on-demand destination and no webhook secret is a shop whose t-shirt orders
- * are produced and shipped and whose customers are never told — the partner reports every shipment
- * to a callback that does not exist. That is worth refusing to start over, so the check runs at
+ * A shop with a print-on-demand destination and no webhook secret is a shop whose SPOD orders are
+ * produced and shipped and whose customers are never told — the partner reports every shipment to a
+ * callback that does not exist. That is worth refusing to start over, so the check runs at
  * installation and blocks the startup thread for one `EXISTS`-shaped query the way Flyway blocks it
  * for the migrations a moment earlier.
  *
@@ -314,7 +314,7 @@ internal constructor(webhookSecret: String, alertEmail: String) {
         /**
          * The block, or `null` when this deployment configures no print-on-demand channel at all. A
          * half-filled block is a configuration mistake and fails in the constructor rather than
-         * starting a shop whose t-shirt orders can never report a shipment.
+         * starting a shop whose SPOD orders can never report a shipment.
          */
         fun from(config: ApplicationConfig): ProductionSpodSettings? {
             val webhookSecret = config.spodValue("webhookSecret")

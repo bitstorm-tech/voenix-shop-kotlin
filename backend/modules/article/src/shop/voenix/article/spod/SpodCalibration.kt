@@ -26,7 +26,7 @@ import shop.voenix.spod.SpodViews
  * Per product type the measurement costs `2 + candidates` paced API calls — the views, the hotspot
  * check of the design, and one preview per candidate hotspot — plus one unpaced CDN download per
  * preview. A front view offers five hotspots at most, so a product type costs at most seven paced
- * calls, and a catalog of twenty t-shirts of one type costs them once.
+ * calls, and a catalog of twenty articles of one product type costs them once.
  */
 internal class SpodCalibration(
     private val client: SpodClient,

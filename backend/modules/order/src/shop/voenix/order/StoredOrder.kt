@@ -32,9 +32,9 @@ internal data class StoredOrder(
     /**
      * The phone number the customer gave at checkout, or `null` when they gave none.
      *
-     * It is read back with the row because the print-on-demand partner a t-shirt is ordered from
-     * requires a contact number for the shipment, and the number that reaches it must be the one
-     * the order stored rather than one an account has been edited to since.
+     * It is read back with the row because the print-on-demand partner a SPOD article is ordered
+     * from requires a contact number for the shipment, and the number that reaches it must be the
+     * one the order stored rather than one an account has been edited to since.
      */
     val phone: String?,
     val shippingAddress: Address,
@@ -73,7 +73,7 @@ internal data class StoredOrder(
         val variantId: Long,
         /**
          * The snapshotted type of the article this line was placed for: what a customer-facing view
-         * switches on to render the line, because a mug and a t-shirt look nothing alike.
+         * switches on to render the line, because a mug and a SPOD article look nothing alike.
          *
          * It does **not** decide how the line is produced. That is the fulfillment channel, and it
          * comes from the supplier's enabled destination at split time and is frozen in

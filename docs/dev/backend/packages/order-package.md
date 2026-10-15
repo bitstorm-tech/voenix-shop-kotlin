@@ -400,15 +400,16 @@ it through the exported `OrderPlacement` capability. It runs in three steps.
    the placement is refused with `UnknownArticleReference` (deviation D18).
    What the snapshot copies onto the line is the article type, the article and
    variant name, the supplier article number, and the five print measurements.
-   The type is on that list since t-shirts joined mugs (issue #205), and it is
+   The type is on that list since t-shirts joined mugs (issue #205) — the type
+   was renamed from `TSHIRT` to `SPOD` in issue #260 — and it is
    there to *say what was bought*, not to route production: a client renders the
-   line by it, and it must keep saying "t-shirt" after the article was edited or
+   line by it, and it must keep saying `SPOD` after the article was edited or
    deleted. Which channel a line is produced through is decided elsewhere, by
    the enabled destination of its supplier, snapshotted on the production job
    (see [SPOD fulfillment decision 1](spod-fulfillment.md#the-design-decisions)), and no
    reader of `order_items.article_type` chooses a channel from it. A
-   t-shirt line stores `NULL` in all five measurements, because those are PDF
-   layout overrides and a shirt has no page to lay out.
+   SPOD line stores `NULL` in all five measurements, because those are PDF
+   layout overrides and a SPOD article has no page to lay out.
    The last item on the list is the **SPOD hotspot** (`spodHotspot`), the
    partner's placement the customer previewed in the editor, for example
    `MEDIUM_FRONT`. A mug line stores `NULL`. It is a snapshot because what is
@@ -672,7 +673,7 @@ creates two tables and closes two references other migrations deferred.
   way in by the enum. The read is strict about it, though: a value the
   `ArticleType` enum does not contain makes the read of that order **fail
   loudly** instead of falling back to `MUG`. It can only come from a
-  hand-written row, and a wrong guess here would put a t-shirt line into a PDF.
+  hand-written row, and a wrong guess here would put a SPOD line into a PDF.
 
 Five rules are worth a sentence each:
 
@@ -828,7 +829,7 @@ claim, so no module moves rows to an account after a sign-in.
 | --- | --- | --- |
 | `OrderInputValidationTest` | pure | the whole field-rule matrix of `PlaceOrderInput`, including the owner rule and the money-describes-its-lines rule |
 | `OrderAccessTokenTest` | pure | the token type: 43 URL-safe characters, never repeating, `toString` redaction, and the strings that are not a token |
-| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots (the article type and the SPOD hotspot of every line included, with a t-shirt line proving the five measurements stay `NULL` and a mug line storing no hotspot), catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, one access token per order, the forced token collision that is retried instead of reported as `AlreadyPlaced`, and the confirmation mail: exactly one per placed order, none for a refused placement, and an order that is not placed at all when its enqueue fails |
+| `OrderPlacementIntegrationTest` | service + PostgreSQL | what a placement writes: the snapshots (the article type and the SPOD hotspot of every line included, with a SPOD line proving the five measurements stay `NULL` and a mug line storing no hotspot), catalog-change isolation, the billing fallback, the line order, the placements that must write nothing at all, one access token per order, the forced token collision that is retried instead of reported as `AlreadyPlaced`, and the confirmation mail: exactly one per placed order, none for a refused placement, and an order that is not placed at all when its enqueue fails |
 | `OrderPaymentIntegrationTest` | service + PostgreSQL | `markPaid` idempotency, `Cancelled`, `PromotionRefused`-still-paid, rollback leaving no redemption and no production request, that a payment enqueues no mail and never takes the placement's one back, cancellation rethrow, that no guest token ever reaches a log line, and the exported 5→4 outcome mapping |
 | `OrderCancellationIntegrationTest` | service + PostgreSQL | the cancel transition matrix, the cancelled order freeing its cart, the reservation released in the same commit, and the refused cancellation of a paid order with its warning |
 | `OrderPaymentEndedIntegrationTest` | service + PostgreSQL | `paymentEnded` releasing the reservation while the order stays `PENDING`, and the four cases that must be no-ops: a redelivery, an order without a promotion, an unknown id, and an order already paid |

@@ -5,7 +5,7 @@ import { TableCell, TableRow } from '@/components/ui/table'
 const props = withDefaults(
   defineProps<{
     articleId: number
-    /** Whether the table this skeleton sits in shows the t-shirt sync column — see `AdminArticlesTable`. */
+    /** Whether the table this skeleton sits in shows the SPOD sync column — see `AdminArticlesTable`. */
     syncColumn?: boolean
   }>(),
   { syncColumn: false },

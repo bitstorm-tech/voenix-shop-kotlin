@@ -23,8 +23,8 @@ handle. What it has is one class, `SpodClient`, and two modules consume it:
   download an image one of those answers points at (see the
   [Article package guide](article-package.md#spod-articles)).
 
-The client used to live inside `production`. It moved here when the t-shirt
-catalog became synced data
+The client used to live inside `production`. It moved here when the SPOD
+catalog (then the t-shirt catalog) became synced data
 ([SPOD sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
 two modules needed the same client, and the alternative — `article` depending
 on `production`, or a second client next to the first — would either have

@@ -207,7 +207,7 @@ internal class ProductionDestinationRouteSecurityAndValidationTest {
         assertApiError(
             admin.sync(token),
             HttpStatusCode.Conflict,
-            "Only print-on-demand destinations have a t-shirt catalog to sync",
+            "Only print-on-demand destinations have a SPOD catalog to sync",
             code = "CHANNEL_WITHOUT_CATALOG",
         )
 

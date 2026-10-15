@@ -1,6 +1,7 @@
 # SPOD fulfillment: the print-on-demand channel
 
-This page explains how a t-shirt job is produced. It belongs to the
+This page explains how the job of a SPOD article — a t-shirt, a tote bag, any
+product the print-on-demand partner makes — is produced. It belongs to the
 [Production package guide](production-package.md), which describes everything
 the two fulfillment channels share; here we look only at the second one, the
 print-on-demand partner **Spreadconnect (SPOD)**.
@@ -13,7 +14,7 @@ number ("SPOD fulfillment decision 7").
 
 ## Two channels, one worker
 
-A mug reaches its producer as a PDF pushed over SFTP. A t-shirt reaches its
+A mug reaches its producer as a PDF pushed over SFTP. A SPOD article reaches its
 producer as a conversation with a REST API. The split worker decides which of
 the two a job belongs to when it creates the job, from the supplier's enabled
 destinations, and freezes that decision in `production_jobs.fulfillment_channel`.
@@ -110,7 +111,7 @@ The second check is the safety net of SPOD fulfillment decision 8, and it is wor
 understanding. The three partner ids are read from *today's* master data on
 every load, deliberately: a mapping an admin fixes today heals every order
 still waiting to be submitted. But the same liveness would let a corrected
-mapping silently turn a paid "Schwarz / M" into a different garment. The
+mapping silently turn a paid "Schwarz / M" into a different product. The
 snapshotted name is the tripwire — production refuses rather than guesses.
 
 Since the catalog is synced, the partner can trip that wire too: a colour
@@ -159,7 +160,7 @@ The request is built in one place (`SpodJobContext.request`) and carries:
 - `state: "NEW"` — never `CONFIRMED`, even though the API would allow it;
 - `shipping.preferredType: "STANDARD"` (the customer never chooses);
 - the customer's `email` and `phone`, both required by the partner. Checkout
-  already requires a phone whenever the cart holds a shirt, so a missing one is
+  already requires a phone whenever the cart holds a SPOD article, so a missing one is
   a defensive `PHONE_MISSING` — checked *before* a design is uploaded;
 - `externalOrderReference = "ORD-{orderId}-JOB-{jobId}"`, deterministic so the
   webhook can find the job and a human can read the same string on both
@@ -219,7 +220,7 @@ counterpart of "the PDF exists": the moment the job becomes shippable.
 
 The client does not live in this module any more. Since the catalog sync it is the
 leaf module `spod` (`modules/spod/src/shop/voenix/spod/SpodClient.kt`), because
-a second module needs it: the t-shirt catalog is synced from the same partner's
+a second module needs it: the SPOD catalog is synced from the same partner's
 API by the article module. The whole client is described in
 [The SPOD package](spod-package.md); this section keeps what a reader of the
 submission stage has to know about it.
@@ -285,7 +286,7 @@ position)` and the `design_id`, cascading with the order row above.
 ## The webhook: how a shipment comes back
 
 The partner produces and ships; nobody in this shop presses a button for a
-t-shirt. `POST /api/production/webhooks/spod/{secret}` is where that comes
+SPOD article. `POST /api/production/webhooks/spod/{secret}` is where that comes
 back, and it follows the Mollie webhook of the payment module exactly
 (SPOD fulfillment decision 5):
 
@@ -437,7 +438,7 @@ settings dump at startup cannot spill it.
 ### Setting a supplier up, staging first
 
 The step-by-step operator manual for this, from the configuration block to the
-first test order, is [Configuring a t-shirt article](../../guides/configuring-t-shirt-articles.md);
+first test order, is [Configuring a SPOD article](../../guides/configuring-spod-articles.md);
 this section keeps the reasons.
 
 The partner runs two installations, and this shop picks between them with the
@@ -459,16 +460,17 @@ one installation is refused by the other, which reaches this shop as the bounded
    notification
    address, and the `spod` block — `environment`, `accessToken`,
    `timeoutSeconds` (1…3600; 30 is a sane start).
-2. Create the shirt in the **Spreadconnect backoffice** — the garment, its
-   colours, and its sizes — and press *Sync from Spreadconnect* on the
+2. Create the article in the **Spreadconnect backoffice** — the product type,
+   its colours, and its sizes — and press *Sync from Spreadconnect* on the
    destination row. The sync writes the partner's three product ids onto every
-   variant; nobody types them any more (SPOD sync decision 1). Without a synced shirt there
+   variant and measures the hotspot and the print frame; nobody types them any
+   more (SPOD sync decisions 1 and 7). Without a synced article there
    is nothing to sell, and a variant without the ids could not exist at all —
    submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
    goes out.
 3. Register the webhook subscriptions (next section) against the **same**
    installation.
-4. Order one shirt end to end and watch the job on the *Logistics* page: it must
+4. Order one article end to end and watch the job on the *Logistics* page: it must
    reach `prepared_at`, then arrive as a shipment through the webhook.
 
 Only one **enabled** SPOD destination per supplier is allowed (a partial unique
@@ -615,9 +617,10 @@ for a reference whose subject has moved on.
 
 ### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
 
-Since the t-shirt catalog is synced (SPOD sync decision 1), the partner is a second author
+Since the SPOD catalog is synced (SPOD sync decision 1), the partner is a second author
 of a variant's name: renaming a colour in the Spreadconnect backoffice and
-pressing *Sync from Spreadconnect* rewrites `colorName` on every variant of
+pressing *Sync from Spreadconnect* rewrites the colour's `color_name` in
+`article_spod_appearances`, and with it the composed name of every variant of
 that colour. The name tripwire of step 1 then compares today's composed name
 with the one the split snapshotted and refuses every job of that colour that
 was already waiting, with `SPOD_MAPPING_CHANGED`.
@@ -631,15 +634,15 @@ How to resolve one:
 
 1. Read the job's items and today's variant with the SQL of
    [Reading a job's state](#reading-a-jobs-state), and compare the **three SPOD
-   ids** (`spod_product_type_id`, `spod_appearance_id`, `spod_size_id`) of the
-   variant with what `production_job_items` snapshotted. Unchanged ids plus a
-   changed name means a rename, and the shirt in the parcel is the one the
-   customer bought.
+   ids** (`spod_product_type_id` and `spod_size_id` of the variant,
+   `spod_appearance_id` of its colour row) with what `production_job_items`
+   snapshotted. Unchanged ids plus a changed name means a rename, and the
+   product in the parcel is the one the customer bought.
 2. Unchanged ids, changed name → resolve it by hand: update
    `production_job_items.variant_name` to today's composed name
    (`"<colour> / <size>"`), and the next scan submits the job normally.
 3. **Changed ids** are the real alarm this check was built for. Do not touch
-   the snapshot: something re-pointed the variant at a different garment, and
+   the snapshot: something re-pointed the variant at a different product, and
    the order must be looked at before anything is printed.
 
 Issue #225 is the follow-up that removes the false alarm for good, by
@@ -717,9 +720,10 @@ enum entry.
 
 ## The design decisions
 
-These eight decisions were made together when t-shirts arrived (issue #205),
-by the council with the contested points decided by Joe. They are numbered
-because the code cites them by number. Before them, the production module knew
+These eight decisions were made together when the first SPOD article — the
+t-shirt — arrived (issue #205), by the council with the contested points
+decided by Joe; issue #260 made them hold for every SPOD article and amended
+decision 4. They are numbered because the code cites them by number. Before them, the production module knew
 exactly one way to reach a producer: render an immutable PDF per job and push
 it over SFTP. Every mechanism assumed that shape — the artifact generation was
 the exactly-once anchor of the `production_job_items` snapshot, the delivery
@@ -821,7 +825,7 @@ allowed as the fallback for a lost webhook.
 ### Decision 6 — The order carries the customer's contact data
 
 The partner gets the **customer's** phone and email (Joe). Checkout therefore
-requires a phone whenever the cart contains a t-shirt line; `orders.phone`
+requires a phone whenever the cart contains a SPOD article line; `orders.phone`
 stays nullable for mug-only orders. `ProductionData` — the production view, not
 the supplier's `FulfillmentOrder`, whose data minimization is untouched —
 carries both.
@@ -839,13 +843,13 @@ at submission time through `CatalogVariant`, like supplier routing — a mapping
 fix heals every pending order. The safety net: the stage compares today's
 composed variant name with the order line's snapshotted `variant_name` and
 refuses on a mismatch with a retryable code, so a paid "Black / M" can never
-silently become a different garment.
+silently become a different product.
 
 The hotspot is the exception: it is a snapshot, not a live value (decision 4).
 It decides *where and how big* the motif is printed, and that has to stay what
 the customer previewed.
 
-Since the t-shirt catalog is synced, the partner writes that name too, so a
+Since the SPOD catalog is synced, the partner writes that name too, so a
 backoffice rename trips this check as a false alarm. That is accepted
 ([SPOD sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
 until issue #225 compares ids instead of names. Orders stay `oneTimeItems` and

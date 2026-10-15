@@ -61,7 +61,7 @@ internal fun KtorApplication.module(spod: SpodClient): Unit = Application.instal
  * go is not a configuration key, and it must not become one.
  */
 internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTest() {
-    private val imageRoot: Path = createTempDirectory("tshirt-sync-composition")
+    private val imageRoot: Path = createTempDirectory("spod-sync-composition")
 
     @AfterTest
     fun cleanUp() {
@@ -70,7 +70,7 @@ internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTe
 
     @Test
     fun `an admin syncs a spod destination and the backoffice shirt becomes an article`() {
-        dataSource("tshirt-sync-composition", SCHEMA).use { dataSource ->
+        dataSource("spod-sync-composition", SCHEMA).use { dataSource ->
             testApplication {
                 environment { config = applicationConfig() }
                 application {
@@ -143,16 +143,16 @@ internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTe
             put("database.password", TestDatabase.password)
             put("database.searchPath", SCHEMA)
             put("database.sslMode", "Disable")
-            put("auth.sessionSecret", "tshirt-sync-composition-session-secret")
+            put("auth.sessionSecret", "spod-sync-composition-session-secret")
             put("frontend.baseUrl", "http://localhost:5173")
             put("generator.dummyMode", "true")
             put("production.artifactRoot", imageRoot.resolve("production-artifacts").toString())
-            put("production.spod.webhookSecret", "tshirt-sync-composition-webhook-secret")
+            put("production.spod.webhookSecret", "spod-sync-composition-webhook-secret")
             put("production.spod.alertEmail", "ops@voenix.test")
             put("image.publicRoot", imageRoot.resolve("public").toString())
             put("image.privateRoot", imageRoot.resolve("private").toString())
             put("image.cacheRoot", imageRoot.resolve("cache").toString())
-            put("mollie.apiKey", "test_tshirt_sync_mollie_key")
+            put("mollie.apiKey", "test_spod_sync_mollie_key")
             put("mollie.redirectUrl", "http://localhost:5173/checkout/success")
             put("mollie.webhookUrl", "https://voenix.test/api/payments/webhook/$MOLLIE_SECRET")
             put("mollie.webhookSecret", MOLLIE_SECRET)
@@ -207,10 +207,10 @@ internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTe
         }
 
     private companion object {
-        const val SCHEMA = "tshirt_sync_composition"
+        const val SCHEMA = "spod_sync_composition"
 
         /** No payment happens here; the block only has to be a valid one. */
-        const val MOLLIE_SECRET = "tshirt-sync-composition-mollie-webhook-secret"
+        const val MOLLIE_SECRET = "spod-sync-composition-mollie-webhook-secret"
 
         val CATALOG =
             """

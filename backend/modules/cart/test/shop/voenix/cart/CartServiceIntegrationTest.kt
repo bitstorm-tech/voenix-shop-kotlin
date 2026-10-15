@@ -341,7 +341,7 @@ internal class CartServiceIntegrationTest : PostgresIntegrationTest() {
     /**
      * The type is not stored on the line and is not the same for every line: it is what the catalog
      * answers for each reference, and it is what a client switches on to render a mug differently
-     * from a t-shirt (issue #205).
+     * from a SPOD article (issue #205).
      */
     @Test
     fun `each line carries the article type the catalog answers for it`() =
