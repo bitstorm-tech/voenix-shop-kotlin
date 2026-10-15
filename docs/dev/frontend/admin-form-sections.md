@@ -1,7 +1,7 @@
 # Long admin forms on one page
 
 Most admin entities are edited in a dialog. Three editors are the exception:
-the two article editors (`MugArticleEditView`, `TshirtArticleEditView`) and the
+the two article editors (`MugArticleEditView`, `SpodArticleEditView`) and the
 prompt editor (`PromptEditView`). They are full pages, because an article or a
 prompt with its price has too much to fit into a dialog. This guide explains how
 such a page is laid out and how it shows problems when a save is stopped.
@@ -31,8 +31,20 @@ found by switching tabs. On one page, what you see is what you save.
 
 A section that only **shows** data another system owns gets the `read-only`
 prop. It then has a grey background and a *Read-only* badge, so nobody looks for
-a way to edit it. The *Spreadconnect* section of the t-shirt editor is the
-example: a sync run writes it, the shop never does.
+a way to edit it. The SPOD article editor has two of them:
+
+- *Print* shows the print frame the last sync measured from the Spreadconnect
+  hotspot: the rectangle drawn on the mockup of the default variant's colour,
+  the hotspot's name, and the four percentages as text
+  ([`AdminArticlePrintFrameViewer`](../../../frontend/src/components/admin/article/AdminArticlePrintFrameViewer.vue)).
+  Nobody calibrates the frame by hand any more. When the sync could not measure
+  it, the section shows an alert instead, and the backend refuses to activate the
+  article — that refusal appears on the *Active* field.
+- *Spreadconnect* shows what the backoffice owns: the name, the descriptions,
+  the variants with the first listing image of their colour, and the size chart.
+
+A sync run writes both sections, the shop never does. Only *General* and
+*Price* are saved.
 
 The price section is the same in both article editors, so it is a component of
 its own:

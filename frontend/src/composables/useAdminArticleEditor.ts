@@ -26,7 +26,7 @@ export interface AdminArticleEditorPayload {
 
 /**
  * The slice of a per-type article store the editor lifecycle drives. Every admin article store —
- * `useAdminMugArticlesStore`, `useAdminTshirtArticlesStore` — satisfies it as it is.
+ * `useAdminMugArticlesStore`, `useAdminSpodArticlesStore` — satisfies it as it is.
  */
 export interface AdminArticleEditorStore<
   TArticle extends AdminArticleEditorArticle,
@@ -34,8 +34,8 @@ export interface AdminArticleEditorStore<
 > {
   fetchArticle: (id: number) => Promise<TArticle>
   /**
-   * Creating is a mug thing. A shirt comes into being through a sync run (t-shirt sync decision 1),
-   * so the t-shirt store has no create call and its editor is only ever reached with an article id.
+   * Creating is a mug thing. A SPOD article comes into being through a sync run, so the SPOD
+   * article store has no create call and its editor is only ever reached with an article id.
    */
   createArticle?: (payload: TRequest) => Promise<TArticle>
   updateArticle: (id: number, payload: TRequest) => Promise<TArticle>
@@ -69,7 +69,7 @@ export interface AdminArticleEditorOptions<
 /**
  * The lifecycle both article editors share: load the article of the route, save it, delete it.
  *
- * What differs between a mug and a shirt is the form itself — its fields, its rules, its payload —
+ * What differs between a mug and a SPOD article is the form itself — its fields, its rules, its payload —
  * plus the store that talks to the type's routes and the list page to return to, and all of that is
  * passed in. What does not differ is everything around it: the route id, create versus update, the
  * stale-load guard, a `404` that sends the user back to the list, the price gate before a save, and

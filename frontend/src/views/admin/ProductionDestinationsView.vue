@@ -25,7 +25,7 @@ import {
   DestinationNotFoundError,
   InvalidDestinationRequestError,
   type SaveProductionDestinationRequest,
-  type TshirtSyncReport,
+  type SpodSyncReport,
   useAdminProductionDestinationsStore,
 } from '@/stores/admin/productionDestinations'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
@@ -144,7 +144,9 @@ interface DestinationRow {
   /** Whether this destination's sync request is still in flight. */
   syncing: boolean
   /** What its last finished sync did, or `null` while nobody has pressed the button. */
-  report: TshirtSyncReport | null
+  report: SpodSyncReport | null
+  /** The SPOD article ids whose print frame the last run could not measure (`CALIBRATION_FAILED`). */
+  uncalibratedArticleIds: string[]
 }
 
 const rows = computed<DestinationRow[]>(() =>
@@ -155,8 +157,15 @@ const rows = computed<DestinationRow[]>(() =>
     accountNote: accountNote(destination),
     syncing: destinationsStore.isSyncing(destination.id),
     report: destinationsStore.syncReport(destination.id),
+    uncalibratedArticleIds: uncalibratedArticleIds(destinationsStore.syncReport(destination.id)),
   })),
 )
+
+function uncalibratedArticleIds(report: SpodSyncReport | null): string[] {
+  return (report?.warnings ?? [])
+    .filter((warning) => warning.code === 'CALIBRATION_FAILED')
+    .map((warning) => warning.spodArticleId ?? '—')
+}
 
 function accountNote(destination: AdminProductionDestinationDto): string {
   if (destination.channel === 'SFTP' && destination.sftp) {
@@ -191,7 +200,7 @@ async function syncArticles(destination: AdminProductionDestinationDto) {
       description:
         error instanceof Error && error.message
           ? error.message
-          : `The t-shirt catalog of ${destination.label} could not be synced.`,
+          : `The SPOD catalog of ${destination.label} could not be synced.`,
       variant: 'destructive',
     })
   }
@@ -264,7 +273,14 @@ onMounted(async () => {
           </TableHeader>
           <TableBody>
             <template
-              v-for="{ destination, supplierName, accountNote, syncing, report } in rows"
+              v-for="{
+                destination,
+                supplierName,
+                accountNote,
+                syncing,
+                report,
+                uncalibratedArticleIds,
+              } in rows"
               :key="destination.id"
             >
               <TableRow :data-testid="`destination-row-${destination.id}`">
@@ -327,6 +343,15 @@ onMounted(async () => {
                       Read {{ report.fetchedArticles }} articles from {{ report.environment }}.
                     </p>
 
+                    <Alert
+                      v-if="uncalibratedArticleIds.length > 0"
+                      variant="destructive"
+                      :data-testid="`destination-sync-calibration-failed-${destination.id}`"
+                    >
+                      The print frame of these articles could not be measured, so they cannot be
+                      activated: {{ uncalibratedArticleIds.join(', ') }}
+                    </Alert>
+
                     <div class="flex flex-wrap gap-x-4 gap-y-1 text-foreground">
                       <span>Created {{ report.created.length }}</span>
                       <span>Updated {{ report.updated.length }}</span>
@@ -334,6 +359,21 @@ onMounted(async () => {
                       <span>Deactivated {{ report.deactivated.length }}</span>
                       <span>Failed {{ report.failed.length }}</span>
                     </div>
+
+                    <ul
+                      v-if="report.created.length + report.updated.length > 0"
+                      class="space-y-1 text-muted-foreground"
+                      :data-testid="`destination-sync-hotspots-${destination.id}`"
+                    >
+                      <li
+                        v-for="line in [...report.created, ...report.updated]"
+                        :key="line.spodArticleId"
+                      >
+                        <span class="font-medium text-foreground">{{ line.name }}</span>
+                        · {{ line.spodArticleId }} · hotspot
+                        {{ line.hotspot ?? 'none (print frame not measured)' }}
+                      </li>
+                    </ul>
 
                     <Collapsible
                       v-if="report.warnings.length > 0"

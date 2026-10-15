@@ -2,12 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import TshirtArticleEditView from '../TshirtArticleEditView.vue'
+import SpodArticleEditView from '../SpodArticleEditView.vue'
 import type {
-  AdminArticleTshirtVariantDto,
-  AdminTshirtArticleDto,
-  SaveAdminTshirtArticleRequest,
-} from '@/stores/admin/tshirtArticles'
+  AdminSpodArticleDto,
+  AdminSpodVariantDto,
+  SaveAdminSpodArticleRequest,
+} from '@/stores/admin/spodArticles'
 import type { AdminPriceDto, AdminPriceInputDto, PriceVatDto } from '@/stores/admin/prices'
 import { InvalidArticleRequestError } from '@/stores/admin/articles'
 
@@ -28,12 +28,12 @@ vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }))
 
-vi.mock('@/stores/admin/tshirtArticles', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/stores/admin/tshirtArticles')>()
+vi.mock('@/stores/admin/spodArticles', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/admin/spodArticles')>()
 
   return {
     ...actual,
-    useAdminTshirtArticlesStore: () => ({
+    useAdminSpodArticlesStore: () => ({
       fetchArticle: mocks.fetchArticle,
       updateArticle: mocks.updateArticle,
       deleteArticle: mocks.deleteArticle,
@@ -97,14 +97,11 @@ function priceDto(overrides: Partial<AdminPriceDto> = {}): AdminPriceDto {
   }
 }
 
-function variant(
-  overrides: Partial<AdminArticleTshirtVariantDto> = {},
-): AdminArticleTshirtVariantDto {
+function variant(overrides: Partial<AdminSpodVariantDto> = {}): AdminSpodVariantDto {
   return {
     id: 1,
     name: 'Black / M',
-    colorName: 'Black',
-    colorHex: '#000000',
+    appearanceId: 3,
     sizeLabel: 'M',
     spodProductTypeId: 812,
     spodAppearanceId: 3,
@@ -113,32 +110,49 @@ function variant(
     sku: 'SKU-1',
     isDefault: true,
     active: true,
-    exampleImageFilename: 'black-m.webp',
     ...overrides,
   }
 }
 
-function tshirtArticle(overrides: Partial<AdminTshirtArticleDto> = {}): AdminTshirtArticleDto {
+function spodArticle(overrides: Partial<AdminSpodArticleDto> = {}): AdminSpodArticleDto {
   return {
     id: 10,
     position: 1,
-    name: 'Classic Shirt',
+    name: 'Classic tee',
     descriptionShort: 'Short',
     descriptionLong: 'Long',
     active: false,
     categoryId: null,
     subcategoryId: null,
     supplierId: 4,
-    printAspectRatio: '16:9',
+    productTypeName: "Men's T-Shirt",
     sizeChartImageFilename: 'chart.webp',
     printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
-    tshirtVariants: [
+    hotspot: 'front',
+    appearances: [
+      {
+        id: 3,
+        colorName: 'Black',
+        colorHex: '#000000',
+        position: 1,
+        mockupImageFilename: 'black-mockup.webp',
+        listingImageFilenames: ['black-1.webp', 'black-2.webp'],
+      },
+      {
+        id: 4,
+        colorName: 'White',
+        colorHex: '#ffffff',
+        position: 2,
+        mockupImageFilename: 'white-mockup.webp',
+        listingImageFilenames: [],
+      },
+    ],
+    spodVariants: [
       variant(),
       variant({
         id: 2,
         name: 'White / L',
-        colorName: 'White',
-        colorHex: '#ffffff',
+        appearanceId: 4,
         sizeLabel: 'L',
         spodAppearanceId: 4,
         spodSizeId: 6,
@@ -164,14 +178,14 @@ function createArticleRouter() {
     history: createMemoryHistory(),
     routes: [
       {
-        path: '/admin/articles/tshirts',
-        name: 'admin-tshirt-articles',
+        path: '/admin/articles/spod',
+        name: 'admin-spod-articles',
         component: { template: '<div>Article list</div>' },
       },
       {
-        path: '/admin/articles/tshirts/:id/edit',
-        name: 'admin-tshirt-article-edit',
-        component: TshirtArticleEditView,
+        path: '/admin/articles/spod/:id/edit',
+        name: 'admin-spod-article-edit',
+        component: SpodArticleEditView,
       },
     ],
   })
@@ -182,7 +196,7 @@ async function mountEditView(path: string) {
   await router.push(path)
   await router.isReady()
 
-  const wrapper = mount(TshirtArticleEditView, {
+  const wrapper = mount(SpodArticleEditView, {
     attachTo: document.body,
     global: { plugins: [router] },
   })
@@ -191,7 +205,7 @@ async function mountEditView(path: string) {
   return { wrapper, router }
 }
 
-describe('TshirtArticleEditView', () => {
+describe('SpodArticleEditView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     document.body.innerHTML = ''
@@ -207,23 +221,26 @@ describe('TshirtArticleEditView', () => {
     mocks.calculatePrice.mockImplementation(async (payload: AdminPriceInputDto) =>
       priceDto({ ...payload, purchaseVat: standardVat, salesVat: standardVat }),
     )
-    mocks.fetchArticle.mockResolvedValue(tshirtArticle())
+    mocks.fetchArticle.mockResolvedValue(spodArticle())
   })
 
-  it('loads a shirt from the t-shirt route and shows its name in the heading', async () => {
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+  it('loads an article from the SPOD route and shows its name and product type', async () => {
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
     expect(mocks.fetchArticle).toHaveBeenCalledWith(10)
-    expect(wrapper.find('h1').text()).toBe('Edit T-Shirt (Classic Shirt)')
+    expect(wrapper.find('h1').text()).toBe('Edit SPOD article (Classic tee)')
+    const identity = wrapper.get('[data-testid="article-identity"]').text()
+    expect(identity).toContain('Classic tee')
+    expect(identity).toContain("Men's T-Shirt")
   })
 
   it('shows the synced half read-only, with the inactive variants collapsed', async () => {
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
     const spodSection = wrapper.get('[data-testid="spod-section"]')
     expect(spodSection.text()).toContain('Read-only')
     const spodIdentity = wrapper.get('[data-testid="spod-identity"]')
-    expect(spodIdentity.text()).toContain('Classic Shirt')
+    expect(spodIdentity.text()).toContain('Classic tee')
     expect(spodIdentity.text()).toContain('A-77')
     expect(spodIdentity.text()).toContain('STAGING')
     expect(wrapper.get('[data-testid="spod-synced-at"]').text()).toContain('Aug 20, 2026')
@@ -234,6 +251,10 @@ describe('TshirtArticleEditView', () => {
     expect(activeRow.text()).toContain('v-812-3-5')
     expect(activeRow.text()).toContain('SKU-1')
     expect(activeRow.text()).toContain('812 / 3 / 5')
+    expect(activeRow.text()).toContain('Default')
+    expect(activeRow.get('img').attributes('src')).toContain(
+      'articles/spod/listing-images/black-1.webp',
+    )
 
     // The inactive one is behind the toggle and, once open, shows the same columns as the active
     // one — the same row an operator has to find again in the backoffice.
@@ -255,7 +276,7 @@ describe('TshirtArticleEditView', () => {
   })
 
   it('offers only the active variants as the default one', async () => {
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
     await wrapper.get('[data-testid="default-variant-select"]').trigger('keydown', { key: 'Enter' })
     await flushPromises()
@@ -266,49 +287,77 @@ describe('TshirtArticleEditView', () => {
     expect(options).toEqual(['No default variant', 'Black / M'])
   })
 
-  it('submits the shop-owned half and nothing else', async () => {
-    mocks.updateArticle.mockResolvedValue(tshirtArticle())
+  it('draws the measured frame read-only on the mockup of the default colour', async () => {
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const print = wrapper.get('[data-testid="print-section"]')
+    expect(print.text()).toContain('Read-only')
+    expect(print.text()).toContain('front')
+    expect(print.get('[data-testid="print-frame-mockup"]').attributes('src')).toBe(
+      '/api/images/public/1000/articles/spod/mockups/black-mockup.webp',
+    )
+    const style = print.get('[data-testid="print-frame-rectangle"]').attributes('style')
+    expect(style).toContain('left: 20%')
+    expect(style).toContain('top: 15%')
+    expect(style).toContain('width: 60%')
+    expect(style).toContain('height: 30%')
+    expect(print.find('input').exists()).toBe(false)
+    expect(print.find('[data-testid="print-frame-missing"]').exists()).toBe(false)
+  })
+
+  it('falls back to the first colour with a mockup when the default colour has none', async () => {
+    const article = spodArticle()
+    article.appearances[0]!.mockupImageFilename = null
+    mocks.fetchArticle.mockResolvedValue(article)
+
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+
+    expect(wrapper.get('[data-testid="print-frame-mockup"]').attributes('src')).toBe(
+      '/api/images/public/1000/articles/spod/mockups/white-mockup.webp',
+    )
+  })
+
+  it('submits the shop-owned half and nothing else', async () => {
+    mocks.updateArticle.mockResolvedValue(spodArticle())
+
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(mocks.updateArticle).toHaveBeenCalledOnce()
     expect(mocks.updateArticle.mock.calls[0]![0]).toBe(10)
-    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminTshirtArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminSpodArticleRequest
     expect(payload).toEqual({
       active: false,
       categoryId: null,
       subcategoryId: null,
-      printAspectRatio: '16:9',
-      printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
       defaultVariantId: 1,
     })
   })
 
   it('drops a default variant the last run deactivated instead of submitting it back', async () => {
-    mocks.updateArticle.mockResolvedValue(tshirtArticle())
+    mocks.updateArticle.mockResolvedValue(spodArticle())
     mocks.fetchArticle.mockResolvedValue(
       // The partner deactivated every colour, the stored default among them.
-      tshirtArticle({
-        tshirtVariants: [
+      spodArticle({
+        spodVariants: [
           variant({ active: false }),
           variant({ id: 2, isDefault: false, active: false }),
         ],
       }),
     )
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminTshirtArticleRequest
+    const payload = mocks.updateArticle.mock.calls[0]![1] as SaveAdminSpodArticleRequest
     expect(payload.defaultVariantId).toBeNull()
   })
 
-  it('refuses to activate a shirt the partner no longer lists', async () => {
+  it('refuses to activate an article the partner no longer lists', async () => {
     mocks.fetchArticle.mockResolvedValue(
-      tshirtArticle({
+      spodArticle({
         categoryId: 3,
         sync: {
           spodArticleId: 'A-77',
@@ -319,7 +368,7 @@ describe('TshirtArticleEditView', () => {
       }),
     )
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
     expect(wrapper.get('[data-testid="missing-alert"]').text()).toContain(
       'no longer lists this article',
     )
@@ -334,24 +383,42 @@ describe('TshirtArticleEditView', () => {
     )
   })
 
-  it('shows a rejected write on the input that caused it', async () => {
+  // The backend owns the "no frame, no activation" rule, so the form lets the admin try and shows
+  // the refusal on the Active field.
+  it('explains an unmeasured frame and shows the refused activation on the Active field', async () => {
     mocks.updateArticle.mockRejectedValue(
       new InvalidArticleRequestError('Validation failed', {
-        'printFrame.widthPct': ['LeftPct plus WidthPct must be at most 100'],
+        active: ['An article without a measured print frame cannot be activated'],
       }),
     )
+    mocks.fetchArticle.mockResolvedValue(
+      spodArticle({ categoryId: 3, printFrame: null, hotspot: null, price: priceDto() }),
+    )
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+    expect(wrapper.get('[data-testid="print-frame-missing"]').text()).toContain(
+      'The last sync could not measure the print frame; see the sync report. The article cannot be activated.',
+    )
+    expect(wrapper.find('[data-testid="print-frame-rectangle"]').exists()).toBe(false)
+
+    const activeCheckbox = wrapper.get('#article-active')
+    expect(activeCheckbox.attributes('disabled')).toBeUndefined()
+    await activeCheckbox.trigger('click')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('LeftPct plus WidthPct must be at most 100')
+    expect(mocks.updateArticle).toHaveBeenCalledOnce()
+    expect((mocks.updateArticle.mock.calls[0]![1] as SaveAdminSpodArticleRequest).active).toBe(true)
+    const activeField = activeCheckbox.element.parentElement!
+    expect(activeField.textContent).toContain(
+      'An article without a measured print frame cannot be activated',
+    )
   })
 
-  it('deletes through the t-shirt route', async () => {
+  it('deletes through the SPOD route', async () => {
     mocks.deleteArticle.mockResolvedValue(undefined)
 
-    const { wrapper } = await mountEditView('/admin/articles/tshirts/10/edit')
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
     const deleteButton = wrapper.findAll('button').find((button) => button.text() === 'Delete')
     await deleteButton!.trigger('click')
     await flushPromises()

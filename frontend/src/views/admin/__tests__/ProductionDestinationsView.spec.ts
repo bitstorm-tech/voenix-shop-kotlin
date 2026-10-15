@@ -4,8 +4,8 @@ import ProductionDestinationsView from '../ProductionDestinationsView.vue'
 import { Select } from '@/components/ui/select'
 import type {
   AdminProductionDestinationDto,
-  TshirtSyncLine,
-  TshirtSyncReport,
+  SpodSyncLine,
+  SpodSyncReport,
 } from '@/stores/admin/productionDestinations'
 
 const mocks = vi.hoisted(() => {
@@ -125,7 +125,7 @@ function resetStoreState() {
   mocks.suppliersState.fetchSuppliers.mockReset().mockResolvedValue(undefined)
 }
 
-function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport {
+function syncReport(overrides: Partial<SpodSyncReport> = {}): SpodSyncReport {
   return {
     destinationId: 1,
     supplierId: 3,
@@ -145,11 +145,13 @@ function syncReport(overrides: Partial<TshirtSyncReport> = {}): TshirtSyncReport
   }
 }
 
-function line(spodArticleId: string): TshirtSyncLine {
+function line(spodArticleId: string, hotspot: string | null = 'front'): SpodSyncLine {
   return {
     articleId: 11,
     spodArticleId,
     name: 'Classic Tee',
+    hotspot,
+    printFrame: hotspot ? { leftPct: 30, topPct: 20, widthPct: 40, heightPct: 45 } : null,
     variantsCreated: 0,
     variantsUpdated: 0,
     variantsDeactivated: 0,
@@ -395,6 +397,57 @@ describe('ProductionDestinationsView', () => {
     expect(warnings?.textContent).toContain('COLOR_WITHOUT_IMAGE')
     expect(warnings?.textContent).toContain('spod-3')
     expect(warnings?.textContent).toContain('colorId 42 has no front view')
+  })
+
+  it('names the hotspot of every created and updated article', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(
+      syncReport({ created: [line('spod-1', 'front')], updated: [line('spod-2', 'back')] }),
+    )
+
+    await mountView()
+
+    const items = [
+      ...document.body.querySelectorAll('[data-testid="destination-sync-hotspots-1"] li'),
+    ].map((item) => item.textContent ?? '')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toContain('spod-1')
+    expect(items[0]).toContain('hotspot front')
+    expect(items[1]).toContain('spod-2')
+    expect(items[1]).toContain('hotspot back')
+  })
+
+  it('lists the articles whose print frame could not be measured above the report', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(
+      syncReport({
+        warnings: [
+          { code: 'CALIBRATION_FAILED', spodArticleId: 'spod-2', detail: 'no hotspot preview' },
+          { code: 'MOCKUP_UNAVAILABLE', spodArticleId: 'spod-3', detail: 'no mockup' },
+          { code: 'CALIBRATION_FAILED', spodArticleId: 'spod-5', detail: 'no rectangle found' },
+        ],
+      }),
+    )
+
+    await mountView()
+
+    const alert = document.body.querySelector(
+      '[data-testid="destination-sync-calibration-failed-1"]',
+    )
+    expect(alert?.textContent).toContain('cannot be activated')
+    expect(alert?.textContent).toContain('spod-2, spod-5')
+    expect(alert?.textContent).not.toContain('spod-3')
+  })
+
+  it('shows no calibration block when every frame was measured', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.syncReport.mockReturnValue(syncReport())
+
+    await mountView()
+
+    expect(
+      document.body.querySelector('[data-testid="destination-sync-calibration-failed-1"]'),
+    ).toBeNull()
   })
 
   it('collapses the warnings of the previous run when the next one starts', async () => {

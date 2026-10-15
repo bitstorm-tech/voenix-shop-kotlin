@@ -288,7 +288,7 @@ filename or an id. All of them match the image module's routes
 | `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
 | `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
-| `views/admin/TshirtArticleEditView.vue` | `/api/images/public/{size}/articles/tshirts/variant-example-images/{filename}` (the calibrator mockup here, the variant thumbnails in its `AdminArticleTshirtVariantTable`) and `/api/images/public/400/articles/tshirts/size-charts/{filename}` (both files now written by the sync, not by an upload) | same | #220, #231 |
+| `views/admin/SpodArticleEditView.vue` | `/api/images/public/1000/articles/spod/mockups/{filename}` (the mockup the read-only print frame is drawn on, via `spodMockupImageUrl`), `/api/images/public/{size}/articles/spod/listing-images/{filename}` (the variant thumbnails in its `AdminArticleSpodVariantTable`), and `/api/images/public/400/articles/spod/size-charts/{filename}` (all written by the sync, not by an upload) | same | #220, #231, #260 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
 | `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
@@ -358,7 +358,7 @@ uploaded first, to `…/subcategories/example-images`, which answers the stored
 name; the write then names it. The legacy `FormData` with a `removeExampleImage`
 flag is gone. Removing the image is `exampleImageFilename: null`.
 
-## Admin: mugs and t-shirts
+## Admin: mugs and SPOD articles
 
 | Frontend file | Call | Kotlin route | Closed by |
 | --- | --- | --- | --- |
@@ -369,11 +369,11 @@ flag is gone. Removing the image is `exampleImageFilename: null`.
 | `stores/admin/mugArticles.ts` | `DELETE /api/admin/articles/mugs/{id}` | same | #97 |
 | `stores/admin/mugArticles.ts` | `PUT /api/admin/articles/mugs/order` | same | #97 |
 | `stores/admin/mugArticles.ts` | `POST /api/admin/articles/mugs/variant-example-images` (multipart) | same | #97 |
-| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `GET /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/{id}` | same | #220, #228 |
-| `stores/admin/tshirtArticles.ts` | `DELETE /api/admin/articles/tshirts/{id}` | same | #220 |
-| `stores/admin/tshirtArticles.ts` | `PUT /api/admin/articles/tshirts/order` | same | #220 |
+| `stores/admin/spodArticles.ts` | `GET /api/admin/articles/spod` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `GET /api/admin/articles/spod/{id}` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `PUT /api/admin/articles/spod/{id}` | same | #220, #228, #260 |
+| `stores/admin/spodArticles.ts` | `DELETE /api/admin/articles/spod/{id}` | same | #220, #260 |
+| `stores/admin/spodArticles.ts` | `PUT /api/admin/articles/spod/order` | same | #220, #260 |
 
 The whole mug admin family sits one segment lower than it did. The legacy backend
 had one `article` resource with an `articleType` discriminator in the body; the
@@ -381,41 +381,42 @@ Kotlin backend has a route family **per type**, and `articleType` exists in
 neither direction. `priceId` is gone too, because a mug embeds its calculated
 `price` (`docs/dev/backend/packages/article-package.md`).
 
-The t-shirt family used to be that same shape a second time. Since the catalog sync it
-is **five rows instead of eight**: a shirt is created by a sync run against the
-Spreadconnect backoffice, so the store has no create action and no upload
-action, and the two pre-uploads and the `POST` are gone from the backend as
-well (a create attempt answers `405`, the upload paths `404`). What the shirt
-store *does* have is the pair of sync fields on its list row (`syncedAt`,
+The SPOD article family (the t-shirt family until #260) used to be that same
+shape a second time. Since the catalog sync it is **five rows instead of
+eight**: a SPOD article is created by a sync run against the Spreadconnect
+backoffice, so the store has no create action and no upload action, and the two
+pre-uploads and the `POST` are gone from the backend as well (a create attempt
+answers `405`, the upload paths `404`). What the SPOD store *does* have is the pair of sync fields on its list row (`syncedAt`,
 `missingAtSpreadconnect`) and the `sync` block on the detail read. The sync
 itself is triggered on the destination, so its row is in
 [Admin: production jobs and supplier logins](#admin-production-jobs-and-supplier-logins).
 
 The admin surface still mirrors the per-type routes all the way
 up: one store per type (`stores/admin/mugArticles.ts`,
-`stores/admin/tshirtArticles.ts`, sharing the list row shape and the error
+`stores/admin/spodArticles.ts`, sharing the list row shape and the error
 classes in `stores/admin/articles.ts`; only the mug store uses its pre-upload
 helper) and one list page per
-type (`/admin/articles/mugs`, `/admin/articles/tshirts`). Nothing merges the
+type (`/admin/articles/mugs`, `/admin/articles/spod`). Nothing merges the
 types, so no request and no response needs an `articleType` — a page always
 knows which type it is showing. Positions count per type, and `PUT …/order`
 moves an article only within its own type.
 
-The shirt's `PUT` body is the shop-owned half of a synced article and nothing
-else: `active`, `categoryId`, `subcategoryId`, `printAspectRatio` (`16:9` or
-`1:1`, defaulted to the square chest print when omitted), the nested
-`printFrame` of four percentages, `defaultVariantId`, and `price`. Name,
-descriptions, supplier, size chart, and the whole variant array are
-response-only — a sync run owns them, and a client that still sends them is
-ignored rather than rejected. There is no `supplierArticleName` and no
-`supplierArticleNumber` on a shirt: it is ordered from the print-on-demand
-partner by the three `spod*` ids of its variant.
+The SPOD article's `PUT` body is the shop-owned half of a synced article and
+nothing else: `active`, `categoryId`, `subcategoryId`, `defaultVariantId`, and
+`price`. Name, product type, descriptions, supplier, size chart, colours
+(`appearances`), the variant array (`spodVariants`), and the print frame with its
+`hotspot` are response-only — a sync run owns them, and a client that still
+sends them is ignored rather than rejected. The print frame is measured by the
+sync, never edited, so it is `null` when the sync could not measure it, and
+activating such an article answers `400` with a field error on `active`. There
+is no `supplierArticleName` and no `supplierArticleNumber` on a SPOD article: it
+is ordered from the print-on-demand partner by the three `spod*` ids of its
+variant.
 
-The image URLs a shirt renders are unchanged
-(`articles/tshirts/variant-example-images/…` and
-`articles/tshirts/size-charts/…` under `GET /api/images/public/{size}/…`); only
-who *writes* those files changed — the sync downloads them from the partner
-instead of an admin uploading them.
+The images a SPOD article renders live under `articles/spod/…` (`mockups/`,
+`listing-images/`, `size-charts/`, all under `GET /api/images/public/{size}/…`);
+the sync downloads every one of them from the partner instead of an admin
+uploading them.
 
 ## Admin: prompt categories and subcategories
 
@@ -543,9 +544,11 @@ Spreadconnect* button `views/admin/ProductionDestinationsView.vue` shows on
 every SPOD row, enabled and disabled alike. The store holds the per-destination
 loading state and the last report; the request is synchronous and may take a
 while, so the button stays disabled while it runs and there is no polling. The
-`200` answer is the run's report — counts for created, updated, unchanged,
-deactivated, and failed, an expandable warning list of code, article, and
-detail, and a destructive alert with the bounded failure code when the run's
+`200` answer is the run's report (`SpodSyncReport`) — counts for created,
+updated, unchanged, deactivated, and failed, the hotspot the run chose for each
+created and updated article, a destructive alert naming the articles whose print
+frame could not be measured (`CALIBRATION_FAILED`), an expandable warning list of
+code, article, and detail, and a destructive alert with the bounded failure code when the run's
 status is `FAILED`. This route's `409` is the second one of the family and
 means something else than the delete's: either the destination is not a SPOD
 one (`CHANNEL_WITHOUT_CATALOG`) or a run of it is still working

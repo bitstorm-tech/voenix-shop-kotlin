@@ -6,7 +6,7 @@ import { ApiError, fetchForm, type ApiFieldErrors } from '@/lib/api'
  * the pieces all of them use: the list row shape, the error classes, the error mapping, and the
  * image pre-upload.
  *
- * The per-type stores are `stores/admin/mugArticles.ts` and `stores/admin/tshirtArticles.ts`. A new
+ * The per-type stores are `stores/admin/mugArticles.ts` and `stores/admin/spodArticles.ts`. A new
  * article type gets a new store next to them.
  */
 export type AdminArticleType = 'MUG' | 'SPOD'
@@ -72,8 +72,8 @@ export class ArticleNotFoundError extends Error {
  *
  * Apart from the reorder, an article write has no `409` at all: every reference problem is a field
  * error here. The keys are JSON paths of the submitted body — `categoryId`, `subcategoryId`,
- * `supplierId`, `mugVariants` / `tshirtVariants`, `price`, `printFrame.widthPct`, and
- * `tshirtVariants[0].colorHex` for one variant. A rejected pre-upload sits on `file`.
+ * `supplierId`, `mugVariants`, `price`, `active`, and
+ * `mugVariants[0].exampleImageFilename` for one variant. A rejected pre-upload sits on `file`.
  */
 export class InvalidArticleRequestError extends Error {
   readonly fieldErrors: ApiFieldErrors

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowLeft, ChevronDown, Trash2 } from 'lucide-vue-next'
-import { computed, reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import AdminArticlePrintFrameCalibrator from '@/components/admin/article/AdminArticlePrintFrameCalibrator.vue'
-import AdminArticleTshirtVariantTable from '@/components/admin/article/AdminArticleTshirtVariantTable.vue'
+import AdminArticlePrintFrameViewer from '@/components/admin/article/AdminArticlePrintFrameViewer.vue'
+import AdminArticleSpodVariantTable from '@/components/admin/article/AdminArticleSpodVariantTable.vue'
 import AdminArticlePriceSection from '@/components/admin/pricing/AdminArticlePriceSection.vue'
 import AdminFormSection from '@/components/admin/shared/AdminFormSection.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
@@ -26,28 +26,27 @@ import {
 import { useAdminArticleEditor } from '@/composables/useAdminArticleEditor'
 import { NONE_VALUE, useAdminArticleGeneralForm } from '@/composables/useAdminArticleGeneralForm'
 import { useAdminPriceForm } from '@/composables/useAdminPriceForm'
-import { hasFormErrors, mapSaveErrors, TSHIRT_SPEC } from '@/lib/adminArticleErrors'
+import { hasFormErrors, mapSaveErrors, SPOD_SPEC } from '@/lib/adminArticleErrors'
 import { formatAdminStamp } from '@/lib/adminStamp'
-import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
+import { sizeChartImageUrl, spodMockupImageUrl } from '@/lib/variantExampleImage'
 import type { InvalidArticleRequestError } from '@/stores/admin/articles'
 import {
-  type AdminArticleTshirtVariantDto,
-  type AdminTshirtArticleDto,
-  type AdminTshirtArticleSyncDto,
-  type SaveAdminTshirtArticleRequest,
-  TSHIRT_PRINT_ASPECT_RATIOS,
-  type TshirtPrintAspectRatio,
-  type TshirtPrintFrameDto,
-  useAdminTshirtArticlesStore,
-} from '@/stores/admin/tshirtArticles'
+  type AdminSpodArticleDto,
+  type AdminSpodArticleSyncDto,
+  type AdminSpodVariantDto,
+  type SaveAdminSpodArticleRequest,
+  useAdminSpodArticlesStore,
+} from '@/stores/admin/spodArticles'
 
 /**
- * The t-shirt editor. A shirt has two owners since the catalog sync, and so has this screen: the
- * Spreadconnect section *shows* what a sync run wrote — the name, the descriptions, the garment's
- * variants, the size chart — and every other section edits what the shop decides about it.
+ * The SPOD article editor. A SPOD article has two owners, and so has this screen: the Print and
+ * Spreadconnect sections *show* what a sync run wrote — the measured print frame, the name, the
+ * descriptions, the variants, the size chart — and the other sections edit what the shop decides
+ * about it.
  *
- * There is no create mode and no variant editing, because a shirt comes into being through a sync
- * run and its variants are the partner's. What the form submits is exactly the shop-owned half.
+ * There is no create mode, no variant editing, and no frame editing, because an article comes into
+ * being through a sync run, its variants are the partner's, and its print frame is measured by the
+ * sync. What the form submits is exactly the shop-owned half.
  */
 
 interface ShopFormState {
@@ -67,27 +66,13 @@ const FIELD_ERROR_KEYS = [
   'categoryId',
   'subcategoryId',
   'defaultVariantId',
-  'printAspectRatio',
-  'printFrame',
-  'printFrame.leftPct',
-  'printFrame.topPct',
-  'printFrame.widthPct',
-  'printFrame.heightPct',
   'price',
 ] as const
 
 type FieldErrorKey = (typeof FIELD_ERROR_KEYS)[number]
 type FieldErrors = Partial<Record<FieldErrorKey, string>>
 
-/** The frame of a shirt whose article row somehow carries none: a centred chest print. */
-const DEFAULT_PRINT_FRAME: TshirtPrintFrameDto = {
-  leftPct: 30,
-  topPct: 25,
-  widthPct: 40,
-  heightPct: 40,
-}
-
-const articlesStore = useAdminTshirtArticlesStore()
+const articlesStore = useAdminSpodArticlesStore()
 const articlePrice = useAdminPriceForm({ persistence: 'optional' })
 
 const shop = reactive<ShopFormState>({
@@ -97,11 +82,8 @@ const shop = reactive<ShopFormState>({
   defaultVariantId: null,
 })
 
-const printAspectRatio = shallowRef<TshirtPrintAspectRatio>('1:1')
-const printFrame = ref<TshirtPrintFrameDto>({ ...DEFAULT_PRINT_FRAME })
-
-/** The partner-owned half of the loaded shirt. It is shown, never edited. */
-const synced = ref<AdminTshirtArticleDto | null>(null)
+/** The partner-owned half of the loaded article. It is shown, never edited. */
+const synced = ref<AdminSpodArticleDto | null>(null)
 const showInactiveVariants = ref(false)
 
 const fieldErrors = reactive<FieldErrors>({})
@@ -119,7 +101,7 @@ const {
   deleteCurrentArticle,
 } = useAdminArticleEditor({
   articlesStore,
-  listRoute: 'admin-tshirt-articles',
+  listRoute: 'admin-spod-articles',
   articlePrice,
   resetForm,
   fillForm,
@@ -138,10 +120,11 @@ const { filteredSubcategories, categorySelectValue, subcategorySelectValue } =
 
 const pageTitle = computed(() => {
   const articleName = synced.value?.name.trim() ?? ''
-  return articleName === '' ? 'Edit T-Shirt' : `Edit T-Shirt (${articleName})`
+  return articleName === '' ? 'Edit SPOD article' : `Edit SPOD article (${articleName})`
 })
 
-const variants = computed<AdminArticleTshirtVariantDto[]>(() => synced.value?.tshirtVariants ?? [])
+const variants = computed<AdminSpodVariantDto[]>(() => synced.value?.spodVariants ?? [])
+const appearances = computed(() => synced.value?.appearances ?? [])
 
 /** Only an active variant may be the one a customer sees first, so only those are offered. */
 const activeVariants = computed(() => variants.value.filter((variant) => variant.active))
@@ -154,23 +137,27 @@ const defaultVariantSelectValue = computed({
   },
 })
 
-const sync = computed<AdminTshirtArticleSyncDto | null>(() => synced.value?.sync ?? null)
+const sync = computed<AdminSpodArticleSyncDto | null>(() => synced.value?.sync ?? null)
 
 const isMissingAtSpreadconnect = computed(() => Boolean(sync.value?.missingSince))
 
 /**
- * The photo the frame is calibrated on: the picture of the variant an admin picked as the default,
- * or — while none is picked — the first synced variant that has one. It is the same picture the
- * shop editor uses as the backdrop of its preview.
+ * The photo the frame is drawn on: the mockup of the default variant's colour, or — while that
+ * colour has none — of the first colour that has one. It is the same picture the shop editor uses
+ * as the backdrop of its preview.
  */
 const mockupUrl = computed(() => {
-  const withImage =
-    variants.value.find(
-      (variant) => variant.id === shop.defaultVariantId && variant.exampleImageFilename !== null,
-    ) ?? variants.value.find((variant) => variant.exampleImageFilename !== null)
+  const defaultAppearanceId = variants.value.find(
+    (variant) => variant.id === shop.defaultVariantId,
+  )?.appearanceId
+  const withMockup =
+    appearances.value.find(
+      (appearance) =>
+        appearance.id === defaultAppearanceId && appearance.mockupImageFilename !== null,
+    ) ?? appearances.value.find((appearance) => appearance.mockupImageFilename !== null)
 
-  return withImage?.exampleImageFilename
-    ? variantExampleImageUrl('SPOD', withImage.exampleImageFilename, 1000)
+  return withMockup?.mockupImageFilename
+    ? spodMockupImageUrl(withMockup.mockupImageFilename, 1000)
     : null
 })
 
@@ -180,25 +167,16 @@ const sizeChartUrl = computed(() =>
     : null,
 )
 
-const frameErrors = computed(() => ({
-  'printFrame.leftPct': fieldErrors['printFrame.leftPct'],
-  'printFrame.topPct': fieldErrors['printFrame.topPct'],
-  'printFrame.widthPct': fieldErrors['printFrame.widthPct'],
-  'printFrame.heightPct': fieldErrors['printFrame.heightPct'],
-}))
-
 function resetForm() {
   shop.active = false
   shop.categoryId = null
   shop.subcategoryId = null
   shop.defaultVariantId = null
-  printAspectRatio.value = '1:1'
-  printFrame.value = { ...DEFAULT_PRINT_FRAME }
   synced.value = null
   showInactiveVariants.value = false
 }
 
-function fillForm(article: AdminTshirtArticleDto) {
+function fillForm(article: AdminSpodArticleDto) {
   shop.active = article.active
   shop.categoryId = article.categoryId
   shop.subcategoryId = article.subcategoryId
@@ -206,9 +184,7 @@ function fillForm(article: AdminTshirtArticleDto) {
   // a sync run may have deactivated the stored default, and the select would then hold an id that
   // is not among its options — and submit it unchanged.
   shop.defaultVariantId =
-    article.tshirtVariants.find((variant) => variant.isDefault && variant.active)?.id ?? null
-  printAspectRatio.value = article.printAspectRatio
-  printFrame.value = { ...article.printFrame }
+    article.spodVariants.find((variant) => variant.isDefault && variant.active)?.id ?? null
   synced.value = article
 }
 
@@ -219,12 +195,12 @@ function clearErrors() {
 }
 
 /**
- * Shows a rejected write where it belongs. Every problem of a shirt write is a field error on the
+ * Shows a rejected write where it belongs. Every problem of a SPOD article write is a field error on the
  * JSON path of the value that caused it, so the messages go onto the inputs instead of into one
  * anonymous alert.
  */
 function applySaveErrors(error: InvalidArticleRequestError) {
-  const saveErrors = mapSaveErrors(error.fieldErrors, TSHIRT_SPEC)
+  const saveErrors = mapSaveErrors(error.fieldErrors, SPOD_SPEC)
 
   for (const key of FIELD_ERROR_KEYS) {
     fieldErrors[key] = saveErrors.fields[key]
@@ -238,7 +214,8 @@ function validate(): boolean {
 
   // The database refuses an active article without a category, and the write refuses one without an
   // active default variant or one the partner no longer lists. The form does not let a user get
-  // there; an inactive shirt may stay unsorted.
+  // there; an inactive article may stay unsorted. An unmeasured print frame is the
+  // backend's to refuse: its message lands on the Active field.
   if (shop.active) {
     if (shop.categoryId === null) {
       fieldErrors.categoryId = 'An active article requires a category.'
@@ -251,27 +228,14 @@ function validate(): boolean {
     }
   }
 
-  const frame = printFrame.value
-  if (frame.leftPct + frame.widthPct > 100) {
-    fieldErrors['printFrame.widthPct'] = 'Left plus width must be at most 100.'
-  }
-  if (frame.topPct + frame.heightPct > 100) {
-    fieldErrors['printFrame.heightPct'] = 'Top plus height must be at most 100.'
-  }
-  if (frame.widthPct <= 0 || frame.heightPct <= 0) {
-    fieldErrors.printFrame = 'The print frame needs a width and a height.'
-  }
-
   return FIELD_ERROR_KEYS.every((key) => fieldErrors[key] === undefined)
 }
 
-function buildPayload(): SaveAdminTshirtArticleRequest {
-  const payload: SaveAdminTshirtArticleRequest = {
+function buildPayload(): SaveAdminSpodArticleRequest {
+  const payload: SaveAdminSpodArticleRequest = {
     active: shop.active,
     categoryId: shop.categoryId,
     subcategoryId: shop.subcategoryId,
-    printAspectRatio: printAspectRatio.value,
-    printFrame: { ...printFrame.value },
     defaultVariantId: shop.defaultVariantId,
   }
 
@@ -313,8 +277,13 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
 
       <AdminFormSection
         title="General"
-        description="How the shop sorts this shirt and which variant a customer sees first."
+        description="How the shop sorts this article and which variant a customer sees first."
       >
+        <div data-testid="article-identity">
+          <p class="font-semibold text-foreground">{{ synced?.name }}</p>
+          <p class="text-sm text-muted-foreground">{{ synced?.productTypeName }}</p>
+        </div>
+
         <div class="grid gap-4 md:grid-cols-2">
           <FormField label="Category" for="article-category" :error="fieldErrors.categoryId">
             <Select v-model="categorySelectValue">
@@ -386,8 +355,8 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
           <div>
             <Label for="article-active">Active</Label>
             <p class="text-sm text-muted-foreground">
-              Active articles are visible in the shop. Requires a category, a price, and an active
-              default variant.
+              Active articles are visible in the shop. Requires a category, a price, an active
+              default variant, and a measured print frame.
             </p>
             <p v-if="fieldErrors.active" class="text-sm text-destructive" data-form-error>
               {{ fieldErrors.active }}
@@ -404,36 +373,14 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
 
       <AdminFormSection
         title="Print"
-        description="Where the customer's design sits on the shirt. Pick the default variant first — its example image is the mockup the frame is drawn on."
+        description="Where the customer's design sits on the product, as the last sync measured it from the Spreadconnect hotspot. Drawn on the mockup of the default variant's colour."
+        read-only
+        data-testid="print-section"
       >
-        <Alert v-if="fieldErrors.printFrame" variant="destructive" data-form-error>
-          {{ fieldErrors.printFrame }}
-        </Alert>
-
-        <FormField
-          label="Print aspect ratio"
-          for="article-print-aspect-ratio"
-          :error="fieldErrors.printAspectRatio"
-          hint="The shape the customer's image is generated in."
-        >
-          <Select v-model="printAspectRatio">
-            <SelectTrigger id="article-print-aspect-ratio">
-              <SelectValue placeholder="Select aspect ratio" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="ratio in TSHIRT_PRINT_ASPECT_RATIOS" :key="ratio" :value="ratio">
-                {{ ratio }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </FormField>
-
-        <AdminArticlePrintFrameCalibrator
-          :frame="printFrame"
-          :print-aspect-ratio="printAspectRatio"
+        <AdminArticlePrintFrameViewer
+          :frame="synced?.printFrame ?? null"
+          :hotspot="synced?.hotspot ?? null"
           :mockup-url="mockupUrl"
-          :errors="frameErrors"
-          @update:frame="printFrame = $event"
         />
       </AdminFormSection>
 
@@ -482,9 +429,10 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
 
         <div class="space-y-3 border-t border-border pt-5">
           <h3 class="text-base font-semibold text-foreground">Variants</h3>
-          <AdminArticleTshirtVariantTable
+          <AdminArticleSpodVariantTable
             v-if="activeVariants.length > 0"
             :variants="activeVariants"
+            :appearances="appearances"
           />
           <p v-else class="text-sm text-muted-foreground">
             This article has no active variant. The last sync run found none it could offer.
@@ -499,7 +447,10 @@ function buildPayload(): SaveAdminTshirtArticleRequest {
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent class="pt-3">
-              <AdminArticleTshirtVariantTable :variants="inactiveVariants" />
+              <AdminArticleSpodVariantTable
+                :variants="inactiveVariants"
+                :appearances="appearances"
+              />
             </CollapsibleContent>
           </Collapsible>
         </div>

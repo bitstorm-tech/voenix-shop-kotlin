@@ -12,9 +12,9 @@ import { useToast } from '@/composables/useToast'
 import { useAdminArticleCategoriesStore } from '@/stores/admin/articleCategories'
 import { useAdminArticleSubcategoriesStore } from '@/stores/admin/articleSubcategories'
 import { ArticleOrderConflictError } from '@/stores/admin/articles'
-import { useAdminTshirtArticlesStore } from '@/stores/admin/tshirtArticles'
+import { useAdminSpodArticlesStore } from '@/stores/admin/spodArticles'
 
-const articlesStore = useAdminTshirtArticlesStore()
+const articlesStore = useAdminSpodArticlesStore()
 const categoriesStore = useAdminArticleCategoriesStore()
 const subcategoriesStore = useAdminArticleSubcategoriesStore()
 const { toast } = useToast()
@@ -73,7 +73,7 @@ onMounted(async () => {
 
 <template>
   <section class="space-y-4">
-    <AdminPageHeader title="T-Shirts" breakpoint="lg">
+    <AdminPageHeader title="SPOD articles" breakpoint="lg">
       <template #actions>
         <div class="flex flex-wrap items-center gap-2">
           <AdminArticlesFilterBar
@@ -100,20 +100,21 @@ onMounted(async () => {
       </template>
     </AdminPageHeader>
 
-    <Alert v-if="articlesStore.error" variant="destructive">Failed to load T-shirts.</Alert>
+    <Alert v-if="articlesStore.error" variant="destructive">Failed to load SPOD articles.</Alert>
 
     <Card
       v-else-if="articlesStore.isLoading && articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      Loading T-shirts...
+      Loading SPOD articles...
     </Card>
 
     <Card
       v-else-if="articlesStore.articles.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
-      No T-shirts found. T-shirts appear here after a sync run against the Spreadconnect backoffice.
+      No SPOD articles found. SPOD articles appear here after a sync run against the Spreadconnect
+      backoffice.
     </Card>
 
     <Card
@@ -121,14 +122,14 @@ onMounted(async () => {
       class="space-y-3 px-4 py-12 text-center text-sm text-muted-foreground"
       data-testid="article-filter-empty"
     >
-      <p>No T-shirts match the active filters.</p>
+      <p>No SPOD articles match the active filters.</p>
       <Button variant="outline" size="sm" @click="resetFilters">Reset filters</Button>
     </Card>
 
     <AdminArticlesTable
       v-else
       article-type="SPOD"
-      edit-route-name="admin-tshirt-article-edit"
+      edit-route-name="admin-spod-article-edit"
       sync-column
       :articles="filteredArticles"
       :reordering="articlesStore.isReordering"

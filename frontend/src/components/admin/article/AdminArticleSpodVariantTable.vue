@@ -10,19 +10,25 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
-import type { AdminArticleTshirtVariantDto } from '@/stores/admin/tshirtArticles'
+import type { AdminSpodAppearanceDto, AdminSpodVariantDto } from '@/stores/admin/spodArticles'
 
 /**
- * The synced variants of one t-shirt, read-only (t-shirt sync decision 2).
+ * The synced variants of one SPOD article, read-only. The colour of a row and its thumbnail — the
+ * first listing image of that colour — come from the appearance the variant points to.
  *
  * The editor renders it twice — once for the active variants and once for the inactive ones behind
  * their toggle — and both lists show the same columns on purpose: an operator comparing this screen
  * with the Spreadconnect backoffice needs the partner's own names for a row whether the shop offers
  * it or not.
  */
-defineProps<{
-  variants: readonly AdminArticleTshirtVariantDto[]
+const props = defineProps<{
+  variants: readonly AdminSpodVariantDto[]
+  appearances: readonly AdminSpodAppearanceDto[]
 }>()
+
+function appearanceOf(variant: AdminSpodVariantDto) {
+  return props.appearances.find((appearance) => appearance.id === variant.appearanceId)
+}
 
 function variantImageUrl(filename: string, size: number) {
   return variantExampleImageUrl('SPOD', filename, size)
@@ -40,6 +46,7 @@ function variantImageUrl(filename: string, size: number) {
         <TableHead>SKU</TableHead>
         <TableHead>Product / appearance / size ID</TableHead>
         <TableHead>Status</TableHead>
+        <TableHead>Default</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -50,7 +57,7 @@ function variantImageUrl(filename: string, size: number) {
       >
         <TableCell>
           <AdminExampleImageThumbnail
-            :filename="variant.exampleImageFilename"
+            :filename="appearanceOf(variant)?.listingImageFilenames[0] ?? null"
             :title="variant.name"
             :image-url="variantImageUrl"
           />
@@ -59,10 +66,10 @@ function variantImageUrl(filename: string, size: number) {
           <span class="flex items-center gap-2">
             <span
               class="size-4 shrink-0 rounded-full border border-border"
-              :style="{ backgroundColor: variant.colorHex }"
-              :title="variant.colorHex"
+              :style="{ backgroundColor: appearanceOf(variant)?.colorHex }"
+              :title="appearanceOf(variant)?.colorHex"
             />
-            {{ variant.colorName }}
+            {{ appearanceOf(variant)?.colorName }}
           </span>
         </TableCell>
         <TableCell class="whitespace-nowrap">{{ variant.sizeLabel }}</TableCell>
@@ -80,6 +87,9 @@ function variantImageUrl(filename: string, size: number) {
           <Badge :variant="variant.active ? 'success' : 'muted'">
             {{ variant.active ? 'Active' : 'Inactive' }}
           </Badge>
+        </TableCell>
+        <TableCell class="whitespace-nowrap">
+          <Badge v-if="variant.isDefault">Default</Badge>
         </TableCell>
       </TableRow>
     </TableBody>

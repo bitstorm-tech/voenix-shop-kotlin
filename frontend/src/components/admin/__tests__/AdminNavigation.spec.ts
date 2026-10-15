@@ -17,8 +17,8 @@ function createAdminNavigationRouter() {
       { path: '/admin/articles/mugs', component: { template: '<div />' } },
       { path: '/admin/articles/mugs/new', component: { template: '<div />' } },
       { path: '/admin/articles/mugs/:id/edit', component: { template: '<div />' } },
-      { path: '/admin/articles/tshirts', component: { template: '<div />' } },
-      { path: '/admin/articles/tshirts/:id/edit', component: { template: '<div />' } },
+      { path: '/admin/articles/spod', component: { template: '<div />' } },
+      { path: '/admin/articles/spod/:id/edit', component: { template: '<div />' } },
       { path: '/admin/articles/categories', component: { template: '<div />' } },
       { path: '/admin/articles/categories/new', component: { template: '<div />' } },
       { path: '/admin/articles/categories/:id', component: { template: '<div />' } },
@@ -142,10 +142,10 @@ describe('AdminNavigation', () => {
     expect(articlesGroup?.attributes('aria-labelledby')).toBe(
       articlesGroup?.find('[data-nav-group-heading]').attributes('id'),
     )
-    expect(articleLinks.map((link) => link.text())).toEqual(['Mugs', 'T-Shirts', 'Categories'])
+    expect(articleLinks.map((link) => link.text())).toEqual(['Mugs', 'SPOD articles', 'Categories'])
     expect(articleLinks.map((link) => link.attributes('href'))).toEqual([
       '/admin/articles/mugs',
-      '/admin/articles/tshirts',
+      '/admin/articles/spod',
       '/admin/articles/categories',
     ])
   })
@@ -279,8 +279,8 @@ describe('AdminNavigation', () => {
     ['/admin/articles/mugs', 'Mugs'],
     ['/admin/articles/mugs/new', 'Mugs'],
     ['/admin/articles/mugs/42/edit', 'Mugs'],
-    ['/admin/articles/tshirts', 'T-Shirts'],
-    ['/admin/articles/tshirts/42/edit', 'T-Shirts'],
+    ['/admin/articles/spod', 'SPOD articles'],
+    ['/admin/articles/spod/42/edit', 'SPOD articles'],
   ])('marks only the matching article type link active for %s', async (path, activeTitle) => {
     const { wrapper } = await mountNavigation(path)
 
@@ -302,7 +302,7 @@ describe('AdminNavigation', () => {
       wrapper.find('a[href="/admin/articles/mugs"]').attributes('aria-current'),
     ).toBeUndefined()
     expect(
-      wrapper.find('a[href="/admin/articles/tshirts"]').attributes('aria-current'),
+      wrapper.find('a[href="/admin/articles/spod"]').attributes('aria-current'),
     ).toBeUndefined()
     expect(wrapper.find('a[href="/admin/articles/categories"]').attributes('aria-current')).toBe(
       'page',
