@@ -1284,16 +1284,18 @@ things every time:
    picture files that article no longer refers to right after its transaction —
    through the same `ExampleImages` rule an uploaded picture follows. Variants
    without all three product ids are dropped, duplicates of the product triple
-   are dropped, then the colours are resolved in the order they first appear in
-   the variants: the colour value is parsed, every image the listing names
-   for that colour is stored, in the listing's order — downloaded from its
-   `downloadUrl()` unless a stored image of the colour already has the same
-   partner image id — and the colour's blank front mockup is stored from the
-   product type's views, unless the stored mockup came from the same URL. Then
-   the product type is **calibrated**, once per run: the run measures which
-   front hotspot prints largest and where, and writes that hotspot and frame
-   into the article ([decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
-   The product type name is taken from the variants, cut to
+   are dropped. Then the product type is **calibrated**, once per run: the run
+   measures which front hotspot prints largest and where, and writes that
+   hotspot and frame into the article ([decision 7](#decision-7--the-print-frame-is-measured-from-spod-previews)).
+   The calibration comes before any picture, because a partner that does not
+   answer it skips the article (`CALIBRATION_UNAVAILABLE`) — and a skipped
+   article should leave no downloaded file behind. Then the colours are
+   resolved in the order they first appear in the variants: the colour value is
+   parsed, every image the listing names for that colour is stored, in the
+   listing's order — downloaded from its `downloadUrl()` unless a stored image
+   of the colour already has the same partner image id — and the colour's blank
+   front mockup is stored from the product type's views, unless the stored
+   mockup came from the same URL. The product type name is taken from the variants, cut to
    255 characters, and stored as an empty string when the partner names none.
    The size chart is fetched once per product type per run. Everything that
    talks to the partner or to the image storage happens *before* the
@@ -1315,7 +1317,9 @@ from the stored one — so an identical run writes no picture row at all. A
 colour the partner stopped listing keeps its row and its pictures; its variants
 go inactive. Variants are matched by the product triple and never deleted. The
 hotspot and the four frame columns are written as measured, every run — `NULL`
-when the measurement failed, which also switches `active` off.
+when the measurement failed, which also switches `active` off. A calibration
+the partner did not answer writes nothing at all: the article keeps its stored
+row, frame included, until a run reaches the partner again.
 
 Three properties are worth remembering:
 
@@ -1361,21 +1365,23 @@ next to a code names ids only, never partner text:
 | `MIXED_PRODUCT_TYPES` | the article's variants name more than one product type; the shop stores one per article, so nothing was written |
 | `ARTICLE_WITHOUT_VARIANTS` | no variant this shop could sell; nothing was written |
 | `SPOD_ID_UNUSABLE` | the partner's article id, one of its variant ids, or the id of one of its listing images is longer than the 64-character column that has to store it; nothing was written |
+| `COLOR_NAME_DUPLICATE` | two colours of the article have the same name once it is trimmed and cut to the 64-character column, and one article cannot hold two colours of one name; nothing was written |
 | `TITLE_TRUNCATED` / `DESCRIPTION_TRUNCATED` | the text was longer than the column and was cut to fit |
 | `COLOR_VALUE_UNREADABLE` | `appearanceColorValue` was not a colour; that colour's variants are inactive and wear a neutral grey |
 | `COLOR_WITHOUT_IMAGE` | not one listing image of the colour could be stored — the partner lists none, or none could be fetched; its variants are inactive and keep whatever pictures they had |
 | `IMAGE_DOWNLOAD_FAILED` | one listing image could not be downloaded or stored; it is left out, and the next run asks for it again |
 | `MOCKUP_UNAVAILABLE` | the partner answered no front mockup for the colour, or it could not be downloaded or stored; its variants are inactive — the editor has nothing to lay the frame on — and the stored mockup, if any, is kept |
-| `CALIBRATION_FAILED` | no front hotspot of the article's product type measured cleanly; the article has no frame and no hotspot, is inactive, and the detail names the reason per hotspot tried (`FULL_FRONT: LOW_FILL, MEDIUM_FRONT: NO_RECTANGLE`) or the one reason nothing could be tried (`NO_FRONT_VIEW`, `NO_PRINTABLE_HOTSPOT`, or a `SpodError`) |
+| `CALIBRATION_FAILED` | the partner answered, and no front hotspot of the article's product type measured cleanly; the article has no frame and no hotspot, is inactive, and the detail names the reason per hotspot tried (`FULL_FRONT: LOW_FILL, MEDIUM_FRONT: NO_RECTANGLE`) or the one reason nothing could be tried (`NO_FRONT_VIEW`, `NO_PRINTABLE_HOTSPOT`) |
+| `CALIBRATION_UNAVAILABLE` | the partner did not answer a call the calibration needs — the views, the design upload, the hotspot check, or every preview; nothing was written, the next run tries again, and the detail names the call and the `SpodError` (`designs/upload: PROVIDER_UNAVAILABLE`, or one `FULL_FRONT previews: …` per hotspot) |
 | `SIZE_CHART_UNAVAILABLE` | the product type answered no size chart, its URL was longer than the 1024-character column, or it could not be stored; the stored one, if any, is kept |
 | `DEFAULT_VARIANT_REPLACED` | the default variant is no longer active, so another active one took its place |
 | `EXAMPLE_IMAGE_REPLACED` | the picture the shop shows this article with — the first listing image of the default variant's colour — changed |
 | `ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT` | every variant went inactive, so the article was deactivated with them |
 | `ARTICLE_REAPPEARED` | an article that was missing is listed again; it stays inactive until an admin says so |
 
-Three of them also put the article into `failed`, because nothing of it was
-written: `MIXED_PRODUCT_TYPES`, `ARTICLE_WITHOUT_VARIANTS`, and
-`SPOD_ID_UNUSABLE`. Everything else was written — including an article none of
+Five of them also put the article into `failed`, because nothing of it was
+written: `MIXED_PRODUCT_TYPES`, `ARTICLE_WITHOUT_VARIANTS`, `SPOD_ID_UNUSABLE`,
+`COLOR_NAME_DUPLICATE`, and `CALIBRATION_UNAVAILABLE`. Everything else was written — including an article none of
 whose pictures could be fetched, which is what SPOD's staging installation
 produces: it lists image URLs its CDN answers with `404`. Such an article
 appears in the admin screen with every variant inactive and is filled in by the
@@ -1417,9 +1423,8 @@ is not in production and holds no real order data.
 - **`article_spod_images`** holds the pictures of a colour with a `role`:
   `LISTING` for every image the partner lists (with its `spod_image_id`), and at
   most one `MOCKUP` per colour (a partial unique index), the blank front image
-  the editor lays the frame on, with the `source_url` it was fetched from
-  ([`V30__article_spod_images_source_url.sql`](../../../../backend/modules/platform/resources/db/migration/V30__article_spod_images_source_url.sql))
-  — each role's own mark of "already stored", so the next run downloads only
+  the editor lays the frame on, with the `source_url` it was fetched from —
+  each role's own mark of "already stored", so the next run downloads only
   what differs.
 
 The activation rules differ from the mug's, and the ownership is why: an active
@@ -1495,7 +1500,10 @@ so it is bounded instead — https only, no redirects, no token, `image/*` only,
 An unreadable colour value and a colour without a stored listing image make the
 variant inactive with a bounded warning instead of failing the article or
 inventing data a customer would order by. A listing failure writes nothing and
-deactivates nothing; only a complete listing may sweep.
+deactivates nothing; only a complete listing may sweep. The same holds one level
+down: a calibration the partner did not answer (`CALIBRATION_UNAVAILABLE`) and
+an article with two colours of one name (`COLOR_NAME_DUPLICATE`) skip that one
+article — its stored row stays as it is — and the run goes on with the next.
 
 ##### Decision 7 — The print frame is measured from SPOD previews
 
@@ -1533,18 +1541,30 @@ carry images without coordinates — so the sync *looks* instead of asking
   `width × height`, a tie going to the first in the view's order. There is no
   name-based guessing and no admin field.
 - **Per product type, per run, stateless** (decision 11): one instance of
-  `SpodCalibration` lives as long as one run, caches the views and the
-  measurement per product type, and writes the same hotspot and frame into
+  `SpodCalibration` lives as long as one run, caches the views, the design,
+  and the measurement per product type, and writes the same hotspot and frame into
   every article of that type in the run; the box is the same on every colour,
   so one measurement per type is enough (verified on staging, white and black
   identical). Nothing survives the run and nothing is invalidated — a changed
-  mockup is simply measured again next time. The design stays in the partner's
-  account, like every per-order design production uploads; the API cannot
-  delete one.
-- **A failed measurement is visible, not silent.** The article is written with
-  `NULL` frame and hotspot, `active` goes off, and the report carries
-  `CALIBRATION_FAILED` with the reason per hotspot tried. The admin screen
-  shows the measured frame on the mockup and cannot change it (decision 13).
+  mockup is simply measured again next time. Only an *answer* is cached: a
+  call the partner refused is asked again by the next article that needs it,
+  so one network hiccup costs one article, not the rest of the run. The design
+  stays in the partner's account, like every per-order design production
+  uploads; the API cannot delete one.
+- **A failed measurement is visible, not silent.** Decision 12 is read as
+  being about the *measurement*: when the partner answered and the product
+  type cannot be measured — no `FRONT` view, no printable hotspot, no clean box
+  in any preview, a preview answer without a front picture — the article is
+  written with `NULL` frame and hotspot, `active` goes off, and the report
+  carries `CALIBRATION_FAILED` with the reason per hotspot tried. A partner
+  that did not answer says nothing about the product type, so that is no
+  measurement at all: the views, the design upload, or the hotspot check
+  refused, or every preview or its download refused, skips the article without
+  writing anything, like an unreadable listing (decision 6), under
+  `CALIBRATION_UNAVAILABLE`. When some previews refused and others measured,
+  the largest measured box wins as usual; when the rest answered but none
+  measured, it is `CALIBRATION_FAILED`. The admin screen shows the measured
+  frame on the mockup and cannot change it (decision 13).
 
 **The rate budget.** The partner allows 60 requests per minute for the whole
 account, paced by the one `SpodClient`. Calibration costs, per product type met
@@ -2043,28 +2063,17 @@ and rebuilt as the generic SPOD article by
 lock anchor of its positions, and four tables. `article_spod_articles` mirrors
 the mug table: the same identity adoption, the same constant `article_type`
 column, the same deferred position rule, and the same "an active article is a
-complete article" CHECK — for a SPOD article that means a price, a category,
-and a measured print frame with its hotspot, since it has no detail block.
-`article_spod_variants` has the same identity adoption and the same partial
-unique index for the one default variant; between the two sit the colours
-(`article_spod_appearances`), and below the colours their pictures
-(`article_spod_images`). What each of them holds, and which CHECK guards the
-frame, is in [The tables of a SPOD article](#the-tables-of-a-spod-article).
-Two small migrations followed `V29`:
-[`V30__article_spod_images_source_url.sql`](../../../../backend/modules/platform/resources/db/migration/V30__article_spod_images_source_url.sql)
-gives a picture row the URL a mockup was fetched from, and
+complete article" CHECK. `article_spod_variants` has the same identity adoption
+and the same partial unique index for the one default variant; between the two
+sit the colours (`article_spod_appearances`), and below the colours their
+pictures (`article_spod_images`). What each of them holds, which CHECKs guard
+the frame and the activation, is in
+[The tables of a SPOD article](#the-tables-of-a-spod-article).
+One small migration followed `V29`:
 [`V31__order_items_spod_hotspot.sql`](../../../../backend/modules/platform/resources/db/migration/V31__order_items_spod_hotspot.sql)
 belongs to the order module: it snapshots the hotspot on the order line (see
-the [Order package guide](order-package.md)).
-
-Only what a SPOD article really is differs from a mug. It carries no
-measurements and no supplier article data and no print ratio; instead it has
-the identity of the synced article at the partner, the product type, a
-`size_chart_image_filename`, and the nullable measured frame. A variant carries
-the size label and two of the three ids the print-on-demand partner identifies
-one printable product by; the third, the appearance, is its colour's. A SPOD
-variant has **no `name` column**. Its name is composed once in Kotlin from the
-colour's name and the size (`"Black / M"`).
+the [Order package guide](order-package.md)). There is no `V30`; it was folded
+into `V29` before the branch merged.
 
 There are deliberately **no triggers**. The cross-row invariants live in the
 single application write path instead: at least one default variant, an active
@@ -2423,10 +2432,13 @@ one message per route.
   larger hotspot's frame to two decimals, a second product type in the same
   run gets its own frame from the one shared design, a box with a hole fails
   the calibration — frame and hotspot `NULL`, article inactive,
-  `CALIBRATION_FAILED` naming both hotspots tried — a product type whose views
-  the partner refuses has no mockups and no frame, every colour gets its own
-  mockup in `articles/spod/mockups` and keeps it while the URL stays, and a
-  moved mockup URL replaces the stored file.
+  `CALIBRATION_FAILED` naming both hotspots tried — an article whose views the
+  partner refuses is skipped under `CALIBRATION_UNAVAILABLE` with its stored row
+  untouched and no file downloaded, a refused design upload skips its article
+  and is tried again by the next product type, every colour gets its own
+  mockup in `articles/spod/mockups` and keeps it while the URL stays — the
+  second run still uploads the design once and previews again — and a moved
+  mockup URL replaces the stored file.
 - `SpodCatalogSyncIntegrationTest` and `SpodCatalogSyncListingIntegrationTest`
   run whole sync runs against PostgreSQL and a `MockEngine` partner, through
   the real `SpodClient`, with their fixtures in `SpodCatalogSyncTestSupport.kt`.
@@ -2445,7 +2457,8 @@ one message per route.
   article of the *other* installation counted as missing even when its id is
   listed again, a colour without a readable value or a picture, a listing that
   could not be read writing and sweeping nothing, an article with two product
-  types skipped while the others are written, a colour whose only image cannot
+  types skipped while the others are written, an article with two colours of
+  one name skipped the same way, a colour whose only image cannot
   be fetched going inactive while the other colour keeps its images, one image
   that cannot be fetched left out and fetched alone by the next run, an article
   none of whose pictures can be fetched written inactive and completed by the

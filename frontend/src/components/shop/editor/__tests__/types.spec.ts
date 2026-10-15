@@ -50,7 +50,7 @@ describe('editor type adapters', () => {
     })
   })
 
-  it('carries the print frame, the product type, the colours, and the size chart into the editor', () => {
+  it('carries the print frame, the product type, and the size chart into the editor', () => {
     const tee = createShopTee({
       sizeChartImageFilename: 'chart.webp',
       printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 28.125 },
@@ -60,7 +60,6 @@ describe('editor type adapters', () => {
     expect(article.type).toBe('SPOD')
     expect(article.productTypeName).toBe("Men's Tee")
     expect(article.sizeChartImageFilename).toBe('chart.webp')
-    expect(article.appearances).toEqual(tee.appearances)
     expect(article.printFrame).toEqual({
       leftPct: 25,
       topPct: 20,
@@ -82,7 +81,8 @@ describe('editor type adapters', () => {
       type: 'MUG',
       outsideColorCode: '#ffffff',
     })
-    // Variant 25 is white (appearance 202) in M: the colour and its first listing image come along.
+    // Variant 25 is white (appearance 202) in M: the colour, its first listing image, and its
+    // mockup come along.
     expect(toEditorArticleVariant(tee, 25)).toMatchObject({
       type: 'SPOD',
       appearanceId: 202,
@@ -90,6 +90,7 @@ describe('editor type adapters', () => {
       colorHex: '#ffffff',
       size: 'M',
       exampleImageFilename: 'listing-202-front.webp',
+      mockupImageFilename: 'mockup-202.webp',
     })
     expect(toEditorArticleVariant(tee, 999)).toBeNull()
   })

@@ -237,6 +237,10 @@ CREATE TABLE article_spod_images (
     -- The partner's image id of a `LISTING` image, so an unchanged picture is not downloaded twice.
     spod_image_id character varying(64) NULL,
     filename character varying(255) NOT NULL,
+    -- A `MOCKUP` has no partner id — it is a URL on the partner's image server — so the URL it was
+    -- fetched from is stored instead and compared by the next run: the same URL keeps the stored
+    -- file, a different one is fetched and replaces it (SPOD sync decision 7).
+    source_url character varying(1024) NULL,
     CONSTRAINT pk_article_spod_images PRIMARY KEY (id),
     CONSTRAINT fk_article_spod_images_appearance
         FOREIGN KEY (appearance_id)

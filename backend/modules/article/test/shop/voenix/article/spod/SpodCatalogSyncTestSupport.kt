@@ -61,7 +61,7 @@ internal class SyncFixtures {
             when {
                 request.url.encodedPath == "/articles" -> respondJson(page)
                 request.url.encodedPath.endsWith("/size-chart") ->
-                    respondJson("""{"sizeImageUrl":"$sizeChartUrl"}""")
+                    respondJson(sizeChartAnswer(sizeChartUrl))
                 else -> respondImage()
             }
         }
@@ -99,7 +99,6 @@ internal const val PRODUCT_TYPE_NAME = "Men's T-Shirt"
 /** The Spreadshirt product every image of these tests renders; its URLs name it as `lookupId`. */
 internal const val PRODUCT_ID = 598279462L
 internal const val SIZE_CHART_URL = "https://cdn.example.test/chart-1.png"
-internal const val SIZE_CHART_ANSWER = """{"sizeImageUrl":"$SIZE_CHART_URL"}"""
 
 /** The chart of the same product type after the partner moved it to another file. */
 internal const val MOVED_SIZE_CHART_URL = "https://cdn.example.test/chart-2.png"
@@ -300,6 +299,9 @@ internal fun image(
             "https://cdn.example.test/image-server/v1/products/lookupId/views/1," +
                 "appearanceId=$appearanceId,mediaType=png/$id.png",
     )
+
+/** The partner's size-chart answer, naming the chart at [url]. */
+internal fun sizeChartAnswer(url: String = SIZE_CHART_URL): String = """{"sizeImageUrl":"$url"}"""
 
 internal fun MockRequestHandleScope.respondJson(body: String): HttpResponseData =
     respond(content = body, headers = headersOf(HttpHeaders.ContentType, "application/json"))

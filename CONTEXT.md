@@ -83,7 +83,8 @@ measured frame; nobody types one)
 The one blank front image of a SPOD article's colour, taken from the product
 type's views. It is the editor's backdrop and the only picture the print frame
 is laid on, because it is pixel-identical to the calibration preview.
-_Avoid_: example image (that is a mug variant's uploaded picture), product photo
+_Avoid_ in prose: example image (that is a mug variant's uploaded picture),
+product photo
 
 **Listing image**:
 Every picture the partner lists for one colour of a SPOD article, in the
@@ -91,7 +92,10 @@ partner's order, as chosen in the backoffice. The storefront, the wizard, the
 cart, and the checkout show these; the storefront listing shows the first one
 of the default colour. A colour is sellable only with its mockup image and at
 least one listing image.
-_Avoid_: example image (for a SPOD colour), mockup (for a listing photo)
+_Avoid_ in prose: example image (for a SPOD colour), mockup (for a listing
+photo) — do not call a SPOD colour's listing image an example image in prose;
+the field `exampleImageFilename` shared with mugs on the admin list and the
+`EXAMPLE_IMAGE_REPLACED` warning keep their names.
 
 **Price discount / Preisrabatt**:
 An optional reduction stored on one Price: either a percentage or a fixed

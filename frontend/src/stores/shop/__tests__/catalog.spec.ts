@@ -1,7 +1,17 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useCatalogStore, type MugDto, type SpodArticleDto } from '@/stores/shop/catalog'
-import { createShopMug as makeMug, createShopTee as makeTee } from '@/testing/shopCatalog'
+import {
+  useCatalogStore,
+  variantPhotoFilename,
+  type MugDto,
+  type SpodArticleDto,
+} from '@/stores/shop/catalog'
+import {
+  createMugVariant,
+  createShopMug as makeMug,
+  createShopTee as makeTee,
+  createSpodAppearance,
+} from '@/testing/shopCatalog'
 import { resetApiClientForTests } from '@/lib/api'
 
 /** The document of `GET /api/articles/mugs`, verbatim from `docs/dev/backend/packages/article-package.md`. */
@@ -273,5 +283,23 @@ describe('shop catalog store', () => {
 
     expect(store.articles).toHaveLength(1)
     expect(store.getArticleById(7)?.name).toBe('Second')
+  })
+})
+
+describe('variantPhotoFilename', () => {
+  it('answers the own photo of a mug variant and the first listing image of a SPOD colour', () => {
+    const mug = makeMug({ variants: [createMugVariant({ exampleImageFilename: 'mug-red.webp' })] })
+    const tee = makeTee({
+      appearances: [
+        createSpodAppearance({ id: 201 }),
+        createSpodAppearance({ id: 202, listingImageFilenames: [] }),
+      ],
+    })
+
+    expect(variantPhotoFilename(mug, mug.variants[0]!)).toBe('mug-red.webp')
+    expect(variantPhotoFilename(tee, tee.variants.find((v) => v.appearanceId === 201)!)).toBe(
+      'listing-201-front.webp',
+    )
+    expect(variantPhotoFilename(tee, tee.variants.find((v) => v.appearanceId === 202)!)).toBeNull()
   })
 })

@@ -21,6 +21,7 @@ import {
   isMug,
   isSpodArticle,
   useCatalogStore,
+  variantPhotoFilename,
   type MugDto,
   type MugVariantDto,
   type ShopArticle,
@@ -117,9 +118,8 @@ const sizeChartUrl = computed(() => {
 /** A mug variant shows its own photo, a SPOD variant the first listing image of its colour. */
 const selectedImageUrl = computed(() => {
   const article = selectedArticle.value
-  const filename =
-    selectedMugVariant.value?.exampleImageFilename ??
-    selectedAppearance.value?.listingImageFilenames[0]
+  const variant = selectedVariant.value
+  const filename = article && variant ? variantPhotoFilename(article, variant) : null
   if (!article || !filename) return null
 
   return variantExampleImageUrl(article.articleType, filename, 400)

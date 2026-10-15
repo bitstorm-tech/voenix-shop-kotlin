@@ -168,6 +168,8 @@ internal class SpodCalibrationCallsTest {
             configurations =
                 listOf(SpodPreviewConfiguration(designId = "design-1", hotspot = "MEDIUM_FRONT")),
             appearanceId = "2",
+            width = 1000,
+            height = 1000,
         )
 
     private companion object {

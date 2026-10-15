@@ -387,30 +387,15 @@ private class VariantOverview(
     val examplePictures: Map<Long, String?>,
 )
 
-private fun variantOverviewInTransaction(articleIds: List<Long>): VariantOverview {
-    val variants =
-        ArticleSpodVariants.select(
-                ArticleSpodVariants.articleId,
-                ArticleSpodVariants.appearanceId,
-                ArticleSpodVariants.isDefault,
-            )
-            .where { ArticleSpodVariants.articleId inList articleIds }
-            .toList()
-    val defaultAppearances =
-        variants
-            .filter { row -> row[ArticleSpodVariants.isDefault] }
-            .associate { row ->
-                row[ArticleSpodVariants.articleId] to row[ArticleSpodVariants.appearanceId]
-            }
-    val pictures = appearancePicturesInTransaction(defaultAppearances.values)
-    return VariantOverview(
-        counts = variants.groupingBy { row -> row[ArticleSpodVariants.articleId] }.eachCount(),
-        examplePictures =
-            defaultAppearances.mapValues { (_, appearanceId) ->
-                pictures[appearanceId]?.listingFilenames?.firstOrNull()
-            },
+private fun variantOverviewInTransaction(articleIds: List<Long>): VariantOverview =
+    VariantOverview(
+        counts =
+            ArticleSpodVariants.select(ArticleSpodVariants.articleId)
+                .where { ArticleSpodVariants.articleId inList articleIds }
+                .groupingBy { row -> row[ArticleSpodVariants.articleId] }
+                .eachCount(),
+        examplePictures = examplePicturesInTransaction(articleIds),
     )
-}
 
 private fun findInTransaction(id: Long): StoredSpodArticle? =
     ArticleSpodArticles.selectAll()

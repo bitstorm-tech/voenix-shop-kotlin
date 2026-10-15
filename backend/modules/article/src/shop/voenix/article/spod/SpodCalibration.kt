@@ -18,10 +18,12 @@ import shop.voenix.spod.SpodViews
  * One instance lives exactly as long as one run, and that is the whole lifecycle (decision 11): the
  * calibration design is uploaded once per run, on the first product type that needs it, and every
  * product type is measured once per run, on the first article of that type — every later article of
- * the type gets the same answer from the cache below. Nothing survives the run, so a changed mockup
- * on the partner's side is simply measured again next time, and there is nothing to invalidate. The
- * design stays in the partner's account afterwards, like every per-order design production uploads;
- * the API has no call to delete one.
+ * the type gets the same answer from the cache below. Only an answer is cached: a call the partner
+ * refused is asked again by the next product type, or the next article of the same type, so one
+ * network hiccup does not cost the rest of the run its measurements. Nothing survives the run, so a
+ * changed mockup on the partner's side is simply measured again next time, and there is nothing to
+ * invalidate. The design stays in the partner's account afterwards, like every per-order design
+ * production uploads; the API has no call to delete one.
  *
  * Per product type the measurement costs `2 + candidates` paced API calls — the views, the hotspot
  * check of the design, and one preview per candidate hotspot — plus one unpaced CDN download per
@@ -59,22 +61,33 @@ internal class SpodCalibration(
     suspend fun calibrate(
         productTypeId: Long,
         appearanceId: Long,
-    ): Calibration = calibrations.getOrPut(productTypeId) { measure(productTypeId, appearanceId) }
+    ): Calibration =
+        calibrations[productTypeId]
+            ?: measure(productTypeId, appearanceId).also { calibration ->
+                if (calibration !is Calibration.Unavailable) {
+                    calibrations[productTypeId] = calibration
+                }
+            }
 
     private suspend fun views(productTypeId: Long): SpodResult<SpodViews> =
-        views.getOrPut(productTypeId) { client.views(access, productTypeId) }
+        views[productTypeId]
+            ?: client.views(access, productTypeId).also { answer ->
+                if (answer is SpodResult.Answered) views[productTypeId] = answer
+            }
 
     private suspend fun design(): SpodResult<String> =
         design
             ?: client
                 .uploadDesign(access, CALIBRATION_DESIGN_FILE_NAME, calibrationDesignPng())
-                .also { uploaded -> design = uploaded }
+                .also { answer -> if (answer is SpodResult.Answered) design = answer }
 
     /**
      * Every front hotspot the partner would print the calibration design on, previewed and
      * measured; the largest measured box wins (decision 7), and a tie goes to the first in the
      * view's order. A product type without a measurable hotspot fails with every reason the
-     * attempts produced, so the report can say what was tried.
+     * attempts produced, so the report can say what was tried — and is [Calibration.Unavailable]
+     * instead when no attempt got as far as a picture to measure, because then nothing is known
+     * about the product type at all.
      */
     @Suppress("ReturnCount")
     private suspend fun measure(
@@ -83,18 +96,21 @@ internal class SpodCalibration(
     ): Calibration {
         val front =
             when (val answer = views(productTypeId)) {
-                is SpodResult.Failed -> return Calibration.Failed(answer.error.name)
+                is SpodResult.Failed ->
+                    return Calibration.Unavailable("views: ${answer.error.name}")
                 is SpodResult.Answered ->
                     answer.value.frontView() ?: return Calibration.Failed(NO_FRONT_VIEW)
             }
         val designId =
             when (val answer = design()) {
-                is SpodResult.Failed -> return Calibration.Failed(answer.error.name)
+                is SpodResult.Failed ->
+                    return Calibration.Unavailable("designs/upload: ${answer.error.name}")
                 is SpodResult.Answered -> answer.value
             }
         val available =
             when (val answer = client.availableHotspots(access, productTypeId, designId)) {
-                is SpodResult.Failed -> return Calibration.Failed(answer.error.name)
+                is SpodResult.Failed ->
+                    return Calibration.Unavailable("hotspots: ${answer.error.name}")
                 is SpodResult.Answered -> answer.value
             }
         val candidates =
@@ -104,14 +120,16 @@ internal class SpodCalibration(
         val attempts = candidates.map { hotspot ->
             preview(productTypeId, appearanceId, designId, hotspot)
         }
-        return attempts.filterIsInstance<Calibration.Measured>().maxByOrNull { measured ->
-            measured.frame.widthPct * measured.frame.heightPct
+        val measured = attempts.filterIsInstance<Calibration.Measured>()
+        if (measured.isNotEmpty()) {
+            return measured.maxBy { it.frame.widthPct * it.frame.heightPct }
         }
-            ?: Calibration.Failed(
-                attempts
-                    .filterIsInstance<Calibration.Failed>()
-                    .joinToString(transform = Calibration.Failed::detail)
-            )
+        val detail = attempts.filterIsInstance<Calibration.Unmeasured>().joinToString { it.detail }
+        return if (attempts.all { attempt -> attempt is Calibration.Unavailable }) {
+            Calibration.Unavailable(detail)
+        } else {
+            Calibration.Failed(detail)
+        }
     }
 
     /** One hotspot rendered on one colour and measured, or why it could not be. */
@@ -131,7 +149,8 @@ internal class SpodCalibration(
             )
         val url =
             when (val answer = client.previews(access, productTypeId, request)) {
-                is SpodResult.Failed -> return Calibration.Failed("$hotspot: ${answer.error.name}")
+                is SpodResult.Failed ->
+                    return Calibration.Unavailable("$hotspot previews: ${answer.error.name}")
                 is SpodResult.Answered ->
                     answer.value.images
                         .firstOrNull { image ->
@@ -144,7 +163,10 @@ internal class SpodCalibration(
             }
         val png =
             when (val answer = client.download(url + PNG_MEDIA_TYPE, access.timeoutSeconds)) {
-                is SpodResult.Failed -> return Calibration.Failed("$hotspot: ${answer.error.name}")
+                is SpodResult.Failed ->
+                    return Calibration.Unavailable(
+                        "$hotspot preview download: ${answer.error.name}"
+                    )
                 is SpodResult.Answered -> answer.value.bytes
             }
         return when (val measurement = measurePrintFrame(png)) {
@@ -157,9 +179,15 @@ internal class SpodCalibration(
 
 /**
  * What one product type's calibration came to: the hotspot the customer gets and the frame the
- * editor shows, or a [Calibration.Failed.detail] in the shop's own words — the reason, or one
- * `HOTSPOT: REASON` per hotspot that was tried — that the sync report carries next to
- * `CALIBRATION_FAILED`.
+ * editor shows, or why there is none, as a [Unmeasured.detail] in the shop's own words — the
+ * reason, or one `HOTSPOT: REASON` per hotspot that was tried.
+ *
+ * The two ways to have no frame are told apart because they mean opposite things (issue #260,
+ * decision 12). [Failed] is a *measurement*: the partner answered, and the product type cannot be
+ * measured — the article is written without a frame, inactive, under `CALIBRATION_FAILED`.
+ * [Unavailable] is a *transport* failure: the partner did not answer, so nothing is known, and the
+ * article is skipped like an unreadable listing (SPOD sync decision 6), under
+ * `CALIBRATION_UNAVAILABLE`.
  */
 internal sealed interface Calibration {
     data class Measured(
@@ -167,7 +195,13 @@ internal sealed interface Calibration {
         val frame: PrintFrame,
     ) : Calibration
 
-    data class Failed(val detail: String) : Calibration
+    sealed interface Unmeasured : Calibration {
+        val detail: String
+    }
+
+    data class Failed(override val detail: String) : Unmeasured
+
+    data class Unavailable(override val detail: String) : Unmeasured
 }
 
 internal fun <T : Any> SpodResult<T>.valueOrNull(): T? = (this as? SpodResult.Answered)?.value

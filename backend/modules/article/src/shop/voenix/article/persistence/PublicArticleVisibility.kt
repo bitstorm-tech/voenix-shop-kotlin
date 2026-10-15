@@ -11,11 +11,10 @@ import org.jetbrains.exposed.v1.core.or
 // The one rule that decides what a customer may see, written once per article type.
 //
 // Three storefront reads apply it — the mug list, the SPOD article list, and the shared navigation
-// — and
-// every one of them starts from the join and the condition of this file instead of spelling the
-// rule again. That is not tidiness: writing it twice is what would allow the navigation to offer a
-// category whose articles no list shows. The legacy backend had exactly that duplication, once per
-// service.
+// — and every one of them starts from the join and the condition of this file instead of spelling
+// the rule again. That is not tidiness: writing it twice is what would allow the navigation to
+// offer a category whose articles no list shows. The legacy backend had exactly that duplication,
+// once per service.
 //
 // The rule reads the same for both types: the article is active, its category is active, and it
 // either has no subcategory or an active one. Only the table it reads it from differs, which is why

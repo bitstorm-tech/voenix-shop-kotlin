@@ -79,11 +79,10 @@ internal class CheckoutService(
         }
 
         // …and the last of the read-only guards: a cart with a SPOD article in it needs a phone
-        // number,
-        // because the print-on-demand partner refuses an order without one (issue #205, D2). The
-        // catalog is only asked when there is no number, so an ordinary checkout pays for no extra
-        // lookup, and what decides is the *resolved* type of the stored lines — never a flag a
-        // client could send.
+        // number, because the print-on-demand partner refuses an order without one (issue #205,
+        // D2). The catalog is only asked when there is no number, so an ordinary checkout pays for
+        // no extra lookup, and what decides is the *resolved* type of the stored lines — never a
+        // flag a client could send.
         if (request.shippingAddress?.normalizedPhone == null && cart.containsSpodArticle()) {
             return CheckoutResult.PhoneRequired
         }

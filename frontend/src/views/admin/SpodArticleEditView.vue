@@ -142,23 +142,18 @@ const sync = computed<AdminSpodArticleSyncDto | null>(() => synced.value?.sync ?
 const isMissingAtSpreadconnect = computed(() => Boolean(sync.value?.missingSince))
 
 /**
- * The photo the frame is drawn on: the mockup of the default variant's colour, or — while that
- * colour has none — of the first colour that has one. It is the same picture the shop editor uses
- * as the backdrop of its preview.
+ * The photo the frame is drawn on: the mockup of the default variant's colour, the same picture the
+ * shop editor uses as the backdrop of its preview. Without one the viewer shows a blank square.
  */
 const mockupUrl = computed(() => {
   const defaultAppearanceId = variants.value.find(
     (variant) => variant.id === shop.defaultVariantId,
   )?.appearanceId
-  const withMockup =
-    appearances.value.find(
-      (appearance) =>
-        appearance.id === defaultAppearanceId && appearance.mockupImageFilename !== null,
-    ) ?? appearances.value.find((appearance) => appearance.mockupImageFilename !== null)
+  const filename = appearances.value.find(
+    (appearance) => appearance.id === defaultAppearanceId,
+  )?.mockupImageFilename
 
-  return withMockup?.mockupImageFilename
-    ? spodMockupImageUrl(withMockup.mockupImageFilename, 1000)
-    : null
+  return filename ? spodMockupImageUrl(filename, 1000) : null
 })
 
 const sizeChartUrl = computed(() =>

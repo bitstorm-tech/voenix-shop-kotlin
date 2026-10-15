@@ -3,6 +3,8 @@ package shop.voenix.article.persistence
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.javatime.timestampWithTimeZone
 import org.jetbrains.exposed.v1.jdbc.select
@@ -157,6 +159,27 @@ internal class AppearancePictures(
     val mockupFilename: String?,
     val listingFilenames: List<String>,
 )
+
+/**
+ * The picture the shop shows each of [articleIds] with: the first listing image of its default
+ * variant's colour. An article without a default variant or without such an image maps to `null` or
+ * is absent from the map.
+ */
+internal fun examplePicturesInTransaction(articleIds: Collection<Long>): Map<Long, String?> {
+    val defaultAppearances =
+        ArticleSpodVariants.select(ArticleSpodVariants.articleId, ArticleSpodVariants.appearanceId)
+            .where {
+                (ArticleSpodVariants.articleId inList articleIds) and
+                    (ArticleSpodVariants.isDefault eq true)
+            }
+            .associate { row ->
+                row[ArticleSpodVariants.articleId] to row[ArticleSpodVariants.appearanceId]
+            }
+    val pictures = appearancePicturesInTransaction(defaultAppearances.values)
+    return defaultAppearances.mapValues { (_, appearanceId) ->
+        pictures[appearanceId]?.listingFilenames?.firstOrNull()
+    }
+}
 
 /**
  * The pictures of every colour among [appearanceIds] in one query, keyed by appearance id. A colour

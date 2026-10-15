@@ -7,7 +7,6 @@ import java.time.ZoneOffset
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
-import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -415,27 +414,9 @@ private class ArticleWrite(
     val obsoleteSizeCharts: List<String>,
 )
 
-/**
- * The picture the shop shows the article with: the first listing image of the default variant's
- * colour, or `null` when there is none.
- */
+/** The picture the shop shows the article with (see [examplePicturesInTransaction]). */
 internal fun examplePictureInTransaction(articleId: Long): String? =
-    ArticleSpodVariants.join(
-            ArticleSpodImages,
-            JoinType.INNER,
-            additionalConstraint = {
-                (ArticleSpodImages.appearanceId eq ArticleSpodVariants.appearanceId) and
-                    (ArticleSpodImages.role eq LISTING_ROLE)
-            },
-        )
-        .select(ArticleSpodImages.filename)
-        .where {
-            (ArticleSpodVariants.articleId eq articleId) and (ArticleSpodVariants.isDefault eq true)
-        }
-        .orderBy(ArticleSpodImages.position to SortOrder.ASC)
-        .limit(1)
-        .singleOrNull()
-        ?.get(ArticleSpodImages.filename)
+    examplePicturesInTransaction(listOf(articleId))[articleId]
 
 private fun identity(
     destinationId: Long,

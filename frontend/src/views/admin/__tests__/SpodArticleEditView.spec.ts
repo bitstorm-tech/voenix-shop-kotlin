@@ -305,16 +305,15 @@ describe('SpodArticleEditView', () => {
     expect(print.find('[data-testid="print-frame-missing"]').exists()).toBe(false)
   })
 
-  it('falls back to the first colour with a mockup when the default colour has none', async () => {
+  it('draws the frame on a blank square when the default colour has no mockup', async () => {
     const article = spodArticle()
     article.appearances[0]!.mockupImageFilename = null
     mocks.fetchArticle.mockResolvedValue(article)
 
     const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
 
-    expect(wrapper.get('[data-testid="print-frame-mockup"]').attributes('src')).toBe(
-      '/api/images/public/1000/articles/spod/mockups/white-mockup.webp',
-    )
+    expect(wrapper.find('[data-testid="print-frame-mockup"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="print-frame-rectangle"]').exists()).toBe(true)
   })
 
   it('submits the shop-owned half and nothing else', async () => {

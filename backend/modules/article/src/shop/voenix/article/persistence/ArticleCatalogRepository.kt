@@ -231,8 +231,7 @@ private fun ResultRow.toStoredSpodCatalogVariant(): StoredCatalogVariant =
         documentFormatHeightMm = null,
         documentFormatMarginBottomMm = null,
         // The colour of a SPOD variant is part of its name, not a pair of codes a consumer renders
-        // a mug
-        // with.
+        // a mug with.
         outsideColorCode = null,
         insideColorCode = null,
         spodProduct =

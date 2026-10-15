@@ -102,6 +102,12 @@ public enum class SpodSyncWarningCode {
      */
     SPOD_ID_UNUSABLE,
 
+    /**
+     * Two colours of the article have the same name once it is cut to fit the stored one, and one
+     * article cannot hold two colours of one name — nothing was written for it.
+     */
+    COLOR_NAME_DUPLICATE,
+
     /** `appearanceColorValue` was not a colour; the variants of that colour are inactive. */
     COLOR_VALUE_UNREADABLE,
 
@@ -130,6 +136,13 @@ public enum class SpodSyncWarningCode {
      * The detail names the reason, per hotspot that was tried.
      */
     CALIBRATION_FAILED,
+
+    /**
+     * The partner did not answer a call the calibration of the article's product type needs, so
+     * nothing is known about its frame — nothing was written for the article, and the next run
+     * tries again. The detail names the call and the error.
+     */
+    CALIBRATION_UNAVAILABLE,
 
     /** The product type answered no size chart; the stored one, if any, was kept. */
     SIZE_CHART_UNAVAILABLE,

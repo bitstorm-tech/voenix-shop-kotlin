@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import shop.voenix.article.ArticleTestSchema
 import shop.voenix.testing.PostgresIntegrationTest
 
 /**
@@ -57,24 +58,7 @@ internal class SpodCatalogSyncCalibrationIntegrationTest : PostgresIntegrationTe
     fun `each product type of a run gets its own frame from one shared design`() = runBlocking {
         migratedDataSource("spod-sync-calibration-two-types-test").use { dataSource ->
             seed(dataSource)
-            val tote =
-                article(
-                    id = "a-tote",
-                    title = "Tote",
-                    variants =
-                        listOf(
-                            variant(
-                                "t-v-1",
-                                appearanceId = 5,
-                                sizeId = 29,
-                                sizeName = "One size",
-                                productTypeId = TOTE_PRODUCT_TYPE_ID,
-                                productTypeName = "Tote Bag",
-                            )
-                        ),
-                    images = listOf(image("t-i-1", appearanceId = 5)),
-                )
-            val fixture = fixtures.of(dataSource, catalog(twoColourShirt(), tote))
+            val fixture = fixtures.of(dataSource, catalog(twoColourShirt(), tote()))
 
             val report = fixture.run()
 
@@ -135,15 +119,18 @@ internal class SpodCatalogSyncCalibrationIntegrationTest : PostgresIntegrationTe
         }
 
     /**
-     * Without the views there is neither a mockup nor a front hotspot: every colour is warned about
-     * and unsellable, and the article has no frame. The partner is asked once per product type, not
-     * once per colour or article.
+     * A partner that does not answer the views says nothing about the product type — not that it
+     * cannot be measured. The article is skipped like an unreadable listing: the stored row stays
+     * as it is, and not a single picture is downloaded for it.
      */
     @Test
-    fun `a product type whose views the partner refuses has no mockups and no frame`() =
+    fun `an article whose views the partner refuses is skipped and nothing is written`() =
         runBlocking {
             migratedDataSource("spod-sync-calibration-no-views-test").use { dataSource ->
                 seed(dataSource)
+                fixtures.of(dataSource, catalog(twoColourShirt())).run()
+                makeShopOwnedDecisions(dataSource)
+                val before = storedArticle(dataSource, 1).getInstant("spod_synced_at")
                 val fixture =
                     fixtures.of(
                         dataSource,
@@ -153,23 +140,52 @@ internal class SpodCatalogSyncCalibrationIntegrationTest : PostgresIntegrationTe
 
                 val report = fixture.run()
 
-                assertEquals(
-                    listOf(
-                        SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
-                        SpodSyncWarningCode.MOCKUP_UNAVAILABLE,
-                        SpodSyncWarningCode.CALIBRATION_FAILED,
-                    ),
-                    report.warnings.map(SpodSyncWarning::code),
-                )
-                assertTrue(report.warnings.last().detail.contains("PROVIDER_UNAVAILABLE"))
-                assertEquals(NO_STORED_FRAME, storedFrame(dataSource, 1))
-                assertEquals(emptyList(), mockups(dataSource, 1))
-                assertEquals(
-                    classicShirtRows(blackActive = false, whiteActive = false),
-                    variants(dataSource, 1),
-                )
+                assertEquals(SpodSyncStatus.COMPLETED, report.status)
+                assertEquals(listOf("a-1"), report.failed.map(SpodSyncLine::spodArticleId))
+                assertEquals(emptyList(), report.updated + report.unchanged + report.deactivated)
+                val warning = report.warnings.single()
+                assertEquals(SpodSyncWarningCode.CALIBRATION_UNAVAILABLE, warning.code)
+                assertEquals("views: PROVIDER_UNAVAILABLE", warning.detail)
+                val stored = storedArticle(dataSource, 1)
+                assertEquals(true, stored.getBoolean("active"), "the row is left as it was")
+                assertEquals(before, stored.getInstant("spod_synced_at"))
+                assertEquals(0, fixture.storage.storeCalls, "nothing is downloaded for it")
                 assertEquals(1, fixture.hits.count { path -> path.endsWith("/views") })
                 assertEquals(0, fixture.hits.count { path -> path == "/designs/upload" })
+            }
+        }
+
+    /**
+     * A refused call is not remembered for the rest of the run: the first article's design upload
+     * fails and skips it, and the next product type uploads the design again and is measured.
+     */
+    @Test
+    fun `a refused design upload skips its article and the next product type tries again`() =
+        runBlocking {
+            migratedDataSource("spod-sync-calibration-upload-retry-test").use { dataSource ->
+                seed(dataSource)
+                val fixture =
+                    fixtures.of(
+                        dataSource,
+                        catalog(twoColourShirt(), tote()),
+                        calibration = CalibrationAnswers(refusedDesignUploads = 1),
+                    )
+
+                val report = fixture.run()
+
+                assertEquals(listOf("a-1"), report.failed.map(SpodSyncLine::spodArticleId))
+                assertEquals(
+                    "designs/upload: PROVIDER_UNAVAILABLE",
+                    report.warnings.single().detail,
+                )
+                assertEquals(listOf("a-tote"), report.created.map(SpodSyncLine::spodArticleId))
+                assertEquals(TOTE_FRAME, report.created.single().printFrame)
+                assertEquals(1, ArticleTestSchema.rowCount(dataSource, "article_spod_articles"))
+                assertEquals(2, fixture.hits.count { path -> path == "/designs/upload" })
+                assertTrue(
+                    fixture.hits.none { path -> path.contains("/a-1-i-") },
+                    "nothing is downloaded for the skipped article",
+                )
             }
         }
 
@@ -202,6 +218,12 @@ internal class SpodCatalogSyncCalibrationIntegrationTest : PostgresIntegrationTe
                 val second = fixture.run()
 
                 assertEquals(listOf(1L), second.unchanged.map(SpodSyncLine::articleId))
+                assertEquals(
+                    1,
+                    fixture.hits.count { path -> path == "/designs/upload" },
+                    "nothing of the calibration survives a run, so the second one measures again",
+                )
+                assertTrue(fixture.hits.any { path -> path.endsWith("/previews") })
                 assertEquals(stored, mockups(dataSource, 1))
                 assertEquals(0, fixture.hits.count { path -> path.startsWith("/mockups/") })
                 assertEquals(emptyList(), fixture.storage.deleted)
@@ -236,3 +258,22 @@ internal class SpodCatalogSyncCalibrationIntegrationTest : PostgresIntegrationTe
         }
     }
 }
+
+/** A one-colour tote bag, the second product type of these tests. */
+private fun tote() =
+    article(
+        id = "a-tote",
+        title = "Tote",
+        variants =
+            listOf(
+                variant(
+                    "t-v-1",
+                    appearanceId = 5,
+                    sizeId = 29,
+                    sizeName = "One size",
+                    productTypeId = TOTE_PRODUCT_TYPE_ID,
+                    productTypeName = "Tote Bag",
+                )
+            ),
+        images = listOf(image("t-i-1", appearanceId = 5)),
+    )

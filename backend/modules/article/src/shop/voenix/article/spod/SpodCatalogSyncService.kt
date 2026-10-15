@@ -34,8 +34,8 @@ import shop.voenix.spod.parseColorHex
  *
  * The shape of a run follows the SPOD sync decisions and is the same every time:
  * 1. read the *whole* listing, or give up — a partial listing may not deactivate anything;
- * 2. per article: judge it, resolve its colours and pictures, fetch what changed, measure where its
- *    product type prints (once per product type, see [SpodCalibration]), and write it in one
+ * 2. per article: judge it, measure where its product type prints (once per product type, see
+ *    [SpodCalibration]), resolve its colours and pictures, fetch what changed, and write it in one
  *    transaction of its own;
  * 3. mark everything of this destination the listing did not contain;
  * 4. delete the picture files nothing refers to any more.
@@ -152,11 +152,13 @@ internal class SpodCatalogSyncService(
     /**
      * Turns one listed article into one transaction, or into one reason why it produced none.
      *
-     * The three refusals are the ones a shop cannot store: an article whose variants name several
+     * The four refusals are the ones a shop cannot store: an article whose variants name several
      * product types is not one product, an article without a printable variant is nothing to sell,
-     * and an id longer than the column that would hold it is an identity this shop cannot match a
-     * later run against. All three leave the stored row exactly as it is — including a row an
-     * earlier run created.
+     * an id longer than the column that would hold it is an identity this shop cannot match a later
+     * run against, and two colours of one name cannot both be a colour of the article. All four
+     * leave the stored row exactly as it is — including a row an earlier run created. So does a
+     * calibration the partner did not answer ([Calibration.Unavailable]): it is asked for before a
+     * single picture is downloaded, so a skipped article leaves no file behind.
      *
      * The write may find the article gone: [ArticleSpodSyncRepository.findForSync] runs before the
      * downloads, so an admin who deletes the article in between takes the picture files this run
@@ -196,6 +198,21 @@ internal class SpodCatalogSyncService(
             )
             return
         }
+        val colorNames =
+            variants.map(SpodCatalogVariant::appearanceId).distinct().map(article::colorName)
+        if (colorNames.size != colorNames.toSet().size) {
+            run.fail(
+                article,
+                SpodSyncWarningCode.COLOR_NAME_DUPLICATE,
+                "Two colours of this article share a name",
+            )
+            return
+        }
+        val calibration = run.calibration.calibrate(productTypeId, variants.first().appearanceId)
+        if (calibration is Calibration.Unavailable) {
+            run.fail(article, SpodSyncWarningCode.CALIBRATION_UNAVAILABLE, calibration.detail)
+            return
+        }
 
         val stored =
             repository.findForSync(
@@ -203,8 +220,8 @@ internal class SpodCatalogSyncService(
                 source.environment.name,
                 article.id,
             )
-        if (writeArticle(source, article, variants, productTypeId, stored, run)) {
-            writeArticle(source, article, variants, productTypeId, stored = null, run)
+        if (writeArticle(source, article, variants, productTypeId, calibration, stored, run)) {
+            writeArticle(source, article, variants, productTypeId, calibration, stored = null, run)
         }
     }
 
@@ -222,6 +239,7 @@ internal class SpodCatalogSyncService(
         article: SpodCatalogArticle,
         variants: List<SpodCatalogVariant>,
         productTypeId: Long,
+        calibration: Calibration,
         stored: StoredSyncArticle?,
         run: SyncRun,
     ): Boolean {
@@ -233,8 +251,6 @@ internal class SpodCatalogSyncService(
             }
         val minted = colors.flatMap(ResolvedColor::minted)
         val mintedMockups = colors.mapNotNull(ResolvedColor::mintedMockup)
-
-        val calibration = run.calibration.calibrate(productTypeId, variants.first().appearanceId)
         val sizeChart = sizeChart(source, article, productTypeId, stored, run)
         val outcome =
             repository.upsert(
@@ -389,7 +405,7 @@ internal class SpodCatalogSyncService(
             prepared =
                 PreparedAppearance(
                     spodAppearanceId = appearanceId,
-                    colorName = first.appearanceName.take(COLOR_NAME_MAX),
+                    colorName = article.colorName(appearanceId),
                     colorHex = colorHex ?: FALLBACK_COLOR_HEX,
                     position = position,
                     listingImages = images.ifEmpty { null },
@@ -545,6 +561,16 @@ private fun SpodCatalogArticle.hasUnusableId(variants: List<SpodCatalogVariant>)
             image.id.length > SPOD_ID_MAX &&
                 variants.any { variant -> variant.appearanceId == image.appearanceId }
         }
+
+/**
+ * The name the shop stores the colour [appearanceId] of this article under, as it fits the column.
+ */
+private fun SpodCatalogArticle.colorName(appearanceId: Long): String =
+    variants
+        .first { variant -> variant.appearanceId == appearanceId }
+        .appearanceName
+        .trim()
+        .take(COLOR_NAME_MAX)
 
 /** The triple a variant is matched by, as a key two variants of one article may not share. */
 private fun product(variant: SpodCatalogVariant): Triple<Long, Long, Long> =

@@ -112,7 +112,7 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                     when {
                         request.url.encodedPath == "/articles" -> respondJson(pages.removeFirst())
                         request.url.encodedPath.endsWith("/size-chart") ->
-                            respondJson(SIZE_CHART_ANSWER)
+                            respondJson(sizeChartAnswer())
                         else -> respondImage()
                     }
                 }
@@ -141,7 +141,7 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                         when {
                             request.url.encodedPath == "/articles" -> respondJson(page)
                             request.url.encodedPath.endsWith("/size-chart") ->
-                                respondJson(SIZE_CHART_ANSWER)
+                                respondJson(sizeChartAnswer())
                             request.url.encodedPath.endsWith("a-1-i-3.png") ->
                                 respondError(HttpStatusCode.NotFound)
                             else -> respondImage()
@@ -192,7 +192,7 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                     when {
                         request.url.encodedPath == "/articles" -> respondJson(page)
                         request.url.encodedPath.endsWith("/size-chart") ->
-                            respondJson(SIZE_CHART_ANSWER)
+                            respondJson(sizeChartAnswer())
                         request.url.encodedPath.endsWith("a-1-i-1.png") && !cdnAnswersAll ->
                             respondError(HttpStatusCode.NotFound)
                         else -> respondImage()
@@ -278,7 +278,7 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                         when {
                             request.url.encodedPath == "/articles" -> respondJson(page)
                             request.url.encodedPath.endsWith("/size-chart") ->
-                                respondJson("""{"sizeImageUrl":"$MOVED_SIZE_CHART_URL"}""")
+                                respondJson(sizeChartAnswer(MOVED_SIZE_CHART_URL))
                             else -> {
                                 if (!deleted) {
                                     deleted = true
@@ -340,6 +340,42 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
         }
 
     /**
+     * Two colours that are one name once trimmed and cut to the column cannot both be a colour of
+     * the article; it is skipped, and the run goes on with the others.
+     */
+    @Test
+    fun `an article with two colours of one name is skipped and the others are written`() =
+        runBlocking {
+            migratedDataSource("spod-sync-duplicate-colour-test").use { dataSource ->
+                seed(dataSource)
+                val twins =
+                    article(
+                        id = "a-twins",
+                        variants =
+                            listOf(
+                                variant("v-1", appearanceId = 5, appearanceName = "Black"),
+                                variant("v-2", appearanceId = 6, appearanceName = " Black "),
+                            ),
+                        images =
+                            listOf(image("i-1", appearanceId = 5), image("i-2", appearanceId = 6)),
+                    )
+
+                val fixture = fixtures.of(dataSource, catalog(twins, twoColourShirt()))
+                val report = fixture.run()
+
+                assertEquals(SpodSyncStatus.COMPLETED, report.status)
+                assertEquals(listOf("a-twins"), report.failed.map(SpodSyncLine::spodArticleId))
+                assertEquals(
+                    listOf(SpodSyncWarningCode.COLOR_NAME_DUPLICATE),
+                    report.warnings.map(SpodSyncWarning::code),
+                )
+                assertEquals(listOf("a-1"), report.created.map(SpodSyncLine::spodArticleId))
+                assertEquals(1, ArticleTestSchema.rowCount(dataSource, "article_spod_articles"))
+                assertTrue(fixture.hits.none { path -> path.endsWith("/i-1.png") })
+            }
+        }
+
+    /**
      * A partner whose CDN answers nothing usable — SPOD's staging installation lists images that do
      * not exist — still gets its article written, with every variant inactive. The pictures are
      * asked for again by the next run, because nothing was stored that could mark them as known.
@@ -356,7 +392,7 @@ internal class SpodCatalogSyncListingIntegrationTest : PostgresIntegrationTest()
                         when {
                             request.url.encodedPath == "/articles" -> respondJson(page)
                             request.url.encodedPath.endsWith("/size-chart") ->
-                                respondJson(SIZE_CHART_ANSWER)
+                                respondJson(sizeChartAnswer())
                             cdnAnswers -> respondImage()
                             else -> respondError(HttpStatusCode.NotFound)
                         }

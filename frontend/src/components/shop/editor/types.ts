@@ -5,7 +5,6 @@ import {
   type MugVariantDto,
   type PrintFrameDto,
   type ShopArticle,
-  type SpodAppearanceDto,
   type SpodArticleDto,
   type SpodVariantDto,
 } from '@/stores/shop/catalog'
@@ -36,6 +35,8 @@ export interface EditorSpodVariant extends EditorArticleVariantBase {
   colorName: string
   colorHex: string
   size: string
+  /** The plain product photo of the colour the print frame is laid over; `null` when SPOD has none. */
+  mockupImageFilename: string | null
 }
 
 export type EditorArticleVariant = EditorMugVariant | EditorSpodVariant
@@ -72,8 +73,6 @@ export interface EditorSpodArticle extends EditorArticleBase {
   productTypeName: string
   /** Where the design sits on the mockup photo, in percent of the photo (measured by the sync). */
   printFrame: PrintFrameDto
-  /** The colours, each with the mockup photo the frame is laid over. */
-  appearances: SpodAppearanceDto[]
   sizeChartImageFilename: string | null
   variants: EditorSpodVariant[]
 }
@@ -120,7 +119,6 @@ export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle 
     printArea: { aspectRatio: 1, documentFormatWidthMm: null, documentFormatHeightMm: null },
     productTypeName: article.productTypeName,
     printFrame: article.printFrame,
-    appearances: article.appearances,
     sizeChartImageFilename: article.sizeChartImageFilename,
     variants: article.variants.map((variant) => toEditorSpodVariant(article, variant)),
   }
@@ -158,6 +156,7 @@ export function toEditorSpodVariant(
     size: variant.size,
     isDefault: variant.isDefault,
     exampleImageFilename: appearance.listingImageFilenames[0] ?? null,
+    mockupImageFilename: appearance.mockupImageFilename,
   }
 }
 

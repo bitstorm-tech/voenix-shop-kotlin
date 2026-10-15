@@ -15,6 +15,7 @@ import {
   createMugVariant,
   createShopMug,
   createShopTee,
+  createSpodAppearance,
 } from '@/testing/shopCatalog'
 import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
@@ -210,6 +211,24 @@ describe('ProductEditor', () => {
     )
     expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
       'left: 30%',
+    )
+  })
+
+  it('shows the plain square print frame for a colour without a mockup', () => {
+    const tee = createShopTee({
+      appearances: [createSpodAppearance({ id: 201, mockupImageFilename: null })],
+    })
+    const draft = createDraft()
+    const wrapper = mountProductEditor(
+      draft,
+      {},
+      { article: toEditorSpodArticle(tee), variant: toEditorArticleVariant(tee, 21)! },
+    )
+
+    expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain('/mockups/null')
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
+      'aspect-ratio: 1',
     )
   })
 

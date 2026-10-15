@@ -76,13 +76,10 @@ const frameAspectRatio = computed(() => props.article.printArea?.aspectRatio ?? 
  * image.
  */
 const mockupImageUrl = computed(() => {
-  const article = props.article
   const variant = props.variant
-  if (article.type !== 'SPOD' || variant.type !== 'SPOD') return null
+  if (variant.type !== 'SPOD' || variant.mockupImageFilename === null) return null
 
-  // The variant comes out of this article's own list, so its colour is always there.
-  const appearance = article.appearances.find(({ id }) => id === variant.appearanceId)!
-  return spodMockupImageUrl(appearance.mockupImageFilename, 1000)
+  return spodMockupImageUrl(variant.mockupImageFilename, 1000)
 })
 
 const hasMockupPreview = computed(() => mockupImageUrl.value !== null && !mockupLoadFailed.value)

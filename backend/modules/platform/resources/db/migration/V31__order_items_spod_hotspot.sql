@@ -1,4 +1,5 @@
 -- The SPOD hotspot an order line was placed with (issue #260, decisions 8 and 14).
+-- (There is no V30: it was folded into V29 before the branch merged; renumbering was not worth it.)
 --
 -- A hotspot is the partner's named placement on the front of a product, such as
 -- `MEDIUM_FRONT`. The sync measures one per product type and the live editor shows the

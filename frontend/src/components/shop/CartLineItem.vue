@@ -9,10 +9,9 @@ import { formatPrice } from '@/lib/formatPrice'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
   appearanceOf,
-  isMug,
   isSpodArticle,
   useCatalogStore,
-  type MugVariantDto,
+  variantPhotoFilename,
   type SpodVariantDto,
 } from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
@@ -38,7 +37,7 @@ const catalogArticle = computed(() => catalogStore.getArticleById(props.item.art
 const catalogVariant = computed(() =>
   catalogArticle.value?.variants.find((candidate) => candidate.id === props.item.variantId),
 )
-/** The colour of a SPOD line, which carries its hex and its photos. */
+/** The colour of a SPOD line, whose hex tints the fallback icon. */
 const spodAppearance = computed(() => {
   const article = catalogArticle.value
   const variant = catalogVariant.value
@@ -50,10 +49,8 @@ const spodAppearance = computed(() => {
 /** The catalog photo of the ordered variant: a mug variant's own, or the first of its colour's. */
 const variantImageUrl = computed(() => {
   const article = catalogArticle.value
-  const filename =
-    article && isMug(article)
-      ? (catalogVariant.value as MugVariantDto | undefined)?.exampleImageFilename
-      : spodAppearance.value?.listingImageFilenames[0]
+  const variant = catalogVariant.value
+  const filename = article && variant ? variantPhotoFilename(article, variant) : null
   return article && filename ? variantExampleImageUrl(article.articleType, filename, 400) : null
 })
 const colorStyle = computed(() => ({

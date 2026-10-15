@@ -1,8 +1,10 @@
 package shop.voenix
 
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.HttpResponseData
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -21,6 +23,7 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sessions.sessions
 import io.ktor.server.sessions.set
 import io.ktor.server.testing.testApplication
+import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
@@ -158,25 +161,58 @@ internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTe
             put("mollie.webhookSecret", MOLLIE_SECRET)
         }
 
-    /** One shirt in one colour and one size, plus the size chart and the pictures of both. */
+    /**
+     * One shirt in one colour and one size, plus the size chart, the pictures of both, and the
+     * calibration answers the run needs to measure the print frame: the front view with its one
+     * hotspot and mockup, the design upload, the printable hotspots, and a preview that renders the
+     * magenta design as one clean box.
+     */
     private fun backoffice(): MockEngine = MockEngine { request ->
+        val path = request.url.encodedPath
         when {
-            request.url.encodedPath == "/articles" ->
+            path == "/articles" ->
                 respond(CATALOG, headers = headersOf(HttpHeaders.ContentType, "application/json"))
-            request.url.encodedPath.endsWith("/size-chart") ->
-                respond(
-                    """{"sizeImageUrl":"https://cdn.example.test/chart.png"}""",
-                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            path.endsWith("/size-chart") ->
+                respondJson("""{"sizeImageUrl":"https://cdn.example.test/chart.png"}""")
+            path == "/designs/upload" -> respondJson("""{"designId":"design-1"}""")
+            path.endsWith("/views") -> respondJson(VIEWS)
+            path.contains("/hotspots/design/") ->
+                respondJson("""{"hotspots":[{"name":"MEDIUM_FRONT"}]}""")
+            path.endsWith("/previews") ->
+                respondJson(
+                    """{"images":[{"url":"https://cdn.example.test/preview.png","viewId":"v-1","viewName":"FRONT"}]}"""
                 )
+            path.contains("preview") ->
+                respond(previewPng(), headers = headersOf(HttpHeaders.ContentType, "image/png"))
             // A real picture, because the composed application stores it through the real image
             // storage, which converts what it is given and refuses anything it cannot read.
             else -> respond(pngBytes(), headers = headersOf(HttpHeaders.ContentType, "image/png"))
         }
     }
 
-    private fun pngBytes(): ByteArray {
+    private fun MockRequestHandleScope.respondJson(body: String): HttpResponseData =
+        respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+
+    private fun pngBytes(): ByteArray = png(BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB))
+
+    /** A grey 100 × 100 preview with one solid magenta square from 20 to 60 on both axes. */
+    private fun previewPng(): ByteArray {
+        val image = BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            graphics.color = Color.GRAY
+            graphics.fillRect(0, 0, 100, 100)
+            graphics.color = Color.MAGENTA
+            graphics.fillRect(20, 20, 40, 40)
+        } finally {
+            graphics.dispose()
+        }
+        return png(image)
+    }
+
+    private fun png(image: BufferedImage): ByteArray {
         val bytes = ByteArrayOutputStream()
-        ImageIO.write(BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB), "png", bytes)
+        ImageIO.write(image, "png", bytes)
         return bytes.toByteArray()
     }
 
@@ -211,6 +247,13 @@ internal class SpodArticleSyncCompositionIntegrationTest : PostgresIntegrationTe
 
         /** No payment happens here; the block only has to be a valid one. */
         const val MOLLIE_SECRET = "spod-sync-composition-mollie-webhook-secret"
+
+        val VIEWS =
+            """
+            {"views":[{"id":"v-1","name":"FRONT","hotspots":[{"name":"MEDIUM_FRONT"}],
+              "images":[{"appearanceId":"5","image":"https://cdn.example.test/mockup-5.png"}]}]}
+            """
+                .trimIndent()
 
         val CATALOG =
             """

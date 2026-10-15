@@ -29,8 +29,9 @@ import kotlinx.serialization.json.jsonPrimitive
  * five front hotspots of the staging tees, of which two accept the design, and the `FULL_FRONT` box
  * is the larger one. The tote lists `FULL_FRONT` alone. With [holed], every box gets a hole in its
  * middle, so no hotspot measures cleanly and the calibration fails; with [viewsRefused], the
- * partner answers every views call with a server error; [mockupOf] is where the views answer says a
- * colour's mockup is, so a test can move one.
+ * partner answers every views call with a server error, and the first [refusedDesignUploads]
+ * uploads of the design get one too; [mockupOf] is where the views answer says a colour's mockup
+ * is, so a test can move one.
  *
  * The mockup downloads (`/mockups/…`) are deliberately *not* answered here: they are pictures like
  * the listing images, and a test that lets the image server fail wants them to fail too.
@@ -38,6 +39,7 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class CalibrationAnswers(
     private val holed: Boolean = false,
     private val viewsRefused: Boolean = false,
+    private var refusedDesignUploads: Int = 0,
     private val mockupOf: (productTypeId: Long, appearanceId: Long) -> String = ::mockupUrl,
 ) {
     /** Answers [request] when it is a calibration call or one of its downloads, else `null`. */
@@ -48,6 +50,8 @@ internal class CalibrationAnswers(
         val path = request.url.encodedPath
         val productTypeId = path.removePrefix("/productTypes/").substringBefore('/').toLongOrNull()
         return when {
+            path == "/designs/upload" && refusedDesignUploads-- > 0 ->
+                scope.respondError(HttpStatusCode.InternalServerError)
             path == "/designs/upload" -> scope.respondJson("""{"designId":"$DESIGN_ID"}""")
             productTypeId != null && path.endsWith("/views") && viewsRefused ->
                 scope.respondError(HttpStatusCode.InternalServerError)

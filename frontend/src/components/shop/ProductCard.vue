@@ -11,6 +11,7 @@ import {
   appearanceOf,
   isMug,
   isSpodArticle,
+  variantPhotoFilename,
   type MugVariantDto,
   type ShopArticle,
   type ShopArticleVariant,
@@ -78,8 +79,9 @@ const insideColor = computed(
 
 /** One picture per card: a mug variant's own photo, or the first listing image of the colour. */
 const exampleImageUrl = computed(() => {
-  const filename =
-    mugVariant.value?.exampleImageFilename ?? spodAppearance.value?.listingImageFilenames[0]
+  const filename = props.activeVariant
+    ? variantPhotoFilename(props.article, props.activeVariant)
+    : null
   return filename ? variantExampleImageUrl(props.article.articleType, filename, 400) : null
 })
 

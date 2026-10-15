@@ -40,8 +40,8 @@ public data class SpodViewImage(public val appearanceId: String, public val imag
 public data class SpodPreviewRequest(
     public val configurations: List<SpodPreviewConfiguration>,
     public val appearanceId: String,
-    public val width: Int = 1000,
-    public val height: Int = 1000,
+    public val width: Int,
+    public val height: Int,
 )
 
 @Serializable

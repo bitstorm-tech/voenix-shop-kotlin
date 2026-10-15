@@ -150,21 +150,27 @@ interface DestinationRow {
 }
 
 const rows = computed<DestinationRow[]>(() =>
-  destinationsStore.destinations.map((destination) => ({
-    destination,
-    supplierName:
-      supplierNames.value.get(destination.supplierId) ?? `Supplier #${destination.supplierId}`,
-    accountNote: accountNote(destination),
-    syncing: destinationsStore.isSyncing(destination.id),
-    report: destinationsStore.syncReport(destination.id),
-    uncalibratedArticleIds: uncalibratedArticleIds(destinationsStore.syncReport(destination.id)),
-  })),
+  destinationsStore.destinations.map((destination) => {
+    const report = destinationsStore.syncReport(destination.id)
+    return {
+      destination,
+      supplierName:
+        supplierNames.value.get(destination.supplierId) ?? `Supplier #${destination.supplierId}`,
+      accountNote: accountNote(destination),
+      syncing: destinationsStore.isSyncing(destination.id),
+      report,
+      uncalibratedArticleIds: uncalibratedArticleIds(report),
+    }
+  }),
 )
 
+/** A `CALIBRATION_FAILED` warning always names its article; the type only allows `null` for others. */
 function uncalibratedArticleIds(report: SpodSyncReport | null): string[] {
-  return (report?.warnings ?? [])
-    .filter((warning) => warning.code === 'CALIBRATION_FAILED')
-    .map((warning) => warning.spodArticleId ?? '—')
+  return (report?.warnings ?? []).flatMap((warning) =>
+    warning.code === 'CALIBRATION_FAILED' && warning.spodArticleId !== null
+      ? [warning.spodArticleId]
+      : [],
+  )
 }
 
 function accountNote(destination: AdminProductionDestinationDto): string {

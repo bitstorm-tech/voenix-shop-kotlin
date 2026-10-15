@@ -230,7 +230,9 @@ The panel that appears is the run's report:
   of failing on, with the article it belongs to (an unreadable colour value, a
   colour without a picture or a mockup, a failed calibration, a missing size
   chart, a title that had to be cut, a default variant that had to be
-  replaced);
+  replaced) — and next to every **failed** article the reason nothing was
+  written for it (a calibration the partner did not answer, two colours of
+  one name, an id too long to store);
 - a **failure alert** when the run could not read the whole listing. Then
   nothing was written and nothing was deactivated — that is on purpose, so a
   network hiccup cannot empty your shop. Fix the cause (usually the token or
@@ -288,14 +290,27 @@ detail says why, per hotspot that was tried:
 | `NO_RECTANGLE` | the preview showed no magenta box, or one too small to be a print area |
 | `LOW_FILL` | the box has holes or a ragged edge — something covers part of the design |
 | `UNREADABLE_IMAGE` | the preview picture could not be read |
-| `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ANSWER_UNREADABLE`, `REFUSED` | a call to the partner was limited, not answered, not readable, or refused |
+| `PROVIDER_ANSWER_UNREADABLE` | the partner rendered the preview but answered no front picture for it |
 
 What to do: open the product type in the Spreadconnect backoffice and check
 its **front hotspots** — that the product has a front view and that the design
-fits a front position. Then press *Sync from Spreadconnect* again. A
-`RATE_LIMITED` or `PROVIDER_UNAVAILABLE` is usually passing (the partner was
-busy or down): just sync again a little later. There is nothing to set in this shop: the frame comes
-from the partner or not at all.
+fits a front position. Then press *Sync from Spreadconnect* again. There is
+nothing to set in this shop: the frame comes from the partner or not at all.
+
+**When the partner does not answer.** `CALIBRATION_UNAVAILABLE` is a different
+thing from `CALIBRATION_FAILED`: the product type was not measured because the
+partner could not be reached — the views, the design upload, the hotspot check,
+or every preview was limited, not answered, or refused. That says nothing about
+the product type, so the run does not touch the article at all: it is counted
+as **failed**, nothing of it is written or downloaded, and the article stays
+exactly as the last good run left it — still on sale if it was. The detail
+names the call and the error, for example `designs/upload: PROVIDER_UNAVAILABLE`
+or `FULL_FRONT previews: RATE_LIMITED`. What to do: nothing in the backoffice;
+just sync again a little later.
+
+In short: `CALIBRATION_UNAVAILABLE` means *the partner was not reachable, sync
+again later*; `CALIBRATION_FAILED` means *this product type cannot be measured,
+fix its front hotspots in the backoffice*.
 
 ### The rate budget
 
