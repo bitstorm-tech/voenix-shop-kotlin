@@ -541,8 +541,8 @@ Run them with `bun test src/modules/cart` from `backend-ts/`; they need Docker.
   issued the cookie first. Unknown body properties are a `400`.
 - **Not ported:** the route security test (CSRF and the validation `400`s are
   platform tests and schema tests now), the schema constraint test (the
-  migrations are copied unchanged), and the composition test, which T14's
-  checkout flow test replaces.
+  migrations are copied unchanged), and the composition test, which the
+  checkout module's flow test replaces.
 
 ## What is deliberately not here
 

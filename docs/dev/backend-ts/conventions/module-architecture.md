@@ -258,19 +258,51 @@ casts it would have spread through every module.
 
 ## Application composition
 
-`src/composition.ts` (written by the composition ticket) performs the steps of
-the Kotlin `Application.kt` in the order the capabilities allow:
+[`src/composition.ts`](../../../../backend-ts/src/composition.ts) exports one
+function, `createApplication(settings, overrides?)`, which answers
+`{ app, start(), stop() }`; [`src/main.ts`](../../../../backend-ts/src/main.ts)
+is the process around it:
 
-1. `loadEnvFiles()` and `loadSettings(process.env)`: a misconfigured deployment
-   fails before anything touches the database.
-2. `migrate(settings.database)` on its own client, then `createDatabase(settings.database)`
-   for the one pool every module works on.
-3. `createAuth(settings.auth)` and `createApp(auth)`: the error answer, the
-   body limit, the authentication middleware, the antiforgery route.
-4. The modules, each with `createXModule({ db, … })`, mounted with
-   `app.route('/', x.routes)`, their capabilities passed to the modules that
-   follow.
-5. `Bun.serve({ port: settings.port, fetch: app.fetch })` and the two workers.
+```ts
+loadEnvFiles()
+const settings = loadSettings(process.env)
+const application = await createApplication(settings)
+application.start()                        // the email and the production worker
+Bun.serve({ port: settings.port, fetch: application.app.fetch })
+// SIGTERM, SIGINT: server.stop(), then application.stop()
+```
+
+`createApplication` performs the steps of the Kotlin `Application.kt` in the
+order the capabilities allow, with no late binding anywhere:
+
+1. `migrate(settings.database)` on its own client, **before** anything else:
+   the production module reads a table while it is created, and every module
+   must see the schema it was written for. Then `createDatabase` for the one
+   pool.
+2. `createAuth(settings.auth)` and `createApp(auth)`: the error answer, the body
+   limit, the authentication middleware, the antiforgery route.
+3. The modules, each created after the modules it consumes and handed their
+   capabilities: country, pricing, supplier, email, image, the one SPOD client,
+   promotion, article, prompt, account, generator (with the platform's per-IP
+   rate limiter), **order before production** (production is created with
+   `order.orders`), cart, and last the checkout.
+4. The sub-apps, mounted with `app.route('/', x.routes)` in that order, plus
+   the two routes that need a later module: `order.adminPdfRoutes(production.productionPdfGenerator)`
+   and `image.guestImageRoute(cart.guestImageResolver)`.
+5. When `settings.frontend.distPath` is set, the built frontend behind every
+   route (see [the full-stack image](../getting-started/full-stack-image.md)).
+
+`start()` starts the two workers; `stop()` ends them and destroys the pool. A
+factory that throws (an unwritable image root, a SPOD destination without the
+channel configured) destroys the pool before the error travels on.
+
+`overrides` exists for the composed tests and a deployment never sets it:
+`mollie` replaces the provider adapter with a stub, `fetch` is the one HTTP
+client the email delivery, the image generator, and the SPOD client share, so a
+test can prove that nothing reaches the network. The tests of the composition
+root and the checkout's journey tests build their application with
+[`src/test-fixtures.ts`](../../../../backend-ts/src/test-fixtures.ts), which
+turns a test database into `Settings` through `loadSettings`.
 
 ## Test support
 

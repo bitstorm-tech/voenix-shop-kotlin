@@ -6,11 +6,8 @@ set -m
 
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 project_directory="$(cd -- "$script_directory/.." && pwd -P)"
-backend_directory="$project_directory/backend"
+backend_directory="$project_directory/backend-ts"
 frontend_directory="$project_directory/frontend"
-base_config_file="$backend_directory/app/resources/application.yaml"
-dev_config_file="$backend_directory/application-dev.yaml"
-local_config_file="$backend_directory/application-local.yaml"
 
 with_ngrok=false
 
@@ -33,13 +30,6 @@ for argument in "$@"; do
             ;;
     esac
 done
-
-# Later -config files win: base defaults, then shared development values,
-# then the developer's own values when the optional local file exists.
-config_arguments=(-config="$base_config_file" -config="$dev_config_file")
-if [[ -e "$local_config_file" ]]; then
-    config_arguments+=(-config="$local_config_file")
-fi
 
 status_directory="$(mktemp -d "${TMPDIR:-/tmp}/voenix-dev.XXXXXX")"
 status_file="$status_directory/status"
@@ -161,9 +151,11 @@ if [[ "$with_ngrok" == true ]]; then
     prefix_output "ngrok" "$magenta" < "$ngrok_log_pipe" &
 fi
 
+# The backend reads backend-ts/.env.development and the optional .env.local itself
+# (docs/dev/backend-ts/getting-started/running-the-development-server.md).
 (
     cd -- "$backend_directory"
-    run_process "backend" ./kotlin run -- "${config_arguments[@]}"
+    run_process "backend" bun run dev
 ) > "$backend_log_pipe" 2>&1 &
 backend_pid=$!
 

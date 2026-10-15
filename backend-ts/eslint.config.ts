@@ -57,7 +57,7 @@ export default defineConfig(
         { type: 'test-support', pattern: 'test-support' },
         { type: 'root', pattern: 'src' },
       ],
-      'boundaries/files': [{ category: 'test', pattern: '**/*.test.ts' }],
+      'boundaries/files': [{ category: 'test', pattern: ['**/*.test.ts', '**/test-fixtures.ts'] }],
     },
     rules: {
       'boundaries/dependencies': [
@@ -77,9 +77,11 @@ export default defineConfig(
               from: { element: { type: 'test-support' } },
               allow: { to: { element: [{ type: 'platform' }, anyModuleIndex] } },
             },
+            // Test code may build the whole application: the composition root is the only way to
+            // run a journey that spans several modules.
             {
               from: { file: { categories: 'test' } },
-              allow: { to: { element: { type: 'test-support' } } },
+              allow: { to: { element: [{ type: 'test-support' }, { type: 'root' }] } },
             },
           ],
         },

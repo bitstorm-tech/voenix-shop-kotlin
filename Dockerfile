@@ -1,8 +1,8 @@
-# The whole application as one image: the Kotlin backend serving the built Vue
-# frontend. Build context is the repository root. This is the image a production
-# deployment (for example Render.com) runs; backend/Dockerfile builds the
-# backend-only image the verification stack uses.
-# See docs/dev/getting-started/full-stack-image.md.
+# The whole application as one image: the TypeScript backend serving the built
+# Vue frontend. Build context is the repository root. This is the image a
+# production deployment (for example Render.com) runs; backend-ts/Dockerfile
+# builds the backend-only image.
+# See docs/dev/backend-ts/getting-started/full-stack-image.md.
 
 # Frontend build stage: `bun run build` type-checks with vue-tsc and bundles
 # with Vite into dist/.
@@ -15,34 +15,19 @@ RUN bun install --frozen-lockfile
 COPY frontend/ ./
 RUN bun run build
 
-# Backend build stage, identical to the one in backend/Dockerfile: the Kotlin
-# Toolchain wrapper (./kotlin) provisions its own CLI distribution and its own
-# JDK 25, so this stage only needs a JVM to start the wrapper plus network
-# access. `:app:executableJarJvm` is the toolchain's fat JAR task — one file
-# with every dependency and the Ktor EngineMain entry point.
-FROM eclipse-temurin:25-jdk AS backend-build
+# Backend dependency stage, identical to the one in backend-ts/Dockerfile: only
+# the lockfile-pinned production dependencies. Debian-based, not Alpine: sharp
+# ships glibc-linked libvips binaries, and the runtime stage is the same base.
+FROM oven/bun:1 AS backend-deps
 
-ENV KOTLIN_CLI_NO_WELCOME_BANNER=1 \
-    KOTLIN_CLI_JAVA_HOME=/opt/java/openjdk \
-    KOTLIN_CLI_BOOTSTRAP_CACHE_DIR=/kotlin-cli-cache
+WORKDIR /app
+COPY backend-ts/package.json backend-ts/bun.lock ./
+RUN bun install --frozen-lockfile --production
 
-# The wrapper downloads its distribution with curl or wget; the base image has
-# neither.
-RUN apt-get update \
-    && apt-get install --no-install-recommends --yes curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-COPY backend/ .
-# Cache mounts keep the toolchain distribution and the Maven dependencies out of
-# the image layers and make a rebuild after a source change fast.
-RUN --mount=type=cache,target=/kotlin-cli-cache \
-    --mount=type=cache,target=/root/.m2 \
-    ./kotlin task :app:executableJarJvm
-
-# Runtime stage: a JRE, the JAR, and the built frontend. Not Alpine — image
-# processing (scrimage, webp-imageio) loads glibc-linked native libraries.
-FROM eclipse-temurin:25-jre AS runtime
+# Runtime stage: Bun runs the TypeScript sources directly, next to the built
+# frontend. No .env file travels with the sources (see .dockerignore): a
+# deployment is configured through environment variables only.
+FROM oven/bun:1 AS runtime
 
 RUN useradd --system --create-home --home-dir /app --shell /usr/sbin/nologin app
 
@@ -54,18 +39,14 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=backend-build --chown=app:app \
-    /src/build/tasks/_app_executableJarJvm/app-jvm-executable.jar app.jar
-# The base defaults live inside the JAR as a classpath resource, but Ktor's
-# -config takes file paths, and passing any -config replaces the classpath
-# default instead of merging with it. So the base file is copied in as a file
-# and layered explicitly, exactly as scripts/start-dev-server.sh does it.
-COPY --from=backend-build --chown=app:app /src/app/resources/application.yaml application.yaml
-COPY --from=backend-build --chown=app:app /src/application-container.yaml application-container.yaml
-# The layer that makes this the full-stack image: it points frontend.distPath at
-# the directory the next line fills.
-COPY --from=backend-build --chown=app:app /src/application-fullstack.yaml application-fullstack.yaml
+COPY --from=backend-deps --chown=app:app /app/node_modules node_modules
+COPY --chown=app:app backend-ts/package.json backend-ts/tsconfig.json ./
+COPY --chown=app:app backend-ts/migrations migrations
+COPY --chown=app:app backend-ts/src src
+# The layer that makes this the full-stack image: the built frontend, and the
+# variable that points the backend at it.
 COPY --from=frontend-build --chown=app:app /src/dist frontend/dist
+ENV FRONTEND_DIST_PATH=/app/frontend/dist
 
 # Image and PDF storage default to ./data, resolved against this directory. The
 # directories are baked in with the right owner: when Docker creates a missing
@@ -77,8 +58,4 @@ RUN mkdir -p data/images/public data/images/private data/images/cache \
 USER app
 EXPOSE 8080
 
-# --enable-native-access: Netty loads a native library; without the flag the JVM
-# prints a restricted-method warning on every start.
-ENTRYPOINT ["java", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "/app/app.jar", \
-    "-config=/app/application.yaml", "-config=/app/application-container.yaml", \
-    "-config=/app/application-fullstack.yaml"]
+ENTRYPOINT ["bun", "src/main.ts"]
