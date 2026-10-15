@@ -160,7 +160,7 @@ unless it adds an edge.
 backend-ts/
 |- package.json, tsconfig.json, eslint.config.ts, .prettierrc.json, bunfig.toml
 |- .env.development            checked in; .env.local is ignored by Git
-|- migrations/                 V1__… to V31__…, the SQL files the runner applies
+|- migrations/                 V1__… to V32__…, the SQL files the runner applies
 |- src/
 |  |- platform/
 |  |  |- settings.ts           every variable, parsed once
