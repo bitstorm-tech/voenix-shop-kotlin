@@ -35,8 +35,8 @@ flowchart TB
 
     subgraph Supplier["Supplier module"]
         Routes["routes.ts<br/>supplierInput schema · handlers"]
-        Service["service.ts<br/>country enrichment · OperationResult"]
-        Repository["repository.ts<br/>read/write · executePostgresWrite · find"]
+        Service["service.ts<br/>country enrichment"]
+        Repository["repository.ts<br/>executePostgresWrite · OperationResult · find"]
         Schema["schema.ts<br/>suppliers table"]
     end
 
@@ -61,11 +61,12 @@ The boundaries are:
    body, the id parameter, the messages, and the mapping from a result to a
    status code. The schema also normalizes: text is trimmed and a blank or
    omitted optional field becomes `null`.
-2. **The service owns the use cases**: it adds the nested `country` to every
-   answer and turns the repository's plain results into `OperationResult`.
-3. **The repository owns persistence and constraint mapping** in the two
-   platform transactions, and returns plain values. It queries the
-   `suppliers` table only.
+2. **The service owns the country join**: it adds the nested `country` to
+   every answer and passes a failure on unchanged.
+3. **The repository owns persistence and constraint mapping**, and answers
+   `OperationResult` itself (`notFound`, `conflict`, or the `countryId` field
+   error). Reads run in `read`; every write is a single statement on `db`. It
+   queries the `suppliers` table only.
 4. **The country is read through the Country module's `find` capability**,
    never through its table: the module receives `countries` as a dependency.
 
@@ -220,19 +221,20 @@ into the platform's `Tables`. The repository selects every column under its
 camel-case name, so a row is already a `StoredSupplier`; insert and update
 answer the stored row through `RETURNING`.
 
-Every write runs in `executePostgresWrite` around `write(db, …)`; see
+Every write is a single statement on `db` (one statement is atomic on its own,
+so it needs no `write` transaction) inside `executePostgresWrite`; see
 [Persistence error handling](../conventions/persistence-error-handling.md):
 
-- **Create and update** declare `foreignKeyViolation: 'countryNotFound'`. The
+- **Create and update** declare `foreignKeyViolation:
+  invalid({ countryId: ['Country not found'] })` in the repository. The
   country is the only foreign key these writes can fail, so the mapping is
   unambiguous, and PostgreSQL is the concurrency-safe authority: there is no
-  preliminary existence query. The service answers
-  `invalid({ countryId: ['Country not found'] })`. The update is one statement
-  in one transaction, so a bad country changes nothing.
-- **Delete** declares `foreignKeyViolation: 'inUse'`. Every table that
+  preliminary existence query. The update is one statement, so a bad country
+  changes nothing.
+- **Delete** declares `foreignKeyViolation: conflict`. Every table that
   references suppliers does so with `ON DELETE RESTRICT`, so the delete fails
   while a production destination or job, an article (mug, t-shirt, SPOD
-  article), or a supplier login still points at the supplier. The service
+  article), or a supplier login still points at the supplier. The repository
   answers `conflict`, the route `409 Supplier is in use and cannot be
   deleted`; neither the constraint nor the table name leaks. The referencing
   row has to be removed first.
@@ -254,7 +256,7 @@ the stable `id` ordering keeps their list order deterministic.
 - There is no `UnexpectedFailure`: a database exception propagates to the
   app's `onError`, which answers `500`.
 - Create and update read the stored row with `RETURNING` instead of a second
-  `SELECT` in the same transaction.
+  `SELECT`.
 - The Kotlin guide names four restricting tables; the code has more since the
   article tables of the t-shirt and SPOD article migrations. The `409` covers
   all of them.
@@ -303,5 +305,5 @@ here.
 ### Add another table that references suppliers
 
 Use `ON DELETE RESTRICT` (or decide explicitly otherwise). The delete's
-`foreignKeyViolation: 'inUse'` covers it without a code change; say so in this
+`foreignKeyViolation: conflict` covers it without a code change; say so in this
 guide.

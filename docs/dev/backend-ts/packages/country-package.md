@@ -31,9 +31,8 @@ flowchart TB
     end
 
     subgraph Country["Country module"]
-        Routes["routes.ts<br/>countryInput schema · handlers"]
-        Service["service.ts<br/>normalization · OperationResult"]
-        Repository["repository.ts<br/>read/write · executePostgresWrite"]
+        Routes["routes.ts<br/>countryInput schema · handlers · public mapping"]
+        Repository["repository.ts<br/>normalization · executePostgresWrite · OperationResult"]
         Schema["schema.ts<br/>countries table"]
     end
 
@@ -43,8 +42,7 @@ flowchart TB
     App --> Routes
     Routes -.->|"installs"| Auth
     Routes -.->|"uses"| Respond
-    Routes --> Service
-    Service --> Repository
+    Routes --> Repository
     Repository --> Database
     Repository -.-> Schema
 ```
@@ -54,24 +52,23 @@ The boundaries are:
 1. **The platform owns the shared HTTP mechanics**: the error answer, the body
    limit, the auth middleware, and the helpers a route answers with.
 2. **The route file owns the HTTP contract**: paths, the Zod schema of the
-   body, the id parameter, the messages, and the mapping from a result to a
-   status code.
-3. **The service owns normalization and the use cases**, and answers
-   `OperationResult`.
-4. **The repository owns persistence and conflict detection**, in the two
-   platform transactions, and returns plain values.
+   body, the id parameter, the messages, the public representation, and the
+   mapping from a result to a status code.
+3. **The repository owns persistence, the code normalization, and conflict
+   detection**, and answers `OperationResult` directly. The module has no
+   service: its routes only forward to the repository (see
+   [Source file organization](../conventions/source-file-organization.md)).
 
 ## File map
 
 ```text
 country/
 |- index.ts            createCountryModule({ db }) → { routes, find, isShippable }; export type Country
-|- routes.ts           countryInput schema, COUNTRY_RESPONSES, countryId, countryRoutes(service)
-|- service.ts          createCountryService(repository); CountryInput, PublicCountry
-|- repository.ts       createCountryRepository(db); Country
+|- routes.ts           countryInput schema, COUNTRY_RESPONSES, countryId, toPublicCountry, countryRoutes(repository)
+|- repository.ts       createCountryRepository(db); Country, CountryInput
 |- schema.ts           CountriesTable, merged into the platform's Tables
 |- routes.test.ts      one happy path per route and the module-specific errors
-|- service.test.ts     conflicts, concurrency, the two capabilities
+|- repository.test.ts  conflicts, concurrency, the stored code, the two capabilities
 `- validation.test.ts  the schema's field names and messages
 ```
 
@@ -88,7 +85,7 @@ app.route('/', countries.routes)
 
 | Method and path | Access | CSRF header | Success response |
 | --- | --- | --- | --- |
-| `GET /api/countries` | Public | No | `200` with a JSON array of `PublicCountry` |
+| `GET /api/countries` | Public | No | `200` with a JSON array of public countries (`toPublicCountry`) |
 | `GET /api/admin/countries` | Admin | No | `200` with a JSON array of `Country` |
 | `POST /api/admin/countries` | Admin | Yes | `201` with `Country` and a relative `Location` header |
 | `GET /api/admin/countries/{id}` | Admin | No | `200` with `Country` |
@@ -132,7 +129,7 @@ export const countryInput = z.strictObject({
 | Field | Rule | Normalization |
 | --- | --- | --- |
 | `name` | required after trimming; at most 255 characters | trimmed by the schema |
-| `countryCode` | required; exactly two ASCII letters | trimmed by the schema, upper-cased by the service |
+| `countryCode` | required; exactly two ASCII letters | trimmed by the schema, upper-cased by the repository on write |
 
 A missing, `null`, or non-string field answers its "is required" message; an
 unknown property answers `Unknown property` under its name. See
@@ -148,25 +145,26 @@ An admin posts `{"name":" Denmark ","countryCode":" dk "}`:
 3. `jsonBody(countryInput)` checks the content type, parses the body, and runs
    the schema; the handler receives `{ name: 'Denmark', countryCode: 'dk' }`
    from `c.req.valid('json')`.
-4. `countries.create(input)` normalizes the code to `DK` and calls
-   `repository.insert`.
-5. `insert` runs the `INSERT … RETURNING id` in `write(db, …)` inside
-   `executePostgresWrite({ uniqueViolation: 'conflict' }, …)`. A unique
-   violation becomes the string `'conflict'`; the service maps it to
-   `conflict`.
-6. The route answers `201`, the new `Country`, and `Location:
+4. `countries.create(input)` in the repository upper-cases the code to `DK`
+   and runs the single `INSERT … RETURNING id` directly on `db` (one statement
+   is atomic on its own, so it needs no `write` transaction) inside
+   `executePostgresWrite({ uniqueViolation: conflict }, …)`. A unique
+   violation becomes the `conflict` value of `OperationResult`; success is
+   `ok(country)`.
+5. The route answers `201`, the new `Country`, and `Location:
    /api/admin/countries/9`, or hands a failure to `respondFailure`.
 
 ## Admin and public representations
 
 ```text
-Country:        id, name, countryCode
-PublicCountry:      name, countryCode, dialCode
+Country:            id, name, countryCode
+public country:         name, countryCode, dialCode
 ```
 
-The public list hides the id, upper-cases the code, and adds the dial code
-through `libphonenumber-js` (`+49` for `DE`); an unknown region has
-`dialCode: null`. Lists are ordered by `country_code`, then `id`, and are bare
+`toPublicCountry` in `routes.ts` hides the id and adds the dial code through
+`libphonenumber-js` (`+49` for `DE`); an unknown region has `dialCode: null`.
+The code needs no conversion there: the repository stores every code
+upper-case. Lists are ordered by `country_code`, then `id`, and are bare
 JSON arrays.
 
 ## The two capabilities
@@ -197,7 +195,7 @@ PostgreSQL enforces the case-insensitive name uniqueness
 (`ux_countries_name_lower`) and the code uniqueness. Any `23505` becomes the
 generic conflict, without asking which rule rejected the write; see
 [Persistence error handling](../conventions/persistence-error-handling.md).
-The service tests cover a normal duplicate, a case-variant duplicate, and two
+The repository tests cover a normal duplicate, a case-variant duplicate, and two
 concurrent creates that leave one row and one conflict.
 
 ## Persistence
@@ -233,7 +231,7 @@ const response = await app().request('/api/admin/countries', { headers: await ad
 | Test | What it states |
 | --- | --- |
 | [`routes.test.ts`](../../../../backend-ts/src/modules/country/routes.test.ts) | One happy path per route against the real database, the seeded public list with dial codes, `404`, `409` for a duplicate name and a duplicate code, the protection on the admin subtree |
-| [`service.test.ts`](../../../../backend-ts/src/modules/country/service.test.ts) | Conflicts and normalization, a self update, concurrency, delete, the public mapping of an unknown region, `find`, and `isShippable` |
+| [`repository.test.ts`](../../../../backend-ts/src/modules/country/repository.test.ts) | Conflicts and normalization, a self update, concurrency, delete, the upper-cased stored code, `find`, `isShippable`, and opening and closing a destination |
 | [`validation.test.ts`](../../../../backend-ts/src/modules/country/validation.test.ts) | The five messages of `countryInput` and the unknown-property answer |
 
 The platform cases (`401`/`403` on every method, CSRF, malformed ids and
@@ -247,15 +245,16 @@ not repeated here.
 1. Add a migration under `backend-ts/migrations/`.
 2. Add the column to `CountriesTable` in `schema.ts` and to `Country` and the
    `columns` list in `repository.ts`.
-3. Decide whether it belongs in `PublicCountry`.
+3. Decide whether it belongs in `toPublicCountry`.
 4. If clients may write it, add it to `countryInput` and `CountryInput` and
-   normalize it in the service.
+   normalize it in the repository's `create` and `update`.
 5. Extend the tests and this guide, then run `bun run check`.
 
 ### Add an operation or endpoint
 
-1. Add the function to the service, returning `OperationResult`.
-2. Add only the persistence it needs to the repository.
-3. Add the route on the public app or the admin sub-app; the admin sub-app is
+1. Add the function to the repository, returning `OperationResult`. Add a
+   `service.ts` only when a use case does more than the repository answers,
+   such as a join with another module.
+2. Add the route on the public app or the admin sub-app; the admin sub-app is
    already protected.
-4. Add one happy-path test and the module-specific error cases.
+3. Add one happy-path test and the module-specific error cases.

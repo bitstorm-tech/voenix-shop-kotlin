@@ -122,7 +122,6 @@ The exported surface of `index.ts`:
 | --- | --- |
 | `createGeneratorModule(deps)` | the factory; `deps.fetch` defaults to the global `fetch` and is a test seam |
 | `.routes` | `POST /api/generator/generate` and `GET /api/magic-coins/balance` |
-| type `GeneratorModule` | its return type |
 
 The catalogs are typed as `Pick<ArticleCatalog, 'printFormats'>` and
 `Pick<PromptCatalog, 'composedText'>`: the module asks each one question, and a
@@ -222,8 +221,8 @@ of the two ids was wrong.
 
 `readGenerationUpload(await c.req.formData())` reads the parts in whatever order
 the client sent them. A body that is no multipart form at all never reaches
-it: the platform's `formBody` middleware, installed after the rate limiter,
-answers `415 Unsupported media type` (see
+it: the platform's `formBody` middleware, installed before the rate limiter
+so that such a request spends no slot, answers `415 Unsupported media type` (see
 [Request validation](../conventions/request-validation.md#a-multipart-body)).
 
 Two limits answer two different questions:
@@ -333,8 +332,8 @@ one trusted reverse proxy; the reasoning is in
 
 `MagicCoinsOwner` is a union of two cases:
 
-- `{ kind: 'user', userId }` for a signed-in customer, used when the session's
-  user id is a positive whole number;
+- `{ kind: 'user', userId }` for a signed-in customer: any signed-in
+  principal, whose `userId` the platform already carries as a number;
 - `{ kind: 'guest', token }` for everyone else. The token comes from
   `guestTokens.getOrCreate(c)`, which issues the encrypted, HttpOnly
   `voenix.guest` cookie (`SameSite=Lax`, 30 days, path `/api`) when the request
@@ -342,8 +341,8 @@ one trusted reverse proxy; the reasoning is in
   guest, never an error.
 
 The rule lives in exactly one function, `magicCoinsOwner(c, guestTokens)`, and
-both routes use it, so a session user id that is not a positive number falls
-back to the guest path everywhere. The database enforces the same "exactly one
+both routes use it, so a signed-in visitor is charged to the account and
+everyone else to the guest cookie on both. The database enforces the same "exactly one
 owner" rule with an XOR check constraint. A signed-in visitor is never handed a
 guest cookie on the side.
 
@@ -405,30 +404,20 @@ amounts, an initial grant of 10 and a cost of 1, are the constants
 
 ## Differences from the Kotlin module
 
-- **Magic Coins are part of this module** (#252). There is no `GenerationCoins`
-  capability, no `MagicCoinsOperations` seam, and no public owner type; the
-  balance route is mounted by `createGeneratorModule`.
-- **No `UnexpectedFailure` endings.** A failing balance, article, or prompt
-  lookup throws to the app's `onError` (`500`), where the Kotlin service mapped
-  it to its own `UnexpectedFailure` outcome. The answer is the same.
-- **No `GeneratorOperations` seam.** The Kotlin route test stubbed it to prove
-  that a refused request generates nothing; the TypeScript tests show it through
-  the database instead: the visitor of a refused 21st call has no balance row at
-  all, and 25 requests without a CSRF token leave the first real one passing.
+- **Magic Coins are part of this module** (#252): no `GenerationCoins`
+  capability and no public owner type; `createGeneratorModule` mounts the
+  balance route.
 - **The upload check runs in the route.** An upload rejection, including the
   content type, is answered before the owner is resolved, so a rejected upload
   no longer issues a guest cookie on the side.
-- **The multipart body is read whole.** Ktor streamed the parts and stopped at
-  the limit; Hono's `bodyLimit` has already buffered the body, so the reader
-  compares sizes and needs no `readChunks` and no drain.
+- **The multipart body is read whole.** Hono's `bodyLimit` has already
+  buffered it, so the reader compares sizes instead of streaming the parts.
 - **The spend needs no `NonCancellable`.** A closed browser tab does not cancel
   the handler's promise, so a generation that reached the provider is always
   charged.
 - **Ids are JavaScript numbers.** A `promptId` or `articleId` beyond
   `Number.MAX_SAFE_INTEGER` is refused as non-numeric, where Kotlin read any
   `Long`.
-- **Timeouts.** One 120-second `AbortSignal.timeout` per request; the separate
-  10-second connect timeout of the Ktor client has no `fetch` equivalent.
 
 ## What is deliberately not here
 
@@ -468,7 +457,7 @@ createGeneratorModule({
 
 | Test | What it states |
 | --- | --- |
-| [`routes.test.ts`](../../../../backend-ts/src/modules/generator/routes.test.ts) | Dummy mode for a guest (identical bytes, guest cookie, balance 10 → 9) and a signed-in visitor (charged to the account, no guest cookie); `402` with its code; the two `404`s, free; a rejected upload on its field; outside dummy mode the provider is called and its failure is a free `502`; the 21st call is `429` with `Retry-After`; requests without a CSRF token spend no slot; the balance route's grant, `no-store`, the user balance, and a failing lookup as `500` on both routes |
+| [`routes.test.ts`](../../../../backend-ts/src/modules/generator/routes.test.ts) | Dummy mode for a guest (identical bytes, guest cookie, balance 10 → 9) and a signed-in visitor (charged to the account, no guest cookie); `402` with its code; the two `404`s, free; a rejected upload on its field; outside dummy mode the provider is called and its failure is a free `502`; the 21st call is `429` with `Retry-After` and leaves no balance row; requests without a CSRF token or without a multipart body spend no slot; the balance route's grant, `no-store`, the user balance, and a failing lookup as `500` on both routes |
 | [`service.test.ts`](../../../../backend-ts/src/modules/generator/service.test.ts) | An empty balance asks no catalog and no provider; a failing spend after the generation keeps the image and logs the owner without the guest token |
 | [`upload.test.ts`](../../../../backend-ts/src/modules/generator/upload.test.ts) | Any part order and the last repetition winning; a missing or empty image; missing or non-numeric ids; the type allowlist; exactly 10 MiB and one byte more; file parts of any name past 20 MiB |
 | [`fal.test.ts`](../../../../backend-ts/src/modules/generator/fal.test.ts) | The exact request (URL, method, no redirect, headers, the four snake_case fields, both ratios), the keyless download, every disappointment as `null` with neither the provider's text nor the key in the log, a parse failure logged as `SyntaxError`, a plaintext result URL never fetched, the content-type allowlist |

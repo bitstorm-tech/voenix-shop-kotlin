@@ -128,7 +128,7 @@ name comes with them, for the SPOD name tripwire. Everything else the order
 snapshotted at placement, including the hotspot (#260, decisions 8 and 14).
 
 The loader maps every source problem to one bounded code: `SOURCE_NOT_FOUND`
-(`null`), `SOURCE_INVALID` (an answer for another order, or no lines), and
+(`null`), `SOURCE_INVALID` (an order without lines), and
 `SOURCE_UNAVAILABLE` (the read threw; only the error's class is logged).
 
 ## File map
@@ -390,8 +390,7 @@ production side may abort that transaction.
 [`requestProduction(trx, orderId)`](../../../../backend-ts/src/modules/production/delivery/requests.ts)
 inserts one row into `production_requests` in the **caller's** transaction:
 no order read, no routing. If the caller rolls back, no request exists. The
-unique `order_id` makes repeated and concurrent calls answer the same id. A
-non-positive id throws before touching the database.
+unique `order_id` makes repeated and concurrent calls answer the same id.
 
 ### The tables
 
@@ -468,7 +467,7 @@ codes are the source codes, the `ProductionPdfError` names, and
 [`createArtifactStore(root)`](../../../../backend-ts/src/modules/production/pdf/artifact-store.ts)
 `load(jobId, fileName, sha256)` recomputes the digest and answers `loaded`,
 `missing`, or `digestMismatch`: tampered or lost bytes never reach a supplier.
-A file name that is not a plain name and a non-positive job id throw.
+A file name that is not a plain name throws.
 
 ## Delivery
 
@@ -654,18 +653,12 @@ columns by hand; after it, the honest repair is to write to the customer.
 
 ## What the port changed
 
-- **One module, one way.** No `ProductionOutbox` (`requestProduction(trx,
-  orderId)` joins the caller's transaction), no `ProductionSource` port, no
-  late-bound sources, no second install function: order implements the three
-  read contracts this module declares (#248).
 - **The live lookup moved here.** Kotlin's order module resolved the supplier
   and the partner ids through the catalog; the read contract now carries the
   `articleId`/`variantId` reference and production calls `articleCatalog.find`.
-- **Rendered mails.** The resolvers are gone: every mail is rendered when it is
-  enqueued, in the transaction that causes it. The producer mail takes its item
-  count from the job's snapshot and its date from `fulfillmentOrders`; an order
-  that vanished keeps the delivery open with `SOURCE_NOT_FOUND`. The shipping
-  mail is rendered in the ship transaction. The outbox's unique
+- **Rendered mails.** Every mail is rendered when it is enqueued, in the
+  transaction that causes it; an order that vanished keeps the producer
+  delivery open with `SOURCE_NOT_FOUND`. The outbox's unique
   `(kind, source_id)` is gone, so every "one mail" rule rests on a guarded
   write.
 - **No delivery adapter seam.** There is one push channel, so the stage calls
@@ -677,15 +670,12 @@ columns by hand; after it, the honest repair is to write to the customer.
   MINA had an idle timeout. `stop()` lets a running upload finish (each step is
   bounded) instead of interrupting it.
 - **pdf-lib instead of PDFBox.** Same layout constants and font file; every
-  image is decoded by sharp; pixel-comparison and legacy-fixture tests are
-  dropped (#262).
+  image is decoded by sharp.
 - **Validation in Zod at the route.** An unknown `environment` is a field error
   (Kotlin failed to read the body); the service's rules (missing secret,
-  unconfigured SPOD) answer only once the schema passed; unknown properties are
-  refused.
+  unconfigured SPOD) answer only once the schema passed.
 - **The startup check** runs in the async factory, before the worker exists.
-- **The on-demand generator** answers `failed: INVALID_SOURCE` for an order
-  without lines and throws when the order cannot be read.
+- **The on-demand generator** throws when the order cannot be read.
 - **Timestamps** are ISO strings with millisecond precision.
 
 ## Tests

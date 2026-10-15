@@ -47,9 +47,8 @@ flowchart TB
 
     subgraph Promotion["Promotion module"]
         Routes["routes.ts<br/>promotionInput schema · handlers"]
-        Service["service.ts<br/>admin use cases · OperationResult"]
         Codes["codes.ts<br/>promotionCodes · rules · toApiError"]
-        Repository["repository.ts<br/>admin transactions · statements"]
+        Repository["repository.ts<br/>admin operations · OperationResult · statements"]
         Schema["schema.ts<br/>three tables"]
     end
 
@@ -57,7 +56,7 @@ flowchart TB
 
     Client --> App --> Routes
     Routes -.-> Respond
-    Routes --> Service --> Repository
+    Routes --> Repository
     Consumer --> Codes --> Repository
     Repository --> Database
     Repository -.-> Schema
@@ -68,13 +67,13 @@ The boundaries are:
 1. **The route file owns the HTTP contract**: paths, the `promotionInput` Zod
    schema with the field rules, the id parameter, and the three conflict
    messages.
-2. **The service owns the admin use cases** and answers `OperationResult`. It
-   validates nothing: the schema already did.
-3. **`codes.ts` owns the coupon rules**: the activity window, the usage
+2. **`codes.ts` owns the coupon rules**: the activity window, the usage
    limits, the order in which they are checked, and the HTTP mapping every
    consumer answers a rejected coupon with.
-4. **The repository owns persistence**: the admin operations in their own
-   `read`/`write` transactions, and the single statements the coupon
+3. **The repository owns persistence and the admin answers**: the admin
+   operations answer `OperationResult` directly (there is no service; the
+   routes call the repository), single-statement writes run on `db`, the
+   update runs in its own `write` transaction, and the single statements the coupon
    capability runs in a transaction it is handed. The derived
    `coupon_code_normalized` column is written through `normalizedCouponCode`,
    so storing a code and looking one up cannot disagree.
@@ -84,20 +83,19 @@ The boundaries are:
 ```text
 promotion/
 |- index.ts            createPromotionModule({ db }) → { routes, promotionCodes }; toApiError; the value types
-|- routes.ts           promotionInput schema, the response messages, promotionId, promotionRoutes(service)
-|- service.ts          createPromotionService(repository); PromotionInput
+|- routes.ts           promotionInput schema, the response messages, promotionId, promotionRoutes(repository)
 |- codes.ts            createPromotionCodes(db); PromotionCodeResult, PromotionRejection, ApplicablePromotion, toApiError
-|- repository.ts       createPromotionRepository(db); the statements taking a trx; Promotion, StoredPromotion, Discount
+|- repository.ts       createPromotionRepository(db); the statements taking a trx; PromotionInput, Promotion, StoredPromotion, Discount
 |- schema.ts           the three table interfaces, merged into the platform's Tables
 |- routes.test.ts      one happy path per route and the module errors
-|- service.test.ts     concurrent duplicate codes, the update racing a redemption
+|- repository.test.ts  concurrent duplicate codes, the update racing a redemption
 |- codes.test.ts       the capability: every reason, reservations, redemption, release, find, toApiError
 `- validation.test.ts  the schema's field names and messages
 ```
 
 `codes.ts` is the one file beyond the standard five. The capability is a
-concern of its own, with its own result type and rules, and the admin service
-does not use it.
+concern of its own, with its own result type and rules, and the admin routes
+do not use it.
 
 The composition root creates the module once, mounts its routes, and hands the
 capability on:
@@ -339,9 +337,10 @@ number once, in `toStoredPromotion`.
 
 PostgreSQL is the authority for code uniqueness. Create runs no preliminary
 existence query; of two racing creates with a case-variant code exactly one
-insert succeeds, and the other's `23505` becomes `'conflict'` through
+insert succeeds, and the other's `23505` becomes the `conflict` value through
 `executePostgresWrite`. Delete needs no lock: the restricting foreign keys
-reject it with `23503`/`23001`, mapped to `'inUse'`. The answer is generic on
+reject it with `23503`/`23001`, mapped to `conflict` as well; the route answers
+it with its own delete message. The answer is generic on
 purpose, because the SQL state cannot say which reference held the promotion
 back (see
 [Persistence error handling](../conventions/persistence-error-handling.md)).
@@ -364,17 +363,17 @@ subquery of the locking `SELECT`, whose snapshot predates the wait.
 
 The admin update then decides in one place:
 
-1. No row: `'notFound'`.
+1. No row: `notFound`.
 2. No redemptions: the full update runs.
 3. Redemptions exist, and the input matches the stored configuration except
    for `isActive` (`changesOnlyActivation`, comparing timestamps as instants
    and the discount as a number): only `is_active` is written.
-4. Otherwise `'locked'`, which the service maps to `conflict`.
+4. Otherwise `conflict`, which the route answers with its update message.
 
 A guard inside the writing statement (`UPDATE … WHERE NOT EXISTS (SELECT …
 FROM promotion_redemptions …)`) is not enough: it evaluates against its own
 snapshot and is not re-checked when a redemption commits concurrently. The
-service test races exactly that case.
+repository test races exactly that case.
 
 ## Differences to the Kotlin backend
 
@@ -382,27 +381,18 @@ service test races exactly that case.
   `validate()` ran now get a field error: a non-number `discountValue` reports
   `DiscountValue is required`, a non-string timestamp the timestamp message, a
   non-integer or out-of-range limit `… must be an integer`, and an explicit
-  `null` for `isActive` `IsActive must be a boolean`. An unknown property is
-  rejected, as everywhere in this backend.
+  `null` for `isActive` `IsActive must be a boolean`.
 - **Response notation.** `discountValue` is a JSON number without trailing
   zeros (`10`, not `10.00`), and timestamps carry milliseconds
   (`2026-05-31T22:00:00.000Z`, not `2026-05-31T22:00:00Z`). Both parse to the
   same value.
-- **`reserve` joins the caller's transaction** (checkout TX1, #247) instead of
-  opening its own.
-- **One `release`.** Kotlin had `release` (inside the caller's transaction)
-  and `releaseAbandoned` (in its own). The port has one `release(trx, cartId)`
-  that joins the caller's transaction like `reserve` and `redeem`; a caller
-  without a transaction of its own opens one with `write`.
+- **`reserve` and one `release(trx, cartId)` join the caller's transaction**
+  (checkout TX1, #247); Kotlin's `releaseAbandoned` in its own transaction is
+  gone, and a caller without a transaction opens one with `write`.
 - **`validate` requires the cart.** Kotlin's `reservationKey` was optional;
   every caller has a cart, so `cartId` is a required parameter.
-- **No seams.** The `PromotionOperations` interface, the repository result
-  types, and the service's defensive re-validation are gone (#251). The
-  activity-window clock is `new Date()`; tests set it with Bun's
-  `setSystemTime` instead of injecting a `Clock`.
-- **No schema tests.** `PromotionSchemaIntegrationTest` asserted the Flyway
-  constraints; the SQL files are copied unchanged, and the constraints are
-  exercised through the conflict, lock, and in-use tests instead.
+- **No injected `Clock`.** The activity-window clock is `new Date()`; tests set
+  it with Bun's `setSystemTime`.
 
 ## Tests
 
@@ -416,7 +406,7 @@ bun run check                     # the full gate
 | Test | What it states |
 | --- | --- |
 | [`routes.test.ts`](../../../../backend-ts/src/modules/promotion/routes.test.ts) | One happy path per route (ordering, redemption counts, trimming, UTC, `201` + `Location`, `204`), `404`, `400 Invalid promotion id`, the three `409` answers, and the accepted activation change of a redeemed promotion |
-| [`service.test.ts`](../../../../backend-ts/src/modules/promotion/service.test.ts) | Concurrent case-variant creates and updates leave one code and one conflict; an admin update racing a redemption waits for the row lock and conflicts |
+| [`repository.test.ts`](../../../../backend-ts/src/modules/promotion/repository.test.ts) | Concurrent case-variant creates and updates leave one code and one conflict; an admin update racing a redemption waits for the row lock and conflicts |
 | [`codes.test.ts`](../../../../backend-ts/src/modules/promotion/codes.test.ts) | `validate` with trimming, every reason, the login hint, both window boundaries, reservations of other carts; `reserve` idempotency, refusals, per-user counts, two concurrent reserves of the last unit, rollback; `redeem` recording, limit re-checks, window ignored, consuming the reservation, rollback, once per order, two concurrent redeems of the last unit; `release`; `find`; `toApiError` |
 | [`validation.test.ts`](../../../../backend-ts/src/modules/promotion/validation.test.ts) | Every message of `promotionInput`, the defaults, and the cross-field guards |
 

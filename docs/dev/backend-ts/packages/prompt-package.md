@@ -52,7 +52,7 @@ flowchart TB
         Slot["slot/<br/>slots · slot variants"]
         Category["category/<br/>categories · subcategories"]
         Prompts["prompt/<br/>prompts · storefront · promptCatalog"]
-        Ordering["ordering.ts · fields.ts · outcomes.ts"]
+        Ordering["ordering.ts · fields.ts"]
     end
 
     Pricing["pricing<br/>priceCatalog"]
@@ -85,16 +85,15 @@ prompt/
 |- fields.ts             Zod fragments every request schema shares: requiredName, optionalText, reorderInput
 |- ordering.ts           lockSequence (the three anchors), lockCategories (ascending ids), moved (find,
 |                        density check, move), rewritePositions (the dense single-phase rewrite)
-|- outcomes.ts           found / written / deleted: a repository's plain answer as an OperationResult
 |- slot/
 |  |- routes.ts          slotInput, slotVariantInput, slotVariantUpdate; slotRoutes, slotVariantRoutes
-|  |- service.ts         createPromptSlotService; SlotVariantInput
-|  `- repository.ts      createPromptSlotRepository; PromptSlot, PromptSlotVariant
+|  `- repository.ts      createPromptSlotRepository; PromptSlot, PromptSlotVariant, SlotVariantInput;
+|                        the slotId field error
 |- category/
 |  |- routes.ts          categoryInput, subcategoryInput; categoryRoutes, subcategoryRoutes
-|  |- service.ts         createPromptCategoryService and the two categoryId field errors
-|  `- repository.ts      createPromptCategoryRepository; PromptCategory, PromptSubcategory; the
-|                        retry when a subcategory moved between its read and its lock
+|  `- repository.ts      createPromptCategoryRepository; PromptCategory, PromptSubcategory; the two
+|                        categoryId field errors; the retry when a subcategory moved between its
+|                        read and its lock
 |- prompt/
 |  |- routes.ts          promptInput; promptAdminRoutes (incl. the example-image pre-upload), publicPromptRoutes
 |  |- service.ts         createPromptService (admin lifecycle, storefront read), createPromptCatalog;
@@ -109,8 +108,10 @@ prompt/
 ```
 
 The three sub-folders group the files by concern; each keeps the module shape
-of [Source file organization](../conventions/source-file-organization.md)
-(`routes.ts`, `service.ts`, `repository.ts`). The three files at the top are
+of [Source file organization](../conventions/source-file-organization.md).
+Only `prompt/` has a `service.ts`, because only the prompts join other
+modules (the price and the example images); the slot and category routes take
+their repository, which answers `OperationResult` itself. The three files at the top are
 shared by more than one sub-folder. Nothing but `index.ts` is importable from
 another module.
 
@@ -531,7 +532,7 @@ reorder checks it before it writes:
 ```ts
 await lockSequence(trx, 'CATEGORY')
 const stored = await orderedCategories(trx)
-const order = moved(stored, sourceId, targetId)   // 'notFound', 'conflict' for a gap, or the new order
+const order = moved(stored, sourceId, targetId)   // notFound, conflict for a gap, or the new order
 ```
 
 Refusing a gapped sequence instead of repairing it matters, because a rewrite
@@ -608,30 +609,19 @@ map no `23505` outside the reorder.
 
 - **Unknown properties are rejected.** A prompt body with `position` or
   `priceId`, or a variant update with `slotId`, is `400 Unknown property`; the
-  Kotlin decoder ignored them.
+  Kotlin decoder ignored them. A wrong type gets a field message (`Active must
+  be a boolean`) instead of a parse failure.
 - **One `400` for the prompt and its price.** The Zod schema embeds
   `priceInput`, so a body with a broken title and a broken price field reports
   both at once (`title`, `price.salesVatId`); Kotlin reported the price fields
-  only after the prompt fields passed. The rules that need the database (an
-  unknown VAT, the discount rules) still follow from `prepare`. A wrong type gets a field message (`Active must be a
-  boolean`, `ExampleImageFilename must be a string`) instead of a parse failure.
+  only after the prompt fields passed.
 - **The subcategory of a prompt is checked by a read under the category lock**
-  instead of mapping `23503` around the `prompts` statement alone. Kotlin caught
-  the SQL state per statement inside the transaction; in Kysely a failed
-  statement aborts the transaction, so the port keeps the convention of one
-  mapping around `write` and rules the subcategory out before the statement
-  runs.
-- **Name conflicts are mapped around the transaction**, by the convention,
-  rather than around the statement (see the last paragraph above).
-- **No seams.** The `*Operations` interfaces, the repository result types, and
-  `StoredPrompt<T>` are gone (#251); a repository answers values or strings
-  (`'conflict'`, `'notFound'`, `'categoryNotFound'`, …), which the services turn
-  into `OperationResult`.
+  instead of mapping `23503` around the `prompts` statement alone: in Kysely a
+  failed statement aborts the transaction, so the port keeps one mapping
+  around `write` (name conflicts included) and rules the subcategory out
+  before the statement runs.
 - **The oversized upload** is refused after the body arrived (the image module's
   reader), within the application-wide body limit.
-- **No schema tests.** The `*SchemaIntegrationTest`s asserted the Flyway
-  constraints one by one; the SQL file is copied unchanged, and the constraints
-  are exercised through the conflict, in-use, and ordering tests.
 
 ## Tests
 
@@ -670,7 +660,8 @@ body limit) are pinned once in `src/platform/**/*.test.ts`.
 
 ### Add a route group
 
-1. Create the sub-folder with `routes.ts`, `service.ts`, and `repository.ts`.
+1. Create the sub-folder with `routes.ts` and `repository.ts`, and a
+   `service.ts` only if its use cases join another module.
 2. Mount it in `index.ts` **before** `promptAdminRoutes`, so the prompts'
    `/:id` cannot answer its path.
 3. A writer of category rows locks them through `lockCategories`, after any

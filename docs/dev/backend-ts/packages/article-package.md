@@ -100,8 +100,10 @@ flowchart TB
 - The Zod schema of a body is its only validation; the service trusts what it
   receives (see [Request validation](../conventions/request-validation.md)).
 - The services check what needs another module before a transaction opens —
-  the submitted example images, the price (`priceCatalog.prepare`) — and map
-  the repository's answers to `OperationResult`s.
+  the submitted example images, the price (`priceCatalog.prepare`). The
+  category repository answers `OperationResult` itself; the mug and SPOD
+  article writes answer a small union (`'priceRequired'`, `'unknownVariant'`,
+  `'supplierNotFound'`, …) that their services turn into field errors.
 - The repositories own the transactions, the ordering locks, and the SQLSTATE
   mapping. The two article repositories write the price with
   `priceCatalog.storeInTransaction(trx, …)` and its siblings, so the price row
@@ -116,10 +118,11 @@ article/
 |- index.ts              createArticleModule(deps) → { routes, articleCatalog, spodCatalogSync }; the exported types
 |- schema.ts             the twelve article tables, merged into the platform's Tables
 |- routes.ts             shared request fragments (reorderInput, articlePrice, optionalId, …),
-|                        exampleImageUpload, storefrontRoutes
+|                        storefrontRoutes; the pre-upload routes use the image module's exampleImageUpload
 |- persistence.ts        ordering locks, nextPosition, moveInSequence, rewritePositions, closePositionGap,
 |                        lockCategoryReference, namesOf, unreferencedFilenames
-|- price.ts              preparePrice (errors under `price.*`), writePrice (store, replace in place, keep)
+|- price.ts              preparePrice (`null` keeps the stored price; `priceCatalog.prepare` already reports
+|                        under `price.*`), writePrice (store, replace in place, keep)
 |- catalog.ts            articleCatalog: find, printFormats; ArticleType, PrintAspectRatio, CatalogVariant,
 |                        catalogKey, spodVariantName
 |- storefront.ts         the three anonymous reads and their one visibility rule
@@ -632,41 +635,21 @@ writer outside the anchor changed — are retryable and leave nothing behind.
 
 ## What the port changed
 
-- **No `*Operations` interfaces, no repository result classes, no
-  `UnexpectedFailure`.** Services return `OperationResult`, repositories small
-  string unions; an exception reaches the app's `onError` (#251).
-- **Validation once, in Zod.** The services no longer re-validate. Two
-  consequences: the body rules (activation, default count, `SubcategoryId
-  requires CategoryId`) run only when every field has its JSON type, so a body
-  that also misses a required field reports the field errors only; and a
-  non-integer id is Zod's type message, where Kotlin failed to parse the body.
-- **Unknown properties are refused** (`400 … Unknown property`), the backend-wide
-  decision of [Request validation](../conventions/request-validation.md). The
-  Kotlin SPOD update ignored unknown keys such as `name` or `printFrame`; the
-  frontend sends only the five shop-owned fields, so nothing changes for it.
-- **`priceCatalog.*InTransaction(trx, …)`** replaces Kotlin's non-suspending
-  trick; the transaction is an explicit parameter.
-- **`articleCatalog.find` answers a `Map<string, CatalogVariant>` keyed by
-  `catalogKey`**, because a `Map` cannot key by value on an object pair.
-- **`spodCatalogSync.sync` answers `{ kind: 'reported', report } | { kind: 'busy' }`**;
-  the lock is a `Set`, not a coroutine `Mutex` (JavaScript is single-threaded
-  between `await`s, so check-and-add is atomic).
-- **The measurement uses sharp** (`ensureAlpha().raw()`) instead of ImageIO;
-  the rule and its constants are unchanged. Percentages are computed in integer
-  hundredths, so `left + width` stays exact without `BigDecimal`.
+- **The body rules run after the field types.** The activation and
+  default-count rules and `SubcategoryId requires CategoryId` run only when
+  every field has its JSON type, so a body that also misses a required field
+  reports the field errors only; a non-integer id is Zod's type message, where
+  Kotlin failed to parse the body.
+- **Unknown properties are refused** (`400 … Unknown property`). The Kotlin
+  SPOD update ignored keys such as `name` or `printFrame`; the frontend sends
+  only the five shop-owned fields, so nothing changes for it.
 - **`POST /api/admin/articles/spod` answers `404`**, not `405`: Hono answers an
   unrouted method like an unknown path.
-- **Timestamps** (`syncedAt`, `missingSince`, the report's) are ISO strings with
-  millisecond precision (`Date.toJSON`); Kotlin printed `Instant.toString()`.
-- **Storefront reads** answer the list directly (`c.json`); there is no
-  `respondPublicRead`, because a storefront read has no failure besides an
-  exception.
-- **File organization**: the Kotlin `persistence/` package is split into the
-  slices' repositories plus `persistence.ts` and `price.ts`; the Kotlin
-  `ArticleModule` handle is the plain object `createArticleModule` returns.
-- **Not ported**: the schema-state tests, `ArticleSupplierRelationshipIntegrationTest`,
-  the statement-counting data source, and the route-security tests (the
-  platform tests 401/403, CSRF, malformed ids, and unknown properties once).
+- **Timestamps** (`syncedAt`, `missingSince`, the report's) carry milliseconds
+  (`Date.toJSON`); Kotlin printed `Instant.toString()`.
+- **The print-frame measurement uses sharp** (`ensureAlpha().raw()`) instead of
+  ImageIO, with the same rule and constants; percentages are computed in
+  integer hundredths, so `left + width` stays exact without `BigDecimal`.
 
 ## Tests
 

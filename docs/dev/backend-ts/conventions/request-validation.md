@@ -79,8 +79,8 @@ would answer `500`; the Kotlin backend answered the same `415` through Ktor's
 ## Rules the schema cannot check
 
 A rule that needs the database (does this country exist? is this name taken?)
-is answered by the service with `invalid(errors)` or `conflict`, in the same
-`ValidationErrors` shape. `buildValidationErrors((add) => …)` collects
+is answered by the repository (or by the service where it still branches)
+with `invalid(errors)` or `conflict`, in the same `ValidationErrors` shape. `buildValidationErrors((add) => …)` collects
 messages per field and appends instead of overwriting; a single rule writes
 the record directly:
 

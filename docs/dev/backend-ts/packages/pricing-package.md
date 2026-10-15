@@ -37,9 +37,9 @@ flowchart TB
     subgraph Pricing["Pricing module"]
         Routes["routes.ts<br/>priceInput schema · price handlers"]
         VatRoutes["vat-routes.ts<br/>vatInput schema · VAT handlers"]
-        Service["service.ts<br/>prepare · find · defaultPrice · VAT use cases"]
+        Service["service.ts<br/>prepare · find · defaultPrice"]
         Calculation["calculation.ts<br/>calculatePrice (pure)"]
-        Repository["repository.ts<br/>prices and VAT queries"]
+        Repository["repository.ts<br/>prices and VAT queries · VAT OperationResult"]
         Schema["schema.ts<br/>prices · value_added_taxes"]
     end
 
@@ -49,7 +49,7 @@ flowchart TB
     Owner -->|"priceCatalog"| Service
     Owner -->|"priceCatalog writes, with its trx"| Repository
     Routes --> Service
-    VatRoutes --> Service
+    VatRoutes --> Repository
     Service --> Calculation
     Service --> Repository
     Repository --> Database
@@ -83,8 +83,8 @@ pricing/
 |- calculation.ts       calculatePrice; PriceInput, CalculatedPrice, PriceAmount, PriceDiscount, the enums
 |- routes.ts            priceInput schema, PRICE_RESPONSES, priceRoutes(prices)
 |- vat-routes.ts        vatInput schema, VAT_RESPONSES, VAT_DELETE_RESPONSES, vatRoutes(vats)
-|- service.ts           createPriceService(repository), createVatService(repository); VatInput
-|- repository.ts        createPricingRepository(db); Vat
+|- service.ts           createPriceService(repository): prepare, find, defaultPrice
+|- repository.ts        createPricingRepository(db); Vat, VatInput
 |- schema.ts            PricesTable, ValueAddedTaxesTable, merged into the platform's Tables
 |- calculation.test.ts  the calculation table: the oracle ported from PriceCalculatorTest
 |- routes.test.ts       one happy path per route and the module-specific errors
@@ -96,7 +96,9 @@ pricing/
 calculation is the largest piece of the module and the only one that is pure.
 It owns the price value types, because it produces `CalculatedPrice` and
 consumes `PriceInput`. `Vat` lives in `repository.ts`, because the repository
-produces it.
+produces it. The VAT entries have no service: `vatRoutes` takes the
+repository and calls `listVats`, `getVat`, `createVat`, `updateVat`, and
+`deleteVat`, which answer `OperationResult` themselves.
 
 The composition root creates the module once, mounts its routes, and hands the
 capability to the price owners:
@@ -403,7 +405,11 @@ zeroes the inactive inputs, calculates, and applies the write rules. It answers
 repeat the field rules: the owner's request schema embeds `priceInput`, so the
 value is already valid. Because `prepare` stores nothing, the owner runs it
 *before* opening its transaction and keeps that transaction as short as the
-writes. An owner reports the errors under its own path (`price.<field>`).
+writes. `priceCatalog.prepare` reports its field errors under `price.`
+(`price.salesVatId`), the path at which every owner embeds `priceInput`, so an
+owner passes an `invalid` answer on unchanged. Only `POST
+/api/admin/prices/calculate`, which takes a bare `priceInput`, answers the
+unprefixed field names.
 
 The three writes take the owner's `Transaction<Tables>` and run one statement
 on it. They never open a transaction of their own, so they commit and roll back
@@ -435,10 +441,10 @@ demotes anything, so an unknown id never clears the default.
 
 PostgreSQL decides every conflict, as
 [Persistence error handling](../conventions/persistence-error-handling.md)
-describes. `insertVat` and `updateVat` declare `uniqueViolation: 'conflict'`:
+describes. `createVat` and `updateVat` declare `uniqueViolation: conflict`:
 the case-sensitive `ux_value_added_taxes_name` and the single-default index
 both become the same conflict, without asking which one fired. `deleteVat`
-declares `foreignKeyViolation: 'inUse'`: both foreign keys from `prices` are
+declares `foreignKeyViolation: conflict` and runs its single `DELETE` on `db`: both foreign keys from `prices` are
 `ON DELETE RESTRICT`, and either one means the same thing, "a price still uses
 this entry", so the result is unambiguous. The route answers it as
 `409 VAT is in use`.
@@ -469,30 +475,15 @@ but never query `prices`; they ask `priceCatalog`.
 ## What the port changed
 
 - **#252: VAT is part of Pricing.** The Kotlin `vat` module exported
-  `VatReader` so `pricing` could read entries without touching the table. One
-  module owns both tables now, so the lookup is the repository's `findVats`,
-  and no capability crosses a module boundary for it. The routes did not
-  change.
-- **#251 point 6: the unused price CRUD is gone.** `POST /api/admin/prices`,
-  `GET /api/admin/prices/{id}`, and `PUT /api/admin/prices/{id}` existed to
-  develop Pricing on its own before Article owned its prices; no client calls
-  them, and every Price is written through `priceCatalog`. With them went the
-  service's `create`, `get`, and `update` and the `Price not found` answer.
-- **#251: validation once, no seams.** `PriceInput.validate()` and
-  `VatInput.validate()` became the Zod schemas; `prepare` no longer re-runs the
-  field rules, and the owner embeds `priceInput` in its own schema instead. The
-  `PriceOperations` and `VatOperations` interfaces, `VatWriteResult`,
-  `VatDeleteResult`, and `UnexpectedFailure` are gone: the repository answers
-  plain values and the declared strings, and an exception becomes the platform
-  `500`.
+  `VatReader`; one module owns both tables now, so the lookup is the
+  repository's `findVats`. The routes did not change.
+- **#251 point 6: the unused price CRUD is gone** (`POST /api/admin/prices`,
+  `GET` and `PUT /api/admin/prices/{id}`, and `Price not found`); every Price
+  is written through `priceCatalog`.
 - **The transaction is a parameter.** Kotlin made the writes non-`suspend` and
   checked at runtime that an Exposed transaction was open. Here the writes take
   the `Transaction<Tables>`, so calling one outside a transaction does not
   compile.
-- **The default rule needs no serializable retry.** Kotlin ran VAT create and
-  update at `SERIALIZABLE` with three attempts. With the partial unique index
-  as the authority, a normal `write` is enough: a racing second default answers
-  `409 VAT entry already exists` instead of being retried into place.
 - **Wrong JSON types are field errors.** Kotlin answered a wrong JSON type
   (`"NET"` misspelled, `"12.34"` as a string, a fractional cent value) with
   `400 Invalid request body`. Zod reports it under the field, and an unknown

@@ -67,7 +67,10 @@ live-payment index refuses, which the payment service turns into its own
 confirmation outcome instead of a failure; the mug and SPOD article writes and
 the production destinations answer a handful of outcomes (`'priceRequired'`,
 `'channelImmutable'`, …) that the service turns into distinct field errors.
-Such a union is never a renamed `notFound` or `conflict`.
+Such a union exists only because the service branches on its other members; a
+union whose members would all map 1:1 onto `OperationResult` is the result
+itself. It may carry a `'notFound'` member next to the module-specific ones
+(the mug and SPOD article updates do), so the service switches once.
 
 A read that cannot fail answers the plain value, and its route answers it
 without the result: `admin.get('/', async (c) => c.json(await countries.list()))`.

@@ -38,8 +38,8 @@ The Kotlin module committed five times in five modules (cart snapshot,
 promotion reservation, placement, settlement, cart close) and held the sequence
 together with compensations: a `releaseAbandoned` after a refused placement, a
 unique-violation retry path inside the placement for a double-clicked checkout.
-The port (#247) replaces that with two transactions and one provider call
-between them:
+The port (#247) replaces that with two transactions of this module and the
+order module's payment start between them:
 
 - **TX1** locks the cart row (`SELECT … FOR UPDATE` through
   `lockForCheckout`), reserves the coupon, places the order together with its
@@ -49,11 +49,15 @@ between them:
   (`alreadyPlaced`) instead of racing `ux_orders_live_cart`; the one-transaction
   scope is what makes a refused placement leave no reservation behind without a
   separate compensation.
-- **The Mollie call runs outside any transaction**, inside
-  `orders.startPayment`, which holds the *order* row lock for the duration of
-  the call (ten seconds at most). A transaction of this module must not stay
-  open across a network call, and the cart lock must not either.
-- **TX2** closes the cart once a payment exists. Until then the cart stays
+- **The payment start is the order module's own transaction.**
+  `orders.startPayment` opens it, locks the *order* row (`SELECT … FOR
+  UPDATE`), makes the Mollie call inside it (eight seconds at most), and
+  inserts the payment row there. The call runs outside both checkout
+  transactions: neither TX1 nor TX2 stays open across a network call, and the
+  cart lock is released before it. Only the order row is held, and the
+  provider timeout stays below the database's `lock_timeout` (see
+  [the Order package](order-package.md)).
+- **TX2** only closes the cart, once a payment exists. Until then the cart stays
   `ACTIVE` on purpose: a checkout that dies halfway, and a provider that
   refuses, both leave the customer a cart to submit again.
 
@@ -72,7 +76,7 @@ ever takes a cart row after an order row.
 
 | File | What it holds |
 | --- | --- |
-| `index.ts` | `createCheckoutModule(deps)` answering `{ routes }`, and the `CheckoutModule` type |
+| `index.ts` | `createCheckoutModule(deps)` answering `{ routes }` |
 | `routes.ts` | the two routes, the Zod schema `checkoutInput`, the order id parameter, and the one error table |
 | `service.ts` | `createCheckoutService`: the flow below in two transactions, `CheckoutInput`, and `CheckoutResult`, the union every ending is expressed as |
 
@@ -81,7 +85,8 @@ because a checkout composes four modules and the reason it stopped is the only
 thing that tells a customer what to do next. Two Kotlin endings are gone:
 `Invalid` (the placement cannot refuse a body the schema accepted) and
 `UnexpectedFailure` (a step that answers something unusable throws, and the
-app's `onError` answers `500`, the platform rule).
+app's `onError` answers `500`, the platform rule; a free order that cannot be
+confirmed throws inside TX1, which rolls the placement back).
 
 ## HTTP API
 
@@ -184,8 +189,9 @@ In five lines:
    rule. A checkout that could never succeed writes nothing.
 2. **TX1**: `lockForCheckout`; `reserve` when the cart carries a coupon;
    `orders.place`; a free order: `confirmFree` and `markCheckedOut`.
-3. **Outside any transaction**: `orders.startPayment(order)`; `null` answers
-   `502` and ends here.
+3. **Outside this module's transactions**: `orders.startPayment(order)`, which
+   runs the provider call and stores the payment in its own transaction under
+   the order row lock; `null` answers `502` and ends here.
 4. **TX2**: `markCheckedOut`.
 5. Answer `201` with the order id and the checkout URL.
 
@@ -264,16 +270,10 @@ the real modules and nothing else is reachable from here.
 
 ## Differences from the Kotlin module
 
-- **Two transactions** instead of five commits; no `releaseAbandoned`, no
-  `NonCancellable`, no unique-violation retry in the placement (see the
-  decision above).
+- **Two transactions** instead of five commits (see the decision above).
 - **`409 CART_IMAGE_UNAVAILABLE` is gone.** `cart_items.print_image_id` is
   `ON DELETE RESTRICT` and TX1 places from the locked cart's own lines, so a
   line whose image vanished cannot exist.
-- **The phone rule reads the snapshot.** `CheckoutCartLine.articleType` comes
-  from the cart module's one catalog lookup; there is no second
-  `articleCatalog.find` here, so the `checkout → article` edge of the module
-  graph carries no import today.
 - **A closed cart under the lock answers `CART_EMPTY`.** Kotlin's second
   submission in that window was answered with the live order through
   `AlreadyPlaced`; here the window is before the placement, and the honest
@@ -282,12 +282,8 @@ the real modules and nothing else is reachable from here.
   module checks the status before the amount; Kotlin's `Free` answer is only
   reachable for a pending order of total zero, which TX1 never leaves behind,
   and maps to `ORDER_NOT_PAYABLE`.
-- **The schema is strict** and the billing address's `email` and `phone` are
-  declared as ignored; Kotlin's serializer dropped them silently. A non-numeric
-  retry id answers `404` like before.
-- **No `Invalid` and no `UnexpectedFailure` ending**; a free order that cannot
-  be confirmed throws inside TX1, which rolls the placement back and answers
-  `500`.
+- **The phone rule reads the snapshot**, so the `checkout → article` edge of
+  the module graph carries no import today.
 - **The discount** on the order is the cart snapshot's `discountCents`, the
   number the customer was shown, rather than a recalculation from the reserved
   promotion; both come from the same promotion row.
@@ -318,7 +314,6 @@ bun test src/modules/checkout
   two simultaneous retries, the foreign and malformed ids, and the paid,
   cancelled, and free orders.
 
-The journey tests build the composition root from inside the module folder,
-which the module graph does not foresee; the one import of
-`src/test-fixtures.ts` in `test-fixtures.ts` carries the lint exception with the
-reason.
+The journey tests build the composition root from inside the module folder.
+Test files and `test-fixtures.ts` may import the composition root by the `test`
+file policy in `backend-ts/eslint.config.ts`.

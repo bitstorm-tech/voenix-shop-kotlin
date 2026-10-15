@@ -61,7 +61,8 @@ email/
 |- outbox.ts                enqueue(trx, email): the insert in the caller's transaction
 |- user-emails.ts           createUserEmails(settings, delivery) → { send }; EmailDeliveryError
 |- worker.ts                createEmailWorker({ db, settings, delivery }) → { runOnce, start, stop }
-|- delivery/sweego.ts       the EmailDelivery interface, DeliveryResult, Fetch, createSweegoDelivery
+|- delivery/sweego.ts       the EmailDelivery interface, DeliveryResult, createSweegoDelivery (its `fetch` is
+|                           typed by the platform's `Fetch` from `@/platform/fetch`)
 |- templates/layout.ts      RenderedEmail and the kinds, the escaping markup tag, the HTML and
 |                           text layouts, German date and money formatting, the shared link sentence
 |- templates/<mail>.ts      one file per mail: its data, subject, HTML, and text
@@ -322,23 +323,18 @@ bun test src/modules/email
 
 ## Differences to the Kotlin backend
 
-- The outbox stores the rendered mail; `QueuedEmailReference`,
-  `QueuedEmailSource`, the resolvers, the aggregated source, and the
-  `SOURCE_*` and `RENDERING_FAILED` codes are gone. The worker can only fail
-  at delivery.
-- `UserEmail` and `QueuedEmail` are replaced by the render functions; the two
-  entry points keep their separation through the kind types.
-- `EmailRecipient`, `EmailActionUrl`, and the display-value checks
-  (non-blank, at most 255 characters, no control characters) are not ported.
-  The values come from modules that validated them at their own route, and the
-  redacting `toString` has no counterpart: nothing here prints an object into a
-  log line.
+- The outbox stores the rendered mail, so the worker can only fail at
+  delivery; `UserEmail` and `QueuedEmail` are replaced by the render functions,
+  and the two entry points keep their separation through the kind types.
+- The display-value checks of `EmailRecipient` and `EmailActionUrl` (non-blank,
+  at most 255 characters, no control characters) are not ported: the values
+  come from modules that validated them at their own route. Nothing here
+  prints an object into a log line, so the redacting `toString` has no
+  counterpart either.
 - The order confirmation no longer checks that the total equals subtotal plus
   shipping minus discount; the order module computes those amounts.
-- `EmailSettings.sendUrl` is gone: tests pass a stub `fetch` instead of
-  pointing the adapter at a local server.
-- Sweego's separate connect and socket timeouts are one 30-second request
-  timeout, which is what `fetch` offers.
+- `EmailSettings.sendUrl` is gone: tests pass a stub `fetch`. Sweego's
+  separate connect and socket timeouts are one 30-second request timeout.
 
 ## Safe change recipes
 

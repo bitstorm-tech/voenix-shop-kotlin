@@ -325,6 +325,9 @@ this backend, the database is the authority for uniqueness:
 `executePostgresWrite` maps `23505` to `'emailTaken'` and the supplier foreign
 key to `'unknownSupplier'` (see
 [Persistence error handling](../conventions/persistence-error-handling.md)).
+Registration writes no supplier link, so its only refusal is `'emailTaken'`;
+`'unknownSupplier'` reaches only the supplier-login creation, which answers it
+as the field error `supplierId: Supplier does not exist`.
 The change-e-mail confirmation consumes the token and updates the e-mail in
 one transaction, so a unique violation rolls the token consumption back and
 the link stays usable.
@@ -445,19 +448,13 @@ supplier module's delete.
 
 ## Differences to the Kotlin backend
 
-- One service instead of the two seams `AccountOperations` and
-  `SupplierLoginOperations`; no stubs.
-- Validation happens once, in the Zod schemas. Unknown properties are
-  rejected (`Unknown property`), and a field of the wrong JSON type answers
-  that field's message instead of `Invalid request body` for the whole body.
-- There is no `UnexpectedFailure`: a database error or a mail bug propagates
-  to the app's `onError`, which answers the same `500 Internal server error`.
-- Timestamps (`createdAt`) are serialized by `Date.toJSON`, always with
-  milliseconds (`2026-07-24T10:00:00.000Z`), where Kotlin's `Instant` omitted
-  a zero fraction.
+- Unknown properties answer `400 Unknown property`, and a field of the wrong
+  JSON type answers that field's message instead of `Invalid request body`
+  for the whole body.
+- `createdAt` always carries milliseconds (`2026-07-24T10:00:00.000Z`,
+  `Date.toJSON`), where Kotlin's `Instant` omitted a zero fraction.
 - A token consumption checks that its delete removed the row, so a link
   presented twice at the same moment is consumed once.
-- The PBKDF2 work factor is a factory parameter, not a setting.
 
 ## Safe change recipes
 

@@ -207,8 +207,10 @@ export type { Country } from './repository'
   service and the repository are factory functions too, and their types are
   `ReturnType<typeof createX>`. An interface exists where a second
   implementation exists (`ImageGenerator` with its dummy, `MolliePayments`,
-  `EmailDelivery`, `SpodCatalogSource`) or where the implementation lives in
-  another module (`SupplierAccounts` in the platform, implemented by account).
+  `EmailDelivery`; the SPOD client's seam is its injected `fetch`, and
+  `SpodCatalogSource` is a plain data type) or where the implementation lives
+  in another module (`SupplierAccounts` in the platform, implemented by
+  account; `ProductionOrderReads` in production, implemented by order).
 - A capability that must run inside the caller's transaction takes the
   `Transaction<Tables>` as its first parameter instead of opening one.
 

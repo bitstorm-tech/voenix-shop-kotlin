@@ -211,11 +211,11 @@ Reads and mutations differ in one more way:
 // a mutation: the first one turns an anonymous browser into an addressable guest
 const mutatingOwner = async (c: Context): Promise<CartOwner> => ({
   guestToken: await guestTokens.getOrCreate(c),
-  userId: userIdOf(c),
+  userId: c.var.principal?.userId ?? null,
 })
 
 // the read: no cookie means no cart, and no new guest either
-carts.cart({ guestToken: await guestTokens.tryGet(c), userId: userIdOf(c) })
+carts.cart({ guestToken: await guestTokens.tryGet(c), userId: c.var.principal?.userId ?? null })
 ```
 
 Looking at a cart must not create a tracked visitor, so `GET /api/cart` never
@@ -515,34 +515,19 @@ Run them with `bun test src/modules/cart` from `backend-ts/`; they need Docker.
 
 ## What the port changed
 
-- **No `CartOperations` seam, no `CartPromotionResult`, no `CartWriteResult`.**
-  The routes call the service object directly; applying a code answers an
-  `OperationResult` or a `rejected` variant, and the repository answers a
-  `StoredCart`, `undefined`, or `'imageNotOwned'`.
 - **One repository.** `PrintImageRepository` and `CartGuestImages` are folded
-  into `repository.ts`; the resolver is a function of it.
-- **Validation once.** The Zod schemas at the route replace the `validate()`
-  calls the Kotlin service repeated, including the re-check of the promotion
-  code. A promotion code arrives trimmed.
-- **No `UnexpectedFailure`.** A database error propagates to the app's
-  `onError` and answers `500`; the upload compensation rethrows after deleting
-  the file.
+  into `repository.ts`; the resolver is a function of it. Applying a code
+  answers an `OperationResult` or a `rejected` variant; the repository answers
+  a `StoredCart`, `undefined`, or `'imageNotOwned'`.
 - **Removing a code releases the reservation in the same transaction.** Kotlin
-  wrote the cart and then released in a second transaction; the port passes
-  the cart's `trx` to `promotionCodes.release`.
-- **`checkoutCarts` grew for #247.** `lockForCheckout(trx, cartId)` is new, and
-  `markCheckedOut` takes the checkout's `trx`. `activeCart` answers the final
-  totals including `discountCents` (computed from the promotion as configured
-  now, like the cart answer) instead of a `discountCents(discount)` method,
-  echoes the caller's identity, and carries each line's `articleType`.
-- **Totals are numbers,** not `Long`; see Totals.
+  wrote the cart and then released in a second transaction.
+- **`checkoutCarts` grew for #247:** `lockForCheckout` is new,
+  `markCheckedOut` takes the checkout's `trx`, and `activeCart` answers the
+  final totals with `discountCents` instead of a `discountCents(discount)`
+  method, echoes the caller's identity, and carries each line's `articleType`.
 - **Path ids and bodies are checked before the guest cookie is issued.** A
   malformed id or a rejected body answers without a `Set-Cookie`; Kotlin
   issued the cookie first. Unknown body properties are a `400`.
-- **Not ported:** the route security test (CSRF and the validation `400`s are
-  platform tests and schema tests now), the schema constraint test (the
-  migrations are copied unchanged), and the composition test, which the
-  checkout module's flow test replaces.
 
 ## What is deliberately not here
 

@@ -344,22 +344,20 @@ mocked globally.
 
 ## Differences to the Kotlin package
 
-- `SpodResult` is a discriminated union with `kind: 'answered' | 'failed'`
-  instead of a sealed interface, and `SpodError` and `SpodEnvironment` are
-  string unions instead of enums; `SpodEnvironment.ofStoredValue` is
+- `SpodResult`, `SpodError`, and `SpodEnvironment` are unions instead of a
+  sealed interface and enums; `SpodEnvironment.ofStoredValue` is
   `spodEnvironmentOfStoredValue`.
 - `SpodAccess` is a plain object with no redacting `toString`. The client never
   logs it; the rule moves to the caller: never hand a `SpodAccess` to a logger.
 - `orderItems`, `state`, and `shipping.preferredType` are not fields of the
   request types with defaults but constants `createOrder` adds, so no caller can
   send anything else.
-- An API call that fails without a status logs the error's `name`, not the
-  error with its stack, exactly like a download. Kotlin kept the throwable for
-  API calls because the URL in it was the shop's own; the TypeScript rule is
-  simpler and logs no URL at all.
+- An API call that fails without a status logs the error's class, not the
+  error with its stack, exactly like a download; Kotlin kept the throwable
+  because the URL in it was the shop's own, and the simpler rule logs no URL at
+  all.
 - The timeout is one `AbortSignal.timeout(seconds)` for the whole exchange,
   where Ktor set the connect, request, and socket timeouts separately.
-- The client has nothing to close: `fetch` holds no client object.
 
 ## Tests
 

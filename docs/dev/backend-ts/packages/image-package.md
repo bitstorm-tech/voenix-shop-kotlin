@@ -20,7 +20,8 @@ without knowing a single filesystem path:
 - `exampleImages(folder, logger)`, the example-image rule Article and Prompt
   follow on top of a public folder; and
 - `readUploadedImage(form)`, the reader of the `file` part every pre-upload
-  endpoint receives.
+  endpoint receives, and `exampleImageUpload(store, responses)`, the one
+  example-image pre-upload handler Article and Prompt mount.
 
 The module owns no database table and does not know who owns a private image.
 The guest route asks a `GuestImageResolver` that the cart module implements
@@ -66,7 +67,8 @@ image/
 |- service.ts               createImageService(roots): get, publicStorage(folder), privateStorage; ImageStorage
 |- codec.ts                 sharp: parseImageSize, writeDerivative, normalizeToWebp, the formats and limits
 |- files.ts                 prepareImageRoots, safeRelativePath, resolveFile, directoryInside, isFresh, deleteDerivations
-|- upload.ts                FILE_PART_NAME, ImageUpload, UploadedImage, readUploadedImage, uploadRejection
+|- upload.ts                FILE_PART_NAME, ImageUpload, UploadedImage, readUploadedImage, uploadRejection,
+|                           exampleImageUpload (the example-image pre-upload handler)
 |- example-images.ts        createExampleImages, the example-image rule
 |- routes.test.ts           the three routes over HTTP
 |- service.test.ts          derivation, the cache, storage, the roots
@@ -108,6 +110,7 @@ The exported surface of `index.ts`:
 | `.exampleImages(folder, logger)` | the example-image rule for one public folder |
 | `readUploadedImage(form)` | `Promise<UploadedImage>`: `received` with the upload, `missing`, or `tooLarge` |
 | `uploadRejection(message)` | `invalid({ file: [message] })`, answered through `respondFailure` |
+| `exampleImageUpload(store, responses)` | the handler of a `POST …/example-images` route: reads the `file` part, calls the folder's `store`, answers `201 { filename }` or the failure |
 | `FILE_PART_NAME` | `'file'`, the part name and the error field |
 | types | `ImageStorage`, `ImageUpload`, `UploadedImage`, `ExampleImages`, `GuestImageResolver`, `ImageModule` |
 
@@ -272,9 +275,12 @@ platform's `formBody` first, so a body that is no multipart form answers
 `415` before the reader runs (see
 [Request validation](../conventions/request-validation.md#a-multipart-body)). It answers `received` with the
 bytes and the declared content type, `missing`, or `tooLarge` for more than
-10 MiB. Each endpoint chooses its own message for the last two (Article and
-Prompt say `Example image must not exceed 10 MiB`, Cart `Image must not exceed
-10 MiB`) and answers it with `respondFailure(c, uploadRejection(message), …)`:
+10 MiB. The caller chooses the message for the last two and answers it with
+`respondFailure(c, uploadRejection(message), …)`. Every example-image
+pre-upload of Article and Prompt is the same handler, `exampleImageUpload`,
+installed behind `formBody`; it says `An example image file part is required`
+and `Example image must not exceed 10 MiB`. Cart reads its print image itself
+and says `Image must not exceed 10 MiB`:
 
 ```json
 { "message": "Validation failed", "errors": { "file": ["Example image must not exceed 10 MiB"] } }
@@ -370,26 +376,19 @@ its runtime restrictions are gone.
 
 ## Differences from the Kotlin module
 
-- An exception is not wrapped: a codec or I/O failure propagates to the app's
-  `onError`, which answers `500` (the platform rule, see
-  [Operation results](../conventions/operation-results.md)).
-- The storage capabilities answer plain values where they cannot fail with a
-  client error: `exists` a `boolean`, `delete` nothing, `originalPaths` a
-  `Map`. A name that is not a plain file name names nothing instead of being
-  `invalid`.
+- A name that is not a plain file name names nothing in the storage
+  capabilities instead of being `invalid` (`exists` answers `false`).
 - A public folder that leaves its root through a symbolic link fails the store
-  with an exception (a deployment fault) instead of `invalid folder`.
-- `publicStorage` is a function of the folder; `PublicImageFolder` is gone, and
-  an unsafe folder throws when the storage is created.
-- Several ranges in one request are answered with the whole file, not a
-  `multipart/byteranges` body. Without `If-None-Match`, `If-Modified-Since` is
-  honoured; with one, it is ignored as HTTP prescribes.
+  with an exception (a deployment fault) instead of `invalid folder`; an
+  unsafe folder throws when `publicStorage` creates the storage
+  (`PublicImageFolder` is gone).
 - The upload reader takes the already buffered `FormData`. Bun fills in a
   missing part content type from the file name's extension, so a part without
   one is no longer rejected for its declared type when its name says `.png`;
   the bytes are checked either way.
 - See [Cache and concurrency](#cache-and-concurrency) for the three dropped
-  locking mechanisms.
+  locking mechanisms and the range and precondition answers above for what
+  `GET` no longer does.
 
 ## Tests
 

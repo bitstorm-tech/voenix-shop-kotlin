@@ -379,9 +379,11 @@ SELECT … FROM orders WHERE id = ? FOR UPDATE
 The order row lock is held around "check the live payment → create at Mollie →
 insert". Two concurrent starts of one order (a double-clicked checkout) queue
 on the lock, and the second finds the first one's payment and answers its URL:
-one provider call, one row. The adapter bounds the provider call at ten
-seconds, so the lock is held at most that long; a waiter's `lock_timeout` is
-the same ten seconds.
+one provider call, one row. The adapter bounds the provider call at eight
+seconds, below the 10-second `lock_timeout` every connection sets: a second
+start or a status transition queued on the same order waits at most ten
+seconds for the lock, so the provider call must give up first, or each waiter
+would answer `500` while the first start is still talking to Mollie.
 
 This replaces the Kotlin `PaymentLauncher`'s conflict machinery (the `23505`
 on the live index, the re-read of the winner, the cancellation of the loser's
@@ -496,7 +498,7 @@ The request shape:
   a phone that cannot be E.164 is left out, because Mollie rejects the whole
   payment over one malformed field.
 
-Every request runs under `AbortSignal.timeout(10_000)` with
+Every request runs under `AbortSignal.timeout(8_000)` with
 `redirect: 'manual'`: Mollie never redirects, so a `3xx` is a refusal, and
 following one would replay the bearer key against a URL the adapter never
 chose. There is **no dummy mode**: a payment provider that silently answers
@@ -643,40 +645,22 @@ Run them with `bun test src/modules/order` from `backend-ts/`; they need Docker.
 
 ## What the port changed
 
-- **Payment is a subfolder (#248).** No `OrderPaymentGateway`,
-  `OrderPaymentStatusSource`, `PaymentStarter`, `LateBoundPaymentStatus`: the
-  payment service calls the transitions directly, and the order service calls
-  the payment status reads directly. The seven single-implementation ports
-  (`OrderItemReader`, `OrderPlacement`, `FulfillmentOrderSource`,
-  `ShippingNotificationOrderSource`, `ProductionSource`, `OrderPaymentGateway`,
-  `OrderPaymentStatusSource`) collapse into the one `orders` object.
-  `MolliePayments` stays, because it has a second implementation.
-- **Production is one-way (#248).** No `ProductionOutbox`: the paid transition
-  calls `requestProduction(trx, orderId)`. The production read answers the
-  snapshot plus the article and variant id; production resolves the supplier
-  and the partner ids itself.
-- **The mail is rendered at placement (#248).** No `QueuedEmailSource`
-  resolver; the payload is rendered from the placement input and enqueued in
-  its transaction.
+- **Payment is a subfolder (#248).** The payment service calls the
+  transitions directly and the order service calls the payment status reads
+  directly; the single-implementation ports collapse into the one `orders`
+  object. `MolliePayments` stays, because it has a second implementation (the
+  test stub).
+- **Production is one-way (#248).** The paid transition calls
+  `requestProduction(trx, orderId)`; the production read answers the snapshot
+  plus the article and variant id, and production resolves the supplier and
+  the partner ids itself.
 - **Placement runs in the caller's transaction (#247).** No `23505` catch, no
   bounded retry, no `AlreadyPlaced`-by-conflict and no access-token collision
   retry (deviation D27 is gone): checkout holds the cart lock, so the live order
   is read first, and a token collision at 2^-256 surfaces as an exception.
-- **`startPayment` locks the order** around the provider call instead of
-  resolving a lost race afterwards; the double-insert, loser-cancel, vacated-slot
-  retry, and the "belongs to another order" guard of `PaymentLauncher` went with
-  it.
-- **Validation once.** `PlaceOrderInput.validate()` is not ported: the
-  checkout's request schema validates what the customer sent, the checkout
-  computes the amounts from the cart lines, and the table's CHECKs refuse an
-  inconsistent total. `Invalid` is no longer a placement result.
-- **No `UnknownPrintImage`.** The pre-check is not ported: a cart line keeps
-  its print image alive (`cart_items.print_image_id` is `RESTRICT`) and
-  checkout places from the locked cart's own lines, so the image cannot vanish
-  in between; a foreign-key violation would be an exception.
-- **No `UnexpectedFailure`, no `DATABASE_FAILURE` outcome.** A database error
-  propagates to the application's `onError` and answers `500`, which is also
-  what tells Mollie to redeliver.
+- **`Invalid` is no longer a placement result.** The checkout's request schema
+  validates what the customer sent, the checkout computes the amounts from the
+  cart lines, and the table's CHECKs refuse an inconsistent total.
 - **`notPending`.** `startPayment` checks the locked order's status and starts
   no payment for an order that is no longer `PENDING` (Kotlin relied on the
   caller's earlier `payable` read).

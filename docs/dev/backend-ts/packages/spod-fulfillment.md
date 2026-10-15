@@ -663,7 +663,6 @@ false alarm, accepted until issue #225 compares ids. Orders stay
   today's composed name from `articleCatalog`, which is what the guide and the
   runbook always described.
 - **sharp instead of ImageIO** for the PNG conversion, with the same budgets.
-- **A stubbed client object** replaces the Ktor `MockEngine` in the tests.
 
 ## Tests
 

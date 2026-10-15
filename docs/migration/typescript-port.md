@@ -47,7 +47,7 @@ list.
 
 | Issue | Decision before | Decision now | Guide |
 | --- | --- | --- | --- |
-| #247 | Checkout as five commits in five modules with compensations and a unique-violation retry | One checkout in **two transactions**: TX1 locks the cart row, reserves the coupon, places the order with its mail, confirms a free order; the Mollie call runs outside any transaction; TX2 closes the cart. A provider refusal cancels the order and releases the reservation inside `startPayment` | [checkout](../dev/backend-ts/packages/checkout-package.md#decision-one-checkout-two-transactions) |
+| #247 | Checkout as five commits in five modules with compensations and a unique-violation retry | One checkout in **two transactions**: TX1 locks the cart row, reserves the coupon, places the order with its mail, confirms a free order; then `orders.startPayment` runs its own transaction, locks the order row (`SELECT … FOR UPDATE`), makes the Mollie call inside it, and inserts the payment row there, so the call runs outside both checkout transactions and holds only the order lock; TX2 only closes the cart. A provider refusal cancels the order and releases the reservation inside `startPayment` | [checkout](../dev/backend-ts/packages/checkout-package.md#decision-one-checkout-two-transactions) |
 | #248 | Reference-only email outbox with resolvers; `payment` as its own module; late-bound order sources for production | The outbox stores the **rendered** mail at enqueue time inside the caller's transaction, so `email` is a leaf; `payment` is a subfolder of `order`; `production` declares its order read contracts as types and the composition root injects `order.orders`, so there is no `production → order` import and no late binding | [email](../dev/backend-ts/packages/email-package.md), [order](../dev/backend-ts/packages/order-package.md), [production](../dev/backend-ts/packages/production-package.md#the-one-way-edge-to-the-order-module) |
 | #251 | `*Operations` interfaces, repository result types, `UnexpectedFailure`, `validate()` on inputs, the price CRUD routes | Validation once at the route with Zod; no interface with a single implementation; exceptions propagate to `onError` (`500`); the standalone price routes are gone; `respondResult`/`respondFailure`, the one `ApiError` shape, and the SQLSTATE mapping stay | [operation results](../dev/backend-ts/conventions/operation-results.md), [request validation](../dev/backend-ts/conventions/request-validation.md) |
 | #252 | `vat` and `magic-coins` as modules | `vat` is part of `pricing`, `magic-coins` part of `generator`; the routes are unchanged | [pricing](../dev/backend-ts/packages/pricing-package.md), [generator](../dev/backend-ts/packages/generator-package.md) |
@@ -88,6 +88,24 @@ Decisions taken during the run (recorded on #262 and the tickets):
   and `serveStatic`).
 - The cart snapshot of a checkout is read before TX1's lock, as in Kotlin;
   the gap is recorded in the checkout guide as a known limitation, not closed.
+- #247's "TX2 stores the payment" became `startPayment`'s own transaction
+  under the order lock, per T12 (#275): the payment row is inserted in the
+  transaction that holds the order row around the provider call, so two
+  concurrent starts cannot create two payments; TX2 only closes the cart.
+- **Deviation from the letter of the plan: the import edge is `order →
+  production`.** The plan text of #262 says "one-way `production → order`".
+  The port's edge runs the other way: `production` declares
+  `ProductionOrderReads` (and the other order read contracts) as types,
+  `order` imports them and implements them with its `orders` object, and the
+  composition root hands `order.orders` to `production`. Decided on #274 and
+  #275, because the paid transition must call `requestProduction(trx, …)`
+  inside its own transaction: with the edge `order → production` that is a
+  plain import, no late binding is needed, and the graph has no cycle.
+- **`SpodCatalogSource` is a plain data type, not a seam.** The plan's stack
+  table lists it among the seams; in the code it is the `{ supplierId, access }`
+  value a sync run takes (`article/spod-article/sync.ts`). The SPOD seam is
+  the SPOD client's injected `fetch` (`createSpodClient({ fetch })`), which the
+  tests stub.
 
 ## What was dropped
 
@@ -95,7 +113,13 @@ Decisions taken during the run (recorded on #262 and the tickets):
   plugin configuration, migration-state tests that migrate to an older
   version, PDF pixel comparisons, the `CountingDataSource`, the route tests
   against stub operations, the resolver tests (resolvers no longer exist), the
-  composition lifecycle tests.
+  composition lifecycle tests. By name: `ArticleSupplierRelationshipIntegrationTest`,
+  `PromotionSchemaIntegrationTest`, and the prompt `*SchemaIntegrationTest`s
+  (the SQL files are copied unchanged; the conflict, in-use, and ordering tests
+  exercise the constraints), the per-module route-security tests (the platform
+  tests `401`/`403`, CSRF, malformed ids, and unknown properties once), the
+  cart composition test (the checkout journey tests replace it), and the PDF
+  legacy-fixture tests.
 - `frontImage()` of the SPOD client (#260 deleted it before the port).
 - The standalone price CRUD routes `POST /api/admin/prices`,
   `GET /api/admin/prices/{id}`, `PUT /api/admin/prices/{id}` (#251; no caller).
@@ -105,6 +129,18 @@ Decisions taken during the run (recorded on #262 and the tickets):
   `OrderPaymentGateway`, `OrderPaymentStatusSource`: one exported `orders`
   object and the injected `ProductionOrderReads` replace them.
 - `UnexpectedFailure`, the `Unreachable` handling modes, `Logger.databaseOperation`.
+- The single-implementation seams and result types #251 removed, by module:
+  `AccountOperations`, `SupplierLoginOperations`; `CartOperations`,
+  `CartPromotionResult`, `CartWriteResult`; `GeneratorOperations`,
+  `MagicCoinsOperations`, `GenerationCoins`; `PriceOperations`,
+  `VatOperations`, `VatWriteResult`, `VatDeleteResult`; `PromotionOperations`
+  and the promotion repository result types; the prompt `*Operations` and
+  `StoredPrompt<T>`; `PaymentStarter`, `LateBoundPaymentStatus`, and the order
+  outcomes `UnknownPrintImage` and `DATABASE_FAILURE`; `QueuedEmailReference`
+  and `QueuedEmailSource`; the article `respondPublicRead` (a storefront read
+  has no failure besides an exception). The Kotlin article `persistence/`
+  package is split into the slices' repositories plus `persistence.ts` and
+  `price.ts`.
 - `EmailActionUrl`/`EmailRecipient` and the `SOURCE_*`/`RENDERING_FAILED`
   outbox codes (a stored payload can only fail at delivery).
 - The `readChunks` helper of the body limit (Hono buffers before the handler).
@@ -220,6 +256,34 @@ contract map.
 
 Also in this change: the stale `/* eslint-enable boundaries/dependencies */`
 in `src/modules/checkout/test-fixtures.ts` that `bun run check` warned about.
+
+#### The verification fix list (2026-10-15)
+
+The council verification of PR #279 found no contract mismatch; its code fix
+list (F1–F10) made the code smaller and closer to the plan:
+
+- Repositories answer `OperationResult` directly (#251 point 3):
+  `executePostgresWrite` takes the failure values (`conflict`,
+  `invalid({ countryId: […] })`) for the declared SQL states. Services that
+  only translated strings are gone (country, promotion, the VAT entries, the
+  prompt slots and categories), and so is prompt's `outcomes.ts`.
+- `userId` is a `number` end to end, from the session cookie to every
+  repository; the positive-integer guards on it are gone.
+- Single-statement writes run on `db` without a `write` transaction.
+- One `exampleImageUpload` handler in the image module serves every
+  example-image pre-upload of Article and Prompt.
+- `priceCatalog.prepare` reports its field errors under `price.`, so an owner
+  passes them on unchanged.
+- The Mollie request timeout is eight seconds, below the 10-second
+  `lock_timeout` of a writer queued on the order row.
+- The generator installs `formBody` before the rate limiter, so a body that
+  is no multipart form spends no slot.
+- One `Fetch` type (`platform/fetch.ts`) for every outbound client and one
+  `errorClass` (`platform/logging.ts`) for every log line that names an error
+  by its class only.
+- Test helpers shared by several modules live in `test-support/`.
+- Unreachable guards (non-positive ids, a registration that cannot meet the
+  supplier foreign key) are removed.
 
 ### Open point (a): settled above. Open point (b): the chunked webhook body
 
