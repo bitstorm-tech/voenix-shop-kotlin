@@ -72,6 +72,8 @@ export function createEmailWorker({
     /** Starts scanning now and then every interval, until `stop`. */
     start: () => {
       if (controller !== null) throw new Error('The email worker is already started')
+      // Disabled email is silent everywhere else, so this one line explains the missing mails.
+      if (!settings.enabled) logger.warn('Email is disabled (EMAIL_ENABLED=false); no mail is sent')
       const { signal } = (controller = new AbortController())
       loop = (async () => {
         while (!signal.aborted) {

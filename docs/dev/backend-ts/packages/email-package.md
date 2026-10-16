@@ -238,7 +238,8 @@ flowchart LR
 There is no retry maximum and no terminal failed state. An exception during a
 scan (the database is gone) is logged with its class only and the next scan
 tries again. With `EMAIL_ENABLED=false` a scan returns at once and every job
-stays untouched.
+stays untouched; `start()` then logs one warning, because nothing else in the
+log tells you that no mail goes out.
 
 `worker.stop()` aborts the `AbortController`: the sleep between scans ends
 immediately, a running scan stops before its next job, and the returned
