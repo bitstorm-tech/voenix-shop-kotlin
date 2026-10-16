@@ -16,7 +16,8 @@ export interface FindingSource {
  * modules for their findings (plain reads, outside any write of this module) and records the
  * answers in one transaction of its own, which also enqueues one `OPERATIONS_ALERT` to `alertEmail`
  * for the new mailed findings. Without an address it logs one `error` line per new mailed finding
- * instead and leaves them unalerted. One instance per database, like the other two workers.
+ * instead and leaves them unalerted. A `stop` ends the reconciliation between payments and skips
+ * collecting and recording for that scan. One instance per database, like the other two workers.
  */
 export function createOperationsWorker({
   reconcilePayments,
@@ -27,7 +28,7 @@ export function createOperationsWorker({
   frontendBaseUrl,
   logger,
 }: {
-  reconcilePayments: (now: Date) => Promise<void>
+  reconcilePayments: (now: Date, signal?: AbortSignal) => Promise<void>
   sources: readonly FindingSource[]
   repository: Pick<FindingRepository, 'record'>
   outbox: Pick<EmailModule['outbox'], 'enqueue'>
@@ -53,9 +54,10 @@ export function createOperationsWorker({
     return true
   }
 
-  const runOnce = async () => {
+  const runOnce = async (signal?: AbortSignal) => {
     const now = new Date()
-    await reconcilePayments(now)
+    await reconcilePayments(now, signal)
+    if (signal?.aborted === true) return
     const findings: Finding[] = []
     for (const source of sources) findings.push(...(await source.findings(now)))
     await repository.record(findings, alert)
@@ -74,7 +76,7 @@ export function createOperationsWorker({
       loop = (async () => {
         while (!signal.aborted) {
           try {
-            await runOnce()
+            await runOnce(signal)
           } catch (error) {
             logger.error({ errorClass: errorClass(error) }, 'Operations worker scan failed')
           }

@@ -303,9 +303,22 @@ describe('OrderTimelineView', () => {
     await flushPromises()
 
     expect(ordersState.recheckPayment).toHaveBeenCalledWith(42)
-    expect(wrapper.find('[data-testid="recheck-result"]').text()).toContain(
-      'the order is PAID, the payment PAID',
+    expect(wrapper.find('[data-testid="recheck-result"]').text()).toBe(
+      'Recheck answer: the order is PAID, the payment PAID.',
     )
+  })
+
+  it('opens the next order when the router reuses the view for another order id', async () => {
+    const wrapper = await mountView()
+    ordersState.recheck = { status: 'PAID', paymentStatus: 'PAID' }
+
+    await wrapper.setProps({ orderId: 43 })
+    await flushPromises()
+
+    expect(ordersState.fetchTimeline).toHaveBeenLastCalledWith(43)
+    expect(ordersState.fetchProductionPdfs).toHaveBeenLastCalledWith(43)
+    expect(ordersState.recheck).toBeNull()
+    expect(wrapper.find('h1').text()).toBe('ORD-43')
   })
 
   it('shows why a recheck was refused', async () => {

@@ -397,6 +397,48 @@ describe('orders.reconcilePayments', () => {
       { order: 'PENDING', payment: 'OPEN' },
       { order: 'PENDING', payment: 'EXPIRED' },
     ])
+    // The events live in the transition's transaction: the rolled-back order recorded none.
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.orderId === 1)
+        .map((event) => event.kind),
+    ).toEqual(['ORDER_PLACED', 'PAYMENT_STARTED'])
+  })
+
+  test('a release that fails leaves the payment under way, and the next scan ends it', async () => {
+    const { module, report } = await started([30])
+    report('tr_1_1', { status: 'EXPIRED' })
+    await sql`CREATE FUNCTION refuse_release() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'release refused'; END $$`.execute(database.db)
+    await sql`CREATE TRIGGER refuse_release BEFORE DELETE ON promotion_reservations
+      FOR EACH ROW EXECUTE FUNCTION refuse_release()`.execute(database.db)
+    try {
+      await module.orders.reconcilePayments(NOW)
+    } finally {
+      await sql`DROP TRIGGER refuse_release ON promotion_reservations`.execute(database.db)
+      await sql`DROP FUNCTION refuse_release()`.execute(database.db)
+    }
+    expect(await statuses()).toEqual([{ order: 'PENDING', payment: 'OPEN' }])
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(await statuses()).toEqual([{ order: 'PENDING', payment: 'EXPIRED' }])
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
+  test('an aborted signal stops between payments', async () => {
+    const { module, mollie, asked } = await started([30, 30, 30])
+    const controller = new AbortController()
+    const find = mollie.find.bind(mollie)
+    mollie.find = (id) => {
+      controller.abort()
+      return find(id)
+    }
+
+    await module.orders.reconcilePayments(NOW, controller.signal)
+
+    expect(asked).toEqual(['tr_1_1'])
   })
 })
 
@@ -525,6 +567,57 @@ describe('orders.recheckPayment', () => {
       'ORDER_PLACED',
       'PAYMENT_STARTED',
     ])
+  })
+
+  test('two concurrent rechecks of one change record it once', async () => {
+    const { module, order, report } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PENDING' })
+
+    const answers = await Promise.all([
+      module.orders.recheckPayment(order.orderId, ADMIN),
+      module.orders.recheckPayment(order.orderId, ADMIN),
+    ])
+
+    expect(answers).toEqual([
+      { kind: 'ok', value: { status: 'PENDING', paymentStatus: 'PENDING' } },
+      { kind: 'ok', value: { status: 'PENDING', paymentStatus: 'PENDING' } },
+    ])
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.kind === 'PAYMENT_STATUS_CHANGED')
+        .map((event) => event.details),
+    ).toEqual([{ paymentId: 1, from: 'OPEN', to: 'PENDING' }])
+  })
+
+  test('answers the stored pair when a webhook paid the order while Mollie was asked', async () => {
+    const { module, order, report, app, mollie } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PENDING' })
+    // The recheck's Mollie answer (PENDING) is read at once and held back until the webhook paid.
+    const find = mollie.find.bind(mollie)
+    const asked = Promise.withResolvers<undefined>()
+    const answer = Promise.withResolvers<undefined>()
+    let calls = 0
+    mollie.find = async (id) => {
+      calls += 1
+      if (calls > 1) return find(id)
+      const pending = find(id)
+      asked.resolve(undefined)
+      await answer.promise
+      return pending
+    }
+
+    const recheck = module.orders.recheckPayment(order.orderId, ADMIN)
+    await asked.promise
+    report('tr_1_1', { status: 'PAID' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    answer.resolve(undefined)
+
+    expect(await recheck).toEqual({ kind: 'ok', value: { status: 'PAID', paymentStatus: 'PAID' } })
+    expect(
+      (await orderEvents(database.db)).filter((event) => event.cause === 'ADMIN_RECHECK'),
+    ).toEqual([])
   })
 
   test('an order without a payment is a conflict, an unknown order not found', async () => {

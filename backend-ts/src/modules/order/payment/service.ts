@@ -82,9 +82,10 @@ export function createPaymentService({
   }
 
   /**
-   * Writes the reported status over a payment under way and, only when that moved the row,
-   * records `PAYMENT_STATUS_CHANGED` with `cause` (and the admin of an `ADMIN_RECHECK` as
-   * `actorId`) in the same transaction; `false` when the row was final and nothing moved.
+   * Writes the reported status over a payment under way and, only when that really changed the
+   * row, records `PAYMENT_STATUS_CHANGED` from the locked previous status with `cause` (and the
+   * admin of an `ADMIN_RECHECK` as `actorId`) in the same transaction; `false` when the row was
+   * final or already had the status and nothing moved.
    */
   const movePayment = async (
     trx: Transaction<Tables>,
@@ -93,26 +94,27 @@ export function createPaymentService({
     cause: PaymentCause,
     actorId: number | null,
   ): Promise<boolean> => {
-    const moved = await moveStatus(trx, stored.paymentId, to)
-    if (moved) {
-      await recordEvent(trx, stored.orderId, {
-        kind: 'PAYMENT_STATUS_CHANGED',
-        actorType: 'SYSTEM',
-        cause,
-        actorId,
-        details: { paymentId: stored.paymentId, from: stored.status, to },
-      })
-    }
-    return moved
+    const from = await moveStatus(trx, stored.paymentId, to)
+    if (from === null) return false
+    await recordEvent(trx, stored.orderId, {
+      kind: 'PAYMENT_STATUS_CHANGED',
+      actorType: 'SYSTEM',
+      cause,
+      actorId,
+      details: { paymentId: stored.paymentId, from, to },
+    })
+    return true
   }
 
   /**
    * What the webhook, the detail refresh, and the reconciliation do with a status Mollie reported;
    * `cause` names which of them asked. A status the row already has, or a row that is final
    * (`PAID` or ended), is written over by nothing and recorded by nothing: a delayed `OPEN`
-   * arriving after `PAID` was recorded leaves `PAID`. A terminal status releases the reservation,
-   * on a redelivery again: the release is idempotent, and the redelivery is the only retry a
-   * release lost to a failure has.
+   * arriving after `PAID` was recorded leaves `PAID`. A terminal status is one transaction that
+   * locks orders, then the payment, then the promotion (the order of `confirmOrder`): the payment
+   * ends and the reservation is released together, so a failed release leaves the payment under
+   * way for the next webhook, refresh, or reconciliation. A redelivery of a terminal status
+   * releases again; the release is idempotent.
    */
   const applyReported = async (
     stored: StoredPayment,
@@ -137,10 +139,19 @@ export function createPaymentService({
       await write(db, (trx) => movePayment(trx, stored, 'PAID', cause, actorId))
       return 'notConfirmed'
     }
-    const recorded =
-      stored.status === reported.status ||
-      (await write(db, (trx) => movePayment(trx, stored, reported.status, cause, actorId)))
-    if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
+    if (isLive(reported.status)) {
+      if (stored.status !== reported.status) {
+        await write(db, (trx) => movePayment(trx, stored, reported.status, cause, actorId))
+      }
+      return 'recorded'
+    }
+    await write(db, async (trx) => {
+      await lockOrder(trx, stored.orderId)
+      const moved = await movePayment(trx, stored, reported.status, cause, actorId)
+      if (moved || stored.status === reported.status) {
+        await transitions.paymentEnded(trx, stored.orderId)
+      }
+    })
     return 'recorded'
   }
 
@@ -204,7 +215,7 @@ export function createPaymentService({
           if (live !== undefined) return { kind: 'started', checkoutUrl: live.checkoutUrl }
           const created = await mollie.create(order, randomUUID())
           if (created?.checkoutUrl == null) {
-            await transitions.cancel(trx, order.orderId, 'PAYMENT_START_REFUSED')
+            await transitions.cancel(trx, order.orderId)
             return { kind: 'refused' }
           }
           attempt.created = created
@@ -266,28 +277,32 @@ export function createPaymentService({
 
     /**
      * An admin's "ask Mollie now" on one order: `refreshed` with cause `ADMIN_RECHECK` and the
-     * admin's user id, then the order's status read again, so a paid answer shows `PAID` on both.
-     * An unknown order is `notFound`, an order without a payment a `conflict`.
+     * admin's user id, then the stored order status and payment status read again, so the answer
+     * is what is stored, also when a concurrent webhook got there first (`PAID` on both after a
+     * paid answer). An unknown order is `notFound`, an order without a payment a `conflict`.
      */
     recheck: async (orderId: number, adminUserId: number) => {
-      const paymentStatus = await refreshed(orderId, 'ADMIN_RECHECK', adminUserId)
+      await refreshed(orderId, 'ADMIN_RECHECK', adminUserId)
       const status = await repository.orderStatus(orderId)
       if (status === undefined) return notFound
-      if (paymentStatus === null) return conflict
-      return ok({ status, paymentStatus })
+      const payment = (await repository.currentPayments([orderId])).get(orderId)
+      if (payment === undefined) return conflict
+      return ok({ status, paymentStatus: payment.status })
     },
 
     /**
      * The operations worker's first step: every payment under way for more than fifteen minutes,
      * oldest first, goes through `refreshed` once, so a lost webhook is repaired without the
      * customer opening their order. A provider that cannot answer is `refreshed`'s warning; any
-     * other failure is logged by class and the next payment is asked all the same.
+     * other failure is logged by class and the next payment is asked all the same. Once `signal`
+     * is aborted it returns between payments.
      */
-    reconcile: async (now: Date): Promise<void> => {
+    reconcile: async (now: Date, signal?: AbortSignal): Promise<void> => {
       const orderIds = await repository.underWayBefore(
         new Date(now.getTime() - RECONCILE_AFTER_MILLIS),
       )
       for (const orderId of orderIds) {
+        if (signal?.aborted === true) return
         try {
           await refreshed(orderId, 'RECONCILIATION')
         } catch (error) {

@@ -511,14 +511,21 @@ case. A row opens the timeline page `/admin/orders/{orderId}` (route
 [the Operations package](../backend-ts/packages/operations-package.md) (order,
 payments, production, mails, history, open findings) and the order's production
 documents. An unknown order answers `404` and the store turns it into
-`OrderNotFoundError`. There is still no status editing.
+`OrderNotFoundError`. The router reuses the page between orders, so it loads
+again when the `orderId` prop changes, and only the newest timeline load may
+write the store: a late answer for the order the admin just left is dropped.
+There is still no status editing.
 
 The timeline page's *Recheck payment* button asks Mollie about the order's
 payment now (`recheckPayment`, no body). The answer `{ status, paymentStatus }`
 is kept in `recheck` and shown above the page, and the timeline is reloaded so
 the payment, the history, and the production sections show what the recheck
 changed; a refusal (`409 The order has no payment`) is kept in `recheckError`
-and shown with the backend's message. Both are cleared when the page mounts.
+and shown with the backend's message. Both are cleared whenever the page opens an
+order, and a recheck answer that arrives after another timeline load started is
+neither kept nor followed by a reload. The feedback reads "Recheck answer: …",
+not "Mollie was asked": for a final payment, or when Mollie fails, the backend
+answers the stored status without asking.
 
 The production documents are the narrow surface of issue #84: an order-ID input
 on the Orders page (and the timeline of each order), the list of one document per

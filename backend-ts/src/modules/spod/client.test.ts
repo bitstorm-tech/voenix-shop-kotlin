@@ -189,6 +189,18 @@ describe('the order calls', () => {
     ])
   })
 
+  test('an order id typed by an admin is encoded into one path segment', async () => {
+    const spod = harness(() => jsonAnswer('{"id":"x","state":"NEW"}'))
+
+    await spod.client.getOrder(access(), '../carts?x=1')
+    await spod.client.confirmOrder(access(), '../carts?x=1')
+
+    expect(spod.requests.map((request) => request.url)).toEqual([
+      'https://rest.spod-staging.com/orders/..%2Fcarts%3Fx%3D1',
+      'https://rest.spod-staging.com/orders/..%2Fcarts%3Fx%3D1/confirm',
+    ])
+  })
+
   test('the hotspots of a product type are asked for one design', async () => {
     const spod = harness(() =>
       jsonAnswer('{"hotspots":[{"name":"LEFT_CHEST"},{"name":"MEDIUM_FRONT"}]}'),

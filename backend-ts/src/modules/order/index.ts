@@ -57,7 +57,7 @@ export function createOrderModule({
 }) {
   const repository = createOrderRepository(db)
   const paymentRepository = createPaymentRepository(db)
-  const transitions = createOrderTransitions({ db, promotionCodes })
+  const transitions = createOrderTransitions({ promotionCodes })
   const payments = createPaymentService({
     db,
     repository: paymentRepository,
@@ -103,7 +103,10 @@ export function createOrderModule({
       orderItem: repository.orderItem,
       /** The stalled payments, for the operations worker. */
       findings: paymentRepository.findings,
-      /** Asks Mollie about every payment under way for over 15 minutes; the operations worker's first step. */
+      /**
+       * Asks Mollie about every payment under way for over 15 minutes, stopping between payments
+       * once `signal` is aborted; the operations worker's first step.
+       */
       reconcilePayments: payments.reconcile,
       /**
        * An admin's recheck of one order's payment with Mollie, recorded with the admin's user id;

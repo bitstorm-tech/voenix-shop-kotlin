@@ -211,7 +211,9 @@ capabilities on `outbox`, both plain read transactions over `email_jobs`:
   before `now` or `attempt_count >= 3`. The subject is the job (`EMAIL`, its
   id), `since` its `created_at`, and the finding carries the mail's own kind
   (`emailKind`, read from `payload->>'kind'`), so the operations module can
-  tell a stalled order mail from a stalled alert.
+  tell a stalled order mail from a stalled alert. In a deployment with
+  `EMAIL_ENABLED=false` (the development default) every enqueued mail becomes
+  a finding after an hour, because the email worker sends nothing.
 - `ofOrder(orderId)` lists the mails attributed to one order, oldest first,
   as `{ emailJobId, kind, recipient, attemptCount, lastErrorCode, createdAt,
   sentAt }`, without the subject, the HTML, or the text.

@@ -538,16 +538,20 @@ export async function insertOrder(
 }
 
 /**
- * Locks the order row with `SELECT … FOR UPDATE` before its status is read, so two writers of one
- * order (a confirmation, a cancellation, a payment start) queue up instead of both deciding from
- * `PENDING`. The lock order of this module is always orders, then payments, then promotions.
+ * Locks the order row with `SELECT … FOR NO KEY UPDATE` before its status is read, so two writers
+ * of one order (a confirmation, a cancellation, a payment start) queue up instead of both deciding
+ * from `PENDING`. Not `FOR UPDATE`: an `order_events` insert takes a `KEY SHARE` lock on the order
+ * through its foreign key, and a writer that holds the payment row first (the live and the
+ * amount-mismatch branches of `applyReported`) would deadlock against a writer that holds the order
+ * and wants the payment. No transition changes the order's key, so the weaker lock loses nothing.
+ * The lock order of this module is always orders, then payments, then promotions.
  */
 export function lockOrder(trx: Transaction<Tables>, orderId: number) {
   return trx
     .selectFrom('orders')
     .select(['status', 'cart_id as cartId', 'user_id as userId', 'promotion_id as promotionId'])
     .where('id', '=', orderId)
-    .forUpdate()
+    .forNoKeyUpdate()
     .executeTakeFirst()
 }
 

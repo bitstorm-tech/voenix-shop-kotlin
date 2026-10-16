@@ -29,7 +29,7 @@ async function placedWithCoupon(usageLimitTotal: number | null = null) {
 
 /** The cancellation in a transaction of its own, as the tests here need it. */
 const cancel = (orders: Awaited<ReturnType<typeof placedWithCoupon>>, orderId: number) =>
-  write(database.db, (trx) => orders.cancel(trx, orderId, 'PAYMENT_START_REFUSED'))
+  write(database.db, (trx) => orders.cancel(trx, orderId))
 
 const statusOf = async (orderId: number) =>
   (

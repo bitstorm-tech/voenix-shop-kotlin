@@ -341,10 +341,12 @@ caveat is written into
 
    ```sh
    PRODUCTION_SPOD_WEBHOOK_SECRET=<at least 32 characters>
-   PRODUCTION_SPOD_ALERT_EMAIL=<the ops address>
+   OPERATIONS_ALERT_EMAIL=<the ops address>
    ```
 
-   Both or neither; without them every SPOD destination write is refused
+   The secret needs 32 characters or more and requires
+   `OPERATIONS_ALERT_EMAIL`; the address alone is allowed (it also receives
+   the operations alert). Without the secret every SPOD destination write is refused
    with a `channel` field error, and a start with an existing SPOD
    destination refuses.
 2. Create (or reuse) the print-on-demand supplier under

@@ -162,21 +162,29 @@ export function createPaymentRepository(db: Kysely<Tables>) {
 
 /**
  * Writes the status Mollie reported, inside the caller's transaction and only while the payment is
- * under way; `false` means the row is final and nothing moved. A write from a live status never
- * conflicts with `ux_payments_live_order`: the row already holds its order's slot or gives it up.
+ * under way and not already in `status`: the row is read `FOR UPDATE` first, so of two concurrent
+ * reports of one change only the first moves it. Answers the locked previous status, or `null`
+ * when nothing moved. A write from a live status never conflicts with `ux_payments_live_order`: the
+ * row already holds its order's slot or gives it up.
  */
 export async function moveStatus(
   trx: Transaction<Tables>,
   paymentId: number,
   status: PaymentStatus,
-): Promise<boolean> {
-  const result = await trx
+): Promise<PaymentStatus | null> {
+  const locked = await trx
+    .selectFrom('payments')
+    .select('status')
+    .where('id', '=', paymentId)
+    .forUpdate()
+    .executeTakeFirstOrThrow()
+  if (locked.status === status || !isUnderWay(locked.status)) return null
+  await trx
     .updateTable('payments')
     .set({ status, updated_at: sql<Date>`now()` })
     .where('id', '=', paymentId)
-    .where('status', 'in', UNDER_WAY_STATUSES)
-    .executeTakeFirst()
-  return result.numUpdatedRows > 0n
+    .execute()
+  return locked.status
 }
 
 /** The order's live payment, read inside the caller's transaction (which holds the order lock). */

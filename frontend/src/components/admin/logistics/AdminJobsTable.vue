@@ -63,7 +63,7 @@ const rows = computed<Row[]>(() =>
     generationNote: expectsPdf(job) && !job.pdfAvailable ? generationNote(job) : null,
     remoteNote: remoteNote(job),
     expectsPdf: expectsPdf(job),
-    quarantined: job.fulfillmentChannel === CHANNEL_SPOD && job.createState === 'OUTCOME_UNKNOWN',
+    quarantined: job.createState === 'OUTCOME_UNKNOWN',
   })),
 )
 

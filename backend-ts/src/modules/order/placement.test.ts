@@ -171,9 +171,7 @@ describe('orders.place', () => {
     const cartId = await seedCart(database.db)
     await place(placeInput(cartId))
     const { orders } = await module()
-    expect(await write(database.db, (trx) => orders.cancel(trx, 1, 'PAYMENT_START_REFUSED'))).toBe(
-      'cancelled',
-    )
+    expect(await write(database.db, (trx) => orders.cancel(trx, 1))).toBe('cancelled')
     expect((await place(placeInput(cartId))).kind).toBe('placed')
     expect(await count(database.db, 'orders')).toBe(2)
   })
@@ -230,7 +228,7 @@ describe('orders.payable', () => {
     // An account order, placed with that browser's guest cookie as well.
     await place(placeInput(await seedCart(database.db, { userId }), { userId }))
     await write(database.db, (trx) => orders.confirmFree(trx, 2))
-    await write(database.db, (trx) => orders.cancel(trx, 3, 'PAYMENT_START_REFUSED'))
+    await write(database.db, (trx) => orders.cancel(trx, 3))
 
     expect(await orders.payable(1, null, 'guest-a')).toEqual({
       kind: 'payable',

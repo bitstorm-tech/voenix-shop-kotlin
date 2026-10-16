@@ -297,7 +297,7 @@ export function createSpodClient({
       call(
         access,
         'reading an order',
-        `/orders/${orderId}`,
+        `/orders/${encodeURIComponent(orderId)}`,
         { method: 'GET' },
         (body) => json(orderStateAnswer)(body).state,
       ),
@@ -307,7 +307,7 @@ export function createSpodClient({
       call(
         access,
         'confirming an order',
-        `/orders/${orderId}/confirm`,
+        `/orders/${encodeURIComponent(orderId)}/confirm`,
         { method: 'POST' },
         () => undefined,
       ),

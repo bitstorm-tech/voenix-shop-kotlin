@@ -165,7 +165,19 @@ export function createFulfillmentService({
     })
   }
 
-  /** The single answer of a committed ship: a missing header is a broken reference, not a drop. */
+  /** The view of a job a write just changed, read again: a missing header is a broken reference. */
+  const viewAfterWrite = async <V>(
+    jobId: number,
+    supplierScope: number | null,
+    render: (jobs: StoredJob[]) => Promise<V[]>,
+  ): Promise<V> => {
+    const job = await repository.job(jobId, supplierScope)
+    const [view] = job === undefined ? [] : await render([job])
+    if (view === undefined) throw new Error(`Production job ${String(jobId)} has no view`)
+    return view
+  }
+
+  /** The single answer of a committed ship. */
   const shipped = async <V>(
     result: ShipWriteResult,
     jobId: number,
@@ -173,10 +185,7 @@ export function createFulfillmentService({
     render: (jobs: StoredJob[]) => Promise<V[]>,
   ): Promise<ShipResult<V>> => {
     if (result !== 'shipped') return { kind: result }
-    const job = await repository.job(jobId, supplierScope)
-    const [view] = job === undefined ? [] : await render([job])
-    if (view === undefined) throw new Error(`Shipped production job ${String(jobId)} has no view`)
-    return { kind: 'shipped', job: view }
+    return { kind: 'shipped', job: await viewAfterWrite(jobId, supplierScope, render) }
   }
 
   const adminViews = async (jobs: StoredJob[]) => {
@@ -273,11 +282,7 @@ export function createFulfillmentService({
       }
       const released = await spodOrders.release(jobId, release, adminUserId)
       if (released.kind !== 'ok') return released
-      const releasedJob = await repository.job(jobId, null)
-      const [view] = releasedJob === undefined ? [] : await adminViews([releasedJob])
-      if (view === undefined)
-        throw new Error(`Released production job ${String(jobId)} has no view`)
-      return ok(view)
+      return ok(await viewAfterWrite(jobId, null, adminViews))
     },
 
     /**

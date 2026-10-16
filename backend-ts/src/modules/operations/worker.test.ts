@@ -55,7 +55,7 @@ const spodJob = (kind: 'SPOD_QUARANTINED' | 'SPOD_REMOTE_ATTENTION', id: number)
  * as the scan's first step. It alerts `alertEmail` through the real outbox and logs to `logger`.
  */
 function scripted(
-  reconcilePayments: (now: Date) => Promise<void> = () => Promise.resolve(),
+  reconcilePayments: (now: Date, signal?: AbortSignal) => Promise<void> = () => Promise.resolve(),
   alertEmail: string | null = ALERT_EMAIL,
 ) {
   const answer: { findings: Finding[]; scans: number; readAt: Date | null } = {
@@ -216,6 +216,25 @@ describe('the operations scan', () => {
 
     expect(answer.scans).toBe(1)
     expect(await rows()).toMatchObject([{ kind: 'PAYMENT_UNRESOLVED', resolved_at: null }])
+  })
+
+  test('stop during the reconciliation records nothing for that scan', async () => {
+    const reconciling = Promise.withResolvers<undefined>()
+    const finish = Promise.withResolvers<undefined>()
+    const { worker, answer } = scripted(async () => {
+      reconciling.resolve(undefined)
+      await finish.promise
+    })
+    answer.findings = [unresolvedPayment]
+
+    worker.start()
+    await reconciling.promise
+    const stopped = worker.stop()
+    finish.resolve(undefined)
+    await stopped
+
+    expect(answer.scans).toBe(0)
+    expect(await rows()).toEqual([])
   })
 })
 

@@ -66,7 +66,7 @@ flowchart TB
     subgraph Order["order module"]
         Routes["routes.ts<br/>/api/orders · /api/order-lookup · /api/admin/orders"]
         Service["service.ts<br/>reads · place · payable · production reads"]
-        Transitions["transitions.ts<br/>markPaid · cancel · paymentEnded<br/>FOR UPDATE on the order"]
+        Transitions["transitions.ts<br/>markPaid · cancel · paymentEnded<br/>FOR NO KEY UPDATE on the order"]
         Repository["repository.ts<br/>orders · order_items"]
         subgraph Payment["payment/"]
             Webhook["routes.ts<br/>POST /api/payments/webhook/{secret}"]
@@ -112,8 +112,8 @@ order/
 |- service.ts               createOrderService: the three reads, place, payable, adminOrders, the
 |                           production reads;
 |                           PlaceOrderResult, PayableResult, PrintImageReads (the cart implements it)
-|- transitions.ts           createOrderTransitions: markPaid(trx, id, by), cancel(trx, id, cause),
-|                           paymentEnded(id)
+|- transitions.ts           createOrderTransitions: markPaid(trx, id, by), cancel(trx, id),
+|                           paymentEnded(trx, id)
 |- repository.ts            createOrderRepository (the reads, adminOrder, adminOrders) and the
 |                           statements taking a trx (liveOrderOfCart, insertOrder, lockOrder,
 |                           setOrderStatus, recordEvent); the value types PayableOrder, OrderView,
@@ -338,7 +338,7 @@ in one transaction together with the payment's `PAID` write (see
 [The webhook](#the-webhook)).
 
 ```text
-SELECT … FROM orders WHERE id = ? FOR UPDATE      before the status is read
+SELECT … FROM orders WHERE id = ? FOR NO KEY UPDATE   before the status is read
   → not found   'notFound'
   → PAID        'alreadyPaid'     nothing happens twice
   → CANCELLED   'cancelled'       the order stays cancelled
@@ -355,27 +355,38 @@ being paid, because the money has already moved; the order becomes `PAID`
 without a redemption and the reason is logged.
 
 The lock order of the whole module is orders, then payments, then promotions.
-Nothing takes them the other way round.
+Nothing takes them the other way round. The order lock is `FOR NO KEY UPDATE`,
+not `FOR UPDATE`: every event insert into `order_events` takes a `KEY SHARE`
+lock on the order through its foreign key, and the live and amount-mismatch
+branches of `applyReported` lock the payment row without the order. With
+`FOR UPDATE` a terminal write (orders, then payments) and a live write
+(payments, then the event's `KEY SHARE` on orders) of one payment could
+deadlock; `FOR NO KEY UPDATE` does not conflict with `KEY SHARE`, and no
+transition changes an order's key, so the weaker lock serializes the writers
+just the same.
 
 ## Cancelling an order, and a payment that ends
 
-`cancel(trx, orderId, cause)` locks the order the same way, in the caller's
+`cancel(trx, orderId)` locks the order the same way, in the caller's
 transaction. A `PENDING` order becomes `CANCELLED`, falls out of
 `ux_orders_live_cart` (so the cart can be checked out again), its promotion
-reservation is released, and `ORDER_CANCELLED` with `cause` is recorded, all in
+reservation is released, and `ORDER_CANCELLED` with cause
+`PAYMENT_START_REFUSED` (its only cause, so it is no parameter) is recorded, all in
 the same commit. A `PAID` order is refused
 (`'paid'`) and logged: the money moved and production is requested. The one
 production caller is `startPayment` when Mollie refuses to create a payment,
 and it calls `cancel` inside the transaction that already holds the order lock
 (the reason is under [Starting a payment](#starting-a-payment)).
 
-`paymentEnded(orderId)` is what a payment that failed, expired, or was
+`paymentEnded(trx, orderId)` is what a payment that failed, expired, or was
 cancelled by the customer does: the order stays `PENDING` (the customer may pay
 again), but the reservation its cart holds is released, under the order lock
 so a release never overtakes a running confirmation whose redemption is about
-to consume that reservation. An unknown order, one without a promotion, and a
-reservation already gone are the same no-op, which is what makes a redelivered
-notification harmless.
+to consume that reservation. It runs in the caller's transaction, the one that
+also writes the terminal status (see [the webhook](#the-webhook)), so the
+payment ends and the reservation is released together or not at all. An
+unknown order, one without a promotion, and a reservation already gone are the
+same no-op, which is what makes a redelivered notification harmless.
 
 ## Payment
 
@@ -392,7 +403,7 @@ for the same order.
 payment was started. It runs one transaction of its own:
 
 ```text
-SELECT … FROM orders WHERE id = ? FOR UPDATE
+SELECT … FROM orders WHERE id = ? FOR NO KEY UPDATE
   → not PENDING            null, no provider call
   → a live payment exists  its stored checkout_url, no provider call
   → otherwise              Mollie create (fresh Idempotency-Key) → INSERT payments → the new URL
@@ -412,8 +423,7 @@ on the live index, the re-read of the winner, the cancellation of the loser's
 provider payment, the one bounded retry into a vacated slot): with the lock
 there is no loser. Two compensations stay:
 
-- **Mollie refuses or cannot be reached** → `cancel(trx, orderId,
-  'PAYMENT_START_REFUSED')` in the
+- **Mollie refuses or cannot be reached** → `cancel(trx, orderId)` in the
   *same* transaction, under the lock the start already holds: the order is
   cancelled and its reservation released, a warning names the order, and the
   caller gets `null`. Checkout does not have to cancel anything itself. The
@@ -459,7 +469,7 @@ place:
 | no secret segment | `404`, the route does not match |
 | missing or blank `id` | `400 {"message":"Missing payment id"}` |
 | Mollie unreachable, unreadable, an unknown status word, or an answer about another payment | `502`, so Mollie redelivers |
-| status recorded, not `PAID` | `200`; a terminal status also releases the reservation (`paymentEnded`) |
+| status recorded, not `PAID` | `200`; a terminal status also releases the reservation (`paymentEnded`) in the same transaction |
 | `PAID`, and the order is paid now or already was | `200`; the payment's `PAID` and [the paid transition](#the-paid-transition) commit together, so a transition that fails leaves the payment under way and the redelivery confirms it |
 | `PAID`, but Mollie's amount differs from the stored `amount_cents` | `200`, the order is **not** paid, ERROR log for a human |
 | `PAID` for a `CANCELLED` order | `200`, ERROR log: the amount has to be refunded by hand |
@@ -472,19 +482,30 @@ answer is a message to Mollie about redelivery, and what a human has to settle
 is in the log. The status is asked of Mollie *before* the row is looked up, so
 an id Mollie does not know is a `502`, not a probe of which ids this shop has.
 
-A redelivered terminal status releases the reservation again. The release is
-idempotent, and a redelivery is the only retry a release lost to a database
-failure has.
+A terminal status (`FAILED`, `CANCELED`, `EXPIRED`) is one transaction: the
+order lock first (`lockOrder`), then the payment row, then `paymentEnded`
+releases the reservation, the same lock order the paid path keeps. The status
+and the release commit together, so a release that fails leaves the payment
+under way, and the next webhook, refresh, or reconciliation asks Mollie again
+and ends it. Were the status committed first, a failed release would strand the
+reservation for good: the reconciliation and the recheck only ask about
+payments under way. A redelivered terminal status releases the reservation
+again; the release is idempotent.
 
 A status is written **forward only**: `moveStatus(trx, paymentId, status)` in
 [`payment/repository.ts`](../../../../backend-ts/src/modules/order/payment/repository.ts)
-updates the row only while its status is `OPEN`, `PENDING`, or `AUTHORIZED`
-(`isUnderWay`). `PAID` and the three terminal statuses are final, so a refresh
-whose Mollie answer was delayed past a webhook's `PAID` writes nothing, and a
-dead payment can never re-enter `ux_payments_live_order` next to a live one:
-there is no unique violation left to map, and no "superseded" outcome. The
-paid path takes the order lock first (`markPaid`) and the payment row second,
-which keeps the module's lock order.
+reads the row `FOR UPDATE` and updates it only while its status is `OPEN`,
+`PENDING`, or `AUTHORIZED` (`isUnderWay`) and differs from the reported one.
+It answers the locked previous status, and `PAYMENT_STATUS_CHANGED` is written
+from that status and only when the row really changed: two concurrent reports
+of one change (two rechecks, a webhook and a refresh) queue on the row lock,
+and the second finds the status already written and records nothing. `PAID`
+and the three terminal statuses are final, so a refresh whose Mollie answer
+was delayed past a webhook's `PAID` writes nothing, and a dead payment can
+never re-enter `ux_payments_live_order` next to a live one: there is no unique
+violation left to map, and no "superseded" outcome. The paid path takes the
+order lock first (`markPaid`) and the payment row second, which keeps the
+module's lock order.
 
 ### Reading a status: stored versus refreshed
 
@@ -507,13 +528,17 @@ with the admin's user id (`refreshed(orderId, cause, actorId)`); the webhook's
 `recheck(orderId, adminUserId)`, exported as `orders.recheckPayment`, is the
 admin's "ask Mollie now" button on the
 [order timeline](operations-package.md#the-admin-actions): `refreshed` with the
-cause `ADMIN_RECHECK` and the admin's user id, then the order's status read
-again (`orderStatus` in the payment repository), so a payment Mollie reports
-paid answers `{ status: 'PAID', paymentStatus: 'PAID' }` and the order is paid
-exactly as the webhook would have paid it. An unknown order is `notFound`; an
-order without a payment (`currentPayments` has none) is `conflict`.
+cause `ADMIN_RECHECK` and the admin's user id, then the stored pair read again:
+the order's status (`orderStatus` in the payment repository) and its current
+payment's status (`currentPayments`). So a payment Mollie reports paid answers
+`{ status: 'PAID', paymentStatus: 'PAID' }` and the order is paid exactly as the
+webhook would have paid it, and the answer is what is stored, never Mollie's
+word: when a webhook commits `PAID` while the recheck still waits for an older
+`PENDING` answer, the recheck writes nothing and answers `PAID` on both. An
+unknown order is `notFound`; an order without a payment (`currentPayments` has
+none) is `conflict`.
 
-`reconcile(now)`, exported as `orders.reconcilePayments(now)`, is the third
+`reconcile(now, signal)`, exported as `orders.reconcilePayments(now, signal)`, is the third
 reader and the one that needs no customer: the
 [operations worker](operations-package.md#the-scan) calls it first in every
 scan. It reads, in id order, the order of every payment that is under way and
@@ -528,7 +553,9 @@ scan about a payment method that expires in days is a few hundred reads a day.
 A provider that cannot answer is `refreshed`'s WARN line; any other failure
 (say, a paid transition the database refuses) is logged with the payment's
 order and the error's class, and the loop moves on to the next payment, so one
-broken order never keeps the others waiting. The next scan asks again.
+broken order never keeps the others waiting. The next scan asks again. Once
+the optional `signal` is aborted (the worker's `stop`), the loop returns
+between two payments, so a shutdown waits for at most one Mollie read.
 
 ### Payments that stand still: `findings(now)`
 
@@ -627,7 +654,7 @@ writes nothing.
 | --- | --- | --- |
 | `ORDER_PLACED` | `service.place`, in checkout TX1 | `CUSTOMER` |
 | `PAYMENT_STARTED` | `startPayment`, when it inserted a payment | `CUSTOMER`; `{ paymentId }` |
-| `PAYMENT_STATUS_CHANGED` | `applyReported`, when `moveStatus` moved the row | `SYSTEM`; cause `WEBHOOK`, `REFRESH`, `RECONCILIATION`, or `ADMIN_RECHECK`, the last with the admin's user id as `actor_id`; `{ paymentId, from, to }` |
+| `PAYMENT_STATUS_CHANGED` | `applyReported`, when `moveStatus` changed the row, `from` the locked previous status | `SYSTEM`; cause `WEBHOOK`, `REFRESH`, `RECONCILIATION`, or `ADMIN_RECHECK`, the last with the admin's user id as `actor_id`; `{ paymentId, from, to }` |
 | `ORDER_PAID` | `markPaid`, when it paid | `SYSTEM` with the cause of the payment answer, or `CUSTOMER` with `FREE_ORDER` (`confirmFree`) |
 | `ORDER_CANCELLED` | `cancel`, when it cancelled | `SYSTEM`; cause `PAYMENT_START_REFUSED`, the only caller |
 | `SPOD_REMOTE_STATE_CHANGED` | production, `recordRemoteState` when the row changed | `CHANNEL`; `{ jobId, state }` |
@@ -729,15 +756,15 @@ migrations until `orders` existed.
 | `confirmFree(trx, orderId)` | checkout TX1, free order | [the paid transition](#the-paid-transition) in the caller's transaction, recorded as `CUSTOMER` with cause `FREE_ORDER` (supplied here, so the checkout passes no actor); answers `'paid' \| 'alreadyPaid' \| 'cancelled' \| 'notFound'` |
 | `startPayment(order)` | checkout, after TX1, and the retry route | [Starting a payment](#starting-a-payment); its own transaction, never the caller's |
 | `payable(orderId, userId, guestToken)` | the retry route | `payable` with the `PayableOrder`, or `notFound` (unknown and foreign), `alreadyPaid`, `cancelled`, `free` |
-| `cancel(trx, orderId, cause)` | `startPayment` itself, cause `PAYMENT_START_REFUSED` | [Cancelling](#cancelling-an-order-and-a-payment-that-ends) in the caller's transaction; answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
+| `cancel(trx, orderId)` | `startPayment` itself, cause `PAYMENT_START_REFUSED` | [Cancelling](#cancelling-an-order-and-a-payment-that-ends) in the caller's transaction; answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
 | `orderItem(orderItemId, userId, guestToken)` | cart reorder | `{ articleId, variantId, promptId, printImageId }` of an owned line, or `undefined`; no price and no quantity, because a reorder is an ordinary add at today's price |
 | `productionData`, `fulfillmentOrders`, `shippingNotificationOrder` | production | [The production contract](#the-production-contract) |
 | `recordEvent(trx, orderId, event)` | production, the ship write, `recordRemoteState`, and the SPOD release | appends one of production's three events to the order's [history](#the-order-history) in the caller's transaction |
 | `adminOrder(orderId)` | operations, the admin timeline | [The admin reads](#the-admin-reads); `undefined` for an unknown order |
 | `adminOrders({ email, limit })` | operations, the admin order list | [The admin reads](#the-admin-reads) |
 | `findings(now)` | operations | the stalled payments, see [Payments that stand still](#payments-that-stand-still-findingsnow) |
-| `reconcilePayments(now)` | operations, first step of every scan | asks Mollie about every payment under way for over 15 minutes, see [Reading a status](#reading-a-status-stored-versus-refreshed) |
-| `recheckPayment(orderId, adminUserId)` | operations, the admin's recheck route | asks Mollie about the order's payment now, recorded with the admin; answers `{ status, paymentStatus }`, `notFound`, or `conflict` (no payment), see [Reading a status](#reading-a-status-stored-versus-refreshed) |
+| `reconcilePayments(now, signal?)` | operations, first step of every scan | asks Mollie about every payment under way for over 15 minutes, stopping between payments once `signal` is aborted, see [Reading a status](#reading-a-status-stored-versus-refreshed) |
+| `recheckPayment(orderId, adminUserId)` | operations, the admin's recheck route | asks Mollie about the order's payment now, recorded with the admin; answers the stored `{ status, paymentStatus }`, `notFound`, or `conflict` (no payment), see [Reading a status](#reading-a-status-stored-versus-refreshed) |
 
 Database failures are exceptions everywhere; each caller answers them with its
 own error policy.
@@ -804,7 +831,7 @@ transaction fail.
 | `transitions.test.ts` | the paid transition: redemption plus production request in one commit, exactly once, also for two concurrent calls; rolled back by a failing production request; an exhausted coupon still paying; a cancelled order never paid; `cancel` releasing the reservation and refusing a paid order; `ORDER_PAID` (`CUSTOMER`, `FREE_ORDER`) and `ORDER_CANCELLED` (`PAYMENT_START_REFUSED`) written once, nothing for a no-op |
 | `findings.test.ts` | `orders.findings` against seeded orders and payments with a fixed `now`: both kinds, a payment just below and exactly at the hour, a cancelled order's open payment, an abandoned checkout, and a retried order whose old payment ended while the current one is young |
 | `production-reads.test.ts` | `productionData` with the snapshot, the image path, and the Berlin date across midnight; a vanished image file; `fulfillmentOrders`; `shippingNotificationOrder`. The `PrintImageReads` here is a one-statement fake in `test-fixtures.ts` (order may not import cart); the cart's implementation is tested in the cart module |
-| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh; the reconciliation: only payments under way and older than 15 minutes asked, once each and in id order (exactly 15 minutes, a younger, and an ended payment untouched), `PAID` paying the order with its production request and redemption, `EXPIRED`, `FAILED`, and `CANCELED` releasing the reservation and leaving the order `PENDING`, a payment Mollie cannot answer about and a paid transition the database refuses each leaving the other payments reconciled; the history: `PAYMENT_STARTED` once for a repeated start, `ORDER_PAID` and `PAYMENT_STATUS_CHANGED` once with the cause `WEBHOOK`, `REFRESH`, or `RECONCILIATION` however often the answer repeats, the amount mismatch recording the payment but not the order, a refused start recording `ORDER_CANCELLED`; the recheck: a paid answer paying the order with its production request and redemption, `PAYMENT_STATUS_CHANGED` with `ADMIN_RECHECK` and the admin's id written once over two rechecks, an unchanged status recording nothing, `conflict` without a payment and `notFound` for an unknown order |
+| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh; the reconciliation: only payments under way and older than 15 minutes asked, once each and in id order (exactly 15 minutes, a younger, and an ended payment untouched), `PAID` paying the order with its production request and redemption, `EXPIRED`, `FAILED`, and `CANCELED` releasing the reservation and leaving the order `PENDING`, a payment Mollie cannot answer about and a paid transition the database refuses each leaving the other payments reconciled (the refused one with no event), a release the database refuses leaving the payment under way until the next scan ends it, an aborted signal stopping after the first payment; the history: `PAYMENT_STARTED` once for a repeated start, `ORDER_PAID` and `PAYMENT_STATUS_CHANGED` once with the cause `WEBHOOK`, `REFRESH`, or `RECONCILIATION` however often the answer repeats, the amount mismatch recording the payment but not the order, a refused start recording `ORDER_CANCELLED`; the recheck: a paid answer paying the order with its production request and redemption, `PAYMENT_STATUS_CHANGED` with `ADMIN_RECHECK` and the admin's id written once over two rechecks, an unchanged status recording nothing, two concurrent rechecks of one change recording it once, a webhook paying while the recheck waits for Mollie answering the stored `PAID` pair and recording nothing, `conflict` without a payment and `notFound` for an unknown order |
 | `payment/mollie.test.ts` | the adapter against a stubbed `fetch`: the full request body and headers, phone normalization and amount formatting, the seven status words, every unusable answer (refusal, redirect, transport failure, missing checkout URL, truncated body, foreign currency, a third decimal, another payment's id), `cancel` |
 
 There is no `validation.test.ts`: no route of this module takes a JSON body.

@@ -264,6 +264,64 @@ describe('admin orders store', () => {
       expect(store.isTimelineLoading).toBe(false)
     })
 
+    it('ignores a late timeline answer for an order the admin already left', async () => {
+      const answers = new Map<string, (response: Response) => void>()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (input: string) =>
+            new Promise<Response>((resolve) => {
+              answers.set(input, resolve)
+            }),
+        ),
+      )
+      const store = useAdminOrdersStore()
+
+      const first = store.fetchTimeline(41)
+      const second = store.fetchTimeline(42)
+      answers.get('/api/admin/orders/42/timeline')?.(jsonResponse({ order: { orderId: 42 } }))
+      await second
+      answers.get('/api/admin/orders/41/timeline')?.(errorResponse(404, 'Order not found'))
+      await first
+
+      expect(store.timeline?.order.orderId).toBe(42)
+      expect(store.timelineError).toBeNull()
+      expect(store.isTimelineLoading).toBe(false)
+    })
+
+    it('drops a recheck answer that arrives after another order was opened', async () => {
+      let answerRecheck: (response: Response) => void = () => {}
+      const fetchMock = vi.fn((input: string) => {
+        if (input === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'token' }))
+        }
+        if (input.endsWith('/payment/recheck')) {
+          return new Promise<Response>((resolve) => {
+            answerRecheck = resolve
+          })
+        }
+        return Promise.resolve(jsonResponse({ order: { orderId: 42 } }))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useAdminOrdersStore()
+
+      const recheck = store.recheckPayment(41)
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/orders/41/payment/recheck',
+          expect.anything(),
+        ),
+      )
+      await store.fetchTimeline(42)
+      answerRecheck(jsonResponse({ status: 'PAID', paymentStatus: 'PAID' }))
+      await recheck
+
+      expect(store.recheck).toBeNull()
+      expect(store.timeline?.order.orderId).toBe(42)
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/admin/orders/41/timeline')
+      expect(store.isRechecking).toBe(false)
+    })
+
     it('rechecks the payment, keeps the answer, and reloads the timeline', async () => {
       const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
         void init

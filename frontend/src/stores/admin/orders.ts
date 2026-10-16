@@ -18,7 +18,7 @@ export interface AdminOrderListEntry {
   openFindings: number
 }
 
-/** The answer of a payment recheck: the order's status and its payment's, read after Mollie answered. */
+/** The answer of a payment recheck: the order's status and its payment's, read after the recheck. */
 export interface PaymentRecheck {
   status: OrderStatus
   paymentStatus: OrderPaymentStatus
@@ -346,42 +346,58 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
     }
   }
 
+  /**
+   * The number of the most recently issued timeline load. Opening another order starts a second
+   * load before the first has answered; only the newest one may write the timeline state.
+   */
+  let latestTimelineFetchId = 0
+
   /** Everything known about one order; an unknown id ends in {@link OrderNotFoundError}. */
   async function fetchTimeline(orderId: number): Promise<void> {
+    const fetchId = ++latestTimelineFetchId
     isTimelineLoading.value = true
     timelineError.value = null
     timeline.value = null
 
     try {
-      timeline.value = await fetchJson<OrderTimeline>(`/api/admin/orders/${orderId}/timeline`)
+      const loaded = await fetchJson<OrderTimeline>(`/api/admin/orders/${orderId}/timeline`)
+      if (fetchId === latestTimelineFetchId) timeline.value = loaded
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      timelineError.value =
-        err instanceof ApiError && err.status === 404
-          ? new OrderNotFoundError(message)
-          : new Error(message)
+      if (fetchId === latestTimelineFetchId) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        timelineError.value =
+          err instanceof ApiError && err.status === 404
+            ? new OrderNotFoundError(message)
+            : new Error(message)
+      }
     } finally {
-      isTimelineLoading.value = false
+      if (fetchId === latestTimelineFetchId) isTimelineLoading.value = false
     }
   }
 
   /**
-   * Asks Mollie about the order's payment now, through the same path as the webhook, and reloads
-   * the timeline, which then shows what the recheck changed.
+   * Asks for the order's payment now, through the same path as the webhook, and reloads the
+   * timeline, which then shows what the recheck changed. A timeline load started meanwhile, such
+   * as opening another order, makes the answer stale: it is then neither kept nor reloaded.
    */
   async function recheckPayment(orderId: number): Promise<void> {
+    const fetchId = latestTimelineFetchId
     isRechecking.value = true
     recheckError.value = null
     recheck.value = null
 
     try {
-      recheck.value = await fetchJson<PaymentRecheck>(
+      const answer = await fetchJson<PaymentRecheck>(
         `/api/admin/orders/${orderId}/payment/recheck`,
         { method: 'POST' },
       )
+      if (fetchId !== latestTimelineFetchId) return
+      recheck.value = answer
       await fetchTimeline(orderId)
     } catch (err) {
-      recheckError.value = err instanceof Error ? err : new Error('Unknown error')
+      if (fetchId === latestTimelineFetchId) {
+        recheckError.value = err instanceof Error ? err : new Error('Unknown error')
+      }
     } finally {
       isRechecking.value = false
     }

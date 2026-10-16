@@ -16,32 +16,21 @@ const noStore = createMiddleware(async (c, next) => {
   await next()
 })
 
-/**
- * The order id of a timeline path. An id that is not a number never named an order, so it answers
- * the same `404` an unknown one does, as the order routes do.
- */
-const orderIdParam = zValidator(
-  'param',
-  z.object({
-    orderId: z
-      .string()
-      .regex(/^\d{1,15}$/)
-      .transform(Number),
-  }),
-  (result, c) => (result.success ? undefined : c.json(apiError(ORDER_NOT_FOUND), 404)),
-)
+const id = z
+  .string()
+  .regex(/^\d{1,15}$/)
+  .transform(Number)
 
-/** A job id that is not a number answers like an unknown one, as the fulfillment routes do. */
-const jobIdParam = zValidator(
-  'param',
-  z.object({
-    jobId: z
-      .string()
-      .regex(/^\d{1,15}$/)
-      .transform(Number),
-  }),
-  (result, c) => (result.success ? undefined : c.json(apiError(JOB_NOT_FOUND), 404)),
-)
+/**
+ * The numeric path parameter `name`. An id that is not a number never named a row, so it answers
+ * the same `404` with `notFoundMessage` an unknown one does, as the order and fulfillment routes do.
+ */
+const idParam = <Name extends string>(name: Name, notFoundMessage: string) =>
+  zValidator('param', z.object({ [name]: id } as Record<Name, typeof id>), (result, c) =>
+    result.success ? undefined : c.json(apiError(notFoundMessage), 404),
+  )
+
+const orderIdParam = idParam('orderId', ORDER_NOT_FOUND)
 
 /**
  * The release of a quarantined SPOD job: the decision the admin took in the partner's backoffice,
@@ -134,15 +123,23 @@ export function operationsRoutes(findings: FindingRepository, service: Operation
 
   const jobs = new Hono()
   jobs.use(requireAdmin, noStore)
-  jobs.post('/:jobId/spod/release', jobIdParam, jsonBody(releaseInput), async (c) =>
-    respondResult(
-      c,
-      await service.releaseSpodJob(c.req.valid('param').jobId, c.req.valid('json'), adminUserId(c)),
-      {
-        notFound: JOB_NOT_FOUND,
-        conflict: 'The job is not quarantined or the external reference belongs to another job',
-      },
-    ),
+  jobs.post(
+    '/:jobId/spod/release',
+    idParam('jobId', JOB_NOT_FOUND),
+    jsonBody(releaseInput),
+    async (c) =>
+      respondResult(
+        c,
+        await service.releaseSpodJob(
+          c.req.valid('param').jobId,
+          c.req.valid('json'),
+          adminUserId(c),
+        ),
+        {
+          notFound: JOB_NOT_FOUND,
+          conflict: 'The job is not quarantined or the external reference belongs to another job',
+        },
+      ),
   )
 
   const routes = new Hono()

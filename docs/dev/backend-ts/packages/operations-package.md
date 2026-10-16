@@ -68,7 +68,7 @@ flowchart TB
     end
 
     subgraph Owners["Owning modules (capabilities)"]
-        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>orders.adminOrder · adminOrders<br/>orders.recheckPayment"]
+        Orders["orders.reconcilePayments(now, signal)<br/>orders.findings(now)<br/>orders.adminOrder · adminOrders<br/>orders.recheckPayment"]
         Production["production.findings(now)<br/>production.ofOrder · releaseSpodJob<br/>requests · jobs · deliveries · SPOD"]
         Outbox["outbox.findings(now)<br/>outbox.enqueue (the alert)<br/>outbox.ofOrder"]
     end
@@ -133,10 +133,14 @@ and [`email/outbox.ts`](../../../../backend-ts/src/modules/email/outbox.ts)
 | --- | --- | --- |
 | `GET /api/admin/operations/findings` | admin | `200`, a JSON array of the open findings, newest `firstSeenAt` first |
 | `GET /api/admin/operations/findings?resolved=true` | admin | `200`, the findings resolved within the last seven days, same order, each with `resolvedAt` |
+| `GET /api/admin/orders?email=…` | admin | `200`, the 50 newest orders, optionally of exactly one address, see [The order list](#the-order-list-and-the-order-timeline) |
+| `GET /api/admin/orders/{orderId}/timeline` | admin | `200`, the [timeline document](#the-order-timeline); `404 {"message":"Order not found"}` for an unknown and a non-numeric id |
+| `POST /api/admin/orders/{orderId}/payment/recheck` | admin | `200 {"status":…,"paymentStatus":…}`, the stored pair after Mollie was asked; `404 {"message":"Order not found"}`; `409 {"message":"The order has no payment"}`, see [The admin actions](#the-admin-actions) |
+| `POST /api/admin/production/jobs/{jobId}/spod/release` | admin | `200` with the job's admin view; `400 Validation failed`; `404 {"message":"Production job not found"}`; `409` for a job not in `OUTCOME_UNKNOWN` or a partner order id another job holds, see [The admin actions](#the-admin-actions) |
 
-Both answer `Cache-Control: no-store`; without a session the platform answers
-`401`, without the admin role `403`. Any other value of `resolved` is the open
-list. One finding on the wire:
+All five answer `Cache-Control: no-store`; without a session the platform
+answers `401`, without the admin role `403`. Any other value of `resolved` is
+the open list. One finding on the wire:
 
 ```json
 {
@@ -237,7 +241,7 @@ one in another, which a reload settles.
 
 | Method and path | Who | Answer |
 | --- | --- | --- |
-| `POST /api/admin/orders/{orderId}/payment/recheck` | admin | `200 {"status":"PAID","paymentStatus":"PAID"}`, the order's two statuses read after Mollie answered; `404 {"message":"Order not found"}` for an unknown and a non-numeric id; `409 {"message":"The order has no payment"}` |
+| `POST /api/admin/orders/{orderId}/payment/recheck` | admin | `200 {"status":"PAID","paymentStatus":"PAID"}`, the order's two stored statuses read after Mollie answered; `404 {"message":"Order not found"}` for an unknown and a non-numeric id; `409 {"message":"The order has no payment"}` |
 | `POST /api/admin/production/jobs/{jobId}/spod/release` | admin | `200` with the job's admin view (as `GET /api/admin/production/jobs` answers it); `400 Validation failed` for a body the schema refuses or a `confirmation` that is not the job's reference; `404 {"message":"Production job not found"}`; `409` for a job not in `OUTCOME_UNKNOWN` and for a partner order id another job holds |
 
 Both are `POST`s behind `requireAdmin`, which also checks the CSRF pair
@@ -251,8 +255,9 @@ order module's `refreshed` with the cause `ADMIN_RECHECK`, the same path the
 webhook, the detail read, and the reconciliation take. A payment Mollie
 reports paid pays the order (production request, confirmation mail, promotion
 redemption); a status that changed is recorded as `PAYMENT_STATUS_CHANGED`
-with the admin's user id; an unchanged one records nothing. The recheck has no
-body. See [Reading a status](order-package.md#reading-a-status-stored-versus-refreshed).
+with the admin's user id; an unchanged one records nothing. The answer is the
+stored pair, read after the write, so a webhook that paid the order while the
+recheck waited for Mollie shows as `PAID` on both. The recheck has no body. See [Reading a status](order-package.md#reading-a-status-stored-versus-refreshed).
 
 **The SPOD release** takes one of two bodies:
 
@@ -291,6 +296,10 @@ what "stuck" means for that table, and nobody tunes them per deployment.
 | `SHIPMENT_OVERDUE` | production | job | prepared more than seven days ago and not shipped |
 | `EMAIL_STALLED` | email | mail | unsent, and (older than an hour or 3 attempts); carries the mail's own kind |
 
+In a deployment with `EMAIL_ENABLED=false` (the development default) every
+enqueued mail becomes an `EMAIL_STALLED` finding after an hour, because the
+email worker sends nothing.
+
 `since` is the `created_at` of the subject row unless the owning module's guide
 says otherwise; the details per kind (`since`, which counter) are in
 [the Order package](order-package.md#payments-that-stand-still-findingsnow),
@@ -305,13 +314,16 @@ one would bury the real findings.
 
 [`worker.ts`](../../../../backend-ts/src/modules/operations/worker.ts) has the
 shape of the other two workers: `runOnce`, `start` (one scan at once, then
-every five minutes, until `stop`), and `stop` (aborts the sleep and resolves
-once the scan in progress is finished). A scan that throws is logged with the
+every five minutes, until `stop`), and `stop` (aborts the signal and resolves
+once the scan in progress is finished). The signal reaches the sleep and the
+reconciliation, which returns between two payments; a scan stopped there
+skips collecting and recording, so `stop` waits for at most one Mollie read,
+and the next start scans again. A scan that throws is logged with the
 error's class and the next scan tries again. Run one worker per database.
 
 One scan does four things, all against the same `now`:
 
-1. **Reconcile.** It calls `orders.reconcilePayments(now)`: the order module
+1. **Reconcile.** It calls `orders.reconcilePayments(now, signal)`: the order module
    asks Mollie about every payment under way for over 15 minutes and applies
    the answer exactly as the webhook would (see
    [Reading a status](order-package.md#reading-a-status-stored-versus-refreshed)).
@@ -518,7 +530,7 @@ to that search.
 ```ts
 const operations = createOperationsModule({
   db,
-  orders: order.orders,   // reconcilePayments(now), findings(now), adminOrder, adminOrders, recheckPayment
+  orders: order.orders,   // reconcilePayments(now, signal), findings(now), adminOrder, adminOrders, recheckPayment
   production,             // findings(now), ofOrder, releaseSpodJob: requests, jobs, deliveries, SPOD orders
   outbox: email.outbox,   // findings(now), ofOrder: email_jobs; enqueue: the alert mail
   settings: settings.operations, // { alertEmail: string | null }, OPERATIONS_ALERT_EMAIL
@@ -546,7 +558,7 @@ bun test src/modules/operations
 
 | File | What it states |
 | --- | --- |
-| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; several new findings are one `OPERATIONS_ALERT` and all get `alerted_at`, a finding seen again is not mailed again, a reappearing one is; the two SPOD kinds and a stalled `OPERATIONS_ALERT` are listed only; without an address nothing is mailed, `alerted_at` stays `NULL`, and one `error` line per new mailed finding names its kind and subject; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
+| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; several new findings are one `OPERATIONS_ALERT` and all get `alerted_at`, a finding seen again is not mailed again, a reappearing one is; the two SPOD kinds and a stalled `OPERATIONS_ALERT` are listed only; without an address nothing is mailed, `alerted_at` stays `NULL`, and one `error` line per new mailed finding names its kind and subject; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval; a `stop` during the reconciliation records nothing for that scan |
 | [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | through the composed application, so the order routes are checked next to the order module's PDF routes on the same path: `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago; the timeline of a seeded order with a row in every section (exact document, no access token, only the open finding), an order with empty sections, the `404` for an unknown, a non-numeric, and an exponent id; the order list newest first with its `openFindings`, the case-insensitive exact e-mail filter, a blank filter, and the cap at 50; the payment recheck (`200` with the status pair, `409` without a payment, `404` for an unknown and a non-numeric id) and the SPOD release (`CREATED` with the view and the `SPOD_JOB_RELEASED` event naming the admin, `NOT_CREATED`, the second release and an SFTP job as `409`, the wrong confirmation and five refused bodies as `400` with nothing written, the `404`s), each `401` without a session, `403` without the admin role, and `400 Invalid CSRF token` without the CSRF header |
 
 The rules of every kind are tested in their owning module, against seeded rows

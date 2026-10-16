@@ -1,4 +1,4 @@
-import { sql, type Kysely, type Transaction } from 'kysely'
+import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import { renderSpodOpsAlert, type EmailModule, type SpodOpsAlertReason } from '@/modules/email'
 import { spodEnvironmentOfStoredValue, type SpodAccess } from '@/modules/spod'
 import { read, write, type Tables } from '@/platform/db/database'
@@ -24,6 +24,15 @@ export const PERMANENT_FAILURES: ReadonlySet<string> = new Set([
 
 /** One automatic re-create is allowed; the second ambiguity quarantines the job. */
 export const MAX_AMBIGUOUS_CREATES = 2
+
+/** The order of the `production_spod_orders` row a write returns, through its job and request. */
+const orderIdOfRow = (eb: ExpressionBuilder<Tables, 'production_spod_orders'>) =>
+  eb
+    .selectFrom('production_jobs as j')
+    .innerJoin('production_requests as r', 'r.id', 'j.request_id')
+    .select('r.order_id')
+    .whereRef('j.id', '=', 'production_spod_orders.production_job_id')
+    .as('orderId')
 
 /** The partner states the webhook writes; `CONFIRMED` is this shop's own. */
 export type ReportedRemoteState = 'CANCELLED' | 'NEEDS_ACTION'
@@ -240,14 +249,7 @@ export function createSpodOrderRepository({
           .set({ remote_state: state })
           .where('production_job_id', '=', jobId)
           .where('remote_state', 'is distinct from', state)
-          .returning((eb) =>
-            eb
-              .selectFrom('production_jobs as j')
-              .innerJoin('production_requests as r', 'r.id', 'j.request_id')
-              .select('r.order_id')
-              .whereRef('j.id', '=', 'production_spod_orders.production_job_id')
-              .as('orderId'),
-          )
+          .returning(orderIdOfRow)
           .executeTakeFirst()
         if (changed?.orderId == null) return
         await orders.recordEvent(trx, changed.orderId, {
@@ -282,14 +284,7 @@ export function createSpodOrderRepository({
             .set({ create_ambiguous_count: 0, last_error_code: null })
             .where('production_job_id', '=', jobId)
             .where('create_state', '=', 'OUTCOME_UNKNOWN')
-            .returning((eb) =>
-              eb
-                .selectFrom('production_jobs as j')
-                .innerJoin('production_requests as r', 'r.id', 'j.request_id')
-                .select('r.order_id')
-                .whereRef('j.id', '=', 'production_spod_orders.production_job_id')
-                .as('orderId'),
-            )
+            .returning(orderIdOfRow)
             .executeTakeFirst()
           if (released?.orderId == null) return conflict
           await orders.recordEvent(trx, released.orderId, {

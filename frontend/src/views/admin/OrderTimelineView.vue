@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { CreditCard, RefreshCw } from 'lucide-vue-next'
 import OperationsFindingsTable from '@/components/admin/operations/OperationsFindingsTable.vue'
 import AdminProductionPdfSection from '@/components/admin/orders/AdminProductionPdfSection.vue'
@@ -61,12 +61,16 @@ function reload() {
   void ordersStore.fetchProductionPdfs(props.orderId)
 }
 
-onMounted(() => {
+/** Opens the order: the router reuses this view between orders, so a changed id opens again. */
+function open() {
   // A recheck answer belongs to the order it was asked for, not to the next one opened.
   ordersStore.recheck = null
   ordersStore.recheckError = null
   reload()
-})
+}
+
+onMounted(open)
+watch(() => props.orderId, open)
 </script>
 
 <template>
@@ -97,7 +101,7 @@ onMounted(() => {
     </AdminPageHeader>
 
     <Alert v-if="ordersStore.recheck" variant="info" data-testid="recheck-result">
-      Mollie was asked: the order is {{ ordersStore.recheck.status }}, the payment
+      Recheck answer: the order is {{ ordersStore.recheck.status }}, the payment
       {{ ordersStore.recheck.paymentStatus }}.
     </Alert>
     <Alert v-if="ordersStore.recheckError" variant="destructive" data-testid="recheck-error">
