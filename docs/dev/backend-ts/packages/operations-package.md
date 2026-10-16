@@ -24,8 +24,10 @@ every stage records an attempt counter and a bounded error code. What the
 pipeline cannot do by itself is tell anyone that an order stands still. This
 module does:
 
-- every five minutes a **worker** asks the order, production, and email modules
-  which of their rows stand still, and records each answer as a **finding** in
+- every five minutes a **worker** first lets the order module ask Mollie about
+  every payment that has been under way for over 15 minutes (the
+  **reconciliation**, which repairs a lost webhook), then asks the order,
+  production, and email modules which of their rows stand still, and records each answer as a **finding** in
   `operations_findings`, the only table this module owns;
 - a finding that the next scan no longer reports is **resolved** on its own;
 - the admin route `GET /api/admin/operations/findings` lists the open findings
@@ -49,7 +51,7 @@ flowchart TB
     end
 
     subgraph Owners["Owning modules (capabilities)"]
-        Orders["orders.findings(now)<br/>payments"]
+        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>payments"]
         Production["production.findings(now)<br/>requests · jobs · deliveries · SPOD"]
         Outbox["outbox.findings(now)<br/>email_jobs"]
     end
@@ -80,9 +82,10 @@ operations/
 |- repository.ts       createFindingRepository(db) → { record, list }; Finding, the union of the
 |                      three owning modules' finding types
 |- routes.ts           operationsRoutes(repository): the admin list, no-store
-|- worker.ts           createOperationsWorker({ sources, repository }) → { runOnce, start, stop };
+|- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository })
+|                      → { runOnce, start, stop };
 |                      FindingSource
-|- worker.test.ts      upsert, resolve, reappear, the loop
+|- worker.test.ts      reconcile first, upsert, resolve, reappear, the loop
 `- routes.test.ts      the admin guard, no-store, both lists
 ```
 
@@ -159,11 +162,17 @@ every five minutes, until `stop`), and `stop` (aborts the sleep and resolves
 once the scan in progress is finished). A scan that throws is logged with the
 error's class and the next scan tries again. Run one worker per database.
 
-One scan does two things:
+One scan does three things, all against the same `now`:
 
-1. **Collect.** It calls `findings(now)` of every source, each a plain read
+1. **Reconcile.** It calls `orders.reconcilePayments(now)`: the order module
+   asks Mollie about every payment under way for over 15 minutes and applies
+   the answer exactly as the webhook would (see
+   [Reading a status](order-package.md#reading-a-status-stored-versus-refreshed)).
+   One failing payment does not hold up the others: the reconciliation logs
+   each failure itself and moves on.
+2. **Collect.** It calls `findings(now)` of every source, each a plain read
    transaction of the owning module, outside any write of this module.
-2. **Record**, in one transaction of its own
+3. **Record**, in one transaction of its own
    ([`repository.ts`](../../../../backend-ts/src/modules/operations/repository.ts)):
 
    ```sql
@@ -247,12 +256,28 @@ The table (`V33__operations_findings.sql`):
 | `alerted_at` | when an operator was mailed about it; written by the alert mail of a later step |
 | `resolved_at` | the first scan that no longer reported it; `NULL` while open |
 
+### Decision 4: The scan reconciles the payments before it collects the findings
+
+A payment that stands still is almost always a webhook that never arrived, and
+the order module already has the repair: `refreshed`, which the order detail
+page calls. The scan runs it for every payment under way for over 15 minutes
+*before* it collects the findings, so a payment the reconciliation just paid
+or ended is never reported as `PAYMENT_UNRESOLVED`, and an operator only hears
+about a payment Mollie itself still reports as open after an hour. The
+reconciliation is a capability of the order module (`orders.reconcilePayments`)
+and the worker receives it as a function; the operations module never talks to
+Mollie.
+
+*Rejected:* reconciling in the order module's own timer. It would be a fourth
+worker for one query, and the ordering "repair first, then judge" would be a
+race between two loops instead of two lines in one scan.
+
 ## Composition
 
 ```ts
 const operations = createOperationsModule({
   db,
-  orders: order.orders,   // findings(now): payments
+  orders: order.orders,   // reconcilePayments(now), findings(now): payments
   production,             // findings(now): requests, jobs, deliveries, SPOD orders
   outbox: email.outbox,   // findings(now): email_jobs
 })
@@ -263,7 +288,8 @@ await operations.worker.stop()
 ```
 
 The three parameters are typed as `FindingSource`, an object with
-`findings(now)`; the composition root passes the modules' own objects.
+`findings(now)`, and `orders` also has `reconcilePayments(now)`; the
+composition root passes the modules' own objects.
 
 ## Tests
 
@@ -275,7 +301,7 @@ bun test src/modules/operations
 
 | File | What it states |
 | --- | --- |
-| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
+| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
 | [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago |
 
 The rules of every kind are tested in their owning module, against seeded rows

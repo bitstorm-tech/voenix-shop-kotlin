@@ -101,6 +101,8 @@ export function createOrderModule({
       orderItem: repository.orderItem,
       /** The stalled payments, for the operations worker. */
       findings: paymentRepository.findings,
+      /** Asks Mollie about every payment under way for over 15 minutes; the operations worker's first step. */
+      reconcilePayments: payments.reconcile,
       /** The three reads production is created with. */
       ...productionReads,
     },

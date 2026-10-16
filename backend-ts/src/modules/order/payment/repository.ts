@@ -122,6 +122,24 @@ export function createPaymentRepository(db: Kysely<Tables>) {
       }))
     },
 
+    /**
+     * The orders whose payment is under way and was started before `createdBefore`, oldest payment
+     * first: the payments the reconciliation asks Mollie about. A payment under way is live, and a
+     * live payment is always its order's current one.
+     */
+    underWayBefore: async (createdBefore: Date): Promise<number[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('payments')
+          .select('order_id')
+          .where('status', 'in', UNDER_WAY_STATUSES)
+          .where('created_at', '<', createdBefore)
+          .orderBy('id')
+          .execute(),
+      )
+      return rows.map((row) => row.order_id)
+    },
+
     /** The payment Mollie is talking about, or `undefined` when this backend never created it. */
     paymentByMollieId: (molliePaymentId: string) =>
       read(db, (trx) =>

@@ -26,14 +26,23 @@ const unresolvedPayment: Finding = {
   lastErrorCode: null,
 }
 
-/** A worker over one source whose answer the test sets before each scan. */
-function scripted() {
-  const answer: { findings: Finding[]; scans: number } = { findings: [], scans: 0 }
+/**
+ * A worker over one source whose answer the test sets before each scan; `reconcilePayments` runs
+ * as the scan's first step.
+ */
+function scripted(reconcilePayments: (now: Date) => Promise<void> = () => Promise.resolve()) {
+  const answer: { findings: Finding[]; scans: number; readAt: Date | null } = {
+    findings: [],
+    scans: 0,
+    readAt: null,
+  }
   const worker = createOperationsWorker({
+    reconcilePayments,
     sources: [
       {
-        findings: () => {
+        findings: (now) => {
           answer.scans += 1
+          answer.readAt = now
           return Promise.resolve(answer.findings)
         },
       },
@@ -127,6 +136,24 @@ describe('the operations scan', () => {
     expect(after[2]?.first_seen_at.getTime()).toBeGreaterThan(
       after[0]?.first_seen_at.getTime() ?? 0,
     )
+  })
+
+  test('reconciles the payments first: a payment it resolves is not recorded in the same scan', async () => {
+    const steps: string[] = []
+    let reconciledAt: Date | null = null
+    const { worker, answer } = scripted((now) => {
+      steps.push(`reconcile, then ${String(answer.scans)} reads`)
+      reconciledAt = now
+      // The reconciliation pays the order, so its payment is no longer reported.
+      answer.findings = []
+      return Promise.resolve()
+    })
+    answer.findings = [unresolvedPayment]
+    await worker.runOnce()
+    expect(steps).toEqual(['reconcile, then 0 reads'])
+    expect(answer.scans).toBe(1)
+    expect(answer.readAt).toBe(reconciledAt)
+    expect(await rows()).toEqual([])
   })
 
   test('start scans at once and stop ends the loop without waiting for the interval', async () => {

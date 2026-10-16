@@ -11,19 +11,23 @@ export interface FindingSource {
 }
 
 /**
- * The operations worker: every five minutes it asks the order, production, and email modules for
- * their findings (plain reads, outside any write of this module) and records the answers in one
- * transaction of its own. One instance per database, like the other two workers.
+ * The operations worker: every five minutes it first reconciles the payments under way with Mollie,
+ * so a payment resolved now never becomes a finding, then asks the order, production, and email
+ * modules for their findings (plain reads, outside any write of this module) and records the
+ * answers in one transaction of its own. One instance per database, like the other two workers.
  */
 export function createOperationsWorker({
+  reconcilePayments,
   sources,
   repository,
 }: {
+  reconcilePayments: (now: Date) => Promise<void>
   sources: readonly FindingSource[]
   repository: Pick<FindingRepository, 'record'>
 }) {
   const runOnce = async () => {
     const now = new Date()
+    await reconcilePayments(now)
     const findings: Finding[] = []
     for (const source of sources) findings.push(...(await source.findings(now)))
     await repository.record(findings)

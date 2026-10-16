@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Kysely } from 'kysely'
 import { write, type Tables } from '@/platform/db/database'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorClass } from '@/platform/logging'
 import { lockOrder, type PayableOrder } from '../repository'
 import type { OrderTransitions } from '../transitions'
 import type { MolliePayment, MolliePayments, PaymentStatus } from './mollie'
@@ -32,6 +32,9 @@ export type PaymentConfirmation =
   | 'providerUnavailable'
 
 export type PaymentService = ReturnType<typeof createPaymentService>
+
+/** A payment under way for longer than this is asked about by the reconciliation. */
+const RECONCILE_AFTER_MILLIS = 15 * 60_000
 
 /**
  * The payment half of the order module: starting a payment, the webhook, and the `paymentStatus`
@@ -106,6 +109,27 @@ export function createPaymentService({
       (await write(db, (trx) => moveStatus(trx, stored.paymentId, reported.status)))
     if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
     return 'recorded'
+  }
+
+  /**
+   * The status of one order's payment, asked of Mollie while the payment is still under way: the
+   * fallback for a webhook that never arrived, which may confirm the order through the same path
+   * the webhook takes. A provider that cannot answer degrades to the stored status.
+   */
+  const refreshed = async (orderId: number): Promise<PaymentStatus | null> => {
+    const stored = (await repository.currentPayments([orderId])).get(orderId)
+    if (stored === undefined) return null
+    if (!isUnderWay(stored.status)) return stored.status
+    const reported = await mollie.find(stored.molliePaymentId)
+    if (reported === null) {
+      logger.warn(
+        { paymentId: stored.paymentId, orderId },
+        'Mollie said nothing usable: the order is answered with its stored payment status',
+      )
+      return stored.status
+    }
+    await applyReported(stored, reported)
+    return reported.status
   }
 
   /** Closes a provider payment nobody will be sent to; a refusal is worth a line. */
@@ -195,25 +219,28 @@ export function createPaymentService({
       return new Map([...payments].map(([orderId, payment]) => [orderId, payment.status]))
     },
 
+    refreshed,
+
     /**
-     * The status of one order's payment, asked of Mollie while the payment is still under way: the
-     * fallback for a webhook that never arrived, which may confirm the order through the same path
-     * the webhook takes. A provider that cannot answer degrades to the stored status.
+     * The operations worker's first step: every payment under way for more than fifteen minutes,
+     * oldest first, goes through `refreshed` once, so a lost webhook is repaired without the
+     * customer opening their order. A provider that cannot answer is `refreshed`'s warning; any
+     * other failure is logged by class and the next payment is asked all the same.
      */
-    refreshed: async (orderId: number): Promise<PaymentStatus | null> => {
-      const stored = (await repository.currentPayments([orderId])).get(orderId)
-      if (stored === undefined) return null
-      if (!isUnderWay(stored.status)) return stored.status
-      const reported = await mollie.find(stored.molliePaymentId)
-      if (reported === null) {
-        logger.warn(
-          { paymentId: stored.paymentId, orderId },
-          'Mollie said nothing usable: the order is answered with its stored payment status',
-        )
-        return stored.status
+    reconcile: async (now: Date): Promise<void> => {
+      const orderIds = await repository.underWayBefore(
+        new Date(now.getTime() - RECONCILE_AFTER_MILLIS),
+      )
+      for (const orderId of orderIds) {
+        try {
+          await refreshed(orderId)
+        } catch (error) {
+          logger.error(
+            { orderId, errorClass: errorClass(error) },
+            'The reconciliation of a payment failed: the next scan asks again',
+          )
+        }
       }
-      await applyReported(stored, reported)
-      return reported.status
     },
   }
 }

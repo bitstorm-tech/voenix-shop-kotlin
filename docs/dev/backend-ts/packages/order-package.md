@@ -68,7 +68,7 @@ flowchart TB
         Repository["repository.ts<br/>orders · order_items"]
         subgraph Payment["payment/"]
             Webhook["routes.ts<br/>POST /api/payments/webhook/{secret}"]
-            PaymentService["service.ts<br/>startPayment · confirm · stored · refreshed"]
+            PaymentService["service.ts<br/>startPayment · confirm · stored · refreshed · reconcile"]
             Adapter["mollie.ts<br/>MolliePayments · the fetch adapter"]
             PaymentRepository["repository.ts<br/>payments"]
         end
@@ -114,9 +114,10 @@ order/
 |                           types PayableOrder, OrderView, PlaceOrderInput, StoredOrder; berlinDate
 |- payment/
 |  |- mollie.ts             MolliePayments (the provider seam), PaymentStatus, createMolliePayments
-|  |- service.ts            createPaymentService: startPayment, confirm, stored, refreshed;
-|  |                        PaymentConfirmation
-|  |- repository.ts         createPaymentRepository (currentPayments, findings, paymentByMollieId);
+|  |- service.ts            createPaymentService: startPayment, confirm, stored, refreshed,
+|  |                        reconcile; PaymentConfirmation
+|  |- repository.ts         createPaymentRepository (currentPayments, findings, underWayBefore,
+|  |                        paymentByMollieId);
 |  |                        livePayment, insertPayment, and moveStatus taking a trx; isLive,
 |  |                        isUnderWay; OrderFinding
 |  |- routes.ts             paymentRoutes: the webhook and its constant-time secret compare
@@ -488,6 +489,23 @@ check and the cancelled-order rule hold whichever of the two learns it first.
 A provider that cannot answer is not an error here: the stored status is a
 truthful answer, logged at WARN.
 
+`reconcile(now)`, exported as `orders.reconcilePayments(now)`, is the third
+reader and the one that needs no customer: the
+[operations worker](operations-package.md#the-scan) calls it first in every
+scan. It reads, in id order, the order of every payment that is under way and
+was created more than 15 minutes before `now` (`underWayBefore` in the payment
+repository), and sends each through `refreshed`. So a lost webhook is repaired
+within one scan, whether or not the customer ever opens the order again: a
+`PAID` answer pays the order exactly as the webhook would, and an `EXPIRED`,
+`FAILED`, or `CANCELED` answer ends the payment through `paymentEnded`, which
+releases the reservation and leaves the order `PENDING`. There is no upper age
+bound and no back-off: Mollie expires its own payments, and asking once per
+scan about a payment method that expires in days is a few hundred reads a day.
+A provider that cannot answer is `refreshed`'s WARN line; any other failure
+(say, a paid transition the database refuses) is logged with the payment's
+order and the error's class, and the loop moves on to the next payment, so one
+broken order never keeps the others waiting. The next scan asks again.
+
 ### Payments that stand still: `findings(now)`
 
 The [operations module](operations-package.md) asks every five minutes which
@@ -629,6 +647,7 @@ migrations until `orders` existed.
 | `orderItem(orderItemId, userId, guestToken)` | cart reorder | `{ articleId, variantId, promptId, printImageId }` of an owned line, or `undefined`; no price and no quantity, because a reorder is an ordinary add at today's price |
 | `productionData`, `fulfillmentOrders`, `shippingNotificationOrder` | production | [The three production reads](#the-three-production-reads) |
 | `findings(now)` | operations | the stalled payments, see [Payments that stand still](#payments-that-stand-still-findingsnow) |
+| `reconcilePayments(now)` | operations, first step of every scan | asks Mollie about every payment under way for over 15 minutes, see [Reading a status](#reading-a-status-stored-versus-refreshed) |
 
 Database failures are exceptions everywhere; each caller answers them with its
 own error policy.
@@ -670,7 +689,7 @@ const production = await createProductionModule({ …, orders: order.orders })
 app.route('/', order.adminPdfRoutes(production.productionPdfGenerator))
 // createCartModule({ …, orders: order.orders })       orderItem
 // createCheckoutModule({ …, orders: order.orders })   place, confirmFree, startPayment, payable
-// createOperationsModule({ …, orders: order.orders }) findings
+// createOperationsModule({ …, orders: order.orders }) reconcilePayments, findings
 ```
 
 `mollie` is the one optional dependency: the composition root leaves it out
@@ -695,7 +714,7 @@ transaction fail.
 | `transitions.test.ts` | the paid transition: redemption plus production request in one commit, exactly once, also for two concurrent calls; rolled back by a failing production request; an exhausted coupon still paying; a cancelled order never paid; `cancel` releasing the reservation and refusing a paid order |
 | `findings.test.ts` | `orders.findings` against seeded orders and payments with a fixed `now`: both kinds, a payment just below and exactly at the hour, a cancelled order's open payment, an abandoned checkout, and a retried order whose old payment ended while the current one is young |
 | `production-reads.test.ts` | `productionData` with the snapshot, the image path, and the Berlin date across midnight; a vanished image file; `fulfillmentOrders`; `shippingNotificationOrder`. The `PrintImageReads` here is a one-statement fake in `test-fixtures.ts` (order may not import cart); the cart's implementation is tested in the cart module |
-| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh |
+| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh; the reconciliation: only payments under way and older than 15 minutes asked, once each and in id order (exactly 15 minutes, a younger, and an ended payment untouched), `PAID` paying the order with its production request and redemption, `EXPIRED`, `FAILED`, and `CANCELED` releasing the reservation and leaving the order `PENDING`, a payment Mollie cannot answer about and a paid transition the database refuses each leaving the other payments reconciled |
 | `payment/mollie.test.ts` | the adapter against a stubbed `fetch`: the full request body and headers, phone normalization and amount formatting, the seven status words, every unusable answer (refusal, redirect, transport failure, missing checkout URL, truncated body, foreign currency, a third decimal, another payment's id), `cancel` |
 
 There is no `validation.test.ts`: no route of this module takes a JSON body.

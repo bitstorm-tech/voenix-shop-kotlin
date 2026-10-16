@@ -6,6 +6,7 @@ import { count, testDatabase } from '@test-support/database'
 import { guestCookie, jsonOf, testApp } from '@test-support/http'
 import {
   orderModuleFor,
+  placedOrder,
   placeInput,
   reserve,
   resetOrders,
@@ -261,5 +262,139 @@ describe('the payment status of an order answer', () => {
     )) as { status: string; paymentStatus: string }
     expect(detail).toMatchObject({ status: 'PENDING', paymentStatus: 'OPEN' })
     expect(calls.find).toBe(1)
+  })
+})
+
+describe('orders.reconcilePayments', () => {
+  const NOW = new Date('2026-10-16T12:00:00.000Z')
+  const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000)
+
+  /**
+   * `ages.length` orders with one started payment each (`tr_1_1`, `tr_2_2`, ...), the first with
+   * the reserved coupon of `placed`, payment `n` created `ages[n - 1]` minutes before `NOW`.
+   * `asked` lists the Mollie ids in the order the stub was asked about them.
+   */
+  async function started(ages: number[]) {
+    const first = await placed()
+    const orders = [first.order]
+    while (orders.length < ages.length) {
+      const cartId = await seedCart(database.db)
+      orders.push(
+        placedOrder(
+          await write(database.db, (trx) => first.module.orders.place(trx, placeInput(cartId))),
+        ),
+      )
+    }
+    for (const [index, order] of orders.entries()) {
+      await first.module.orders.startPayment(order)
+      await database.db
+        .updateTable('payments')
+        .set({ created_at: minutesAgo(ages[index] ?? 0) })
+        .where('order_id', '=', order.orderId)
+        .execute()
+    }
+    const asked: string[] = []
+    const find = first.mollie.find.bind(first.mollie)
+    first.mollie.find = (id) => {
+      asked.push(id)
+      return find(id)
+    }
+    return { ...first, asked }
+  }
+
+  const statuses = async () =>
+    database.db
+      .selectFrom('orders')
+      .innerJoin('payments', 'payments.order_id', 'orders.id')
+      .select(['orders.status as order', 'payments.status as payment'])
+      .orderBy('orders.id')
+      .execute()
+
+  test('asks Mollie once about every payment under way for over 15 minutes, in id order', async () => {
+    const { module, asked } = await started([16, 15, 600, 120, 14])
+    // Payment 3 is authorized and older than payment 1; payment 4 has ended.
+    await database.db
+      .updateTable('payments')
+      .set({ status: 'AUTHORIZED' })
+      .where('id', '=', 3)
+      .execute()
+    await database.db
+      .updateTable('payments')
+      .set({ status: 'EXPIRED' })
+      .where('id', '=', 4)
+      .execute()
+
+    await module.orders.reconcilePayments(NOW)
+    expect(asked).toEqual(['tr_1_1', 'tr_3_3'])
+
+    await module.orders.reconcilePayments(NOW)
+    expect(asked).toEqual(['tr_1_1', 'tr_3_3', 'tr_1_1', 'tr_3_3'])
+  })
+
+  test('a paid answer pays the order the way the webhook does', async () => {
+    const { module, report } = await started([30])
+    report('tr_1_1', { status: 'PAID' })
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(await statuses()).toEqual([{ order: 'PAID', payment: 'PAID' }])
+    expect(await count(database.db, 'production_requests')).toBe(1)
+    expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
+  test.each(['EXPIRED', 'FAILED', 'CANCELED'] as const)(
+    '%s ends the payment, releases the reservation, and leaves the order pending',
+    async (status) => {
+      const { module, report } = await started([30])
+      report('tr_1_1', { status })
+
+      await module.orders.reconcilePayments(NOW)
+
+      expect(await statuses()).toEqual([{ order: 'PENDING', payment: status }])
+      expect(await count(database.db, 'promotion_reservations')).toBe(0)
+      expect(await count(database.db, 'production_requests')).toBe(0)
+    },
+  )
+
+  test('a payment Mollie cannot answer about does not stop the others', async () => {
+    const { module, report, asked } = await started([30, 30, 30])
+    report('tr_1_1', { status: 'PAID' })
+    report('tr_3_3', { status: 'EXPIRED' })
+    await database.db
+      .updateTable('payments')
+      .set({ mollie_payment_id: 'tr_gone' })
+      .where('id', '=', 2)
+      .execute()
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(asked).toEqual(['tr_1_1', 'tr_gone', 'tr_3_3'])
+    expect(await statuses()).toEqual([
+      { order: 'PAID', payment: 'PAID' },
+      { order: 'PENDING', payment: 'OPEN' },
+      { order: 'PENDING', payment: 'EXPIRED' },
+    ])
+  })
+
+  test('a paid transition that fails does not stop the others', async () => {
+    const { module, report } = await started([30, 30])
+    report('tr_1_1', { status: 'PAID' })
+    report('tr_2_2', { status: 'EXPIRED' })
+    await sql`CREATE FUNCTION refuse_request() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'production refused'; END $$`.execute(database.db)
+    await sql`CREATE TRIGGER refuse_request BEFORE INSERT ON production_requests
+      FOR EACH ROW EXECUTE FUNCTION refuse_request()`.execute(database.db)
+    try {
+      await module.orders.reconcilePayments(NOW)
+    } finally {
+      await sql`DROP TRIGGER refuse_request ON production_requests`.execute(database.db)
+      await sql`DROP FUNCTION refuse_request()`.execute(database.db)
+    }
+
+    expect(await statuses()).toEqual([
+      { order: 'PENDING', payment: 'OPEN' },
+      { order: 'PENDING', payment: 'EXPIRED' },
+    ])
   })
 })
