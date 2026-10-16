@@ -15,6 +15,7 @@ storage/
 backend/
 backend-ts/.env.development
 backend-ts/.env.local
+backend-ts/.env.example
 backend-ts/node_modules/
 backend-ts/data/
 frontend/node_modules/

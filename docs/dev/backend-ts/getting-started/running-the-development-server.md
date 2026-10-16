@@ -105,7 +105,7 @@ Four layers supply values, later ones winning:
 | --- | --- | --- | --- |
 | 1 | the defaults in `settings.ts` | yes | `localhost`, port `5432`, search path `voenix`, pool size `100`, email off, … |
 | 2 | [`backend-ts/.env.development`](../../../../backend-ts/.env.development) | yes | the development database and its password, the development session secret, dummy mode, Mollie placeholders |
-| 3 | `backend-ts/.env.local` | no | optional: real keys and machine-specific values |
+| 3 | `backend-ts/.env.local` | no | optional: real keys and machine-specific values; the template is [`backend-ts/.env.example`](../../../../backend-ts/.env.example) |
 | 4 | the real environment | — | always wins; this is how a container is configured |
 
 `loadEnvFiles()` reads layers 2 and 3 into `process.env` without overriding a
@@ -128,23 +128,30 @@ space).
 starts without `.env.local`. Its values are not secret: the password opens the
 local database container, the session secret signs cookies on your machine, and
 the Mollie values are placeholders that pass the startup checks. No deployment
-ever loads this file: the root `.dockerignore` keeps both `.env` files out of
+ever loads this file: the root `.dockerignore` keeps all three `.env` files out of
 every image.
 
 ## The development database
 
-`.env.development` expects a PostgreSQL database `voenix_kotlin` on
-`localhost:5432` with user and password `voenix`, the same one the Kotlin
-backend used. The simplest way to get one is the container described in the
-[Kotlin guide](../../getting-started/running-the-development-server.md#the-development-database).
+`.env.development` expects a PostgreSQL database `voenix_ts` on
+`localhost:5432` with user and password `voenix`. The simplest way to get one is
+the container described in the
+[Kotlin guide](../../getting-started/running-the-development-server.md#the-development-database);
+the container creates only the Kotlin backend's `voenix_kotlin`, so create the
+second database in it once:
 
-The two backends share the container but not the migration history: the Kotlin
-backend records applied migrations in Flyway's table, the TypeScript backend in
-`schema_migrations`. On a database the Kotlin backend created, the first start
-fails with `Migration V1__create_countries.sql failed` (`relation "countries"
-already exists`). Drop the database (or the `voenix` schema) and start again on
-an empty one; the migrations run as part of the start. The catalog is gone with
-it, so fill it again as described below.
+```sh
+docker exec voenix-postgres createdb -U voenix voenix_ts
+```
+
+The two backends share the container but not a database, because they do not
+share the migration history: the Kotlin backend records applied migrations in
+Flyway's table, the TypeScript backend in `schema_migrations`. Pointed at a
+database the Kotlin backend created, the first start fails with
+`Migration V1__create_countries.sql failed` (`relation "countries" already
+exists`). Drop that database (or its `voenix` schema) and start again on an
+empty one; the migrations run as part of the start. A new database has no
+catalog, so fill it as described below.
 
 The runner applies the files of `backend-ts/migrations/` in version order, each
 in one transaction, under the same advisory lock the Kotlin backend took, and
@@ -154,8 +161,30 @@ database and migrate from scratch.
 
 ## Local configuration file
 
-`backend-ts/.env.local` is ignored by Git. You need it only for values that
-must never land in Git:
+`backend-ts/.env.local` is ignored by Git. Start it as a copy of the
+checked-in template [`backend-ts/.env.example`](../../../../backend-ts/.env.example),
+which lists every variable you are likely to change with a short explanation,
+all commented out:
+
+```sh
+cp backend-ts/.env.example backend-ts/.env.local
+```
+
+The backend never reads `.env.example` itself. You need `.env.local` only for
+values that are machine-specific or must never land in Git:
+
+- **An existing image store.** The image roots default to `backend-ts/data/`,
+  which starts empty. If your database holds catalog images imported earlier
+  (for example into the repository-root `storage/` folder the Kotlin backend
+  used through `backend/application-local.yaml`), point the roots there, or
+  every such image answers `404`:
+
+  ```sh
+  IMAGE_PUBLIC_ROOT=/absolute/path/to/storage/public/images
+  IMAGE_PRIVATE_ROOT=/absolute/path/to/storage/private/images
+  IMAGE_CACHE_ROOT=/absolute/path/to/storage/cache
+  PRODUCTION_ARTIFACT_ROOT=/absolute/path/to/storage/production
+  ```
 
 - **Testing payments.** Set a Mollie test key and an ngrok webhook URL:
 

@@ -111,7 +111,7 @@ docker build -t voenix-shop .
 docker run --rm -p 8080:8080 \
   -e DATABASE_HOST=host.docker.internal \
   -e DATABASE_PORT=5432 \
-  -e DATABASE_NAME=voenix_kotlin \
+  -e DATABASE_NAME=voenix_ts \
   -e DATABASE_USERNAME=voenix \
   -e DATABASE_PASSWORD=… \
   -e AUTH_SESSION_SECRET=… \
