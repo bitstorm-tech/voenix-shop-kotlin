@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
 import type { EmailModule, RenderedEmail } from '@/modules/email'
 import { read, write, type Tables } from '@/platform/db/database'
+import type { ProductionOrders } from '../orders'
 import type { ShippingCarrier } from './carrier'
 import '../schema'
 
@@ -38,7 +39,11 @@ export type FulfillmentRepository = ReturnType<typeof createFulfillmentRepositor
  * The job reads of the two fulfillment surfaces and the one ship write. A supplier's scope is a
  * `WHERE` clause, never a filter afterwards, so a foreign job never leaves the database.
  */
-export function createFulfillmentRepository(db: Kysely<Tables>, outbox: EmailModule['outbox']) {
+export function createFulfillmentRepository(
+  db: Kysely<Tables>,
+  outbox: EmailModule['outbox'],
+  orders: Pick<ProductionOrders, 'recordEvent'>,
+) {
   const jobsQuery = (trx: Transaction<Tables>) =>
     trx
       .selectFrom('production_jobs as j')
@@ -118,8 +123,10 @@ export function createFulfillmentRepository(db: Kysely<Tables>, outbox: EmailMod
     },
 
     /**
-     * Ships one job and enqueues the customer's mail, attributed to `mail.orderId`: one commit, or
-     * neither. The `WHERE` clause is the whole rule: the job exists, is not shipped, is prepared (a
+     * Ships one job, records `JOB_SHIPPED` in the order's history, and enqueues the customer's
+     * mail, attributed to `mail.orderId`: one commit, or none of it. The event names a channel
+     * ship's channel, or the user of a human ship: `SUPPLIER` when the ship is scoped to a
+     * supplier, `ADMIN` when it is not. The `WHERE` clause is the whole rule: the job exists, is not shipped, is prepared (a
      * human ship only), and belongs to the supplier's scope. Two concurrent ships therefore end as
      * one shipment, one `alreadyShipped`, and one mail. A channel ship skips the `prepared_at` guard, because the
      * shipment proves the remote order exists, and sets `prepared_at` if it was missing. When no
@@ -176,6 +183,13 @@ export function createFulfillmentRepository(db: Kysely<Tables>, outbox: EmailMod
           .where('production_job_id', '=', jobId)
           .orderBy('position')
           .execute()
+        await orders.recordEvent(trx, mail.orderId, {
+          kind: 'JOB_SHIPPED',
+          ...('userId' in actor
+            ? { actorType: supplierScope === null ? 'ADMIN' : 'SUPPLIER', actorId: actor.userId }
+            : { actorType: 'CHANNEL', actorId: null }),
+          details: { jobId, carrier: shipment.carrier },
+        })
         await outbox.enqueue(trx, mail.render(items), { orderId: mail.orderId })
         return 'shipped'
       }),

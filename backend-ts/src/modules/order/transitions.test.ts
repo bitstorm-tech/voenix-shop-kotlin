@@ -4,6 +4,7 @@ import { write } from '@/platform/db/database'
 import { count, testDatabase } from '@test-support/database'
 import { rejectionOf } from '@test-support/values'
 import {
+  orderEvents,
   orderModuleFor,
   placeInput,
   reserve,
@@ -28,7 +29,7 @@ async function placedWithCoupon(usageLimitTotal: number | null = null) {
 
 /** The cancellation in a transaction of its own, as the tests here need it. */
 const cancel = (orders: Awaited<ReturnType<typeof placedWithCoupon>>, orderId: number) =>
-  write(database.db, (trx) => orders.cancel(trx, orderId))
+  write(database.db, (trx) => orders.cancel(trx, orderId, 'PAYMENT_START_REFUSED'))
 
 const statusOf = async (orderId: number) =>
   (
@@ -53,6 +54,16 @@ describe('the paid transition (orders.confirmFree, the webhook)', () => {
     expect(await count(database.db, 'promotion_reservations')).toBe(0)
     expect(await count(database.db, 'production_requests')).toBe(1)
     expect(await count(database.db, 'email_jobs')).toBe(1) // the placement's, no second mail
+    expect(
+      (await orderEvents(database.db)).map(({ kind, actorType, cause }) => [
+        kind,
+        actorType,
+        cause,
+      ]),
+    ).toEqual([
+      ['ORDER_PLACED', 'CUSTOMER', null],
+      ['ORDER_PAID', 'CUSTOMER', 'FREE_ORDER'],
+    ])
   })
 
   test('two concurrent confirmations queue on the order lock and pay once', async () => {
@@ -125,6 +136,16 @@ describe('orders.cancel', () => {
     expect(await cancel(orders, 99)).toBe('notFound')
     expect(await statusOf(1)).toBe('CANCELLED')
     expect(await count(database.db, 'promotion_reservations')).toBe(0)
+    expect(
+      (await orderEvents(database.db)).map(({ kind, actorType, cause }) => [
+        kind,
+        actorType,
+        cause,
+      ]),
+    ).toEqual([
+      ['ORDER_PLACED', 'CUSTOMER', null],
+      ['ORDER_CANCELLED', 'SYSTEM', 'PAYMENT_START_REFUSED'],
+    ])
   })
 
   test('refuses a paid order', async () => {
@@ -132,5 +153,9 @@ describe('orders.cancel', () => {
     await write(database.db, (trx) => orders.confirmFree(trx, 1))
     expect(await cancel(orders, 1)).toBe('paid')
     expect(await statusOf(1)).toBe('PAID')
+    expect((await orderEvents(database.db)).map(({ kind }) => kind)).toEqual([
+      'ORDER_PLACED',
+      'ORDER_PAID',
+    ])
   })
 })

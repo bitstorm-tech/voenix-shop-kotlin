@@ -3,6 +3,7 @@ import { renderSpodOpsAlert, type EmailModule, type SpodOpsAlertReason } from '@
 import { spodEnvironmentOfStoredValue, type SpodAccess } from '@/modules/spod'
 import { read, write, type Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
+import type { ProductionOrders } from '../orders'
 import '../schema'
 
 /**
@@ -41,10 +42,12 @@ const logger = createLogger('production-spod')
 export function createSpodOrderRepository({
   db,
   outbox,
+  orders,
   alertEmail,
 }: {
   db: Kysely<Tables>
   outbox: EmailModule['outbox']
+  orders: Pick<ProductionOrders, 'recordEvent'>
   /** `null` in a deployment without SPOD settings, which then has no one to alert. */
   alertEmail: string | null
 }) {
@@ -216,18 +219,33 @@ export function createSpodOrderRepository({
       }),
 
     /**
-     * Writes the state the partner reported and alerts the operator, only when the state changed:
-     * a redelivered event sends nothing, a cancellation after a needs-action sends a second alert.
+     * Writes the state the partner reported, records `SPOD_REMOTE_STATE_CHANGED` in the order's
+     * history, and alerts the operator, only when the state changed: a redelivered event writes
+     * and sends nothing, a cancellation after a needs-action sends a second alert.
      */
     recordRemoteState: (jobId: number, state: ReportedRemoteState) =>
       write(db, async (trx) => {
-        const result = await trx
+        const changed = await trx
           .updateTable('production_spod_orders')
           .set({ remote_state: state })
           .where('production_job_id', '=', jobId)
           .where('remote_state', 'is distinct from', state)
+          .returning((eb) =>
+            eb
+              .selectFrom('production_jobs as j')
+              .innerJoin('production_requests as r', 'r.id', 'j.request_id')
+              .select('r.order_id')
+              .whereRef('j.id', '=', 'production_spod_orders.production_job_id')
+              .as('orderId'),
+          )
           .executeTakeFirst()
-        if (result.numUpdatedRows > 0n) await alert(trx, jobId, state)
+        if (changed?.orderId == null) return
+        await orders.recordEvent(trx, changed.orderId, {
+          kind: 'SPOD_REMOTE_STATE_CHANGED',
+          actorType: 'CHANNEL',
+          details: { jobId, state },
+        })
+        await alert(trx, jobId, state)
       }),
 
     /** The job behind the partner's order id; a unique index read. */

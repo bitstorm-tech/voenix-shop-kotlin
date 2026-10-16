@@ -6,6 +6,7 @@ import { rejectionOf } from '@test-support/values'
 import {
   ADDRESS,
   FRONTEND_BASE_URL,
+  orderEvents,
   orderModuleFor,
   placedOrder,
   placeInput,
@@ -154,13 +155,25 @@ describe('orders.place', () => {
     expect(second).toEqual({ kind: 'alreadyPlaced', order: placedOrder(first) })
     expect(await count(database.db, 'orders')).toBe(1)
     expect(await count(database.db, 'email_jobs')).toBe(1)
+    expect(await orderEvents(database.db)).toEqual([
+      {
+        orderId: 1,
+        kind: 'ORDER_PLACED',
+        actorType: 'CUSTOMER',
+        actorId: null,
+        cause: null,
+        details: null,
+      },
+    ])
   })
 
   test('a cancelled order frees the cart for a new placement', async () => {
     const cartId = await seedCart(database.db)
     await place(placeInput(cartId))
     const { orders } = await module()
-    expect(await write(database.db, (trx) => orders.cancel(trx, 1))).toBe('cancelled')
+    expect(await write(database.db, (trx) => orders.cancel(trx, 1, 'PAYMENT_START_REFUSED'))).toBe(
+      'cancelled',
+    )
     expect((await place(placeInput(cartId))).kind).toBe('placed')
     expect(await count(database.db, 'orders')).toBe(2)
   })
@@ -217,7 +230,7 @@ describe('orders.payable', () => {
     // An account order, placed with that browser's guest cookie as well.
     await place(placeInput(await seedCart(database.db, { userId }), { userId }))
     await write(database.db, (trx) => orders.confirmFree(trx, 2))
-    await write(database.db, (trx) => orders.cancel(trx, 3))
+    await write(database.db, (trx) => orders.cancel(trx, 3, 'PAYMENT_START_REFUSED'))
 
     expect(await orders.payable(1, null, 'guest-a')).toEqual({
       kind: 'payable',

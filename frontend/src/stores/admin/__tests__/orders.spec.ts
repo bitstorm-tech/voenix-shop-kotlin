@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { resetApiClientForTests } from '@/lib/api'
 import {
+  type AdminOrderListEntry,
   OrderNotFoundError,
+  type OrderTimeline,
   productionPdfDownloadName,
   ProductionPdfDataError,
   type ProductionPdfDataErrorCode,
@@ -202,5 +204,64 @@ describe('admin orders store', () => {
     expect(store.documents).toEqual([])
     expect(store.loadedOrderId).toBeNull()
     expect(store.error).toBeNull()
+  })
+
+  describe('the order list and the timeline', () => {
+    const entry: AdminOrderListEntry = {
+      orderId: 42,
+      createdAt: '2026-10-16T09:00:00.000Z',
+      status: 'PAID',
+      paymentStatus: 'PAID',
+      total: 4070,
+      email: 'kunde@example.com',
+      openFindings: 1,
+    }
+
+    it('lists the newest orders, or the orders of one trimmed e-mail address', async () => {
+      const fetchMock = vi.fn(async () => jsonResponse([entry]))
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useAdminOrdersStore()
+
+      await store.fetchOrders()
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/orders')
+      expect(store.orderList).toEqual([entry])
+      expect(store.isListLoading).toBe(false)
+
+      await store.fetchOrders('  Kunde+1@example.com ')
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/orders?email=Kunde%2B1%40example.com')
+    })
+
+    it('keeps a failed list load as the list error', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => errorResponse(500, 'Boom')),
+      )
+      const store = useAdminOrdersStore()
+
+      await store.fetchOrders()
+
+      expect(store.orderList).toEqual([])
+      expect(store.listError?.message).toBe('Boom')
+    })
+
+    it('loads the timeline of one order and maps an unknown order to OrderNotFoundError', async () => {
+      const timeline = { order: { orderId: 42 }, events: [] } as unknown as OrderTimeline
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(timeline))
+        .mockResolvedValueOnce(errorResponse(404, 'Order not found'))
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useAdminOrdersStore()
+
+      await store.fetchTimeline(42)
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/orders/42/timeline')
+      expect(store.timeline).toEqual(timeline)
+      expect(store.timelineError).toBeNull()
+
+      await store.fetchTimeline(99)
+      expect(store.timeline).toBeNull()
+      expect(store.timelineError).toBeInstanceOf(OrderNotFoundError)
+      expect(store.isTimelineLoading).toBe(false)
+    })
   })
 })

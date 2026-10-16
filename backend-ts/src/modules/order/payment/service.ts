@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { Kysely } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import { write, type Tables } from '@/platform/db/database'
 import { createLogger, errorClass } from '@/platform/logging'
-import { lockOrder, type PayableOrder } from '../repository'
+import { lockOrder, recordEvent, type PayableOrder, type PaymentCause } from '../repository'
 import type { OrderTransitions } from '../transitions'
 import type { MolliePayment, MolliePayments, PaymentStatus } from './mollie'
 import {
@@ -60,10 +60,10 @@ export function createPaymentService({
    * never asked about again. The order lock comes first, then the payment row. `true` when the
    * order is paid now or was already.
    */
-  const confirmOrder = async (stored: StoredPayment): Promise<boolean> => {
+  const confirmOrder = async (stored: StoredPayment, cause: PaymentCause): Promise<boolean> => {
     const result = await write(db, async (trx) => {
-      const paid = await transitions.markPaid(trx, stored.orderId)
-      await moveStatus(trx, stored.paymentId, 'PAID')
+      const paid = await transitions.markPaid(trx, stored.orderId, { actorType: 'SYSTEM', cause })
+      await movePayment(trx, stored, 'PAID', cause)
       return paid
     })
     if (result === 'paid' || result === 'alreadyPaid') return true
@@ -77,19 +77,44 @@ export function createPaymentService({
   }
 
   /**
-   * What the webhook and the detail refresh both do with a status Mollie reported. A status the
-   * row already has, or a row that is final (`PAID` or ended), is written over by nothing: a
-   * delayed `OPEN` arriving after `PAID` was recorded leaves `PAID`. A terminal status releases the
-   * reservation, on a redelivery again: the release is idempotent, and the redelivery is the only
-   * retry a release lost to a failure has.
+   * Writes the reported status over a payment under way and, only when that moved the row,
+   * records `PAYMENT_STATUS_CHANGED` with `cause` in the same transaction; `false` when the row
+   * was final and nothing moved.
+   */
+  const movePayment = async (
+    trx: Transaction<Tables>,
+    stored: StoredPayment,
+    to: PaymentStatus,
+    cause: PaymentCause,
+  ): Promise<boolean> => {
+    const moved = await moveStatus(trx, stored.paymentId, to)
+    if (moved) {
+      await recordEvent(trx, stored.orderId, {
+        kind: 'PAYMENT_STATUS_CHANGED',
+        actorType: 'SYSTEM',
+        cause,
+        details: { paymentId: stored.paymentId, from: stored.status, to },
+      })
+    }
+    return moved
+  }
+
+  /**
+   * What the webhook, the detail refresh, and the reconciliation do with a status Mollie reported;
+   * `cause` names which of them asked. A status the row already has, or a row that is final
+   * (`PAID` or ended), is written over by nothing and recorded by nothing: a delayed `OPEN`
+   * arriving after `PAID` was recorded leaves `PAID`. A terminal status releases the reservation,
+   * on a redelivery again: the release is idempotent, and the redelivery is the only retry a
+   * release lost to a failure has.
    */
   const applyReported = async (
     stored: StoredPayment,
     reported: MolliePayment,
+    cause: PaymentCause,
   ): Promise<PaymentConfirmation> => {
     if (reported.status === 'PAID') {
       if (reported.amountCents === stored.amountCents) {
-        return (await confirmOrder(stored)) ? 'confirmed' : 'notConfirmed'
+        return (await confirmOrder(stored, cause)) ? 'confirmed' : 'notConfirmed'
       }
       logger.error(
         {
@@ -101,12 +126,12 @@ export function createPaymentService({
         'Mollie reports a payment as paid with another amount than the shop asked for: ' +
           'the order is not confirmed and needs a human',
       )
-      await write(db, (trx) => moveStatus(trx, stored.paymentId, 'PAID'))
+      await write(db, (trx) => movePayment(trx, stored, 'PAID', cause))
       return 'notConfirmed'
     }
     const recorded =
       stored.status === reported.status ||
-      (await write(db, (trx) => moveStatus(trx, stored.paymentId, reported.status)))
+      (await write(db, (trx) => movePayment(trx, stored, reported.status, cause)))
     if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
     return 'recorded'
   }
@@ -114,9 +139,10 @@ export function createPaymentService({
   /**
    * The status of one order's payment, asked of Mollie while the payment is still under way: the
    * fallback for a webhook that never arrived, which may confirm the order through the same path
-   * the webhook takes. A provider that cannot answer degrades to the stored status.
+   * the webhook takes; `cause` is recorded on what it changed. A provider that cannot answer
+   * degrades to the stored status.
    */
-  const refreshed = async (orderId: number): Promise<PaymentStatus | null> => {
+  const refreshed = async (orderId: number, cause: PaymentCause): Promise<PaymentStatus | null> => {
     const stored = (await repository.currentPayments([orderId])).get(orderId)
     if (stored === undefined) return null
     if (!isUnderWay(stored.status)) return stored.status
@@ -128,7 +154,7 @@ export function createPaymentService({
       )
       return stored.status
     }
-    await applyReported(stored, reported)
+    await applyReported(stored, reported, cause)
     return reported.status
   }
 
@@ -166,16 +192,21 @@ export function createPaymentService({
           if (live !== undefined) return { kind: 'started', checkoutUrl: live.checkoutUrl }
           const created = await mollie.create(order, randomUUID())
           if (created?.checkoutUrl == null) {
-            await transitions.cancel(trx, order.orderId)
+            await transitions.cancel(trx, order.orderId, 'PAYMENT_START_REFUSED')
             return { kind: 'refused' }
           }
           attempt.created = created
-          await insertPayment(trx, {
+          const paymentId = await insertPayment(trx, {
             orderId: order.orderId,
             molliePaymentId: created.id,
             status: created.status,
             amountCents: order.totalCents,
             checkoutUrl: created.checkoutUrl,
+          })
+          await recordEvent(trx, order.orderId, {
+            kind: 'PAYMENT_STARTED',
+            actorType: 'CUSTOMER',
+            details: { paymentId },
           })
           return { kind: 'started', checkoutUrl: created.checkoutUrl }
         })
@@ -210,7 +241,7 @@ export function createPaymentService({
         logger.warn('A webhook named a Mollie payment this backend never created')
         return 'unknownPayment'
       }
-      return applyReported(stored, reported)
+      return applyReported(stored, reported, 'WEBHOOK')
     },
 
     /** The stored status of every order that has a payment, in one read, never a provider call. */
@@ -233,7 +264,7 @@ export function createPaymentService({
       )
       for (const orderId of orderIds) {
         try {
-          await refreshed(orderId)
+          await refreshed(orderId, 'RECONCILIATION')
         } catch (error) {
           logger.error(
             { orderId, errorClass: errorClass(error) },

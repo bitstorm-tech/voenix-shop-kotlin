@@ -44,7 +44,7 @@ async function mountView() {
     history: createMemoryHistory(),
     routes: [
       { path: '/admin/operations', component: { template: '<div />' } },
-      { path: '/admin/orders', name: 'admin-orders', component: { template: '<div />' } },
+      { path: '/admin/orders/:orderId', name: 'admin-order', component: { template: '<div />' } },
     ],
   })
   await router.push('/admin/operations')
@@ -86,12 +86,12 @@ describe('OperationsView', () => {
     expect(mail?.find('[data-testid="finding-order-link"]').exists()).toBe(false)
   })
 
-  it('links the order of a finding to the orders page', async () => {
+  it('links the order of a finding to its timeline', async () => {
     const wrapper = await mountView()
 
     const link = wrapper.find('[data-testid="finding-order-link"]')
     expect(link.text()).toBe('ORD-42')
-    expect(link.attributes('href')).toBe('/admin/orders')
+    expect(link.attributes('href')).toBe('/admin/orders/42')
   })
 
   it('switches to the resolved list, which shows when a finding resolved', async () => {

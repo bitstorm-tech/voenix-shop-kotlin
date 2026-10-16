@@ -188,6 +188,15 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'orders/:orderId(\\d+)',
+        name: 'admin-order',
+        component: () => import('@/views/admin/OrderTimelineView.vue'),
+        props: (route) => ({ orderId: Number(route.params.orderId) }),
+        meta: {
+          title: 'Order',
+        },
+      },
+      {
         path: 'operations',
         name: 'admin-operations',
         component: () => import('@/views/admin/OperationsView.vue'),

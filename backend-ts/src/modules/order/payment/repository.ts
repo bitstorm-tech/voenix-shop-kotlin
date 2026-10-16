@@ -181,11 +181,12 @@ export function livePayment(trx: Transaction<Tables>, orderId: number) {
     .executeTakeFirst()
 }
 
+/** Stores a payment Mollie created and answers its id. */
 export async function insertPayment(
   trx: Transaction<Tables>,
   payment: Omit<StoredPayment, 'paymentId'>,
-): Promise<void> {
-  await trx
+): Promise<number> {
+  const { id } = await trx
     .insertInto('payments')
     .values({
       order_id: payment.orderId,
@@ -194,5 +195,7 @@ export async function insertPayment(
       amount_cents: payment.amountCents,
       checkout_url: payment.checkoutUrl,
     })
-    .execute()
+    .returning('id')
+    .executeTakeFirstOrThrow()
+  return id
 }

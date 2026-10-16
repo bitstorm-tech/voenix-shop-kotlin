@@ -126,6 +126,43 @@ export function createFindingRepository(db: Kysely<Tables>) {
           .execute()
       }),
 
+    /** The open findings of one order, oldest first: the timeline's findings section. */
+    openOfOrder: (orderId: number) =>
+      read(db, (trx) =>
+        trx
+          .selectFrom('operations_findings')
+          .select([
+            'kind',
+            'subject_type',
+            'subject_id',
+            'since',
+            'attempt_count',
+            'last_error_code',
+            'first_seen_at',
+            'alerted_at',
+          ])
+          .where('order_id', '=', orderId)
+          .where('resolved_at', 'is', null)
+          .orderBy('id')
+          .execute(),
+      ),
+
+    /** How many open findings each order in `orderIds` has; an order without one is absent. */
+    openCounts: async (orderIds: readonly number[]): Promise<Map<number, number>> => {
+      if (orderIds.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('operations_findings')
+          .select(['order_id', (eb) => eb.fn.countAll<number>().as('count')])
+          .where('order_id', 'in', orderIds)
+          .where('resolved_at', 'is', null)
+          .groupBy('order_id')
+          .$narrowType<{ order_id: number }>()
+          .execute(),
+      )
+      return new Map(rows.map((row) => [row.order_id, row.count]))
+    },
+
     /**
      * The open findings, or with `resolved` those resolved within the last seven days, newest
      * `first_seen_at` first.

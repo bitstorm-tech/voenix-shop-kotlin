@@ -25,7 +25,8 @@ import {
   type FulfillmentOrder,
   type ProductionData,
   type ProductionLine,
-  type ProductionOrderReads,
+  type ProductionOrderEvent,
+  type ProductionOrders,
   type ShippingNotificationOrder,
 } from './orders'
 import { createArtifactStore } from './pdf/artifact-store'
@@ -190,13 +191,15 @@ export function productionData(orderId: number, lines: ProductionLine[]): Produc
 }
 
 /**
- * The order module as production sees it: the three reads answered from orders a test adds.
- * `calls` counts the batched header reads, so a test can pin the batching.
+ * The order module as production sees it: the three reads answered from orders a test adds, and
+ * `recordEvent` collecting every event in `events` (the transaction is not looked at). `calls`
+ * counts the batched header reads, so a test can pin the batching.
  */
 export function fakeOrders() {
   const orders = new Map<number, ProductionData>()
   const calls = { fulfillmentOrders: 0 }
-  const reads: ProductionOrderReads = {
+  const events: { orderId: number; event: ProductionOrderEvent }[] = []
+  const reads: ProductionOrders = {
     productionData: (orderId) => Promise.resolve(orders.get(orderId) ?? null),
     fulfillmentOrders: (orderIds) => {
       calls.fulfillmentOrders++
@@ -230,8 +233,12 @@ export function fakeOrders() {
             }
       return Promise.resolve(answer)
     },
+    recordEvent: (_trx, orderId, event) => {
+      events.push({ orderId, event })
+      return Promise.resolve()
+    },
   }
-  return { reads, calls, add: (order: ProductionData) => orders.set(order.orderId, order) }
+  return { reads, calls, events, add: (order: ProductionData) => orders.set(order.orderId, order) }
 }
 
 /**
@@ -366,6 +373,7 @@ export async function productionTestKit(
     spodOrders: createSpodOrderRepository({
       db,
       outbox: email.outbox,
+      orders: orders.reads,
       alertEmail: ALERT_EMAIL,
     }),
     spod: client,

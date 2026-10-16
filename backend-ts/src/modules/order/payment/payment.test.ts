@@ -5,6 +5,7 @@ import { stubMollie } from '@/test-fixtures'
 import { count, testDatabase } from '@test-support/database'
 import { guestCookie, jsonOf, testApp } from '@test-support/http'
 import {
+  orderEvents,
   orderModuleFor,
   placedOrder,
   placeInput,
@@ -395,6 +396,82 @@ describe('orders.reconcilePayments', () => {
     expect(await statuses()).toEqual([
       { order: 'PENDING', payment: 'OPEN' },
       { order: 'PENDING', payment: 'EXPIRED' },
+    ])
+  })
+})
+
+describe('the order history of a payment', () => {
+  /** The events of order 1 after its placement, as `[kind, actorType, cause, details]`. */
+  const history = async () =>
+    (await orderEvents(database.db))
+      .filter((event) => event.kind !== 'ORDER_PLACED')
+      .map(({ kind, actorType, cause, details }) => [kind, actorType, cause, details])
+
+  test('a start and a webhook record each change once, however often they repeat', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+    await Promise.all([webhook(app, 'tr_1_1'), webhook(app, 'tr_1_1')])
+    await webhook(app, 'tr_1_1')
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['ORDER_PAID', 'SYSTEM', 'WEBHOOK', null],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'WEBHOOK', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('a refused start records the cancellation and no payment', async () => {
+    const { module, order, state } = await placed()
+    state.refuse = true
+    await module.orders.startPayment(order)
+    expect(await history()).toEqual([['ORDER_CANCELLED', 'SYSTEM', 'PAYMENT_START_REFUSED', null]])
+  })
+
+  test('a paid amount other than the one asked for records the payment, not the order', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID', amountCents: 100 })
+    await webhook(app, 'tr_1_1')
+    await webhook(app, 'tr_1_1')
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'WEBHOOK', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('the detail refresh records its changes as REFRESH, an unchanged status as nothing', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    const headers = { Cookie: await guestCookie('guest-a') }
+    await app.request('/api/orders/1', { headers })
+    report('tr_1_1', { status: 'PAID' })
+    await app.request('/api/orders/1', { headers })
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['ORDER_PAID', 'SYSTEM', 'REFRESH', null],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'REFRESH', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('the reconciliation records its changes as RECONCILIATION', async () => {
+    const { module, order, report } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'EXPIRED' })
+    const later = new Date(Date.now() + 60 * 60_000)
+    await module.orders.reconcilePayments(later)
+    await module.orders.reconcilePayments(later)
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      [
+        'PAYMENT_STATUS_CHANGED',
+        'SYSTEM',
+        'RECONCILIATION',
+        { paymentId: 1, from: 'OPEN', to: 'EXPIRED' },
+      ],
     ])
   })
 })

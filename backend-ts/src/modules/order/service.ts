@@ -11,6 +11,7 @@ import {
   berlinDate,
   insertOrder,
   liveOrderOfCart,
+  recordEvent,
   toPayableOrder,
   type OrderRepository,
   type OrderView,
@@ -104,7 +105,7 @@ export function createOrderService({
     ): Promise<OperationResult<OrderView>> => {
       const order = await repository.order(orderId, userId, guestToken)
       if (order === undefined) return notFound
-      const paymentStatus = await payments.refreshed(orderId)
+      const paymentStatus = await payments.refreshed(orderId, 'REFRESH')
       const current =
         paymentStatus === 'PAID' && order.status === 'PENDING'
           ? ((await repository.order(orderId, userId, guestToken)) ?? order)
@@ -127,7 +128,8 @@ export function createOrderService({
     /**
      * Places one order inside the caller's transaction (checkout TX1, which holds the cart row
      * lock): the live order of the cart if it has one, otherwise the catalog snapshot of every line,
-     * the order with its lines and access token, and the confirmation mail, rendered now and
+     * the order with its lines and access token, its `ORDER_PLACED` event, and the confirmation
+     * mail, rendered now and
      * enqueued in the same transaction, so an order and its mail are one committed fact. Without
      * the caller's cart lock a concurrent placement fails on `ux_orders_live_cart` and throws.
      */
@@ -147,6 +149,7 @@ export function createOrderService({
       }
       const accessToken = randomBytes(32).toString('base64url')
       const { orderId, createdAt } = await insertOrder(trx, input, accessToken, snapshotOf)
+      await recordEvent(trx, orderId, { kind: 'ORDER_PLACED', actorType: 'CUSTOMER' })
       const billingAddress = input.billingAddress ?? input.shippingAddress
       const totalCents = input.subtotalCents + input.shippingCostCents - input.discountCents
       await email.outbox.enqueue(
@@ -184,6 +187,19 @@ export function createOrderService({
           billingAddress,
         },
       }
+    },
+
+    /**
+     * The newest orders for the admin list, each with its stored payment status: one batch read,
+     * never a provider call. `email` narrows the list to exactly that address, in any case.
+     */
+    adminOrders: async (filter: { email: string | null; limit: number }) => {
+      const orders = await repository.adminOrders(filter)
+      const statuses = await payments.stored(orders.map((order) => order.orderId))
+      return orders.map((order) => ({
+        ...order,
+        paymentStatus: statuses.get(order.orderId) ?? null,
+      }))
     },
 
     /** The order a payment is started for again, under the same ownership rule as the reads. */

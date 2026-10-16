@@ -1,11 +1,14 @@
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
+import type { Orders } from '@/modules/order'
+import type { ProductionModule } from '@/modules/production'
 import type { Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import { createFindingRepository } from './repository'
 import { operationsRoutes } from './routes'
-import { createOperationsWorker, type FindingSource } from './worker'
+import { createOperationsService } from './service'
+import { createOperationsWorker } from './worker'
 
 /**
  * The operations module: the one place that looks across the whole pipeline. Each owning module
@@ -13,7 +16,9 @@ import { createOperationsWorker, type FindingSource } from './worker'
  * requests, jobs, deliveries, SPOD orders, email: the outbox); the worker reconciles the payments
  * under way first (`orders.reconcilePayments`) and then records the findings in
  * `operations_findings`, the only table this module owns, mails the new ones to
- * `settings.alertEmail` through the outbox, and the admin route lists them. Nothing
+ * `settings.alertEmail` through the outbox, and the admin route lists them. The admin order list
+ * and the timeline of one order are assembled from `orders.adminOrders` / `orders.adminOrder`,
+ * `production.ofOrder`, `outbox.ofOrder`, and the findings of the order. Nothing
  * imports this module. The composition root creates it after order and production, mounts
  * `routes`, and starts and stops `worker` next to the other two workers.
  */
@@ -26,9 +31,9 @@ export function createOperationsModule({
   frontendBaseUrl,
 }: {
   db: Kysely<Tables>
-  orders: FindingSource & { reconcilePayments: (now: Date) => Promise<void> }
-  production: FindingSource
-  outbox: FindingSource & Pick<EmailModule['outbox'], 'enqueue'>
+  orders: Pick<Orders, 'findings' | 'reconcilePayments' | 'adminOrder' | 'adminOrders'>
+  production: Pick<ProductionModule, 'findings' | 'ofOrder'>
+  outbox: Pick<EmailModule['outbox'], 'findings' | 'enqueue' | 'ofOrder'>
   settings: Settings['operations']
   frontendBaseUrl: string
 }) {
@@ -43,7 +48,10 @@ export function createOperationsModule({
     logger: createLogger('operations-worker'),
   })
   return {
-    routes: operationsRoutes(repository),
+    routes: operationsRoutes(
+      repository,
+      createOperationsService({ findings: repository, orders, production, outbox }),
+    ),
     worker: { start: worker.start, stop: worker.stop },
   }
 }

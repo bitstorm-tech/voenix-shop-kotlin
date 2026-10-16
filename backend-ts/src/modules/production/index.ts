@@ -12,7 +12,7 @@ import { productionFindings } from './findings'
 import { createFulfillmentRepository } from './fulfillment/repository'
 import { fulfillmentRoutes } from './fulfillment/routes'
 import { createFulfillmentService } from './fulfillment/service'
-import { createOrderLoader, type ProductionOrderReads } from './orders'
+import { createOrderLoader, type ProductionOrders } from './orders'
 import { createArtifactStore } from './pdf/artifact-store'
 import { createProductionPdfGenerator } from './pdf/generator'
 import { createDestinationRepository } from './repository'
@@ -20,13 +20,15 @@ import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
+import { productionOfOrder } from './timeline'
 
 export type { ProductionFinding } from './findings'
 export type {
   FulfillmentOrder,
   ProductionData,
   ProductionLine,
-  ProductionOrderReads,
+  ProductionOrderEvent,
+  ProductionOrders,
   ShippingNotificationOrder,
 } from './orders'
 export type {
@@ -44,7 +46,7 @@ export { requestProduction }
  * one way, `order → production` (#248). The composition root mounts `routes`, calls
  * `worker.start()` once and `worker.stop()` at shutdown, hands `requestProduction` to the paid
  * transition and `productionPdfGenerator` to the admin order downloads, and `findings` (the stalled
- * rows of the pipeline) to the operations worker.
+ * rows of the pipeline) and `ofOrder` (one order's production state) to the operations module.
  *
  * It refuses to start when a SPOD destination exists while `settings.spod` is missing: a channel
  * whose shipments arrive by webhook could not report one, and the worker must not submit a paid
@@ -71,7 +73,7 @@ export async function createProductionModule({
   spodCatalogSync: Pick<SpodCatalogSync, 'sync'>
   spod: SubmissionClient
   accounts: SupplierAccounts
-  orders: ProductionOrderReads
+  orders: ProductionOrders
   /** The operations address the SPOD ops alert goes to, `null` when none is set. */
   alertEmail: string | null
 }) {
@@ -87,6 +89,7 @@ export async function createProductionModule({
   const spodOrders = createSpodOrderRepository({
     db,
     outbox: email.outbox,
+    orders,
     alertEmail,
   })
   const worker = createProductionWorker({
@@ -110,7 +113,7 @@ export async function createProductionModule({
     '/',
     fulfillmentRoutes(
       createFulfillmentService({
-        repository: createFulfillmentRepository(db, email.outbox),
+        repository: createFulfillmentRepository(db, email.outbox, orders),
         orders,
         suppliers,
         artifacts,
@@ -125,6 +128,10 @@ export async function createProductionModule({
     productionPdfGenerator: createProductionPdfGenerator(loadOrder),
     requestProduction,
     findings: (now: Date) => productionFindings(db, now),
+    /** The production section of one order's admin timeline: request, jobs, deliveries, SPOD. */
+    ofOrder: (orderId: number) => productionOfOrder(db, orderId),
     worker: { start: worker.start, stop: worker.stop },
   }
 }
+
+export type ProductionModule = Awaited<ReturnType<typeof createProductionModule>>

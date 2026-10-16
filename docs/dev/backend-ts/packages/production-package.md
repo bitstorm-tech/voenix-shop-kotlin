@@ -73,7 +73,7 @@ flowchart TB
     Partner["Spreadconnect API"]
     Outbox["email.outbox.enqueue(trx, …)<br/>rendered mails"]
     Ship["ship<br/>supplier · admin · webhook"]
-    Orders["ProductionOrderReads<br/>implemented by order"]
+    Orders["ProductionOrders<br/>implemented by order"]
     Catalog["articleCatalog<br/>today's supplier and partner ids"]
 
     Paid -->|"requestProduction(trx, orderId)"| Requests --> Worker
@@ -87,6 +87,7 @@ flowchart TB
     Submit --> Outbox
     Ship --> Jobs
     Ship --> Outbox
+    Ship -->|"recordEvent · JOB_SHIPPED"| Orders
 ```
 
 One durable row triggers everything the worker does. The fulfillment half
@@ -98,8 +99,8 @@ ever persisted or logged.
 
 ## The one-way edge to the order module
 
-Production needs three things from paid orders, and it declares them as
-TypeScript types in [`orders.ts`](../../../../backend-ts/src/modules/production/orders.ts),
+Production needs three reads of paid orders and one write into an order's
+history, and it declares them as TypeScript types in [`orders.ts`](../../../../backend-ts/src/modules/production/orders.ts),
 exported from `index.ts`. The order module implements them and the
 composition root hands that implementation to `createProductionModule` as
 `orders`. Production never imports order; order imports production
@@ -108,18 +109,32 @@ one-way edge `order → production` of decision #248: no `ProductionOutbox`, no
 `ProductionSource` port, no late binding.
 
 ```ts
-export interface ProductionOrderReads {
+export interface ProductionOrders {
   productionData(orderId: number): Promise<ProductionData | null>
   fulfillmentOrders(orderIds: Iterable<number>): Promise<Map<number, FulfillmentOrder>>
   shippingNotificationOrder(orderId: number): Promise<ShippingNotificationOrder | null>
+  recordEvent(trx: Transaction<Tables>, orderId: number, event: ProductionOrderEvent): Promise<void>
 }
 ```
+
+The type was called `ProductionOrderReads` until issue #282 added the write; it
+is no longer reads only.
 
 | Read | Who uses it | What it carries |
 | --- | --- | --- |
 | `productionData` | the split, the generation, the submission, the on-demand PDF | the shipping address, the customer's e-mail and phone (for the SPOD partner only), the Berlin order date, and the lines: snapshotted names, quantity, the unit price (for the SPOD partner only), the print image path, the five mug measurements, the snapshotted `spodHotspot`, and `articleId`/`variantId` |
 | `fulfillmentOrders` | the job lists, the producer mail | per order: id, Berlin date, recipient name, the five address fields. Nothing else, which is the data minimization of the supplier surface |
 | `shippingNotificationOrder` | the ship transaction | the recipient's e-mail, first name, and the ready-built order link. The access token never crosses the boundary |
+| `recordEvent` | the ship write, `recordRemoteState` | appends one event to the order's history (`order_events`, owned by the order module) inside the caller's transaction, so the event commits with the write it describes |
+
+Production writes two of the history events of the
+[Order package](order-package.md#the-order-history), each only when its write
+changed a row and never with partner text in `details`:
+
+| Event | Written by | actor / details |
+| --- | --- | --- |
+| `SPOD_REMOTE_STATE_CHANGED` | `spod/repository.ts#recordRemoteState`, when the reported state differs from the stored one | `CHANNEL`; `{ jobId, state }` |
+| `JOB_SHIPPED` | `fulfillment/repository.ts#ship`, the one ship write | `SUPPLIER` with the user id for a supplier-scoped ship, `ADMIN` with the user id for an unscoped human ship, `CHANNEL` for the partner's webhook; `{ jobId, carrier }` (the bounded carrier, never the reported name) |
 
 Two things on a line are **not** snapshots, and production resolves them
 itself through `articleCatalog.find(lines)` on every load
@@ -139,10 +154,14 @@ The loader maps every source problem to one bounded code: `SOURCE_NOT_FOUND`
 ```text
 production/
 |- index.ts                 createProductionModule(deps) → { routes, productionPdfGenerator,
-|                           requestProduction, findings, worker: { start, stop } }; the exported types
+|                           requestProduction, findings, ofOrder, worker: { start, stop } }; the
+|                           exported types
 |- findings.ts              productionFindings(db, now): the stalled pipeline rows; ProductionFinding
-|- orders.ts                the three read contracts, ProductionItem/ProductionOrder after the live
-|                           catalog lookup, createOrderLoader, orderLabel, pdfFileName
+|- timeline.ts              productionOfOrder(db, orderId): one order's request, jobs, deliveries,
+|                           and SPOD rows, the production section of the admin timeline
+|- orders.ts                ProductionOrders (three reads, recordEvent), ProductionOrderEvent,
+|                           ProductionItem/ProductionOrder after the live catalog lookup,
+|                           createOrderLoader, orderLabel, pdfFileName
 |- schema.ts                the nine production tables, merged into the platform's Tables
 |- routes.ts                destinationRoutes(service); the destinationInput schema
 |- service.ts               createDestinationService: create/replace rules, the sync trigger
@@ -183,13 +202,13 @@ const production = await createProductionModule({
   spodCatalogSync: article.spodCatalogSync,
   spod,                                   // the application's one SpodClient
   accounts,                               // SupplierAccounts, implemented by account
-  orders,                                 // ProductionOrderReads, implemented by order
+  orders,                                 // ProductionOrders, implemented by order
   alertEmail: settings.operations.alertEmail, // OPERATIONS_ALERT_EMAIL, where the SPOD ops alert goes
 })
 app.route('/', production.routes)
 production.worker.start()
 // order receives production.requestProduction and production.productionPdfGenerator,
-// operations receives production.findings
+// operations receives production.findings and production.ofOrder (the timeline's production section)
 // at shutdown
 await production.worker.stop()
 ```
@@ -690,6 +709,17 @@ the document exists. Only deliveries of generated jobs are looked at, so a
 stalled generation is one finding and not one more per destination. The
 thresholds are constants in `findings.ts`, not settings.
 
+The admin order timeline of the operations module shows the production state
+of one order. `production.ofOrder(orderId)`, implemented in
+[`timeline.ts`](../../../../backend-ts/src/modules/production/timeline.ts),
+reads it from production's own tables in one read transaction: the request
+(`null` before the order is paid), and every job with its deliveries and, on a
+SPOD job, its remote order row. The shape is the `production` section of the
+timeline in the [Operations package](operations-package.md#the-order-timeline).
+Facts with their own timestamp column (`processed_at`, `generated_at`,
+`prepared_at`, `delivered_at`, `confirmed_at`) are answered from that column and
+are not repeated as history events.
+
 ## What the port changed
 
 - **The live lookup moved here.** Kotlin's order module resolved the supplier
@@ -720,7 +750,8 @@ thresholds are constants in `findings.ts`, not settings.
 ## Tests
 
 All database tests run against the Testcontainer database with the real email
-outbox and supplier lookup; the order reads, the article catalog, the SPOD
+outbox and supplier lookup; the order reads (whose `recordEvent` collects the
+events in memory), the article catalog, the SPOD
 client, the catalog sync, and the supplier logins are fakes from
 [`test-fixtures.ts`](../../../../backend-ts/src/modules/production/test-fixtures.ts),
 which also seeds orders, suppliers, users, and destinations with SQL and starts
@@ -734,7 +765,7 @@ an in-process `ssh2` SFTP server with a fresh ed25519 host key.
 | `findings.test.ts` | `production.findings` with a fixed `now` against seeded requests, jobs, deliveries, and SPOD rows on both sides of every threshold: each kind exactly by its rule, no `DELIVERY_STALLED` for an ungenerated job, `since` per kind |
 | `delivery/pipeline.test.ts` | `requestProduction` (repeated, concurrent, rolled back, refused); the worker end to end into the embedded SFTP server with digest-equal remote bytes and one producer mail carrying the order id, idempotent on re-run; the mixed SFTP/SPOD split; source and generation codes and their recovery; failed and disabled deliveries recovering; the enqueue failure rolling `delivered_at` back; the SFTP client's fingerprint, password, closed-port, and silent-server cases |
 | `spod/submission.test.ts` | see [SPOD fulfillment](spod-fulfillment.md#tests) |
-| `fulfillment/fulfillment.test.ts` | both surfaces: own versus foreign jobs, the minimization pin, `no-store`, the status and supplier-id codes, one batched header read, the download and its conflicts, ship by supplier and admin with the one mail (attributed to the order), the concurrent ship, the webhook (see SPOD fulfillment), the carrier links |
+| `fulfillment/fulfillment.test.ts` | both surfaces: own versus foreign jobs, the minimization pin, `no-store`, the status and supplier-id codes, one batched header read, the download and its conflicts, ship by supplier and admin with the one mail (attributed to the order) and the one `JOB_SHIPPED` event (`SUPPLIER`, `ADMIN`, `CHANNEL`) through the fake `recordEvent`, the concurrent ship, the webhook (see SPOD fulfillment) with one `SPOD_REMOTE_STATE_CHANGED` per changed state, the carrier links |
 
 Not ported: the Kotlin outbox, lifecycle, public-API, queued-email, resolver,
 schema-state, legacy-fixture, and pixel-rendering tests, and the route-security

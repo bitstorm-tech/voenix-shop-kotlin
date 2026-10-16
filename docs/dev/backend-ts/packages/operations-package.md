@@ -9,6 +9,8 @@ This guide explains the TypeScript code in
 - [The five-minute mental model](#the-five-minute-mental-model)
 - [File map](#file-map)
 - [HTTP API](#http-api)
+- [The order list and the order timeline](#the-order-list-and-the-order-timeline)
+  - [The order timeline](#the-order-timeline)
 - [The kinds of finding](#the-kinds-of-finding)
 - [The scan](#the-scan)
 - [The alert](#the-alert)
@@ -35,7 +37,13 @@ module does:
   mail** (`OPERATIONS_ALERT`) to `OPERATIONS_ALERT_EMAIL` that lists them all;
 - the admin route `GET /api/admin/operations/findings` lists the open findings
   (and those resolved in the last seven days), and the admin page
-  *Operations* (`/admin/operations`) shows them.
+  *Operations* (`/admin/operations`) shows them;
+- the admin routes `GET /api/admin/orders` and
+  `GET /api/admin/orders/{orderId}/timeline` answer "what happened to order
+  42?" in one document, assembled from the capabilities of the order,
+  production, and email modules and this module's open findings; the admin
+  pages *Orders* (`/admin/orders`) and the order timeline
+  (`/admin/orders/{orderId}`) show them.
 
 A finding is one bounded record: a kind, the row it is about, the order that
 row belongs to, since when it stands still, and its attempt counter and error
@@ -48,20 +56,23 @@ flowchart TB
     Admin["Admin page /admin/operations"]
 
     subgraph Operations["Operations module"]
-        Routes["routes.ts<br/>GET /api/admin/operations/findings"]
+        Routes["routes.ts<br/>GET /api/admin/operations/findings<br/>GET /api/admin/orders · …/timeline"]
+        Service["service.ts<br/>timeline · orders"]
         Worker["worker.ts<br/>scan every 5 minutes"]
-        Repository["repository.ts<br/>record · list"]
+        Repository["repository.ts<br/>record · list · openOfOrder · openCounts"]
     end
 
     subgraph Owners["Owning modules (capabilities)"]
-        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>payments"]
-        Production["production.findings(now)<br/>requests · jobs · deliveries · SPOD"]
-        Outbox["outbox.findings(now)<br/>outbox.enqueue (the alert)<br/>email_jobs"]
+        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>orders.adminOrder · adminOrders"]
+        Production["production.findings(now)<br/>production.ofOrder<br/>requests · jobs · deliveries · SPOD"]
+        Outbox["outbox.findings(now)<br/>outbox.enqueue (the alert)<br/>outbox.ofOrder"]
     end
 
     Table[("PostgreSQL<br/>operations_findings")]
 
     Admin --> Routes --> Repository
+    Routes --> Service --> Repository
+    Service --> Orders & Production & Outbox
     Worker --> Orders & Production & Outbox
     Worker --> Repository --> Table
 ```
@@ -83,20 +94,24 @@ operations/
 |- index.ts            createOperationsModule({ db, orders, production, outbox, settings,
 |                      frontendBaseUrl }) → { routes, worker }
 |- schema.ts           OperationsFindingsTable, merged into the platform's Tables
-|- repository.ts       createFindingRepository(db) → { record(findings, alert), list }; Finding,
-|                      the union of the three owning modules' finding types; which kinds are
-|                      mailed; Alert, UnalertedFinding
-|- routes.ts           operationsRoutes(repository): the admin list, no-store
+|- repository.ts       createFindingRepository(db) → { record(findings, alert), openOfOrder,
+|                      openCounts, list }; Finding, the union of the three owning modules'
+|                      finding types; which kinds are mailed; Alert, UnalertedFinding
+|- service.ts          createOperationsService: the order timeline and the order list, assembled
+|                      from orders.adminOrder/adminOrders, production.ofOrder, outbox.ofOrder,
+|                      and the open findings
+|- routes.ts           operationsRoutes(repository, service): the findings list, the order list,
+|                      the timeline; no-store
 |- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository, outbox,
 |                      alertEmail, frontendBaseUrl, logger }) → { runOnce, start, stop };
 |                      FindingSource; the alert (mail, or log without an address)
 |- worker.test.ts      reconcile first, upsert, resolve, reappear, the alert, the loop
-`- routes.test.ts      the admin guard, no-store, both lists
+`- routes.test.ts      the admin guard, no-store, the findings lists, the order list, the timeline
 ```
 
-There is no `service.ts`: the route only forwards to the repository (see
-[Source file organization](../conventions/source-file-organization.md)). The
-rules themselves live in the owning modules:
+The findings list only forwards to the repository; `service.ts` exists for the
+two order reads, which assemble one answer from three other modules. The
+finding rules themselves live in the owning modules:
 [`order/payment/repository.ts`](../../../../backend-ts/src/modules/order/payment/repository.ts)
 (`findings`),
 [`production/findings.ts`](../../../../backend-ts/src/modules/production/findings.ts),
@@ -133,6 +148,83 @@ list. One finding on the wire:
 SPOD ops alert and the operations alert). `alertedAt` is the time the alert
 mail about the finding was enqueued, and stays `null` for a listed-only finding
 and in a deployment without `OPERATIONS_ALERT_EMAIL` (see [The alert](#the-alert)).
+
+## The order list and the order timeline
+
+"What happened to order 42?" used to be SQL across seven tables of three
+modules. Two admin routes answer it instead. The operations module owns none of
+those tables, so it asks each owner for its part and adds its own open
+findings; no query here touches another module's table.
+
+| Method and path | Who | Answer |
+| --- | --- | --- |
+| `GET /api/admin/orders` | admin | `200`, the 50 newest orders |
+| `GET /api/admin/orders?email=kunde@example.com` | admin | `200`, the newest 50 orders placed with exactly that address, compared case-insensitively; a blank value is no filter |
+| `GET /api/admin/orders/{orderId}/timeline` | admin | `200`, the [timeline document](#the-order-timeline); `404 {"message":"Order not found"}` for an unknown and a non-numeric id alike |
+
+All three answer `Cache-Control: no-store`. They share the path
+`/api/admin/orders` with the order module's production PDF routes
+(`…/{orderId}/production-pdfs`). Hono dispatches each request by its full path
+to the one route that matches; the order module's guards on that prefix may run
+in front of these routes as well, and since they are the same two guards
+(`requireAdmin`, `no-store`) that is harmless. One row of the list, through
+`orders.adminOrders({ email, limit: 50 })` and `openCounts` (the open findings
+grouped by `order_id`):
+
+```json
+{
+  "orderId": 42,
+  "createdAt": "2026-10-16T09:00:00.000Z",
+  "status": "PAID",
+  "paymentStatus": "PAID",
+  "total": 4070,
+  "email": "kunde@example.com",
+  "openFindings": 1
+}
+```
+
+### The order timeline
+
+One document per order, from four sources: `orders.adminOrder(orderId)` (the
+order, its payments, and its [history](order-package.md#the-order-history)),
+`production.ofOrder(orderId)` (the request, the jobs with their deliveries and
+SPOD row), `outbox.ofOrder(orderId)` (the mails attributed to the order), and
+`openOfOrder(orderId)` from this module's table. The order is read first; an
+unknown order ends there with the `404`. The access token never leaves the
+order module.
+
+```json
+{
+  "order": {
+    "orderId": 42, "createdAt": "…", "status": "PAID", "paymentStatus": "PAID",
+    "subtotal": 3580, "shippingCost": 490, "discountAmount": 0, "total": 4070,
+    "items": [{ "orderItemId": 1, "articleName": "Tasse", "…": "the OrderView line" }],
+    "email": "kunde@example.com", "phone": "+49 30 1",
+    "shippingAddress": { "firstName": "Erika", "…": "…" }, "billingAddress": { "…": "…" },
+    "cartId": 7, "promotionId": null, "updatedAt": "…"
+  },
+  "payments": [{ "paymentId": 1, "molliePaymentId": "tr_…", "status": "PAID", "amount": 4070, "createdAt": "…", "updatedAt": "…" }],
+  "production": {
+    "request": { "id": 1, "attemptCount": 1, "lastErrorCode": null, "createdAt": "…", "processedAt": "…" },
+    "jobs": [{ "jobId": 3, "supplierId": 1, "fulfillmentChannel": "SFTP", "generationAttemptCount": 1,
+      "lastGenerationErrorCode": null, "generatedAt": "…", "preparedAt": "…", "shippedAt": null,
+      "shippedByUserId": null, "shippedByChannel": null, "shippingCarrier": null, "trackingNumber": null,
+      "deliveries": [{ "deliveryId": 2, "destinationId": 1, "attemptCount": 1, "lastErrorCode": null, "deliveredAt": "…" }],
+      "spod": null }]
+  },
+  "emails": [{ "emailJobId": 5, "kind": "ORDER_CONFIRMATION", "recipient": "…", "attemptCount": 1, "lastErrorCode": null, "createdAt": "…", "sentAt": "…" }],
+  "events": [{ "id": 1, "occurredAt": "…", "kind": "ORDER_PLACED", "actorType": "CUSTOMER", "actorId": null, "cause": null, "details": null }],
+  "findings": [{ "kind": "DELIVERY_STALLED", "subject": { "type": "DELIVERY", "id": 2 }, "since": "…", "attemptCount": 3, "lastErrorCode": "SFTP_CONNECT_FAILED", "firstSeenAt": "…", "alertedAt": null }]
+}
+```
+
+`production.request` is `null` before the order is paid, and then `jobs` is
+empty. A SPOD job carries `spod` with `externalReference`, `createState`,
+`createAmbiguousCount`, `attemptCount`, `lastErrorCode`, `confirmedAt`, and
+`remoteState`; an SFTP job carries `null`. `findings` lists only the open
+ones. The four reads are separate, so the document is not one snapshot: a row
+that moves while it is read may show its new state in one section and the old
+one in another, which a reload settles.
 
 ## The kinds of finding
 
@@ -356,9 +448,9 @@ finding is reported, and the reported `Finding` already carries it.
 ```ts
 const operations = createOperationsModule({
   db,
-  orders: order.orders,   // reconcilePayments(now), findings(now): payments
-  production,             // findings(now): requests, jobs, deliveries, SPOD orders
-  outbox: email.outbox,   // findings(now): email_jobs; enqueue: the alert mail
+  orders: order.orders,   // reconcilePayments(now), findings(now), adminOrder, adminOrders
+  production,             // findings(now), ofOrder: requests, jobs, deliveries, SPOD orders
+  outbox: email.outbox,   // findings(now), ofOrder: email_jobs; enqueue: the alert mail
   settings: settings.operations, // { alertEmail: string | null }, OPERATIONS_ALERT_EMAIL
   frontendBaseUrl,        // settings.frontend.baseUrl, for the timeline links
 })
@@ -368,9 +460,9 @@ operations.worker.start()
 await operations.worker.stop()
 ```
 
-The three parameters are typed as `FindingSource`, an object with
-`findings(now)`, `orders` also has `reconcilePayments(now)`, and `outbox` also
-has `enqueue`; the composition root passes the modules' own objects. The same
+The three parameters are typed as `Pick`s of the modules' own types (`Orders`,
+`ProductionModule`, the email module's `outbox`) with exactly the members this
+module calls; the composition root passes the modules' own objects. The same
 `settings.operations.alertEmail` goes to the production module as `alertEmail`,
 for the SPOD ops alert.
 
@@ -385,7 +477,7 @@ bun test src/modules/operations
 | File | What it states |
 | --- | --- |
 | [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; several new findings are one `OPERATIONS_ALERT` and all get `alerted_at`, a finding seen again is not mailed again, a reappearing one is; the two SPOD kinds and a stalled `OPERATIONS_ALERT` are listed only; without an address nothing is mailed, `alerted_at` stays `NULL`, and one `error` line per new mailed finding names its kind and subject; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
-| [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago |
+| [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | through the composed application, so the order routes are checked next to the order module's PDF routes on the same path: `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago; the timeline of a seeded order with a row in every section (exact document, no access token, only the open finding), an order with empty sections, the `404` for an unknown, a non-numeric, and an exponent id; the order list newest first with its `openFindings`, the case-insensitive exact e-mail filter, a blank filter, and the cap at 50 |
 
 The rules of every kind are tested in their owning module, against seeded rows
 on both sides of every threshold and a fixed `now`: `order/findings.test.ts`,

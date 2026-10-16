@@ -28,6 +28,7 @@ describe('adminRoutes', () => {
     expect(children).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'orders', name: 'admin-orders' }),
+        expect.objectContaining({ path: 'orders/:orderId(\\d+)', name: 'admin-order' }),
         expect.objectContaining({ path: 'operations', name: 'admin-operations' }),
       ]),
     )

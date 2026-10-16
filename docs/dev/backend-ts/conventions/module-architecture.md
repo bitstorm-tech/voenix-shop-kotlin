@@ -166,7 +166,7 @@ unless it adds an edge.
 backend-ts/
 |- package.json, tsconfig.json, eslint.config.ts, .prettierrc.json, bunfig.toml
 |- .env.development            checked in; .env.local is ignored by Git
-|- migrations/                 V1__… to V33__…, the SQL files the runner applies
+|- migrations/                 V1__… to V34__…, the SQL files the runner applies
 |- src/
 |  |- platform/
 |  |  |- settings.ts           every variable, parsed once
@@ -216,7 +216,7 @@ export type { Country } from './repository'
   `EmailDelivery`; the SPOD client's seam is its injected `fetch`, and
   `SpodCatalogSource` is a plain data type) or where the implementation lives
   in another module (`SupplierAccounts` in the platform, implemented by
-  account; `ProductionOrderReads` in production, implemented by order).
+  account; `ProductionOrders` in production, implemented by order).
 - A capability that must run inside the caller's transaction takes the
   `Transaction<Tables>` as its first parameter instead of opening one.
 

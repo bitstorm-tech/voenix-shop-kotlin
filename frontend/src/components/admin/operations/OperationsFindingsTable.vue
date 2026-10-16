@@ -67,10 +67,9 @@ function rowKey(finding: OperationsFinding): string {
               #{{ finding.subject.id }}
             </TableCell>
             <TableCell class="whitespace-nowrap">
-              <!-- The order list until the order timeline page exists. -->
               <RouterLink
                 v-if="finding.orderId !== null"
-                :to="{ name: 'admin-orders' }"
+                :to="{ name: 'admin-order', params: { orderId: finding.orderId } }"
                 class="font-medium text-primary underline-offset-4 hover:underline"
                 data-testid="finding-order-link"
               >

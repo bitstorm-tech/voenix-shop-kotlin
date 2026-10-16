@@ -1,8 +1,9 @@
 import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import type { ArticleType, CatalogVariant } from '@/modules/article'
-import type { FulfillmentOrder } from '@/modules/production'
+import type { FulfillmentOrder, ProductionOrderEvent } from '@/modules/production'
 import { read, type Tables } from '@/platform/db/database'
 import type { PaymentStatus } from './payment/mollie'
+import { isLive } from './payment/repository'
 import type { OrderStatus, OrdersTable } from './schema'
 import './schema'
 
@@ -66,6 +67,32 @@ export interface OrderView {
 }
 
 type OrderRecord = Omit<OrderView, 'paymentStatus'>
+
+/** What made the shop ask Mollie about a payment: its webhook, a detail read, the scan, or an admin. */
+export type PaymentCause = 'WEBHOOK' | 'REFRESH' | 'RECONCILIATION' | 'ADMIN_RECHECK'
+
+/** Who paid an order: the shop on a payment Mollie reported, or the customer's free checkout. */
+export type PaidBy =
+  | { actorType: 'SYSTEM'; cause: PaymentCause }
+  | { actorType: 'CUSTOMER'; cause: 'FREE_ORDER' }
+
+/**
+ * One entry of an order's history (`order_events`), the kinds of the history table in the Order
+ * package guide. Production writes its two kinds through `recordEvent` of the `ProductionOrders`
+ * it is created with; `details` holds bounded values only, never provider text.
+ */
+export type OrderEvent =
+  | ProductionOrderEvent
+  | { kind: 'ORDER_PLACED'; actorType: 'CUSTOMER' }
+  | { kind: 'PAYMENT_STARTED'; actorType: 'CUSTOMER'; details: { paymentId: number } }
+  | {
+      kind: 'PAYMENT_STATUS_CHANGED'
+      actorType: 'SYSTEM'
+      cause: PaymentCause
+      details: { paymentId: number; from: PaymentStatus; to: PaymentStatus }
+    }
+  | ({ kind: 'ORDER_PAID' } & PaidBy)
+  | { kind: 'ORDER_CANCELLED'; actorType: 'SYSTEM'; cause: 'PAYMENT_START_REFUSED' }
 
 /** The references a reorder builds a new cart line from; no price, no quantity. */
 export interface OrderItemReference {
@@ -278,6 +305,102 @@ export function createOrderRepository(db: Kysely<Tables>) {
         }
       }),
 
+    /**
+     * One order as the admin timeline shows it, without an ownership rule and never with its
+     * access token: the order answer plus the customer's contact data, both addresses, the cart,
+     * the promotion, and `updatedAt`; every payment attempt; and the order's history, oldest
+     * first. `paymentStatus` is the current payment's, picked as `currentPayments` picks it: the
+     * live one, otherwise the last attempt.
+     */
+    adminOrder: (orderId: number) =>
+      read(db, async (trx) => {
+        const row = await trx
+          .selectFrom('orders')
+          .select([
+            ...payableColumns,
+            'created_at',
+            'status',
+            'subtotal_cents',
+            'shipping_cost_cents',
+            'discount_cents',
+            'promotion_id',
+            'updated_at',
+          ])
+          .where('id', '=', orderId)
+          .executeTakeFirst()
+        if (row === undefined) return undefined
+        const payments = await trx
+          .selectFrom('payments')
+          .select([
+            'id as paymentId',
+            'mollie_payment_id as molliePaymentId',
+            'status',
+            'amount_cents as amount',
+            'created_at as createdAt',
+            'updated_at as updatedAt',
+          ])
+          .where('order_id', '=', orderId)
+          .orderBy('id')
+          .execute()
+        const events = await trx
+          .selectFrom('order_events')
+          .select([
+            'id',
+            'occurred_at as occurredAt',
+            'kind',
+            'actor_type as actorType',
+            'actor_id as actorId',
+            'cause',
+            'details',
+          ])
+          .where('order_id', '=', orderId)
+          .orderBy('id')
+          .execute()
+        const { email, phone, cartId, shippingAddress, billingAddress } = toPayableOrder(row)
+        const current = payments.find((payment) => isLive(payment.status)) ?? payments.at(-1)
+        return (await withLines(trx, [row])).map((record) => ({
+          order: {
+            ...record,
+            paymentStatus: current?.status ?? null,
+            email,
+            phone,
+            shippingAddress,
+            billingAddress,
+            cartId,
+            promotionId: row.promotion_id,
+            updatedAt: row.updated_at.toISOString(),
+          },
+          payments,
+          events,
+        }))[0]
+      }),
+
+    /**
+     * The newest orders for the admin list, `limit` at most, newest first; with `email` only the
+     * orders placed with exactly that address, compared case-insensitively.
+     */
+    adminOrders: ({ email, limit }: { email: string | null; limit: number }) =>
+      read(db, (trx) =>
+        trx
+          .selectFrom('orders')
+          .select([
+            'id as orderId',
+            'created_at as createdAt',
+            'status',
+            'total_cents as total',
+            'email',
+          ])
+          .$if(email !== null, (query) =>
+            query.where((eb) =>
+              eb(eb.fn('lower', ['email']), '=', eb.fn('lower', [eb.val(email)])),
+            ),
+          )
+          .orderBy('created_at', 'desc')
+          .orderBy('id', 'desc')
+          .limit(limit)
+          .execute(),
+      ),
+
     /** Exactly the nine fields a supplier may see, for a whole page of orders in one statement. */
     fulfillmentOrders: async (
       orderIds: Iterable<number>,
@@ -424,6 +547,25 @@ export function lockOrder(trx: Transaction<Tables>, orderId: number) {
     .where('id', '=', orderId)
     .forUpdate()
     .executeTakeFirst()
+}
+
+/** Appends one event to the order's history, inside the transaction of the transition it describes. */
+export async function recordEvent(
+  trx: Transaction<Tables>,
+  orderId: number,
+  event: OrderEvent,
+): Promise<void> {
+  await trx
+    .insertInto('order_events')
+    .values({
+      order_id: orderId,
+      kind: event.kind,
+      actor_type: event.actorType,
+      actor_id: 'actorId' in event ? event.actorId : null,
+      cause: 'cause' in event ? event.cause : null,
+      details: 'details' in event ? JSON.stringify(event.details) : null,
+    })
+    .execute()
 }
 
 export async function setOrderStatus(

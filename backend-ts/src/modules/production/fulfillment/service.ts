@@ -1,7 +1,7 @@
 import { renderShippingNotification } from '@/modules/email'
 import type { SupplierModule, SupplierSummary } from '@/modules/supplier'
 import { createLogger } from '@/platform/logging'
-import type { FulfillmentOrder, ProductionOrderReads } from '../orders'
+import type { FulfillmentOrder, ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import type { SpodOrderRepository } from '../spod/repository'
 import { parseSpodOrderReference } from '../spod/submitter'
@@ -101,7 +101,7 @@ export function createFulfillmentService({
   spodOrders,
 }: {
   repository: FulfillmentRepository
-  orders: Pick<ProductionOrderReads, 'fulfillmentOrders' | 'shippingNotificationOrder'>
+  orders: Pick<ProductionOrders, 'fulfillmentOrders' | 'shippingNotificationOrder'>
   suppliers: Pick<SupplierModule, 'find'>
   artifacts: ArtifactStore
   spodOrders: SpodOrderRepository

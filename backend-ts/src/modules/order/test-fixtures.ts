@@ -247,3 +247,19 @@ export function placedOrder(result: PlaceOrderResult): PayableOrder {
   if (result.kind !== 'placed') throw new Error(`The test order was not placed: ${result.kind}`)
   return result.order
 }
+
+/** The history of every order as the tests compare it: oldest event first, without timestamps. */
+export function orderEvents(db: Kysely<Tables>) {
+  return db
+    .selectFrom('order_events')
+    .select([
+      'order_id as orderId',
+      'kind',
+      'actor_type as actorType',
+      'actor_id as actorId',
+      'cause',
+      'details',
+    ])
+    .orderBy('id')
+    .execute()
+}

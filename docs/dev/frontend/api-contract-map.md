@@ -494,18 +494,28 @@ field errors under `price.*` rather than by the vanished code
 `invalid_price_request`, and no prompt write answers `409` at all. Only the
 reorder does.
 
-## Admin: order production documents
+## Admin: orders, the order timeline, and production documents
 
 | Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
+| `stores/admin/orders.ts` | `GET /api/admin/orders` and `GET /api/admin/orders?email=` | same | #282 |
+| `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/timeline` | same | #282 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs` | same | #100 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | same | #100 |
 
-Joe's decision 2 of issue #84 kept this surface narrow on purpose: an order-ID
-input, the list of one document per supplier, and a download. There is no order
-search, no order table, and no status editing. Both routes generate on demand, so
-a document that was listed a moment ago can still fail with one of the `409` data
-codes on download.
+The Orders page (`/admin/orders`) lists the 50 newest orders; the e-mail filter
+sends the trimmed address as `email` and the backend compares it exactly, in any
+case. A row opens the timeline page `/admin/orders/{orderId}` (route
+`admin-order`), which renders every section of the timeline document of
+[the Operations package](../backend-ts/packages/operations-package.md) (order,
+payments, production, mails, history, open findings) and the order's production
+documents. An unknown order answers `404` and the store turns it into
+`OrderNotFoundError`. There is still no status editing.
+
+The production documents are the narrow surface of issue #84: an order-ID input
+on the Orders page (and the timeline of each order), the list of one document per
+supplier, and a download. Both routes generate on demand, so a document that was
+listed a moment ago can still fail with one of the `409` data codes on download.
 
 ## Admin: operations findings
 
@@ -517,8 +527,8 @@ The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
 placeholder. The list is a bare array of findings
 ([the Operations package](../backend-ts/packages/operations-package.md)); the
 toggle "Resolved in the last 7 days" sends `resolved=true` and gets the same
-shape plus `resolvedAt`. The order id of a finding links to the admin orders
-page.
+shape plus `resolvedAt`. The order id of a finding links to the timeline page of
+that order.
 
 ## Admin: production jobs and supplier logins
 
