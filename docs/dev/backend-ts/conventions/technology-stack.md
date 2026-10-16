@@ -27,7 +27,7 @@ pieces below needs a reason this guide did not weigh.
 | PDF | pdf-lib with `@pdf-lib/fontkit`; tests inspect PDFs with pdf-lib and `pdfjs-dist`. |
 | SFTP | `ssh2`. |
 | HTTP clients | `fetch`; tests pass a fetch function in instead of mocking globals. |
-| Logging | pino. |
+| Logging | pino, written as human-readable lines through `pino-pretty` (as an in-process stream, not a worker-thread transport). |
 | Lint and format | ESLint with `typescript-eslint` `strict-type-checked`, Prettier (the frontend's configuration), `eslint-plugin-boundaries` for the module graph. |
 | Tests | `bun test`. One PostgreSQL Testcontainer per run, migrated once into a template database, one fresh copy per test file. HTTP tests call `app.request()` without a socket. |
 
