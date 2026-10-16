@@ -99,6 +99,7 @@ package guide and the conventions it links.
 | [SPOD fulfillment](backend-ts/packages/spod-fulfillment.md) | `production` | The print-on-demand channel of the Production package: submission, webhook, ops alert, runbook. |
 | [The SPOD package](backend-ts/packages/spod-package.md) | `spod` | The shared client of the print-on-demand partner: the ten calls, the pacer, the bounded errors, the catalog and calibration answers. |
 | [The Email package](backend-ts/packages/email-package.md) | `email` | Direct user emails and the durable outbox of rendered mails. |
+| [The Operations package](backend-ts/packages/operations-package.md) | `operations` | The findings: each module's stalled rows, recorded by a worker every five minutes and listed on the admin Operations page; the admin order list and the timeline of one order with its history, and the two admin actions that replace hand-typed SQL, the payment recheck and the release of a quarantined SPOD job. |
 
 ## Frontend
 

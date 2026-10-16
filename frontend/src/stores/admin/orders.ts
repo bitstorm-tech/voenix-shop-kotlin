@@ -1,6 +1,139 @@
 import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchJson } from '@/lib/api'
+import type { OperationsFinding } from '@/stores/admin/operations'
+import type { Order, OrderPaymentStatus, OrderStatus } from '@/stores/shop/orders'
+
+/**
+ * One row of `GET /api/admin/orders`: the newest 50 orders, optionally of exactly one e-mail
+ * address, each with the number of its open operations findings. `total` is in integer cents.
+ */
+export interface AdminOrderListEntry {
+  orderId: number
+  createdAt: string
+  status: OrderStatus
+  paymentStatus: OrderPaymentStatus | null
+  total: number
+  email: string
+  openFindings: number
+}
+
+/** The answer of a payment recheck: the order's status and its payment's, read after the recheck. */
+export interface PaymentRecheck {
+  status: OrderStatus
+  paymentStatus: OrderPaymentStatus
+}
+
+/** A postal address as the order stored it. */
+export interface AdminOrderAddress {
+  firstName: string
+  lastName: string
+  street: string
+  houseNumber: string
+  postalCode: string
+  city: string
+  country: string
+}
+
+/**
+ * Who moved an order: the shop itself, the customer, a signed-in admin or supplier, or a
+ * fulfillment channel. `actorId` is the user of an `ADMIN` or `SUPPLIER` event.
+ */
+export type OrderEventActorType = 'SYSTEM' | 'CUSTOMER' | 'ADMIN' | 'SUPPLIER' | 'CHANNEL'
+
+/** One entry of the order history; `details` holds a few bounded values of the event. */
+export interface OrderEvent {
+  id: number
+  occurredAt: string
+  kind: string
+  actorType: OrderEventActorType
+  actorId: number | null
+  cause: string | null
+  details: Record<string, string | number | null> | null
+}
+
+export interface OrderTimelineDelivery {
+  deliveryId: number
+  destinationId: number
+  attemptCount: number
+  lastErrorCode: string | null
+  deliveredAt: string | null
+}
+
+export interface OrderTimelineSpod {
+  externalReference: string | null
+  createState: string
+  createAmbiguousCount: number
+  attemptCount: number
+  lastErrorCode: string | null
+  confirmedAt: string | null
+  remoteState: string | null
+}
+
+export interface OrderTimelineJob {
+  jobId: number
+  supplierId: number
+  fulfillmentChannel: string
+  generationAttemptCount: number
+  lastGenerationErrorCode: string | null
+  generatedAt: string | null
+  preparedAt: string | null
+  shippedAt: string | null
+  shippedByUserId: number | null
+  shippedByChannel: string | null
+  shippingCarrier: string | null
+  trackingNumber: string | null
+  deliveries: OrderTimelineDelivery[]
+  /** The remote order of a SPOD job; `null` on an SFTP job. */
+  spod: OrderTimelineSpod | null
+}
+
+/**
+ * Everything `GET /api/admin/orders/{orderId}/timeline` answers about one order: the order with
+ * its contact data, every payment attempt, the production request and jobs, the mails, the order
+ * history, and the open findings. Timestamps are ISO strings; amounts are integer cents.
+ */
+export interface OrderTimeline {
+  order: Order & {
+    email: string
+    phone: string | null
+    shippingAddress: AdminOrderAddress
+    billingAddress: AdminOrderAddress
+    cartId: number
+    promotionId: number | null
+    updatedAt: string
+  }
+  payments: {
+    paymentId: number
+    molliePaymentId: string
+    status: OrderPaymentStatus
+    amount: number
+    createdAt: string
+    updatedAt: string
+  }[]
+  production: {
+    /** `null` until the order is paid. */
+    request: {
+      id: number
+      attemptCount: number
+      lastErrorCode: string | null
+      createdAt: string
+      processedAt: string | null
+    } | null
+    jobs: OrderTimelineJob[]
+  }
+  emails: {
+    emailJobId: number
+    kind: string
+    recipient: string
+    attemptCount: number
+    lastErrorCode: string | null
+    createdAt: string
+    sentAt: string | null
+  }[]
+  events: OrderEvent[]
+  findings: Omit<OperationsFinding, 'orderId' | 'resolvedAt'>[]
+}
 
 /**
  * One production document of an order, as `GET /api/admin/orders/{orderId}/production-pdfs` names
@@ -120,6 +253,22 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
   /** The typed failure of the last lookup. The view decides how to word it. */
   const error = shallowRef<Error | null>(null)
 
+  const orderList = ref<AdminOrderListEntry[]>([])
+  const isListLoading = shallowRef(false)
+  /** The failure of the last list load. */
+  const listError = shallowRef<Error | null>(null)
+
+  const timeline = shallowRef<OrderTimeline | null>(null)
+  const isTimelineLoading = shallowRef(false)
+  /** {@link OrderNotFoundError} for an unknown order, otherwise the failure as it came. */
+  const timelineError = shallowRef<Error | null>(null)
+
+  /** The answer of the last payment recheck, or `null` before one. */
+  const recheck = shallowRef<PaymentRecheck | null>(null)
+  const isRechecking = shallowRef(false)
+  /** The failure of the last recheck, such as the `409` of an order without a payment. */
+  const recheckError = shallowRef<Error | null>(null)
+
   function reset() {
     documents.value = []
     loadedOrderId.value = null
@@ -177,7 +326,96 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
     }
   }
 
+  /** The newest orders; a non-blank `email` narrows them to exactly that address, in any case. */
+  async function fetchOrders(email = ''): Promise<void> {
+    isListLoading.value = true
+    listError.value = null
+    const filter = email.trim()
+
+    try {
+      orderList.value = await fetchJson<AdminOrderListEntry[]>(
+        filter === ''
+          ? '/api/admin/orders'
+          : `/api/admin/orders?${new URLSearchParams({ email: filter })}`,
+      )
+    } catch (err) {
+      orderList.value = []
+      listError.value = err instanceof Error ? err : new Error('Unknown error')
+    } finally {
+      isListLoading.value = false
+    }
+  }
+
+  /**
+   * The number of the most recently issued timeline load. Opening another order starts a second
+   * load before the first has answered; only the newest one may write the timeline state.
+   */
+  let latestTimelineFetchId = 0
+
+  /** Everything known about one order; an unknown id ends in {@link OrderNotFoundError}. */
+  async function fetchTimeline(orderId: number): Promise<void> {
+    const fetchId = ++latestTimelineFetchId
+    isTimelineLoading.value = true
+    timelineError.value = null
+    timeline.value = null
+
+    try {
+      const loaded = await fetchJson<OrderTimeline>(`/api/admin/orders/${orderId}/timeline`)
+      if (fetchId === latestTimelineFetchId) timeline.value = loaded
+    } catch (err) {
+      if (fetchId === latestTimelineFetchId) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        timelineError.value =
+          err instanceof ApiError && err.status === 404
+            ? new OrderNotFoundError(message)
+            : new Error(message)
+      }
+    } finally {
+      if (fetchId === latestTimelineFetchId) isTimelineLoading.value = false
+    }
+  }
+
+  /**
+   * Asks for the order's payment now, through the same path as the webhook, and reloads the
+   * timeline, which then shows what the recheck changed. A timeline load started meanwhile, such
+   * as opening another order, makes the answer stale: it is then neither kept nor reloaded.
+   */
+  async function recheckPayment(orderId: number): Promise<void> {
+    const fetchId = latestTimelineFetchId
+    isRechecking.value = true
+    recheckError.value = null
+    recheck.value = null
+
+    try {
+      const answer = await fetchJson<PaymentRecheck>(
+        `/api/admin/orders/${orderId}/payment/recheck`,
+        { method: 'POST' },
+      )
+      if (fetchId !== latestTimelineFetchId) return
+      recheck.value = answer
+      await fetchTimeline(orderId)
+    } catch (err) {
+      if (fetchId === latestTimelineFetchId) {
+        recheckError.value = err instanceof Error ? err : new Error('Unknown error')
+      }
+    } finally {
+      isRechecking.value = false
+    }
+  }
+
   return {
+    orderList,
+    isListLoading,
+    listError,
+    timeline,
+    isTimelineLoading,
+    timelineError,
+    fetchOrders,
+    fetchTimeline,
+    recheck,
+    isRechecking,
+    recheckError,
+    recheckPayment,
     documents,
     loadedOrderId,
     isLoading,

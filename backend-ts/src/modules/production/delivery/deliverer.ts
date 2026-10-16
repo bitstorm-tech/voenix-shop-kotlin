@@ -2,7 +2,7 @@ import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { renderProducerPdfNotification, type EmailModule } from '@/modules/email'
 import { read, write, type Tables } from '@/platform/db/database'
 import { createLogger, errorClass } from '@/platform/logging'
-import { type ProductionOrderReads } from '../orders'
+import { type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { deliverOverSftp, type SftpDestination } from './sftp'
 import '../schema'
@@ -32,8 +32,8 @@ export function createDeliveryStage({
 }: {
   db: Kysely<Tables>
   artifacts: ArtifactStore
-  outbox: EmailModule['outbox']
-  orders: Pick<ProductionOrderReads, 'fulfillmentOrders'>
+  outbox: Pick<EmailModule['outbox'], 'enqueue'>
+  orders: Pick<ProductionOrders, 'fulfillmentOrders'>
 }) {
   const updateOpen = async (
     executor: Kysely<Tables>,
@@ -140,6 +140,7 @@ export function createDeliveryStage({
           itemCount: Number(items),
           producerName: target.notificationName,
         }),
+        { orderId: delivery.orderId },
       )
     })
 

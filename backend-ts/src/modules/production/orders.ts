@@ -1,24 +1,55 @@
+import type { Transaction } from 'kysely'
 import {
   catalogKey,
   type ArticleCatalog,
   type ArticleVariantReference,
   type SpodProductRef,
 } from '@/modules/article'
+import type { Tables } from '@/platform/db/database'
 import { createLogger, errorClass } from '@/platform/logging'
 
 /**
- * The three reads production needs from the order module, declared here as types and implemented
- * by the order module (#248): the dependency runs one way, `order → production`, and the
- * composition root hands production the order module's object. Production never imports order.
+ * What production needs from the order module: three reads and the one write into the order's
+ * history, declared here as types and implemented by the order module (#248): the dependency runs
+ * one way, `order → production`, and the composition root hands production the order module's
+ * object. Production never imports order.
  */
-export interface ProductionOrderReads {
+export interface ProductionOrders {
   /** The production view of one order, or `null` when the order does not exist. */
   productionData(orderId: number): Promise<ProductionData | null>
   /** The order headers a fulfillment page shows, in one batch; unknown ids are absent. */
   fulfillmentOrders(orderIds: Iterable<number>): Promise<Map<number, FulfillmentOrder>>
   /** Whom a shipping notification goes to, or `null` when the order does not exist. */
   shippingNotificationOrder(orderId: number): Promise<ShippingNotificationOrder | null>
+  /** Appends one event to the order's history inside the caller's transaction. */
+  recordEvent(trx: Transaction<Tables>, orderId: number, event: ProductionOrderEvent): Promise<void>
 }
+
+/**
+ * The three events production writes into an order's history, each in the transaction of the
+ * write it describes and only when that write changed a row: the partner reported a new remote
+ * state, a job shipped, or an admin released a quarantined SPOD job. A human ship names its user
+ * (`ADMIN`, or `SUPPLIER` for a supplier-scoped ship); a channel ship has no user. `details` holds
+ * bounded values only, never provider text.
+ */
+export type ProductionOrderEvent =
+  | {
+      kind: 'SPOD_REMOTE_STATE_CHANGED'
+      actorType: 'CHANNEL'
+      details: { jobId: number; state: string }
+    }
+  | {
+      kind: 'JOB_SHIPPED'
+      actorType: 'ADMIN' | 'SUPPLIER' | 'CHANNEL'
+      actorId: number | null
+      details: { jobId: number; carrier: string | null }
+    }
+  | {
+      kind: 'SPOD_JOB_RELEASED'
+      actorType: 'ADMIN'
+      actorId: number
+      details: { jobId: number; decision: 'NOT_CREATED' | 'CREATED' }
+    }
 
 /**
  * The production view of one order: the shipping address of the address page, the customer's
@@ -122,7 +153,7 @@ const logger = createLogger('production')
  * Only the error's class is logged.
  */
 export function createOrderLoader(
-  orders: Pick<ProductionOrderReads, 'productionData'>,
+  orders: Pick<ProductionOrders, 'productionData'>,
   articleCatalog: Pick<ArticleCatalog, 'find'>,
 ) {
   return async (

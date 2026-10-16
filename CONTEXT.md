@@ -249,6 +249,40 @@ on its way, never that the order is complete.
 _Avoid_: delivered (nothing in this shop observes that a parcel arrived),
 un-ship, ship an order
 
+**Order history / Verlauf der Bestellung**:
+The append-only record of who or what moved one order (`order_events`): each
+event names its kind, its actor (the shop itself, the customer, an admin or
+supplier with the user id, or a fulfillment channel), and its cause, and is
+never changed afterwards. The admin's order timeline page shows it together
+with the facts other tables carry (payments, jobs, deliveries, mails, open
+findings).
+_Avoid_: audit log, order log
+
+**Payment reconciliation**:
+The first step of every operations scan: the shop asks Mollie about every
+payment that has been under way for over 15 minutes and applies the answer
+exactly as the webhook would, which repairs a lost webhook. It runs before the
+findings are collected, so a payment it just settled is never reported.
+
+**Finding / Befund**:
+One bounded record that a row of the pipeline stands still: its kind, the row
+it is about (the subject), the order that row belongs to, since when, and the
+row's attempt counter and error code — never customer data or a provider's
+text. The operations worker records it when the owning module reports the row
+and resolves it once the row moves again. A *mailed* kind goes into the
+operations alert; a *listed-only* kind appears on the admin page only. An
+abandoned checkout is not a finding: it is a customer who left, not a broken
+promise.
+_Avoid_: alert (the alert is the one mail a scan sends about its new
+findings), incident, error
+
+**Release / Freigabe**:
+An admin's decision on a quarantined SPOD job (`OUTCOME_UNKNOWN`) after
+checking the partner's backoffice: `NOT_CREATED`, so the worker submits the
+order again, or `CREATED` with the partner's order id, which the worker then
+confirms. Either way the admin confirms it by typing the job reference. It is recorded in the order history with the admin's user id.
+_Avoid_: retry, unblock
+
 **Supplier login**:
 A `users` row that acts for exactly one supplier: role `SUPPLIER`, `supplier_id`
 pointing at that supplier, created by an admin and invited by mail. It is an

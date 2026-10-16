@@ -1,10 +1,11 @@
 import { renderShippingNotification } from '@/modules/email'
 import type { SupplierModule, SupplierSummary } from '@/modules/supplier'
 import { createLogger } from '@/platform/logging'
-import type { FulfillmentOrder, ProductionOrderReads } from '../orders'
+import { invalid, notFound, ok, type OperationResult } from '@/platform/operation'
+import type { FulfillmentOrder, ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
-import type { SpodOrderRepository } from '../spod/repository'
-import { parseSpodOrderReference } from '../spod/submitter'
+import type { SpodOrderRepository, SpodRelease } from '../spod/repository'
+import { parseSpodOrderReference, spodOrderReference } from '../spod/submitter'
 import { carrierDisplayName, trackingUrl } from './carrier'
 import type {
   FulfillmentRepository,
@@ -67,6 +68,8 @@ export interface AdminJobView {
   lastGenerationErrorCode: string | null
   externalReference: string | null
   remoteState: string | null
+  /** The SPOD creation state (`PENDING`, `CREATED`, `OUTCOME_UNKNOWN`); `null` before the first attempt and for an SFTP job. */
+  createState: string | null
   shippedAt: string | null
   shippedByUserId: number | null
   shippedByChannel: string | null
@@ -101,7 +104,7 @@ export function createFulfillmentService({
   spodOrders,
 }: {
   repository: FulfillmentRepository
-  orders: Pick<ProductionOrderReads, 'fulfillmentOrders' | 'shippingNotificationOrder'>
+  orders: Pick<ProductionOrders, 'fulfillmentOrders' | 'shippingNotificationOrder'>
   suppliers: Pick<SupplierModule, 'find'>
   artifacts: ArtifactStore
   spodOrders: SpodOrderRepository
@@ -142,25 +145,39 @@ export function createFulfillmentService({
       throw new Error(`Production job ${String(jobId)} names an order that does not exist`)
     }
     const carrier = shipment.carrier
-    return repository.ship(jobId, actor, supplierScope, shipment, (items) =>
-      renderShippingNotification({
-        recipient: order.recipientEmail,
-        orderId: job.orderId,
-        customerFirstName: order.customerFirstName,
-        items: items.map(({ articleName, variantName, quantity }) => ({
-          articleName,
-          variantName,
-          quantity,
-        })),
-        orderUrl: order.orderUrl,
-        carrierName: carrier === null ? null : carrierDisplayName(carrier),
-        trackingNumber: shipment.trackingNumber,
-        trackingUrl: carrier === null ? null : trackingUrl(carrier, shipment.trackingNumber),
-      }),
-    )
+    return repository.ship(jobId, actor, supplierScope, shipment, {
+      orderId: job.orderId,
+      render: (items) =>
+        renderShippingNotification({
+          recipient: order.recipientEmail,
+          orderId: job.orderId,
+          customerFirstName: order.customerFirstName,
+          items: items.map(({ articleName, variantName, quantity }) => ({
+            articleName,
+            variantName,
+            quantity,
+          })),
+          orderUrl: order.orderUrl,
+          carrierName: carrier === null ? null : carrierDisplayName(carrier),
+          trackingNumber: shipment.trackingNumber,
+          trackingUrl: carrier === null ? null : trackingUrl(carrier, shipment.trackingNumber),
+        }),
+    })
   }
 
-  /** The single answer of a committed ship: a missing header is a broken reference, not a drop. */
+  /** The view of a job a write just changed, read again: a missing header is a broken reference. */
+  const viewAfterWrite = async <V>(
+    jobId: number,
+    supplierScope: number | null,
+    render: (jobs: StoredJob[]) => Promise<V[]>,
+  ): Promise<V> => {
+    const job = await repository.job(jobId, supplierScope)
+    const [view] = job === undefined ? [] : await render([job])
+    if (view === undefined) throw new Error(`Production job ${String(jobId)} has no view`)
+    return view
+  }
+
+  /** The single answer of a committed ship. */
   const shipped = async <V>(
     result: ShipWriteResult,
     jobId: number,
@@ -168,10 +185,7 @@ export function createFulfillmentService({
     render: (jobs: StoredJob[]) => Promise<V[]>,
   ): Promise<ShipResult<V>> => {
     if (result !== 'shipped') return { kind: result }
-    const job = await repository.job(jobId, supplierScope)
-    const [view] = job === undefined ? [] : await render([job])
-    if (view === undefined) throw new Error(`Shipped production job ${String(jobId)} has no view`)
-    return { kind: 'shipped', job: view }
+    return { kind: 'shipped', job: await viewAfterWrite(jobId, supplierScope, render) }
   }
 
   const adminViews = async (jobs: StoredJob[]) => {
@@ -249,6 +263,27 @@ export function createFulfillmentService({
 
     shipAsAdmin: async (jobId: number, actorUserId: number, shipment: Shipment) =>
       shipped(await ship(jobId, { userId: actorUserId }, null, shipment), jobId, null, adminViews),
+
+    /**
+     * An admin's release of a quarantined SPOD job. `confirmation` must be the job's
+     * `ORD-{orderId}-JOB-{jobId}` reference, typed by hand, or the answer is `invalid`; the write
+     * itself refuses a job not in `OUTCOME_UNKNOWN` and an order id another job holds. Answers the
+     * released job's admin view.
+     */
+    releaseSpodJob: async (
+      jobId: number,
+      release: SpodRelease & { confirmation: string },
+      adminUserId: number,
+    ): Promise<OperationResult<AdminJobView>> => {
+      const job = await repository.job(jobId, null)
+      if (job === undefined) return notFound
+      if (release.confirmation !== spodOrderReference(job.orderId, jobId)) {
+        return invalid({ confirmation: ['Confirmation must be the job reference'] })
+      }
+      const released = await spodOrders.release(jobId, release, adminUserId)
+      if (released.kind !== 'ok') return released
+      return ok(await viewAfterWrite(jobId, null, adminViews))
+    },
 
     /**
      * One event the partner reported, applied to the job it names. Every outcome is silent: the
@@ -334,6 +369,7 @@ function adminJobView(
     lastGenerationErrorCode: job.lastGenerationErrorCode,
     externalReference: job.externalReference,
     remoteState: job.remoteState,
+    createState: job.createState,
     shippedAt: iso(job.shippedAt),
     shippedByUserId: job.shippedByUserId,
     shippedByChannel: job.shippedByChannel,

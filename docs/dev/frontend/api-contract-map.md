@@ -60,7 +60,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **141 rows** and **7** backend routes that no
+That currently yields **142 rows** and **7** backend routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
@@ -494,18 +494,56 @@ field errors under `price.*` rather than by the vanished code
 `invalid_price_request`, and no prompt write answers `409` at all. Only the
 reorder does.
 
-## Admin: order production documents
+## Admin: orders, the order timeline, and production documents
 
 | Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
+| `stores/admin/orders.ts` | `GET /api/admin/orders` and `GET /api/admin/orders?email=` | same | #282 |
+| `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/timeline` | same | #282 |
+| `stores/admin/orders.ts` | `POST /api/admin/orders/{orderId}/payment/recheck` | same | #282 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs` | same | #100 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | same | #100 |
 
-Joe's decision 2 of issue #84 kept this surface narrow on purpose: an order-ID
-input, the list of one document per supplier, and a download. There is no order
-search, no order table, and no status editing. Both routes generate on demand, so
-a document that was listed a moment ago can still fail with one of the `409` data
-codes on download.
+The Orders page (`/admin/orders`) lists the 50 newest orders; the e-mail filter
+sends the trimmed address as `email` and the backend compares it exactly, in any
+case. A row opens the timeline page `/admin/orders/{orderId}` (route
+`admin-order`), which renders every section of the timeline document of
+[the Operations package](../backend-ts/packages/operations-package.md) (order,
+payments, production, mails, history, open findings) and the order's production
+documents. An unknown order answers `404` and the store turns it into
+`OrderNotFoundError`. The router reuses the page between orders, so it loads
+again when the `orderId` prop changes, and only the newest timeline load may
+write the store: a late answer for the order the admin just left is dropped.
+There is still no status editing.
+
+The timeline page's *Recheck payment* button asks Mollie about the order's
+payment now (`recheckPayment`, no body). The answer `{ status, paymentStatus }`
+is kept in `recheck` and shown above the page, and the timeline is reloaded so
+the payment, the history, and the production sections show what the recheck
+changed; a refusal (`409 The order has no payment`) is kept in `recheckError`
+and shown with the backend's message. Both are cleared whenever the page opens an
+order, and a recheck answer that arrives after another timeline load started is
+neither kept nor followed by a reload. The feedback reads "Recheck answer: …",
+not "Mollie was asked": for a final payment, or when Mollie fails, the backend
+answers the stored status without asking.
+
+The production documents are the narrow surface of issue #84: an order-ID input
+on the Orders page (and the timeline of each order), the list of one document per
+supplier, and a download. Both routes generate on demand, so a document that was
+listed a moment ago can still fail with one of the `409` data codes on download.
+
+## Admin: operations findings
+
+| Frontend file | Call | Backend route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/operations.ts` | `GET /api/admin/operations/findings` and `GET /api/admin/operations/findings?resolved=true` | same | #282 |
+
+The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
+placeholder. The list is a bare array of findings
+([the Operations package](../backend-ts/packages/operations-package.md)); the
+toggle "Resolved in the last 7 days" sends `resolved=true` and gets the same
+shape plus `resolvedAt`. The order id of a finding links to the timeline page of
+that order.
 
 ## Admin: production jobs and supplier logins
 
@@ -514,6 +552,7 @@ codes on download.
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs?status=OPEN\|SHIPPED&supplierId=` | same | #125 |
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs/{jobId}/pdf` | same | #125 |
 | `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/ship` | same | #125 |
+| `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/spod/release` | same | #282 |
 | `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
@@ -535,6 +574,19 @@ routes refuse for exactly the same reasons. That module holds everything the two
 ship surfaces share: the wire types, the carrier list, the error mapping, and the
 wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
+
+A SPOD job whose `createState` is `OUTCOME_UNKNOWN` (the quarantine) gets a
+*Release* button on the Logistics page and no other job does.
+`components/admin/logistics/ReleaseSpodJobDialog.vue` asks for the decision
+(no order with the reference, or exactly one order and its id) and for the
+job reference `ORD-{orderId}-JOB-{jobId}` typed by hand; its submit stays
+disabled until a decision is chosen, the partner's order id is filled in for
+`CREATED`, and the typed reference matches. `releaseSpodJob(jobId, body)` posts
+`{ decision, confirmation }` or `{ decision, externalReference, confirmation }`
+and answers the released job. A `409` (the job was released meanwhile, or the
+order id belongs to another job) closes the dialog with a notice and reloads
+the tab; any other refusal stays in the dialog. The runbook behind the dialog
+is in [SPOD fulfillment](../backend-ts/packages/spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown).
 
 The five CRUD destination routes were dispositioned as "no admin UI" until
 the t-shirt work needed one (#205): a SPOD destination is how an order of a
@@ -609,7 +661,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 141 |
+| Frontend rows, all matching | 142 |
 | Backend routes with no caller, all dispositioned | 7 |
 | Call sites with an open contract gap | 0 |
 
@@ -626,5 +678,6 @@ is how 143 became 140. The generic SPOD article (#260) renamed the storefront
 route to `GET /api/articles/spod` and added the mockup folder of
 `spodMockupImageUrl`, which is how 140 became 141. The TypeScript port (#262)
 changed no row; it removed the three standalone price routes nobody called
-(#251), which is how the uncalled routes went from 10 to 7. Keep it that way: a
+(#251), which is how the uncalled routes went from 10 to 7. The Operations page
+(#282) added the findings list, which is how 141 became 142. Keep it that way: a
 new `/api/…` literal belongs in this file in the same commit that introduces it.

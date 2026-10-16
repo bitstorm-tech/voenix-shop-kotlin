@@ -72,7 +72,7 @@ The root Dockerfile builds in three stages:
    `FRONTEND_DIST_PATH=/app/frontend/dist` baked in as the one environment
    variable the image sets itself. There is no build output: Bun runs the
    TypeScript sources directly with `bun src/main.ts`, which applies the
-   pending migrations, starts the two workers, and listens on `PORT`
+   pending migrations, starts the three workers, and listens on `PORT`
    (default `8080`). The stage also installs
    [`magic-wormhole`](https://magic-wormhole.readthedocs.io/), so files can be
    moved to and from a running container (for example logs or a database
@@ -99,7 +99,8 @@ to a development value. The image needs:
 | `EMAIL_ENABLED` and, when `true`, `EMAIL_API_KEY` and `EMAIL_FROM_EMAIL` | mail delivery |
 | `GENERATOR_DUMMY_MODE` and, when `false`, `GENERATOR_API_KEY` | image generation |
 | `MOLLIE_API_KEY`, `MOLLIE_REDIRECT_URL`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | payments; a test system uses a `test_` key |
-| `PRODUCTION_SPOD_WEBHOOK_SECRET`, `PRODUCTION_SPOD_ALERT_EMAIL` | both or neither; required once a SPOD destination exists |
+| `OPERATIONS_ALERT_EMAIL` | the mailbox for the operations alert and the SPOD ops alert; unset, the findings are only logged |
+| `PRODUCTION_SPOD_WEBHOOK_SECRET` | required once a SPOD destination exists, and then `OPERATIONS_ALERT_EMAIL` too |
 | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `true` behind exactly one trusted reverse proxy, see [Rate limiting](../conventions/rate-limiting.md) |
 
 ## Building and running locally

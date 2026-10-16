@@ -87,28 +87,25 @@ the last one is what makes step 6 possible without shipping a parcel.
 
 ## 1. The application configuration
 
-The SPOD channel needs two values in the application configuration, both in the
-`production.spod` block of [`application.yaml`](../../../backend/app/resources/application.yaml)
-(or its environment variables):
+The SPOD channel needs two environment variables of the backend (see
+[Running the development server](../backend-ts/getting-started/running-the-development-server.md)):
 
-```yaml
-production:
-  spod:
-    webhookSecret: ""   # PRODUCTION_SPOD_WEBHOOK_SECRET, at least 32 characters
-    alertEmail: ""      # PRODUCTION_SPOD_ALERT_EMAIL
+```sh
+PRODUCTION_SPOD_WEBHOOK_SECRET=   # at least 32 characters
+OPERATIONS_ALERT_EMAIL=
 ```
 
-- `webhookSecret` is the last path segment of the callback URL the partner
+- `PRODUCTION_SPOD_WEBHOOK_SECRET` is the last path segment of the callback URL the partner
   calls when a parcel ships (`/api/production/webhooks/spod/{secret}`). Generate
   a random string of at least 32 characters, for example with
   `openssl rand -hex 32`, and keep it: you need the same value in step 4.
-- `alertEmail` is the shared mailbox that receives the ops alert when a job
-  needs a human (a cancelled order, a quarantined job, an order the partner
-  refuses). Use a mailbox someone actually reads.
+- `OPERATIONS_ALERT_EMAIL` is the shared mailbox that receives the ops alert
+  when a job needs a human (a cancelled order, a quarantined job, an order the
+  partner refuses), and the operations alert about every stalled order. Use a
+  mailbox someone actually reads.
 
-Set **both** or neither. The application checks at startup: one without the
-other fails, and both blank while a SPOD destination exists in the database
-fails too. The admin UI enforces the same rule from the other side and refuses
+The application checks at startup: the secret without the address fails, and no
+secret while a SPOD destination exists in the database fails too. The admin UI enforces the same rule from the other side and refuses
 to create a SPOD destination while the block is empty, so do this step first.
 Restart the application after changing the configuration.
 
@@ -437,7 +434,7 @@ to production:
    staging) and check that the job turns *shipped* and the customer's shipping
    mail is enqueued. That proves the webhook URL and secret. Simulate
    `Order.cancelled` and `Order.needs-action` once too, and check that the
-   ops alert arrives at `alertEmail` exactly once per job.
+   ops alert arrives at `OPERATIONS_ALERT_EMAIL` exactly once per job.
 
 ## 7. Moving from staging to production
 

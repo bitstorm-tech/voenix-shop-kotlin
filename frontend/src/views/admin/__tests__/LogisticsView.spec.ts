@@ -1,9 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive } from 'vue'
+import ReleaseSpodJobDialog from '@/components/admin/logistics/ReleaseSpodJobDialog.vue'
 import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
 import { Select } from '@/components/ui/select'
 import type { AdminJob } from '@/stores/admin/fulfillment'
+import { ApiError } from '@/lib/api'
 import { JobAlreadyShippedError, JobPdfUnavailableError } from '@/lib/fulfillment'
 import LogisticsView from '../LogisticsView.vue'
 
@@ -19,6 +21,7 @@ const fulfillmentState = reactive({
   downloadingJobId: null as number | null,
   fetchJobs: vi.fn(),
   ship: vi.fn(),
+  releaseSpodJob: vi.fn(),
   downloadPdf: vi.fn(),
 })
 
@@ -66,6 +69,7 @@ const openJob: AdminJob = {
   lastGenerationErrorCode: null,
   externalReference: null,
   remoteState: null,
+  createState: null,
   shippedAt: null,
   shippedByUserId: null,
   shippedByChannel: null,
@@ -92,6 +96,7 @@ beforeEach(() => {
   fulfillmentState.downloadingJobId = null
   fulfillmentState.fetchJobs.mockReset().mockResolvedValue([openJob])
   fulfillmentState.ship.mockReset().mockResolvedValue(openJob)
+  fulfillmentState.releaseSpodJob.mockReset().mockResolvedValue(openJob)
   fulfillmentState.downloadPdf.mockReset()
   suppliersState.fetchSuppliers.mockReset().mockResolvedValue(undefined)
 })
@@ -283,5 +288,72 @@ describe('LogisticsView', () => {
     expect(wrapper.text()).toContain('already been shipped')
     expect(fulfillmentState.fetchJobs).toHaveBeenCalledWith('OPEN', null)
     expect(wrapper.findComponent(ShipJobDialog).props('open')).toBe(false)
+  })
+
+  describe('releasing a quarantined SPOD job', () => {
+    const spodJob = (createState: string | null): AdminJob => ({
+      ...openJob,
+      jobId: 7,
+      fulfillmentChannel: 'SPOD',
+      pdfAvailable: false,
+      createState,
+    })
+
+    it('offers the release only on a SPOD job in OUTCOME_UNKNOWN', async () => {
+      fulfillmentState.jobs = [
+        openJob,
+        spodJob('PENDING'),
+        { ...spodJob('OUTCOME_UNKNOWN'), jobId: 8 },
+      ]
+      const wrapper = mountView()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="release-job-5"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="release-job-7"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="release-job-8"]').exists()).toBe(true)
+    })
+
+    it('releases through the dialog and reloads the tab', async () => {
+      fulfillmentState.jobs = [spodJob('OUTCOME_UNKNOWN')]
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.find('[data-testid="release-job-7"]').trigger('click')
+      await nextTick()
+      const dialog = wrapper.findComponent(ReleaseSpodJobDialog)
+      expect(dialog.props('open')).toBe(true)
+      expect(dialog.props('job')).toMatchObject({ jobId: 7 })
+
+      fulfillmentState.fetchJobs.mockClear()
+      const body = { decision: 'NOT_CREATED', confirmation: 'ORD-42-JOB-7' }
+      dialog.vm.$emit('confirm', body)
+      await flushPromises()
+
+      expect(fulfillmentState.releaseSpodJob).toHaveBeenCalledWith(7, body)
+      expect(fulfillmentState.fetchJobs).toHaveBeenCalledWith('OPEN', null)
+      expect(wrapper.findComponent(ReleaseSpodJobDialog).props('open')).toBe(false)
+    })
+
+    it('closes on a conflict and names it; keeps any other refusal in the dialog', async () => {
+      fulfillmentState.jobs = [spodJob('OUTCOME_UNKNOWN')]
+      fulfillmentState.releaseSpodJob
+        .mockRejectedValueOnce(new ApiError('Validation failed', 400, null))
+        .mockRejectedValueOnce(new ApiError('The job is not quarantined', 409, null))
+      const wrapper = mountView()
+      await flushPromises()
+      await wrapper.find('[data-testid="release-job-7"]').trigger('click')
+      await nextTick()
+      const body = { decision: 'NOT_CREATED', confirmation: 'ORD-42-JOB-7' }
+
+      wrapper.findComponent(ReleaseSpodJobDialog).vm.$emit('confirm', body)
+      await flushPromises()
+      expect(wrapper.findComponent(ReleaseSpodJobDialog).props('error')).toBe('Validation failed')
+      expect(wrapper.findComponent(ReleaseSpodJobDialog).props('open')).toBe(true)
+
+      wrapper.findComponent(ReleaseSpodJobDialog).vm.$emit('confirm', body)
+      await flushPromises()
+      expect(wrapper.findComponent(ReleaseSpodJobDialog).props('open')).toBe(false)
+      expect(wrapper.text()).toContain('The job is not quarantined. The list has been reloaded.')
+    })
   })
 })

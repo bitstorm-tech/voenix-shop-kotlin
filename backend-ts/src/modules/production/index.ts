@@ -8,10 +8,11 @@ import type { Tables } from '@/platform/db/database'
 import type { Settings } from '@/platform/settings'
 import { requestProduction } from './delivery/requests'
 import { createProductionWorker } from './delivery/worker'
+import { productionFindings } from './findings'
 import { createFulfillmentRepository } from './fulfillment/repository'
 import { fulfillmentRoutes } from './fulfillment/routes'
 import { createFulfillmentService } from './fulfillment/service'
-import { createOrderLoader, type ProductionOrderReads } from './orders'
+import { createOrderLoader, type ProductionOrders } from './orders'
 import { createArtifactStore } from './pdf/artifact-store'
 import { createProductionPdfGenerator } from './pdf/generator'
 import { createDestinationRepository } from './repository'
@@ -19,12 +20,15 @@ import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
+import { productionOfOrder } from './timeline'
 
+export type { ProductionFinding } from './findings'
 export type {
   FulfillmentOrder,
   ProductionData,
   ProductionLine,
-  ProductionOrderReads,
+  ProductionOrderEvent,
+  ProductionOrders,
   ShippingNotificationOrder,
 } from './orders'
 export type {
@@ -41,7 +45,9 @@ export { requestProduction }
  * `orders`, the order module's implementation of the read contracts declared here, so the edge runs
  * one way, `order → production` (#248). The composition root mounts `routes`, calls
  * `worker.start()` once and `worker.stop()` at shutdown, hands `requestProduction` to the paid
- * transition and `productionPdfGenerator` to the admin order downloads.
+ * transition and `productionPdfGenerator` to the admin order downloads, and `findings` (the stalled
+ * rows of the pipeline), `ofOrder` (one order's production state), and `releaseSpodJob` (the
+ * admin's release of a quarantined SPOD job) to the operations module.
  *
  * It refuses to start when a SPOD destination exists while `settings.spod` is missing: a channel
  * whose shipments arrive by webhook could not report one, and the worker must not submit a paid
@@ -58,6 +64,7 @@ export async function createProductionModule({
   spod,
   accounts,
   orders,
+  alertEmail,
 }: {
   db: Kysely<Tables>
   settings: Settings['production']
@@ -67,13 +74,15 @@ export async function createProductionModule({
   spodCatalogSync: Pick<SpodCatalogSync, 'sync'>
   spod: SubmissionClient
   accounts: SupplierAccounts
-  orders: ProductionOrderReads
+  orders: ProductionOrders
+  /** The operations address the SPOD ops alert goes to, `null` when none is set. */
+  alertEmail: string | null
 }) {
   const destinations = createDestinationRepository(db)
   if (settings.spod === null && (await destinations.hasSpodDestination())) {
     throw new Error(
       'A print-on-demand destination exists, so production.spod.webhookSecret and ' +
-        'production.spod.alertEmail are required',
+        'operations.alertEmail are required',
     )
   }
   const artifacts = await createArtifactStore(settings.artifactRoot)
@@ -81,7 +90,8 @@ export async function createProductionModule({
   const spodOrders = createSpodOrderRepository({
     db,
     outbox: email.outbox,
-    alertEmail: settings.spod?.alertEmail ?? null,
+    orders,
+    alertEmail,
   })
   const worker = createProductionWorker({
     db,
@@ -93,6 +103,14 @@ export async function createProductionModule({
     spod,
   })
 
+  const fulfillment = createFulfillmentService({
+    repository: createFulfillmentRepository(db, email.outbox, orders),
+    orders,
+    suppliers,
+    artifacts,
+    spodOrders,
+  })
+
   const routes = new Hono()
   routes.route(
     '/',
@@ -100,24 +118,21 @@ export async function createProductionModule({
       createDestinationService(destinations, settings.spod !== null, spodCatalogSync),
     ),
   )
-  routes.route(
-    '/',
-    fulfillmentRoutes(
-      createFulfillmentService({
-        repository: createFulfillmentRepository(db, email.outbox),
-        orders,
-        suppliers,
-        artifacts,
-        spodOrders,
-      }),
-      accounts,
-      settings.spod?.webhookSecret ?? null,
-    ),
-  )
+  routes.route('/', fulfillmentRoutes(fulfillment, accounts, settings.spod?.webhookSecret ?? null))
   return {
     routes,
     productionPdfGenerator: createProductionPdfGenerator(loadOrder),
     requestProduction,
+    findings: (now: Date) => productionFindings(db, now),
+    /** The production section of one order's admin timeline: request, jobs, deliveries, SPOD. */
+    ofOrder: (orderId: number) => productionOfOrder(db, orderId),
+    /**
+     * An admin's release of a quarantined SPOD job after looking at the partner's backoffice;
+     * answers the job's admin view (SPOD fulfillment, "Reconciling a quarantined job").
+     */
+    releaseSpodJob: fulfillment.releaseSpodJob,
     worker: { start: worker.start, stop: worker.stop },
   }
 }
+
+export type ProductionModule = Awaited<ReturnType<typeof createProductionModule>>

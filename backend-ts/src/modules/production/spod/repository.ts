@@ -1,8 +1,11 @@
-import { sql, type Kysely, type Transaction } from 'kysely'
+import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import { renderSpodOpsAlert, type EmailModule, type SpodOpsAlertReason } from '@/modules/email'
 import { spodEnvironmentOfStoredValue, type SpodAccess } from '@/modules/spod'
 import { read, write, type Tables } from '@/platform/db/database'
+import { executePostgresWrite } from '@/platform/db/postgres-write'
 import { createLogger } from '@/platform/logging'
+import { conflict, ok, type OperationResult } from '@/platform/operation'
+import type { ProductionOrders } from '../orders'
 import '../schema'
 
 /**
@@ -22,8 +25,25 @@ export const PERMANENT_FAILURES: ReadonlySet<string> = new Set([
 /** One automatic re-create is allowed; the second ambiguity quarantines the job. */
 export const MAX_AMBIGUOUS_CREATES = 2
 
+/** The order of the `production_spod_orders` row a write returns, through its job and request. */
+const orderIdOfRow = (eb: ExpressionBuilder<Tables, 'production_spod_orders'>) =>
+  eb
+    .selectFrom('production_jobs as j')
+    .innerJoin('production_requests as r', 'r.id', 'j.request_id')
+    .select('r.order_id')
+    .whereRef('j.id', '=', 'production_spod_orders.production_job_id')
+    .as('orderId')
+
 /** The partner states the webhook writes; `CONFIRMED` is this shop's own. */
 export type ReportedRemoteState = 'CANCELLED' | 'NEEDS_ACTION'
+
+/**
+ * What an admin found in the partner's backoffice for a quarantined job: no order with its
+ * reference, or exactly one, whose id the job adopts.
+ */
+export type SpodRelease =
+  | { decision: 'NOT_CREATED' }
+  | { decision: 'CREATED'; externalReference: string }
 
 export type SpodOrderRepository = ReturnType<typeof createSpodOrderRepository>
 
@@ -41,10 +61,12 @@ const logger = createLogger('production-spod')
 export function createSpodOrderRepository({
   db,
   outbox,
+  orders,
   alertEmail,
 }: {
   db: Kysely<Tables>
   outbox: EmailModule['outbox']
+  orders: Pick<ProductionOrders, 'recordEvent'>
   /** `null` in a deployment without SPOD settings, which then has no one to alert. */
   alertEmail: string | null
 }) {
@@ -216,19 +238,64 @@ export function createSpodOrderRepository({
       }),
 
     /**
-     * Writes the state the partner reported and alerts the operator, only when the state changed:
-     * a redelivered event sends nothing, a cancellation after a needs-action sends a second alert.
+     * Writes the state the partner reported, records `SPOD_REMOTE_STATE_CHANGED` in the order's
+     * history, and alerts the operator, only when the state changed: a redelivered event writes
+     * and sends nothing, a cancellation after a needs-action sends a second alert.
      */
     recordRemoteState: (jobId: number, state: ReportedRemoteState) =>
       write(db, async (trx) => {
-        const result = await trx
+        const changed = await trx
           .updateTable('production_spod_orders')
           .set({ remote_state: state })
           .where('production_job_id', '=', jobId)
           .where('remote_state', 'is distinct from', state)
+          .returning(orderIdOfRow)
           .executeTakeFirst()
-        if (result.numUpdatedRows > 0n) await alert(trx, jobId, state)
+        if (changed?.orderId == null) return
+        await orders.recordEvent(trx, changed.orderId, {
+          kind: 'SPOD_REMOTE_STATE_CHANGED',
+          actorType: 'CHANNEL',
+          details: { jobId, state },
+        })
+        await alert(trx, jobId, state)
       }),
+
+    /**
+     * Releases a quarantined job, the two writes of the runbook: `NOT_CREATED` starts the creation
+     * over, `CREATED` adopts the partner's order id for the next scan to confirm. Both reset the
+     * ambiguity count and the code, record `SPOD_JOB_RELEASED` with the admin in the same commit,
+     * and only touch a job in `OUTCOME_UNKNOWN`: any other state, and an id another job already
+     * holds (the unique index, never a lookup), is a `conflict`.
+     */
+    release: (
+      jobId: number,
+      release: SpodRelease,
+      adminUserId: number,
+    ): Promise<OperationResult<undefined>> =>
+      executePostgresWrite({ uniqueViolation: conflict }, () =>
+        write(db, async (trx) => {
+          const released = await trx
+            .updateTable('production_spod_orders')
+            .set(
+              release.decision === 'CREATED'
+                ? { external_reference: release.externalReference, create_state: 'CREATED' }
+                : { create_state: 'PENDING' },
+            )
+            .set({ create_ambiguous_count: 0, last_error_code: null })
+            .where('production_job_id', '=', jobId)
+            .where('create_state', '=', 'OUTCOME_UNKNOWN')
+            .returning(orderIdOfRow)
+            .executeTakeFirst()
+          if (released?.orderId == null) return conflict
+          await orders.recordEvent(trx, released.orderId, {
+            kind: 'SPOD_JOB_RELEASED',
+            actorType: 'ADMIN',
+            actorId: adminUserId,
+            details: { jobId, decision: release.decision },
+          })
+          return ok(undefined)
+        }),
+      ),
 
     /** The job behind the partner's order id; a unique index read. */
     jobIdOfExternalReference: async (externalReference: string): Promise<number | undefined> => {

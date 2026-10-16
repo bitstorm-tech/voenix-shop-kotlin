@@ -6,6 +6,7 @@ import { rejectionOf } from '@test-support/values'
 import {
   ADDRESS,
   FRONTEND_BASE_URL,
+  orderEvents,
   orderModuleFor,
   placedOrder,
   placeInput,
@@ -126,8 +127,12 @@ describe('orders.place', () => {
       },
     ])
 
-    const mails = await database.db.selectFrom('email_jobs').select('payload').execute()
+    const mails = await database.db
+      .selectFrom('email_jobs')
+      .select(['payload', 'order_id'])
+      .execute()
     expect(mails).toHaveLength(1)
+    expect(mails[0]?.order_id).toBe(order.id)
     const mail = mails[0]?.payload as {
       kind: string
       recipient: string
@@ -150,6 +155,16 @@ describe('orders.place', () => {
     expect(second).toEqual({ kind: 'alreadyPlaced', order: placedOrder(first) })
     expect(await count(database.db, 'orders')).toBe(1)
     expect(await count(database.db, 'email_jobs')).toBe(1)
+    expect(await orderEvents(database.db)).toEqual([
+      {
+        orderId: 1,
+        kind: 'ORDER_PLACED',
+        actorType: 'CUSTOMER',
+        actorId: null,
+        cause: null,
+        details: null,
+      },
+    ])
   })
 
   test('a cancelled order frees the cart for a new placement', async () => {

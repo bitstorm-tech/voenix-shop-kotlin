@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Hono } from 'hono'
+import { sql } from 'kysely'
 import { write } from '@/platform/db/database'
 import { seedUser, testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
@@ -225,10 +226,28 @@ describe('the supplier surface', () => {
       'https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=0034%200434',
     )
     expect(mails[0]?.text).toContain('1x Zaubertasse (Weiß)')
+    expect(
+      await database.db
+        .selectFrom('email_jobs')
+        .select('order_id')
+        .where(sql<string>`payload->>'kind'`, '=', 'SHIPPING_NOTIFICATION')
+        .execute(),
+    ).toEqual([{ order_id: orderId }])
     const shippedList = await jsonOf(
       await get('/api/supplier/production-jobs?status=SHIPPED', headers),
     )
     expect(shippedList).toMatchObject([{ jobId: job.id, shippingCarrier: 'DHL' }])
+    expect(kit.orders.events).toEqual([
+      {
+        orderId,
+        event: {
+          kind: 'JOB_SHIPPED',
+          actorType: 'SUPPLIER',
+          actorId: loginA,
+          details: { jobId: job.id, carrier: 'DHL' },
+        },
+      },
+    ])
   })
 
   test('two concurrent ships end as one shipment, one conflict, and one mail', async () => {
@@ -331,6 +350,17 @@ describe('the admin surface', () => {
     const mail = (await mailsOf('SHIPPING_NOTIFICATION'))[0]
     expect(mail?.text).toContain('Sendungsnummer: X1')
     expect(mail?.text).not.toContain('Sendung verfolgen')
+    expect(kit.orders.events).toEqual([
+      {
+        orderId,
+        event: {
+          kind: 'JOB_SHIPPED',
+          actorType: 'ADMIN',
+          actorId: adminId,
+          details: { jobId: job.id, carrier: 'OTHER' },
+        },
+      },
+    ])
   })
 })
 
@@ -387,6 +417,18 @@ describe('the SPOD webhook', () => {
     const mails = await mailsOf('SHIPPING_NOTIFICATION')
     expect(mails.length).toBe(1)
     expect(mails[0]?.text).not.toContain('evil.test')
+    const { id: jobId } = await jobOf(orderId, spodSupplier)
+    expect(kit.orders.events).toEqual([
+      {
+        orderId,
+        event: {
+          kind: 'JOB_SHIPPED',
+          actorType: 'CHANNEL',
+          actorId: null,
+          details: { jobId, carrier: 'DEUTSCHE_POST' },
+        },
+      },
+    ])
   })
 
   test('an unprepared job is found by the shop reference, shipped, and marked prepared', async () => {
@@ -410,8 +452,8 @@ describe('the SPOD webhook', () => {
     expect((await jobOf(orderId, spodSupplier)).prepared_at).not.toBeNull()
   })
 
-  test('remote states alert once per transition; no-ops are accepted all the same', async () => {
-    await processedOrder([shirt()])
+  test('remote states alert and are recorded once per transition; no-ops are accepted all the same', async () => {
+    const orderId = await processedOrder([shirt()])
     const cancelled = { eventType: 'Order.cancelled', order: { orderId: 'spod-1' } }
     await webhook(cancelled)
     await webhook(cancelled)
@@ -421,6 +463,20 @@ describe('the SPOD webhook', () => {
     expect(alerts.length).toBe(2)
     expect(alerts[0]?.text).toContain('storniert')
     expect(alerts[1]?.text).toContain('Rückmeldung')
+    const { id: jobId } = await jobOf(orderId, spodSupplier)
+    expect(kit.orders.events.map(({ event }) => event)).toEqual([
+      {
+        kind: 'SPOD_REMOTE_STATE_CHANGED',
+        actorType: 'CHANNEL',
+        details: { jobId, state: 'CANCELLED' },
+      },
+      {
+        kind: 'SPOD_REMOTE_STATE_CHANGED',
+        actorType: 'CHANNEL',
+        details: { jobId, state: 'NEEDS_ACTION' },
+      },
+    ])
+    expect(kit.orders.events.every((entry) => entry.orderId === orderId)).toBe(true)
 
     for (const body of [
       'not json',
