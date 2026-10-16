@@ -41,6 +41,23 @@ const columns = [
   'checkout_url as checkoutUrl',
 ] as const
 
+/**
+ * A payment that stands still where the shop expected it to move: still under way an hour after it
+ * was started (`PAYMENT_UNRESOLVED`, probably a lost webhook), or paid while its order is not
+ * (`PAYMENT_PAID_ORDER_UNPAID`: the amount differed, or the order was cancelled).
+ */
+export interface OrderFinding {
+  kind: 'PAYMENT_UNRESOLVED' | 'PAYMENT_PAID_ORDER_UNPAID'
+  subject: { type: 'PAYMENT'; id: number }
+  orderId: number
+  since: Date
+  attemptCount: null
+  lastErrorCode: null
+}
+
+/** A payment under way for longer than this is unresolved. */
+const UNRESOLVED_AFTER_MILLIS = 60 * 60 * 1000
+
 export type PaymentRepository = ReturnType<typeof createPaymentRepository>
 
 export function createPaymentRepository(db: Kysely<Tables>) {
@@ -67,6 +84,42 @@ export function createPaymentRepository(db: Kysely<Tables>) {
         if (kept === undefined || !isLive(kept.status)) current.set(payment.orderId, payment)
       }
       return current
+    },
+
+    /**
+     * The order module's findings for the operations worker, oldest payment first. Only a live
+     * payment can be either kind, and a live payment is always its order's current one (the index
+     * allows one per order), so no "current payment" selection is needed. A pending order whose
+     * payment ended is an abandoned checkout, not a finding.
+     */
+    findings: async (now: Date): Promise<OrderFinding[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('payments as p')
+          .innerJoin('orders as o', 'o.id', 'p.order_id')
+          .select(['p.id', 'p.order_id', 'p.status', 'p.created_at', 'p.updated_at'])
+          .where((eb) =>
+            eb.or([
+              eb.and([
+                eb('o.status', '=', 'PENDING'),
+                eb('p.status', 'in', UNDER_WAY_STATUSES),
+                eb('p.created_at', '<', new Date(now.getTime() - UNRESOLVED_AFTER_MILLIS)),
+              ]),
+              eb.and([eb('p.status', '=', 'PAID'), eb('o.status', '<>', 'PAID')]),
+            ]),
+          )
+          .orderBy('p.id')
+          .execute(),
+      )
+      return rows.map((row) => ({
+        ...(row.status === 'PAID'
+          ? { kind: 'PAYMENT_PAID_ORDER_UNPAID', since: row.updated_at }
+          : { kind: 'PAYMENT_UNRESOLVED', since: row.created_at }),
+        subject: { type: 'PAYMENT', id: row.id },
+        orderId: row.order_id,
+        attemptCount: null,
+        lastErrorCode: null,
+      }))
     },
 
     /** The payment Mollie is talking about, or `undefined` when this backend never created it. */

@@ -124,8 +124,8 @@ export const adminNavigationItems: AdminNavItem[] = [
   },
   {
     type: 'link',
-    title: 'Issues',
-    to: '/admin/issues',
+    title: 'Operations',
+    to: '/admin/operations',
     icon: CircleAlert,
   },
 ]

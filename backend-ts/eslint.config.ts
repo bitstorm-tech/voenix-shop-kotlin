@@ -23,6 +23,7 @@ const moduleDependencies: Record<string, string[]> = {
   cart: ['image', 'article', 'prompt', 'promotion', 'order'],
   checkout: ['cart', 'promotion', 'order', 'country', 'article'],
   generator: ['article', 'prompt'],
+  operations: ['order', 'production', 'email'],
 }
 
 /** Another module is reachable through its `index.ts` only. */

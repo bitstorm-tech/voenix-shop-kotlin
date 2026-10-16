@@ -56,10 +56,11 @@ flowchart TD
     Cart["cart"]
     Checkout["checkout"]
     Generator["generator<br/>generation · magic coins"]
+    Operations["operations<br/>findings · worker"]
     TestSupport["test-support"]
 
     Root --> Platform
-    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator
+    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator & Operations
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -104,6 +105,10 @@ flowchart TD
     Generator --> Platform
     Generator --> Article
     Generator --> Prompt
+    Operations --> Platform
+    Operations --> Order
+    Operations --> Production
+    Operations --> Email
     TestSupport --> Platform
 ```
 
@@ -127,6 +132,7 @@ module with what it may import besides the platform:
 | `cart` | `image`, `article`, `prompt`, `promotion`, `order` | The cart, its lines, print images, reorder |
 | `checkout` | `cart`, `promotion`, `order`, `country`, `article` | The one buy journey, in two transactions |
 | `generator` | `article`, `prompt` | AI image generation and the Magic Coins it is paid with (the former `magic-coins` module is part of it) |
+| `operations` | `order`, `production`, `email` | The one place that looks across the whole pipeline: records the findings each owning module reports about its own stalled rows, and lists them to admins. It imports the three modules' finding *types*; the composition root injects their `findings(now)` capabilities. Nothing imports it |
 
 The composition root and the test support may import every module.
 
@@ -160,7 +166,7 @@ unless it adds an edge.
 backend-ts/
 |- package.json, tsconfig.json, eslint.config.ts, .prettierrc.json, bunfig.toml
 |- .env.development            checked in; .env.local is ignored by Git
-|- migrations/                 V1__… to V32__…, the SQL files the runner applies
+|- migrations/                 V1__… to V33__…, the SQL files the runner applies
 |- src/
 |  |- platform/
 |  |  |- settings.ts           every variable, parsed once
@@ -269,7 +275,7 @@ is the process around it:
 loadEnvFiles()
 const settings = loadSettings(process.env)
 const application = await createApplication(settings)
-application.start()                        // the email and the production worker
+application.start()                        // the email, production, and operations workers
 Bun.serve({ port: settings.port, fetch: application.app.fetch })
 // SIGTERM, SIGINT: server.stop(), then application.stop()
 ```
@@ -289,14 +295,16 @@ order the capabilities allow, with no late binding anywhere:
    rate limiter), **order before production** (production is created with
    `order.orders`; the order module itself takes the cart's
    `createPrintImageReads(db)`, a plain repository read created before the
-   cart module exists), cart, and last the checkout.
+   cart module exists), operations (with the `findings` of order, production,
+   and the email outbox), cart, and last the checkout.
 4. The sub-apps, mounted with `app.route('/', x.routes)` in that order, plus
    the two routes that need a later module: `order.adminPdfRoutes(production.productionPdfGenerator)`
    and `image.guestImageRoute(cart.guestImageResolver)`.
 5. When `settings.frontend.distPath` is set, the built frontend behind every
    route (see [the full-stack image](../getting-started/full-stack-image.md)).
 
-`start()` starts the two workers; `stop()` ends them and destroys the pool. A
+`start()` starts the three workers (email, production, operations); `stop()`
+ends them and destroys the pool. A
 factory that throws (an unwritable image root, a SPOD destination without the
 channel configured) destroys the pool before the error travels on.
 

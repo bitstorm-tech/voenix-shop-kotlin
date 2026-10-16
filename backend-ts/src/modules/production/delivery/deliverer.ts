@@ -32,7 +32,7 @@ export function createDeliveryStage({
 }: {
   db: Kysely<Tables>
   artifacts: ArtifactStore
-  outbox: EmailModule['outbox']
+  outbox: Pick<EmailModule['outbox'], 'enqueue'>
   orders: Pick<ProductionOrderReads, 'fulfillmentOrders'>
 }) {
   const updateOpen = async (
@@ -140,6 +140,7 @@ export function createDeliveryStage({
           itemCount: Number(items),
           producerName: target.notificationName,
         }),
+        { orderId: delivery.orderId },
       )
     })
 

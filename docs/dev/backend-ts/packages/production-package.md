@@ -19,13 +19,16 @@ The print-on-demand channel has a guide of its own,
 - [Delivery](#delivery)
 - [Producer notification](#producer-notification)
 - [Fulfillment](#fulfillment)
+- [Findings for operations](#findings-for-operations)
 - [What the port changed](#what-the-port-changed)
 - [Tests](#tests)
 
 ## What this package does
 
 The Production module turns a paid order into production work and lets the
-suppliers report what they shipped. It owns eight responsibilities:
+suppliers report what they shipped. It owns eight responsibilities, and it
+reports its stalled rows to the operations module
+([Findings for operations](#findings-for-operations)):
 
 - **Destination management.** Admin CRUD for a supplier's delivery accounts,
   one per channel (`SFTP` push, `SPOD` API), plus the button that syncs a SPOD
@@ -136,7 +139,8 @@ The loader maps every source problem to one bounded code: `SOURCE_NOT_FOUND`
 ```text
 production/
 |- index.ts                 createProductionModule(deps) → { routes, productionPdfGenerator,
-|                           requestProduction, worker: { start, stop } }; the exported types
+|                           requestProduction, findings, worker: { start, stop } }; the exported types
+|- findings.ts              productionFindings(db, now): the stalled pipeline rows; ProductionFinding
 |- orders.ts                the three read contracts, ProductionItem/ProductionOrder after the live
 |                           catalog lookup, createOrderLoader, orderLabel, pdfFileName
 |- schema.ts                the nine production tables, merged into the platform's Tables
@@ -183,7 +187,8 @@ const production = await createProductionModule({
 })
 app.route('/', production.routes)
 production.worker.start()
-// order receives production.requestProduction and production.productionPdfGenerator
+// order receives production.requestProduction and production.productionPdfGenerator,
+// operations receives production.findings
 // at shutdown
 await production.worker.stop()
 ```
@@ -527,7 +532,7 @@ those of the mail.
 The completion is one transaction: set `delivered_at` (guarded by
 `delivered_at IS NULL`, so at most one mail per delivery), and when the
 destination has an address, render `renderProducerPdfNotification` and
-`email.outbox.enqueue(trx, …)` it. A failing enqueue rolls `delivered_at` back
+`email.outbox.enqueue(trx, …, { orderId })` it, attributed to the job's order. A failing enqueue rolls `delivered_at` back
 and the delivery stays open. The mail is rendered **now**, because the payload
 outbox stores the finished mail (#248): the recipient, the producer name, and
 the label are the destination's values at delivery time, the item count is the
@@ -635,7 +640,8 @@ WHERE id = ? AND shipped_at IS NULL
 ```
 
 If it touched a row, the same transaction reads the job's item snapshot,
-renders `renderShippingNotification`, and enqueues it: shipped and notified are
+renders `renderShippingNotification`, and enqueues it with the job's order id
+(`repository.ship` receives the mail as `{ orderId, render }`): shipped and notified are
 one commit, and a failing enqueue rolls the shipment back. The order half of
 the mail (recipient, first name, link) is read before the transaction; a job
 whose order is gone fails the ship loudly. If no row was touched, the row is
@@ -656,6 +662,32 @@ There is no un-ship endpoint: the mail is the point of no return. Before the
 email worker's next scan an operator may delete the open `email_jobs` row
 (`payload->>'kind' = 'SHIPPING_NOTIFICATION'`) and clear the job's shipping
 columns by hand; after it, the honest repair is to write to the customer.
+
+## Findings for operations
+
+The [operations module](operations-package.md) asks every five minutes which
+rows of the pipeline stand still. `production.findings(now)`, implemented in
+[`findings.ts`](../../../../backend-ts/src/modules/production/findings.ts),
+answers from production's own tables in one read transaction: three
+statements narrow to the rows that are still open (an unprocessed request, a
+job that is unshipped or quarantined with its SPOD row, an undelivered delivery
+of a generated job), and plain TypeScript conditions decide which of them
+stand still. Every finding carries the order id of its request.
+
+| Kind | Subject | Rule | `since` | Attempts and code |
+| --- | --- | --- | --- | --- |
+| `PRODUCTION_REQUEST_STALLED` | the request | `processed_at IS NULL` and (`created_at` older than 15 minutes or `attempt_count >= 3`) | `created_at` | the request's |
+| `JOB_GENERATION_STALLED` | the job | an `SFTP` job, `generated_at IS NULL`, and (`created_at` older than 15 minutes or `generation_attempt_count >= 3`) | `created_at` | the generation's |
+| `DELIVERY_STALLED` | the delivery | `delivered_at IS NULL`, the job's `generated_at` is set, and (`generated_at` older than an hour or the delivery's `attempt_count >= 3`) | the job's `generated_at` | the delivery's |
+| `SPOD_SUBMISSION_STALLED` | the job | a `SPOD` job, `prepared_at IS NULL`, `create_state` is not `OUTCOME_UNKNOWN`, and (`created_at` older than an hour or the SPOD row's `attempt_count >= 3`) | the job's `created_at` | the SPOD row's (`0` before the first attempt, when the row does not exist yet) |
+| `SPOD_QUARANTINED` | the job | `create_state = 'OUTCOME_UNKNOWN'` | the job's `created_at` | the SPOD row's |
+| `SPOD_REMOTE_ATTENTION` | the job | `remote_state` is `NEEDS_ACTION` or `CANCELLED` and `shipped_at IS NULL` | the SPOD row's `created_at` (the state change has no timestamp of its own) | none |
+| `SHIPMENT_OVERDUE` | the job | `prepared_at` older than seven days and `shipped_at IS NULL`, any channel | `prepared_at` | none |
+
+A delivery row exists from the split on, but a delivery cannot start before
+the document exists. Only deliveries of generated jobs are looked at, so a
+stalled generation is one finding and not one more per destination. The
+thresholds are constants in `findings.ts`, not settings.
 
 ## What the port changed
 
@@ -698,9 +730,10 @@ an in-process `ssh2` SFTP server with a fresh ed25519 host key.
 | `validation.test.ts` | `destinationInput` and `shipInput`: field names, messages, defaults, the block rule, no echoed secret |
 | `destinations.test.ts` | one happy path per destination route for both channels, the write-only secrets against the columns, the service's field errors, the enabled-SPOD conflict normal and concurrent, the in-use delete, the unconfigured-SPOD refusal, the startup refusal, the sync route's five answers |
 | `pdf/pdf.test.ts` | page count, page sizes, and text per direction (pdfjs-dist), one embedded image per item page (pdf-lib), a WebP source, the typed failures, the generator's per-supplier documents, the artifact store, the PNG conversion with its two budgets |
-| `delivery/pipeline.test.ts` | `requestProduction` (repeated, concurrent, rolled back, refused); the worker end to end into the embedded SFTP server with digest-equal remote bytes and one producer mail, idempotent on re-run; the mixed SFTP/SPOD split; source and generation codes and their recovery; failed and disabled deliveries recovering; the enqueue failure rolling `delivered_at` back; the SFTP client's fingerprint, password, closed-port, and silent-server cases |
+| `findings.test.ts` | `production.findings` with a fixed `now` against seeded requests, jobs, deliveries, and SPOD rows on both sides of every threshold: each kind exactly by its rule, no `DELIVERY_STALLED` for an ungenerated job, `since` per kind |
+| `delivery/pipeline.test.ts` | `requestProduction` (repeated, concurrent, rolled back, refused); the worker end to end into the embedded SFTP server with digest-equal remote bytes and one producer mail carrying the order id, idempotent on re-run; the mixed SFTP/SPOD split; source and generation codes and their recovery; failed and disabled deliveries recovering; the enqueue failure rolling `delivered_at` back; the SFTP client's fingerprint, password, closed-port, and silent-server cases |
 | `spod/submission.test.ts` | see [SPOD fulfillment](spod-fulfillment.md#tests) |
-| `fulfillment/fulfillment.test.ts` | both surfaces: own versus foreign jobs, the minimization pin, `no-store`, the status and supplier-id codes, one batched header read, the download and its conflicts, ship by supplier and admin with the one mail, the concurrent ship, the webhook (see SPOD fulfillment), the carrier links |
+| `fulfillment/fulfillment.test.ts` | both surfaces: own versus foreign jobs, the minimization pin, `no-store`, the status and supplier-id codes, one batched header read, the download and its conflicts, ship by supplier and admin with the one mail (attributed to the order), the concurrent ship, the webhook (see SPOD fulfillment), the carrier links |
 
 Not ported: the Kotlin outbox, lifecycle, public-API, queued-email, resolver,
 schema-state, legacy-fixture, and pixel-rendering tests, and the route-security

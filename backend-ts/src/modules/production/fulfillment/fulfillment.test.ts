@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Hono } from 'hono'
+import { sql } from 'kysely'
 import { write } from '@/platform/db/database'
 import { seedUser, testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
@@ -225,6 +226,13 @@ describe('the supplier surface', () => {
       'https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=0034%200434',
     )
     expect(mails[0]?.text).toContain('1x Zaubertasse (Weiß)')
+    expect(
+      await database.db
+        .selectFrom('email_jobs')
+        .select('order_id')
+        .where(sql<string>`payload->>'kind'`, '=', 'SHIPPING_NOTIFICATION')
+        .execute(),
+    ).toEqual([{ order_id: orderId }])
     const shippedList = await jsonOf(
       await get('/api/supplier/production-jobs?status=SHIPPED', headers),
     )

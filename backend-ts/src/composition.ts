@@ -10,6 +10,7 @@ import { createCountryModule } from '@/modules/country'
 import { createEmailModule } from '@/modules/email'
 import { createGeneratorModule } from '@/modules/generator'
 import { createImageModule } from '@/modules/image'
+import { createOperationsModule } from '@/modules/operations'
 import { createOrderModule, type MolliePayments } from '@/modules/order'
 import { createPricingModule } from '@/modules/pricing'
 import { createProductionModule } from '@/modules/production'
@@ -29,7 +30,7 @@ import type { Settings } from '@/platform/settings'
  * first (the production module reads a table while it is created, and every module must see the
  * schema it was written for), opens the one pool, and creates every module after the modules it
  * consumes, in the order of the Kotlin `Application.kt` minus the late binding. `start()` starts the
- * two workers; `stop()` ends them and the pool.
+ * three workers; `stop()` ends them and the pool.
  *
  * `overrides` is for the composed tests only, and a deployment never sets it: `mollie` replaces the
  * provider adapter with a stub, `fetch` is the one HTTP client the email delivery, the image
@@ -113,6 +114,13 @@ export async function createApplication(
       accounts: account.supplierAccounts,
       orders: order.orders,
     })
+    // Operations looks across the pipeline through the findings of the three owning modules.
+    const operations = createOperationsModule({
+      db,
+      orders: order.orders,
+      production,
+      outbox: email.outbox,
+    })
     // The cart owns the print images the guest image route serves, so that route is installed
     // once both sides exist. The checkout is the last consumer and exports nothing.
     const cart = createCartModule({
@@ -146,6 +154,7 @@ export async function createApplication(
       order.routes,
       order.adminPdfRoutes(production.productionPdfGenerator),
       production.routes,
+      operations.routes,
       cart.routes,
       image.guestImageRoute(cart.guestImageResolver),
       checkout.routes,
@@ -161,9 +170,10 @@ export async function createApplication(
       start: () => {
         email.worker.start()
         production.worker.start()
+        operations.worker.start()
       },
       stop: async () => {
-        await Promise.all([email.worker.stop(), production.worker.stop()])
+        await Promise.all([email.worker.stop(), production.worker.stop(), operations.worker.stop()])
         await db.destroy()
       },
     }

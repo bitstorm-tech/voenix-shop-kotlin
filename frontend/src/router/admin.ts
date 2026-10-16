@@ -188,11 +188,11 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'issues',
-        name: 'admin-issues',
-        component: () => import('@/views/admin/IssuesView.vue'),
+        path: 'operations',
+        name: 'admin-operations',
+        component: () => import('@/views/admin/OperationsView.vue'),
         meta: {
-          title: 'Issues',
+          title: 'Operations',
         },
       },
     ],

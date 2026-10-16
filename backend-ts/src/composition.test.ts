@@ -9,8 +9,8 @@ import { guestHeaders, jsonOf } from '@test-support/http'
 
 /**
  * The composition root against the test database: every module's routes are mounted (one smoke
- * request each), the workers start and stop cleanly, and the built frontend is served with the
- * SPA fallback and the cache rules when a dist directory is configured.
+ * request each), the three workers start and stop cleanly, and the built frontend is served with
+ * the SPA fallback and the cache rules when a dist directory is configured.
  */
 
 let composed: ComposedApplication | undefined
@@ -53,6 +53,7 @@ describe('createApplication', () => {
       '/api/supplier/me',
       '/api/admin/production/destinations',
       '/api/admin/orders/1/production-pdfs',
+      '/api/admin/operations/findings',
     ]) {
       expect((await request(path)).status).toBe(401)
     }
@@ -68,13 +69,26 @@ describe('createApplication', () => {
   })
 
   test('stop ends the workers and the pool, and a second application starts on the same database', async () => {
+    // A mail stuck for two hours: the operations worker's first scan, at start, records it.
+    await database.db
+      .insertInto('email_jobs')
+      .values({
+        payload: JSON.stringify({ kind: 'ORDER_CONFIRMATION' }),
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      })
+      .execute()
+    const findings = () => database.db.selectFrom('operations_findings').select('kind').execute()
     const root = await mkdtemp(join(tmpdir(), 'voenix-second-'))
     const second = await createApplication(composedSettings(database.settings, root), {
       fetch: () => Promise.reject(new Error('The composed tests reach no network')),
     })
     second.start()
     expect((await second.app.request('/api/countries')).status).toBe(200)
+    for (let tries = 0; tries < 100 && (await findings()).length === 0; tries++) {
+      await Bun.sleep(10)
+    }
     await second.stop()
+    expect(await findings()).toEqual([{ kind: 'EMAIL_STALLED' }])
     // The pool is gone: the route's query fails and the app's `onError` answers it.
     expect((await second.app.request('/api/countries')).status).toBe(500)
   })

@@ -1,0 +1,286 @@
+# The Operations package
+
+This guide explains the TypeScript code in
+[`backend-ts/src/modules/operations`](../../../../backend-ts/src/modules/operations).
+
+## Contents
+
+- [What this package does](#what-this-package-does)
+- [The five-minute mental model](#the-five-minute-mental-model)
+- [File map](#file-map)
+- [HTTP API](#http-api)
+- [The kinds of finding](#the-kinds-of-finding)
+- [The scan](#the-scan)
+- [The design decisions](#the-design-decisions)
+- [Composition](#composition)
+- [Tests](#tests)
+
+## What this package does
+
+The shop's promise to a customer is: money in, product out. The pipeline that
+keeps it (payment, paid transition, production request, split, generation or
+submission, delivery, shipment, mails) retries every stage on its own, and
+every stage records an attempt counter and a bounded error code. What the
+pipeline cannot do by itself is tell anyone that an order stands still. This
+module does:
+
+- every five minutes a **worker** asks the order, production, and email modules
+  which of their rows stand still, and records each answer as a **finding** in
+  `operations_findings`, the only table this module owns;
+- a finding that the next scan no longer reports is **resolved** on its own;
+- the admin route `GET /api/admin/operations/findings` lists the open findings
+  (and those resolved in the last seven days), and the admin page
+  *Operations* (`/admin/operations`) shows them.
+
+A finding is one bounded record: a kind, the row it is about, the order that
+row belongs to, since when it stands still, and its attempt counter and error
+code. It never carries customer data or a provider's text.
+
+## The five-minute mental model
+
+```mermaid
+flowchart TB
+    Admin["Admin page /admin/operations"]
+
+    subgraph Operations["Operations module"]
+        Routes["routes.ts<br/>GET /api/admin/operations/findings"]
+        Worker["worker.ts<br/>scan every 5 minutes"]
+        Repository["repository.ts<br/>record · list"]
+    end
+
+    subgraph Owners["Owning modules (capabilities)"]
+        Orders["orders.findings(now)<br/>payments"]
+        Production["production.findings(now)<br/>requests · jobs · deliveries · SPOD"]
+        Outbox["outbox.findings(now)<br/>email_jobs"]
+    end
+
+    Table[("PostgreSQL<br/>operations_findings")]
+
+    Admin --> Routes --> Repository
+    Worker --> Orders & Production & Outbox
+    Worker --> Repository --> Table
+```
+
+The boundaries are:
+
+1. **Each owning module judges its own rows.** The rule "this payment is
+   stuck" is written next to the payment table, in the order module, by the
+   code that knows what a payment is. The operations module never queries
+   another module's table.
+2. **The operations module only remembers.** It turns "what is stuck right now"
+   into a history with a beginning (`first_seen_at`) and an end
+   (`resolved_at`), and answers the admin page.
+
+## File map
+
+```text
+operations/
+|- index.ts            createOperationsModule({ db, orders, production, outbox }) → { routes, worker }
+|- schema.ts           OperationsFindingsTable, merged into the platform's Tables
+|- repository.ts       createFindingRepository(db) → { record, list }; Finding, the union of the
+|                      three owning modules' finding types
+|- routes.ts           operationsRoutes(repository): the admin list, no-store
+|- worker.ts           createOperationsWorker({ sources, repository }) → { runOnce, start, stop };
+|                      FindingSource
+|- worker.test.ts      upsert, resolve, reappear, the loop
+`- routes.test.ts      the admin guard, no-store, both lists
+```
+
+There is no `service.ts`: the route only forwards to the repository (see
+[Source file organization](../conventions/source-file-organization.md)). The
+rules themselves live in the owning modules:
+[`order/payment/repository.ts`](../../../../backend-ts/src/modules/order/payment/repository.ts)
+(`findings`),
+[`production/findings.ts`](../../../../backend-ts/src/modules/production/findings.ts),
+and [`email/outbox.ts`](../../../../backend-ts/src/modules/email/outbox.ts)
+(`stalledEmails`).
+
+## HTTP API
+
+| Method and path | Who | Answer |
+| --- | --- | --- |
+| `GET /api/admin/operations/findings` | admin | `200`, a JSON array of the open findings, newest `firstSeenAt` first |
+| `GET /api/admin/operations/findings?resolved=true` | admin | `200`, the findings resolved within the last seven days, same order, each with `resolvedAt` |
+
+Both answer `Cache-Control: no-store`; without a session the platform answers
+`401`, without the admin role `403`. Any other value of `resolved` is the open
+list. One finding on the wire:
+
+```json
+{
+  "kind": "DELIVERY_STALLED",
+  "subject": { "type": "DELIVERY", "id": 2 },
+  "orderId": 42,
+  "since": "2026-10-16T10:00:00.000Z",
+  "attemptCount": 3,
+  "lastErrorCode": "SFTP_CONNECT_FAILED",
+  "firstSeenAt": "2026-10-16T10:05:00.000Z",
+  "alertedAt": null
+}
+```
+
+`orderId` is `null` only for a mail that was enqueued without an order (the
+SPOD ops alert). `alertedAt` stays `null` until the alert mail exists, which is
+a later step of issue #282.
+
+## The kinds of finding
+
+The thresholds are constants in the owning module, not settings: they describe
+what "stuck" means for that table, and nobody tunes them per deployment.
+
+| Kind | Owner | Subject | Rule (against the scan's `now`) |
+| --- | --- | --- | --- |
+| `PAYMENT_UNRESOLVED` | order | payment | the order is `PENDING`, its current payment is under way (`OPEN`, `PENDING`, `AUTHORIZED`), and was created more than an hour ago |
+| `PAYMENT_PAID_ORDER_UNPAID` | order | payment | the current payment is `PAID` and the order is not (amount mismatch, or paid on a cancelled order) |
+| `PRODUCTION_REQUEST_STALLED` | production | request | `processed_at IS NULL` and (older than 15 minutes or 3 attempts) |
+| `JOB_GENERATION_STALLED` | production | job | an SFTP job without its document, and (older than 15 minutes or 3 attempts) |
+| `DELIVERY_STALLED` | production | delivery | undelivered, its job's document exists, and (the document is older than an hour or 3 attempts) |
+| `SPOD_SUBMISSION_STALLED` | production | job | a SPOD job, not prepared, not quarantined, and (older than an hour or 3 attempts) |
+| `SPOD_QUARANTINED` | production | job | `create_state = 'OUTCOME_UNKNOWN'` |
+| `SPOD_REMOTE_ATTENTION` | production | job | the partner reported `NEEDS_ACTION` or `CANCELLED`, and the job is not shipped |
+| `SHIPMENT_OVERDUE` | production | job | prepared more than seven days ago and not shipped |
+| `EMAIL_STALLED` | email | mail | unsent, and (older than an hour or 3 attempts); carries the mail's own kind |
+
+`since` is the `created_at` of the subject row unless the owning module's guide
+says otherwise; the details per kind (`since`, which counter) are in
+[the Order package](order-package.md#payments-that-stand-still-findingsnow),
+[the Production package](production-package.md#findings-for-operations), and
+[the Email package](email-package.md#the-two-reads-for-operations).
+
+An abandoned checkout (a `PENDING` order whose payment ended) is **not** a
+finding. It is not a broken promise but a customer who left, and listing every
+one would bury the real findings.
+
+## The scan
+
+[`worker.ts`](../../../../backend-ts/src/modules/operations/worker.ts) has the
+shape of the other two workers: `runOnce`, `start` (one scan at once, then
+every five minutes, until `stop`), and `stop` (aborts the sleep and resolves
+once the scan in progress is finished). A scan that throws is logged with the
+error's class and the next scan tries again. Run one worker per database.
+
+One scan does two things:
+
+1. **Collect.** It calls `findings(now)` of every source, each a plain read
+   transaction of the owning module, outside any write of this module.
+2. **Record**, in one transaction of its own
+   ([`repository.ts`](../../../../backend-ts/src/modules/operations/repository.ts)):
+
+   ```sql
+   INSERT INTO operations_findings (kind, subject_type, subject_id, order_id, since, attempt_count, last_error_code)
+   VALUES …
+   ON CONFLICT (kind, subject_type, subject_id) WHERE resolved_at IS NULL
+   DO UPDATE SET last_seen_at = now(), attempt_count = excluded.attempt_count,
+                 last_error_code = excluded.last_error_code;
+
+   UPDATE operations_findings SET resolved_at = now()
+   WHERE resolved_at IS NULL AND last_seen_at < now();
+   ```
+
+   The conflict target names the `WHERE` of the partial unique index
+   `ux_operations_findings_open`; PostgreSQL only uses a partial index as the
+   arbiter of an `ON CONFLICT` when the statement repeats its predicate. A
+   known open finding keeps its `first_seen_at` and `since` and gets its
+   counter and code refreshed. The resolve needs no list of what was reported:
+   `now()` is the start time of the transaction, so every row the upsert
+   touched or inserted has `last_seen_at = now()`, and every open row with an
+   older `last_seen_at` is one this scan did not report.
+
+A resolved row is never touched again. A finding that resolves and later
+reappears is a new row with a new `first_seen_at`, and the old one stays as
+history.
+
+## The design decisions
+
+These decisions were taken in issue #282.
+
+### Decision 1: One module looks across the pipeline, and nothing imports it
+
+`operations` may import `order`, `production`, and `email`; no module imports
+`operations`. It is the only place that sees the whole pipeline, so the
+question "which orders stand still?" has one answer and one admin page. It is
+created in the composition root after order and production, its routes are
+mounted like every other module's, and its worker starts and stops next to the
+email and production workers.
+
+The module queries only `operations_findings`. Every fact about another
+module's rows comes from a capability over that module's own tables.
+
+*Rejected:* one SQL view or query across `payments`, `production_*`, and
+`email_jobs` in this module. It would be shorter, but it would make operations
+the second owner of every rule about those tables and break the rule that a
+module queries only its own tables.
+
+### Decision 2: Each owning module reports its own stalled rows
+
+Order, production, and email each expose `findings(now)` and declare their own
+finding type (`OrderFinding`, `ProductionFinding`, `EmailFinding`) with the
+kinds and subject types they produce; the operations module's `Finding` is the
+union of the three. `now` is a parameter, so every rule is tested against a
+fixed instant on both sides of its threshold.
+
+So that a mail can be attributed to an order, `email_jobs` got a nullable
+`order_id` (V33) without a foreign key: email stays a leaf, and a deleted
+order must not fail an unrelated job. `outbox.enqueue(trx, email, { orderId })`
+stores it; the order confirmation, the producer notification, and the shipping
+notification pass theirs.
+
+### Decision 3: Findings are recorded, not computed per request
+
+The worker writes what it saw into a table instead of the admin route asking
+the three modules on every page load. Only a table can say *since when* the
+shop knows about a finding (`first_seen_at`), that it went away
+(`resolved_at`), and, in a later step, whether an operator was already alerted
+(`alerted_at`). One open row per kind and subject is the database's job: the
+partial unique index `ux_operations_findings_open` holds it, and the upsert
+relies on it instead of a prior existence query.
+
+The table (`V33__operations_findings.sql`):
+
+| Column | Meaning |
+| --- | --- |
+| `kind`, `subject_type`, `subject_id` | what is stuck, and which row; unique among the open rows |
+| `order_id` | the order the subject belongs to, no foreign key |
+| `since` | when the subject entered the state it is stuck in, as the owning module reports it |
+| `attempt_count`, `last_error_code` | the subject's own counter and code, refreshed by every scan |
+| `first_seen_at`, `last_seen_at` | the first and the latest scan that reported it |
+| `alerted_at` | when an operator was mailed about it; written by the alert mail of a later step |
+| `resolved_at` | the first scan that no longer reported it; `NULL` while open |
+
+## Composition
+
+```ts
+const operations = createOperationsModule({
+  db,
+  orders: order.orders,   // findings(now): payments
+  production,             // findings(now): requests, jobs, deliveries, SPOD orders
+  outbox: email.outbox,   // findings(now): email_jobs
+})
+app.route('/', operations.routes)
+operations.worker.start()
+// at shutdown
+await operations.worker.stop()
+```
+
+The three parameters are typed as `FindingSource`, an object with
+`findings(now)`; the composition root passes the modules' own objects.
+
+## Tests
+
+Run from `backend-ts/`:
+
+```sh
+bun test src/modules/operations
+```
+
+| File | What it states |
+| --- | --- |
+| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
+| [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago |
+
+The rules of every kind are tested in their owning module, against seeded rows
+on both sides of every threshold and a fixed `now`: `order/findings.test.ts`,
+`production/findings.test.ts`, and the `outbox.findings` tests in
+`email/outbox.test.ts`. `src/composition.test.ts` proves that the composed
+application starts the operations worker (its first scan records a stalled
+mail) and stops it with the other two.

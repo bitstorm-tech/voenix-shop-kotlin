@@ -142,22 +142,24 @@ export function createFulfillmentService({
       throw new Error(`Production job ${String(jobId)} names an order that does not exist`)
     }
     const carrier = shipment.carrier
-    return repository.ship(jobId, actor, supplierScope, shipment, (items) =>
-      renderShippingNotification({
-        recipient: order.recipientEmail,
-        orderId: job.orderId,
-        customerFirstName: order.customerFirstName,
-        items: items.map(({ articleName, variantName, quantity }) => ({
-          articleName,
-          variantName,
-          quantity,
-        })),
-        orderUrl: order.orderUrl,
-        carrierName: carrier === null ? null : carrierDisplayName(carrier),
-        trackingNumber: shipment.trackingNumber,
-        trackingUrl: carrier === null ? null : trackingUrl(carrier, shipment.trackingNumber),
-      }),
-    )
+    return repository.ship(jobId, actor, supplierScope, shipment, {
+      orderId: job.orderId,
+      render: (items) =>
+        renderShippingNotification({
+          recipient: order.recipientEmail,
+          orderId: job.orderId,
+          customerFirstName: order.customerFirstName,
+          items: items.map(({ articleName, variantName, quantity }) => ({
+            articleName,
+            variantName,
+            quantity,
+          })),
+          orderUrl: order.orderUrl,
+          carrierName: carrier === null ? null : carrierDisplayName(carrier),
+          trackingNumber: shipment.trackingNumber,
+          trackingUrl: carrier === null ? null : trackingUrl(carrier, shipment.trackingNumber),
+        }),
+    })
   }
 
   /** The single answer of a committed ship: a missing header is a broken reference, not a drop. */

@@ -66,10 +66,10 @@ The backend listens on `PORT` (default `8080`); the Vite dev server on port
 3. serves the built frontend when `FRONTEND_DIST_PATH` is set (never in
    development).
 
-Then `main.ts` starts the email and the production worker and listens. A
-misconfiguration fails in step 0, before anything touches the database:
-`Invalid configuration: MOLLIE_API_KEY is required`. `SIGTERM` and `Ctrl+C`
-stop the server, then the workers, then the pool.
+Then `main.ts` starts the email, production, and operations workers and
+listens. A misconfiguration fails in step 0, before anything touches the
+database: `Invalid configuration: MOLLIE_API_KEY is required`. `SIGTERM` and
+`Ctrl+C` stop the server, then the workers, then the pool.
 
 ## Optional ngrok tunnel
 

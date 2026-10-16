@@ -126,8 +126,12 @@ describe('orders.place', () => {
       },
     ])
 
-    const mails = await database.db.selectFrom('email_jobs').select('payload').execute()
+    const mails = await database.db
+      .selectFrom('email_jobs')
+      .select(['payload', 'order_id'])
+      .execute()
     expect(mails).toHaveLength(1)
+    expect(mails[0]?.order_id).toBe(order.id)
     const mail = mails[0]?.payload as {
       kind: string
       recipient: string

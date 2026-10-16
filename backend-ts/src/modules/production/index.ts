@@ -8,6 +8,7 @@ import type { Tables } from '@/platform/db/database'
 import type { Settings } from '@/platform/settings'
 import { requestProduction } from './delivery/requests'
 import { createProductionWorker } from './delivery/worker'
+import { productionFindings } from './findings'
 import { createFulfillmentRepository } from './fulfillment/repository'
 import { fulfillmentRoutes } from './fulfillment/routes'
 import { createFulfillmentService } from './fulfillment/service'
@@ -20,6 +21,7 @@ import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
 
+export type { ProductionFinding } from './findings'
 export type {
   FulfillmentOrder,
   ProductionData,
@@ -41,7 +43,8 @@ export { requestProduction }
  * `orders`, the order module's implementation of the read contracts declared here, so the edge runs
  * one way, `order → production` (#248). The composition root mounts `routes`, calls
  * `worker.start()` once and `worker.stop()` at shutdown, hands `requestProduction` to the paid
- * transition and `productionPdfGenerator` to the admin order downloads.
+ * transition and `productionPdfGenerator` to the admin order downloads, and `findings` (the stalled
+ * rows of the pipeline) to the operations worker.
  *
  * It refuses to start when a SPOD destination exists while `settings.spod` is missing: a channel
  * whose shipments arrive by webhook could not report one, and the worker must not submit a paid
@@ -118,6 +121,7 @@ export async function createProductionModule({
     routes,
     productionPdfGenerator: createProductionPdfGenerator(loadOrder),
     requestProduction,
+    findings: (now: Date) => productionFindings(db, now),
     worker: { start: worker.start, stop: worker.stop },
   }
 }

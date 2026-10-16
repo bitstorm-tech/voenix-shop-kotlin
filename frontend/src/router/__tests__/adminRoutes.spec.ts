@@ -28,7 +28,7 @@ describe('adminRoutes', () => {
     expect(children).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'orders', name: 'admin-orders' }),
-        expect.objectContaining({ path: 'issues', name: 'admin-issues' }),
+        expect.objectContaining({ path: 'operations', name: 'admin-operations' }),
       ]),
     )
     expect(children.map((route) => route.path)).not.toContain('orders/completed')

@@ -21,6 +21,7 @@ subfolder.
   - [Starting a payment](#starting-a-payment)
   - [The webhook](#the-webhook)
   - [Reading a status: stored versus refreshed](#reading-a-status-stored-versus-refreshed)
+  - [Payments that stand still: `findings(now)`](#payments-that-stand-still-findingsnow)
   - [The Mollie adapter](#the-mollie-adapter)
   - [The spelling trap: `CANCELED` versus `CANCELLED`](#the-spelling-trap-canceled-versus-cancelled)
 - [The three production reads](#the-three-production-reads)
@@ -115,8 +116,9 @@ order/
 |  |- mollie.ts             MolliePayments (the provider seam), PaymentStatus, createMolliePayments
 |  |- service.ts            createPaymentService: startPayment, confirm, stored, refreshed;
 |  |                        PaymentConfirmation
-|  |- repository.ts         createPaymentRepository; livePayment, insertPayment, and moveStatus
-|  |                        taking a trx; isLive, isUnderWay
+|  |- repository.ts         createPaymentRepository (currentPayments, findings, paymentByMollieId);
+|  |                        livePayment, insertPayment, and moveStatus taking a trx; isLive,
+|  |                        isUnderWay; OrderFinding
 |  |- routes.ts             paymentRoutes: the webhook and its constant-time secret compare
 |  |- mollie.test.ts        the adapter against a stubbed fetch
 |  `- payment.test.ts       startPayment, the webhook, the status refresh
@@ -288,7 +290,8 @@ the lines with the prices the customer was quoted.
 3. **The write.** The order with a fresh access token and `total = subtotal +
    shipping - discount`, its lines in the customer's order (`position`), and the
    confirmation mail: `renderOrderConfirmation(...)` rendered now and
-   `outbox.enqueue(trx, …)` in the same transaction.
+   `outbox.enqueue(trx, …, { orderId })` in the same transaction, attributed
+   to the new order so its history can list it.
 
 A `null` billing address means "same as shipping" and is stored as the
 shipping values. The answer of a fresh placement is `{ kind: 'placed', order }`
@@ -485,6 +488,25 @@ check and the cancelled-order rule hold whichever of the two learns it first.
 A provider that cannot answer is not an error here: the stored status is a
 truthful answer, logged at WARN.
 
+### Payments that stand still: `findings(now)`
+
+The [operations module](operations-package.md) asks every five minutes which
+payments stand still. `orders.findings(now)` answers from `payments` joined
+with `orders`, in one read transaction, oldest payment first:
+
+| Kind | Rule | `since` |
+| --- | --- | --- |
+| `PAYMENT_UNRESOLVED` | the order is `PENDING`, its payment is under way (`OPEN`, `PENDING`, `AUTHORIZED`), and the payment was created more than an hour before `now`: usually a webhook that never arrived | the payment's `created_at` |
+| `PAYMENT_PAID_ORDER_UNPAID` | the payment is `PAID` and the order is not: the two `notConfirmed` outcomes of the webhook (an amount that differs, a payment on a `CANCELLED` order), which are otherwise only an `error` log line | the payment's `updated_at` |
+
+The subject of both is the payment (`{ type: 'PAYMENT', id }`); neither has an
+attempt counter or an error code. Only a *live* payment can match either rule,
+and a live payment is always its order's current one (the
+`ux_payments_live_order` index allows one per order), so the query needs no
+"current payment" selection of its own. A `PENDING` order whose payment ended
+is an abandoned checkout, not a finding: the customer left, and listing every
+such order would bury the real findings.
+
 ### The Mollie adapter
 
 [`mollie.ts`](../../../../backend-ts/src/modules/order/payment/mollie.ts)
@@ -606,6 +628,7 @@ migrations until `orders` existed.
 | `cancel(trx, orderId)` | `startPayment` itself | [Cancelling](#cancelling-an-order-and-a-payment-that-ends) in the caller's transaction; answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
 | `orderItem(orderItemId, userId, guestToken)` | cart reorder | `{ articleId, variantId, promptId, printImageId }` of an owned line, or `undefined`; no price and no quantity, because a reorder is an ordinary add at today's price |
 | `productionData`, `fulfillmentOrders`, `shippingNotificationOrder` | production | [The three production reads](#the-three-production-reads) |
+| `findings(now)` | operations | the stalled payments, see [Payments that stand still](#payments-that-stand-still-findingsnow) |
 
 Database failures are exceptions everywhere; each caller answers them with its
 own error policy.
@@ -647,6 +670,7 @@ const production = await createProductionModule({ …, orders: order.orders })
 app.route('/', order.adminPdfRoutes(production.productionPdfGenerator))
 // createCartModule({ …, orders: order.orders })       orderItem
 // createCheckoutModule({ …, orders: order.orders })   place, confirmFree, startPayment, payable
+// createOperationsModule({ …, orders: order.orders }) findings
 ```
 
 `mollie` is the one optional dependency: the composition root leaves it out
@@ -667,8 +691,9 @@ transaction fail.
 | File | What it states |
 | --- | --- |
 | `routes.test.ts` | the history (own orders newest first, the account/guest separation, nobody gets `[]`), the exact wire shape, the detail's `404` for foreign, unknown, and malformed ids, the lookup with its uniform `404` and no token in the answer, `no-store` everywhere, the admin PDF list, download, and failure codes against a fake generator |
-| `placement.test.ts` | the snapshot of a mug and a SPOD line (`spod_hotspot` included), the billing fallback, the mail payload with the permanent link; `alreadyPlaced` (and `alreadyPaid` in the checkout journeys); a cancelled order freeing the cart; `unknownArticle` writing nothing; order and mail as one commit (a failing enqueue, a rolled-back caller); the `payable` matrix; `orderItem` for owner and stranger |
+| `placement.test.ts` | the snapshot of a mug and a SPOD line (`spod_hotspot` included), the billing fallback, the mail payload with the permanent link and the order id on the job; `alreadyPlaced` (and `alreadyPaid` in the checkout journeys); a cancelled order freeing the cart; `unknownArticle` writing nothing; order and mail as one commit (a failing enqueue, a rolled-back caller); the `payable` matrix; `orderItem` for owner and stranger |
 | `transitions.test.ts` | the paid transition: redemption plus production request in one commit, exactly once, also for two concurrent calls; rolled back by a failing production request; an exhausted coupon still paying; a cancelled order never paid; `cancel` releasing the reservation and refusing a paid order |
+| `findings.test.ts` | `orders.findings` against seeded orders and payments with a fixed `now`: both kinds, a payment just below and exactly at the hour, a cancelled order's open payment, an abandoned checkout, and a retried order whose old payment ended while the current one is young |
 | `production-reads.test.ts` | `productionData` with the snapshot, the image path, and the Berlin date across midnight; a vanished image file; `fulfillmentOrders`; `shippingNotificationOrder`. The `PrintImageReads` here is a one-statement fake in `test-fixtures.ts` (order may not import cart); the cart's implementation is tested in the cart module |
 | `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh |
 | `payment/mollie.test.ts` | the adapter against a stubbed `fetch`: the full request body and headers, phone normalization and amount formatting, the seven status words, every unusable answer (refusal, redirect, transport failure, missing checkout URL, truncated body, foreign currency, a third decimal, another payment's id), `cancel` |

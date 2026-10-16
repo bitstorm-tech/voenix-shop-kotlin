@@ -72,7 +72,7 @@ The root Dockerfile builds in three stages:
    `FRONTEND_DIST_PATH=/app/frontend/dist` baked in as the one environment
    variable the image sets itself. There is no build output: Bun runs the
    TypeScript sources directly with `bun src/main.ts`, which applies the
-   pending migrations, starts the two workers, and listens on `PORT`
+   pending migrations, starts the three workers, and listens on `PORT`
    (default `8080`). The stage also installs
    [`magic-wormhole`](https://magic-wormhole.readthedocs.io/), so files can be
    moved to and from a running container (for example logs or a database

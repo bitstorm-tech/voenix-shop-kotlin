@@ -18,6 +18,7 @@ import { createOrderService, type PrintImageReads } from './service'
 import { createOrderTransitions } from './transitions'
 
 export type { MolliePayment, MolliePayments } from './payment/mollie'
+export type { OrderFinding } from './payment/repository'
 export type { OrderAddress, OrderItemReference, PayableOrder, PlaceOrderInput } from './repository'
 export type { PayableResult, PlaceOrderResult, PrintImageReads } from './service'
 export type { CancelResult, PaidResult } from './transitions'
@@ -48,17 +49,18 @@ export function createOrderModule({
   settings: { mollie: Settings['mollie']; frontendBaseUrl: string }
   articleCatalog: Pick<ArticleCatalog, 'find'>
   promotionCodes: Pick<PromotionCodes, 'redeem' | 'release'>
-  email: Pick<EmailModule, 'outbox'>
+  email: { outbox: Pick<EmailModule['outbox'], 'enqueue'> }
   images: Pick<ImageModule, 'privateStorage'>
   printImages: PrintImageReads
   guestTokens: Auth['guestTokens']
   mollie?: MolliePayments
 }) {
   const repository = createOrderRepository(db)
+  const paymentRepository = createPaymentRepository(db)
   const transitions = createOrderTransitions({ db, promotionCodes })
   const payments = createPaymentService({
     db,
-    repository: createPaymentRepository(db),
+    repository: paymentRepository,
     mollie,
     transitions,
   })
@@ -97,6 +99,8 @@ export function createOrderModule({
       startPayment: payments.startPayment,
       /** The reorder references of one ordered line the caller owns. */
       orderItem: repository.orderItem,
+      /** The stalled payments, for the operations worker. */
+      findings: paymentRepository.findings,
       /** The three reads production is created with. */
       ...productionReads,
     },

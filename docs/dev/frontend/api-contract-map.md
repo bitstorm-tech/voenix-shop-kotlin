@@ -60,7 +60,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **141 rows** and **7** backend routes that no
+That currently yields **142 rows** and **7** backend routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
@@ -507,6 +507,19 @@ search, no order table, and no status editing. Both routes generate on demand, s
 a document that was listed a moment ago can still fail with one of the `409` data
 codes on download.
 
+## Admin: operations findings
+
+| Frontend file | Call | Backend route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/operations.ts` | `GET /api/admin/operations/findings` and `GET /api/admin/operations/findings?resolved=true` | same | #282 |
+
+The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
+placeholder. The list is a bare array of findings
+([the Operations package](../backend-ts/packages/operations-package.md)); the
+toggle "Resolved in the last 7 days" sends `resolved=true` and gets the same
+shape plus `resolvedAt`. The order id of a finding links to the admin orders
+page.
+
 ## Admin: production jobs and supplier logins
 
 | Frontend file | Call | Backend route | Closed by |
@@ -609,7 +622,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 141 |
+| Frontend rows, all matching | 142 |
 | Backend routes with no caller, all dispositioned | 7 |
 | Call sites with an open contract gap | 0 |
 
@@ -626,5 +639,6 @@ is how 143 became 140. The generic SPOD article (#260) renamed the storefront
 route to `GET /api/articles/spod` and added the mockup folder of
 `spodMockupImageUrl`, which is how 140 became 141. The TypeScript port (#262)
 changed no row; it removed the three standalone price routes nobody called
-(#251), which is how the uncalled routes went from 10 to 7. Keep it that way: a
+(#251), which is how the uncalled routes went from 10 to 7. The Operations page
+(#282) added the findings list, which is how 141 became 142. Keep it that way: a
 new `/api/…` literal belongs in this file in the same commit that introduces it.

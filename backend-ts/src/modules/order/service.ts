@@ -71,7 +71,7 @@ export function createOrderService({
 }: {
   repository: OrderRepository
   articleCatalog: Pick<ArticleCatalog, 'find'>
-  email: Pick<EmailModule, 'outbox'>
+  email: { outbox: Pick<EmailModule['outbox'], 'enqueue'> }
   images: Pick<ImageModule, 'privateStorage'>
   printImages: PrintImageReads
   payments: Pick<PaymentService, 'stored' | 'refreshed'>
@@ -170,6 +170,7 @@ export function createOrderService({
           discountInCents: input.discountCents,
           totalInCents: totalCents,
         }),
+        { orderId },
       )
       return {
         kind: 'placed',
