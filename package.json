@@ -1,0 +1,11 @@
+{
+  "name": "voenix-shop",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others --success first --names backend,frontend --prefix-colors blue,green \"bun run --cwd backend-ts dev\" \"bun run --cwd frontend dev\"",
+    "dev:ngrok": "concurrently --kill-others --success first --names backend,frontend,ngrok --prefix-colors blue,green,magenta \"bun run --cwd backend-ts dev\" \"bun run --cwd frontend dev\" \"ngrok http 8080 --log stdout --log-format logfmt\""
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

@@ -48,7 +48,7 @@ bun test src/modules/<name>    # the tests of one module
 bun run check                  # the full gate: typecheck, lint, format check, every test
 ```
 
-The development stack (backend plus Vite frontend) starts with `scripts/start-dev-server.sh`; the catalog seed is `scripts/seed-catalog.mjs` (`docs/dev/backend-ts/getting-started/`).
+The development stack (backend plus Vite frontend) starts with `bun run dev` in the repository root (`bun run dev:ngrok` adds the ngrok tunnel); the catalog seed is `scripts/seed-catalog.mjs` (`docs/dev/backend-ts/getting-started/`).
 
 ### Module boundaries
 

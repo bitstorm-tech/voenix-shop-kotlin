@@ -319,8 +319,8 @@ caveat is written into
    or start `ngrok http 8080` first, read the `url=` line, write it into
    `.env.local`, then start the backend. Nothing is configured in the Mollie
    dashboard: the backend passes `webhookUrl` with every payment it creates.
-2. Start the stack: `scripts/start-dev-server.sh --with-ngrok` (or the plain
-   launcher next to a separately started tunnel).
+2. Start the stack: `bun run dev:ngrok` in the repository root (or the plain
+   `bun run dev` next to a separately started tunnel).
 3. In the shop: generate an image, add a mug, no coupon (or a partial one),
    check out → `201 {orderId, checkoutUrl}`; open `checkoutUrl`, choose a
    test method and the status **Paid** on Mollie's test page.

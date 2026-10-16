@@ -1,49 +1,46 @@
 # Running the development server
 
 The TypeScript backend lives in [`backend-ts/`](../../../../backend-ts). The
-development launcher
-[`scripts/start-dev-server.sh`](../../../../scripts/start-dev-server.sh) runs
-two processes in parallel:
+development launcher is the `dev` script of the repository root's
+[`package.json`](../../../../package.json). It runs two processes in parallel:
 
 - the backend with `bun run dev` in `backend-ts/` (`src/main.ts` under Bun's
   watcher, restarted on every change), and
 - the Vite frontend dev server with `bun run dev` in `frontend/`.
 
-Each log line is prefixed with `[backend]` or `[frontend]` so you can tell the
-two apart. Press `Ctrl+C` to stop everything. When one process exits on its
-own, for example because the backend refuses to start over a missing setting,
-the script stops the other processes too and exits with the same status.
+The script is a single call of
+[`concurrently`](https://www.npmjs.com/package/concurrently), a small tool that
+starts several commands and merges their output. Each log line is prefixed
+with `[backend]` or `[frontend]` so you can tell the two apart. Press `Ctrl+C`
+to stop everything. When one process exits on its own, for example because the
+backend refuses to start over a missing setting, `--kill-others` stops the
+other processes too, and the launcher exits with a non-zero status.
+
+(Bun can run scripts in parallel by itself with `bun run --parallel`, but it
+keeps the other processes running when one of them fails. A frontend without a
+backend behind it only produces confusing proxy errors, so the launcher uses
+`concurrently`.)
 
 ## Start the servers
 
-Once per checkout, install the dependencies:
+Once per checkout, install the dependencies of the root (`concurrently`), the
+backend, and the frontend:
 
 ```sh
-cd backend-ts && bun install
+bun install
+bun install --cwd backend-ts
+bun install --cwd frontend
 ```
 
-The script finds the project directory from its own location. Your terminal's
-current directory therefore does not matter. You can invoke it with an absolute
-path from anywhere:
+Then start both servers from the repository root:
 
 ```sh
-/path/to/voenix-shop-kotlin/scripts/start-dev-server.sh
+bun run dev
 ```
 
-To invoke it by name, add the repository's `scripts` directory to your shell's
-`PATH`. For zsh, add this line to `~/.zshrc`, replacing the example path with
-the location of your checkout:
-
-```sh
-export PATH="$PATH:/path/to/voenix-shop-kotlin/scripts"
-```
-
-Open a new terminal or run `source ~/.zshrc`. You can then start the backend
-and the frontend from any directory:
-
-```sh
-start-dev-server.sh
-```
+Bun looks for the `package.json` in the current directory, so run the command
+in the repository root. Inside `backend-ts/` or `frontend/`, `bun run dev`
+starts only that package's own `dev` script.
 
 The backend alone starts from `backend-ts/`:
 
@@ -76,11 +73,11 @@ stop the server, then the workers, then the pool.
 
 ## Optional ngrok tunnel
 
-Pass `--with-ngrok` to additionally start an [ngrok](https://ngrok.com/)
-tunnel to the backend on port 8080:
+The `dev:ngrok` script starts the same two processes plus an
+[ngrok](https://ngrok.com/) tunnel to the backend on port 8080:
 
 ```sh
-start-dev-server.sh --with-ngrok
+bun run dev:ngrok
 ```
 
 The tunnel gives the backend a public HTTPS address, which is what an external

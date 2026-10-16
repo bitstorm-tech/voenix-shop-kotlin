@@ -24,7 +24,7 @@ for what a synced article carries.
 ## Prerequisites
 
 1. **A running backend.** Start it with
-   [`scripts/start-dev-server.sh`](../../../scripts/start-dev-server.sh). The
+   `bun run dev` in the repository root. The
    script talks to `http://localhost:8080` unless you set `BASE_URL`.
 2. **A user with the `ADMIN` role.** The application seeds no users and no
    roles. Register one, confirm the address, and grant the role in SQL as

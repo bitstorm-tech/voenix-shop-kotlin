@@ -1,8 +1,12 @@
 # Running the development server
 
-The development launcher is
-[`scripts/start-dev-server.sh`](../../../scripts/start-dev-server.sh). It
-starts the backend with the layered configuration described below and runs two
+> The launcher described here, `scripts/start-dev-server.sh`, has been removed.
+> The TypeScript backend and the frontend now start with `bun run dev` in the
+> repository root; see
+> [Running the development server](../backend-ts/getting-started/running-the-development-server.md).
+
+The development launcher was `scripts/start-dev-server.sh`. It
+started the backend with the layered configuration described below and ran two
 processes in parallel:
 
 - the Ktor backend with the Kotlin Toolchain (`./kotlin run`), and
