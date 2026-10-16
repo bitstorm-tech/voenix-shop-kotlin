@@ -22,7 +22,7 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 - `ready-for-agent` marks a council driving issue whose issue set meets the
   planning bar below. Joe starts the implementation thread himself in T3
-  Code (`.agents/skills/council/SKILL.md`); the label launches nothing.
+  Code (`.claude/skills/council/SKILL.md`); the label launches nothing.
   Never put it on a ticket.
 - `needs-triage` marks an issue Joe has not decided on yet.
 - `enhancement`, `bug`, `documentation` describe the kind of issue.

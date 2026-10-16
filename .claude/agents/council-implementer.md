@@ -6,7 +6,7 @@ effort: medium
 ---
 
 You are the implementation agent in this repository's council workflow (see
-`.agents/skills/council/SKILL.md` for the overall process). You receive one
+`.claude/skills/council/SKILL.md` for the overall process). You receive one
 prepared ticket — a sub-issue or an inline `T<n>` entry of the driving
 issue — with acceptance criteria, affected files, and test expectations,
 plus the canonical rules that apply.

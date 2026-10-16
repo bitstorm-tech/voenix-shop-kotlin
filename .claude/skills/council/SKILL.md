@@ -1,14 +1,15 @@
 ---
 name: council
-description: Implement and verify a GitHub issue that is labeled ready-for-agent - implementation delegated to Claude sub-agents ticket by ticket, then a verification review by three independent reviewers (orchestrator, a Fable reviewer sub-agent, Codex/GPT) plus a simplifier, consolidated into a PR comment. Use when Joe asks to implement an issue with the council. Planning an issue needs no skill; the planning bar lives in docs/agents/issue-tracker.md.
+description: Implement and verify a GitHub issue that is labeled ready-for-agent - implementation delegated to Claude sub-agents ticket by ticket, then a verification review by three independent general reviewers (orchestrator, a Fable reviewer sub-agent, Codex/GPT) plus two lane reviewers (simplifier, security), consolidated into a PR comment. Use when Joe asks to implement an issue with the council. Planning an issue needs no skill; the planning bar lives in docs/agents/issue-tracker.md.
 ---
 
 # Council workflow
 
 A two-phase workflow that runs autonomously in its own T3 Code thread: implement
 a prepared issue set through delegated sub-agents, then verify the result with
-three independent reviews plus a simplifier review. The orchestrator (the main
-Claude session) runs the workflow, delegates work, and owns every synthesis.
+three independent general reviews plus two lane reviews (simplifier,
+security). The orchestrator (the main Claude session) runs the workflow,
+delegates work, and owns every synthesis.
 
 The input is a **driving issue labeled `ready-for-agent`** whose issue set meets
 the planning bar in `docs/agents/issue-tracker.md`: the decided plan in the
@@ -44,25 +45,49 @@ also sets its effort explicitly, because the model defaults differ.
   `effort: high`). Its briefing — least code that satisfies the decided
   plan, report-only — lives in the agent definition, so it binds regardless
   of prompt wording.
+- **Security reviewer**: one sub-agent launched as
+  `subagent_type: council-security` (`.claude/agents/council-security.md`,
+  `model: opus`, `effort: high`). Its lane — who may read, change, or
+  trigger what; report-only — lives in the agent definition. It always
+  runs; "nothing in lane" with the traced entry points is a valid result.
+  Lane reviewers exist because a narrow question yields more findings than
+  another generalist: in the SPOD article run (#260) the simplifier raised
+  eleven of sixteen findings, while the three general reviewers overlapped.
+  Do not add further general reviewers, and no weaker model of the same
+  family — such a reviewer repeats a subset of the Fable findings and costs
+  a consolidation and rebuttal round for it.
 - **Codex (GPT)**: `gpt-6.1-sol` at reasoning effort `high`, run from the
   repository root. Give it every needed pointer as repository file paths; it
   reads the repo itself. Codex only reads; it never implements. Codex writes
   its own session state to `~/.codex`, so every call must run outside a
   write-restricted shell sandbox. Flags apply per invocation, not per
-  session, so repeat them on every call.
-  - Review: Codex's built-in review mode, which computes the diff itself:
-    `codex exec review --base <default branch> -m gpt-6.1-sol -c model_reasoning_effort="high" -c sandbox_mode="read-only" --output-last-message <file> "<review briefing>"`.
+  session, so repeat them on every call. Every call ends with
+  `</dev/null`: without it, `codex exec` waits for additional input on
+  stdin and never starts in a non-interactive shell (the smoke test on
+  2026-10-16 hung until the timeout; with `</dev/null` it answered at
+  once). The #262 run's two-hour Codex timeout most likely had this cause.
+  - Review: a plain `codex exec` with the review briefing, which names the
+    merge base and tells Codex to compute the diff itself
+    (`git diff <merge-base>...HEAD`):
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<review briefing>" </dev/null`.
+    Not the built-in review mode: since codex 0.162, `codex exec review`
+    refuses a prompt together with `--base` or `--commit`, so the briefing
+    cannot reach it. Write the briefing to a file outside the repository
+    and pass its path in the prompt when it is long. On a very large diff
+    (tens of thousands of lines, such as the #262 port) scope the briefing
+    to the modules the orchestrator judges riskiest, and say so in the
+    findings comment.
   - Question or rebuttal (also usable ad hoc while planning with Joe, when a
     second opinion from another model family is worth having):
-    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<prompt>"`;
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<prompt>" </dev/null`;
     continue the same session with
-    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> resume --last "<prompt>"`
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> resume --last "<prompt>" </dev/null`
     (flags before `resume`).
 
-Launch the reviewer agent and the Codex call together in the background
-(the Agent tool backgrounds by default; run Codex with Bash
-`run_in_background`), then write the orchestrator's own review while both
-run.
+Launch the reviewer, simplifier, and security agents and the Codex call
+together in the background (the Agent tool backgrounds by default; run
+Codex with Bash `run_in_background`), then write the orchestrator's own
+review while they run.
 
 ## Implementation
 
@@ -105,18 +130,33 @@ run.
 
 ## Verification
 
-1. Run three independent reviews of the full change set: the orchestrator,
-   a `council-reviewer` agent, and Codex (review mode). All three receive
+1. Run three independent general reviews of the full change set: the
+   orchestrator, a `council-reviewer` agent, and Codex. All three receive
    the same review briefing: the decided plan and its acceptance criteria,
-   the diff scope, and the repo's documented standards.
-2. In parallel, run one **simplifier review**: a fourth reviewer, launched
-   as `council-simplifier`, which receives the same inputs and checks that
-   the change set is the least code that satisfies the plan. It reports
-   findings only; they go through the same consolidation, rebuttal, and
-   fix-list steps as everyone else's. (Do not use the built-in `simplify`
-   skill for this role — it applies changes directly and would bypass the
-   rebuttal round.)
-3. Consolidate: dedupe findings across all four reviewers, then give each
+   the diff scope, and the repo's documented standards. The briefing asks
+   each general reviewer for two things beyond bugs and spec gaps:
+   - an **acceptance table**: one row per acceptance criterion of every
+     ticket with the evidence (the test or file that proves it) and a
+     status (met, partly, missing). A criterion without evidence is a
+     finding; the orchestrator compares the three tables.
+   - a **test verdict**: whether the new tests exercise behavior through
+     the public surface (route, service call, rendered component) or
+     mirror the implementation (mock the collaborator and assert the call,
+     restate the code under test). A test that would still pass after the
+     bug it should catch is a finding.
+2. In parallel, run the two **lane reviews**, each with the same inputs:
+   - a `council-simplifier` agent, which checks that the change set is the
+     least code that satisfies the plan. (Do not use the built-in
+     `simplify` skill for this role — it applies changes directly and would
+     bypass the rebuttal round.)
+   - a `council-security` agent, which traces every new or changed entry
+     point for authorization, input handling, outbound requests, secrets,
+     and leakage. The TypeScript port run (#262) shipped passwords in test
+     fixtures and a `.env` file that only an external scanner caught; this
+     lane exists so the council catches it first.
+   Both report findings only; they go through the same consolidation,
+   rebuttal, and fix-list steps as everyone else's.
+3. Consolidate: dedupe findings across all five reviewers, then give each
    contested finding exactly one rebuttal round before accepting or dropping
    it.
 4. Decide the fix list, delegate fixes to `council-implementer` agents,
@@ -130,8 +170,9 @@ run.
    cost more than it caught). Proposals are not applied; Joe decides which
    ones change this skill. "No proposals" is a valid result.
 
-If Codex's login fails, verification runs with orchestrator + reviewer agent
-(plus the simplifier) and the findings comment records Codex's absence.
+If Codex's login fails or its call does not finish, verification runs with
+the orchestrator and reviewer agent (plus the two lane reviewers) and the
+findings comment records Codex's absence and the reason.
 
 ## Stopping
 

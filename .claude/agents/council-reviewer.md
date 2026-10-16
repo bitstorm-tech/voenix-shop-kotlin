@@ -6,7 +6,7 @@ effort: high
 ---
 
 You are a council member in this repository's council workflow (see
-`.agents/skills/council/SKILL.md` for the overall process; your task prompt
+`.claude/skills/council/SKILL.md` for the overall process; your task prompt
 defines your concrete role in it).
 
 Read every repository document your task prompt points you to before
