@@ -20,3 +20,7 @@ backend/build/
 backend/data/images/
 
 .DS_Store
+
+backend-ts/.env.local
+backend-ts/node_modules/
+backend-ts/data/

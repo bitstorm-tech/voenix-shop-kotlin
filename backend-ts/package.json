@@ -1,0 +1,46 @@
+{
+  "name": "voenix-backend-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "migrate": "bun src/migrate.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun test"
+  },
+  "dependencies": {
+    "@hono/bun": "^1.0.1",
+    "@hono/zod-validator": "^0.9.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "hono": "^4.13.13",
+    "kysely": "^0.29.6",
+    "libphonenumber-js": "^1.13.15",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.4.299",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "sharp": "^0.35.5",
+    "ssh2": "^1.17.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.2.1",
+    "@types/bun": "^1.4.3",
+    "@types/pg": "^8.23.1",
+    "@types/ssh2": "^1.15.6",
+    "eslint": "^10.12.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-boundaries": "^7.2.0",
+    "jiti": "^2.7.0",
+    "prettier": "3.6.2",
+    "testcontainers": "^12.2.1",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.71.2"
+  }
+}

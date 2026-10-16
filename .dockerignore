@@ -1,19 +1,22 @@
-# Build context of the repository-root Dockerfile. Keep out everything the
-# image must not carry: per-developer secrets, local build output, dependencies
-# the build stages install themselves, and local runtime data. (backend/ has its
-# own .dockerignore for the backend-only image built from that context.)
+# Build context of the repository-root Dockerfile and of backend-ts/Dockerfile
+# (both are built from the repository root). Keep out everything the image must
+# not carry: per-developer secrets, the checked-in development values (a
+# deployment is configured through environment variables only, and a missing
+# one must fail the start instead of falling back to a development default),
+# local build output, dependencies the build stages install themselves, and
+# local runtime data. (backend/ has its own .dockerignore for the Kotlin image
+# built from that context.)
 .git/
 .idea/
 .DS_Store
 *.iml
 docs/
 storage/
-backend/application-local.yaml
-backend/application-verify.yaml
-backend/application-test.yaml
-backend/application-production.yaml
-backend/build/
-backend/data/
+backend/
+backend-ts/.env.development
+backend-ts/.env.local
+backend-ts/node_modules/
+backend-ts/data/
 frontend/node_modules/
 frontend/dist/
 frontend/output/
