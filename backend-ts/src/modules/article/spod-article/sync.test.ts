@@ -80,18 +80,19 @@ function fakePartner(partner: Partner) {
     }
     if (pathname.endsWith('/views')) {
       if (partner.viewsRefused === true) return new Response('', { status: 500 })
+      // The views answer names its sides in the account's language; the previews answer does not.
       return json({
         views: [
           {
             id: '1',
-            name: 'FRONT',
+            name: 'Vorne',
             hotspots: [{ name: 'FULL_FRONT' }, { name: 'MEDIUM_FRONT' }, { name: 'LEFT_CHEST' }],
             images: [5, 6].map((appearance) => ({
               appearanceId: String(appearance),
               image: `${CDN}/mockups/${productType}/${String(appearance)}.png`,
             })),
           },
-          { id: '2', name: 'BACK', hotspots: [{ name: 'FULL_BACK' }], images: [] },
+          { id: '2', name: 'Hinten', hotspots: [{ name: 'FULL_BACK' }], images: [] },
         ],
       })
     }

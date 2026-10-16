@@ -520,7 +520,7 @@ in [The sync decisions](../../backend/packages/article-package.md#the-sync-decis
    an unanswered calibration or a duplicate colour name skips one article.
 7. **The print frame is measured from SPOD previews.** The run uploads a
    2000 × 2000 opaque `#FF00FF` PNG (`calibration-1x1.png`, drawn with sharp)
-   once per run, reads the product type's `FRONT` view, asks which of its
+   once per run, reads the product type's front view, asks which of its
    hotspots accept the design, renders one 1000 × 1000 preview per candidate on
    the first article's first colour, downloads it as PNG (`,mediaType=png`),
    and measures it with `measurePrintFrame`: a pixel counts when alpha ≥ 250
@@ -530,7 +530,11 @@ in [The sync decisions](../../backend/packages/article-package.md#the-sync-decis
    else `NO_RECTANGLE` / `LOW_FILL`. The largest box wins, ties go to the first
    hotspot. Per product type, per run, stateless; only answers are cached.
    A measurement failure writes no frame (`CALIBRATION_FAILED`); a transport
-   failure skips the article (`CALIBRATION_UNAVAILABLE`).
+   failure skips the article (`CALIBRATION_UNAVAILABLE`). The front view is the
+   view carrying a `…_FRONT` hotspot, never matched by its name: `views` names
+   the sides in the account's language (`Vorne`, `Hinten`), and matching
+   `FRONT` made every product type fail with `NO_FRONT_VIEW`. The preview of
+   that view is the image with the view's `viewId`.
 8. **The name tripwire keeps firing on partner renames** (production's
    decision); accepted until the three ids are snapshotted.
 9. **Appearances and images are tables of their own**: a colour is a row, a

@@ -156,6 +156,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
   const preview = async (
     productTypeId: number,
     appearanceId: number,
+    front: SpodView,
     design: string,
     hotspot: string,
   ): Promise<Calibration> => {
@@ -168,7 +169,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     if (answer.kind === 'failed') {
       return { kind: 'unavailable', detail: `${hotspot} previews: ${answer.error}` }
     }
-    const url = answer.value.images.find((image) => isFront(image.viewName))?.url
+    const url = answer.value.images.find((image) => image.viewId === front.id)?.url
     if (url === undefined) {
       return { kind: 'failed', detail: `${hotspot}: ${UNREADABLE satisfies SpodError}` }
     }
@@ -210,7 +211,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
 
     const attempts: Calibration[] = []
     for (const hotspot of candidates) {
-      attempts.push(await preview(productTypeId, appearanceId, design.value, hotspot))
+      attempts.push(await preview(productTypeId, appearanceId, front, design.value, hotspot))
     }
     let largest: Extract<Calibration, { kind: 'measured' }> | undefined
     for (const attempt of attempts) {
@@ -254,11 +255,14 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
   }
 }
 
-const isFront = (name: string) => name.toUpperCase() === 'FRONT'
-
-/** The view the sync prints on, matched by name because the partner numbers views per type. */
+/**
+ * The view the sync prints on: the one carrying a `…_FRONT` hotspot. Not matched by name, because
+ * `views` names the sides in the account's language (`Vorne`), and not by id, because the partner
+ * numbers views per type; the hotspot names are the API's own constants. A preview image belongs
+ * to this view when it carries the view's id.
+ */
 const frontView = (views: SpodViews): SpodView | undefined =>
-  views.views.find((view) => isFront(view.name))
+  views.views.find((view) => view.hotspots.some((hotspot) => hotspot.name.endsWith('_FRONT')))
 
 const UNREADABLE = 'PROVIDER_ANSWER_UNREADABLE'
 const CALIBRATION_EDGE_PIXELS = 2000
