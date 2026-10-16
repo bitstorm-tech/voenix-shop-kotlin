@@ -217,8 +217,9 @@ export function createSubmissionStage({
 
 /**
  * The order the job becomes: always `NEW` (the client adds the state), the customer's e-mail and
- * phone, the deterministic reference, and one one-time item per (product type, design, hotspot)
- * with a quantity line per size and colour, placed on the front with the snapshotted hotspot.
+ * phone, the deterministic reference, and one one-time item per (product type, design, hotspot,
+ * unit price) with a quantity line per size and colour, placed on the front with the snapshotted
+ * hotspot and priced at what the customer paid per piece.
  */
 function request(
   job: OpenSpodJob,
@@ -230,11 +231,13 @@ function request(
   const items = new Map<string, SpodOneTimeItem>()
   for (const line of lines) {
     const designId = designs.get(line.position) ?? ''
-    const key = JSON.stringify([line.product.productTypeId, designId, line.hotspot])
+    const { unitPriceCents } = line.item
+    const key = JSON.stringify([line.product.productTypeId, designId, line.hotspot, unitPriceCents])
     const entry = items.get(key) ?? {
       productTypeId: line.product.productTypeId,
       quantityItems: [],
       configurations: [{ image: { designId }, view: 'FRONT', hotspot: line.hotspot }],
+      customerPricePerItem: { amount: unitPriceCents / 100, currency: 'EUR' },
     }
     entry.quantityItems.push({
       quantity: line.item.quantity,

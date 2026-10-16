@@ -144,6 +144,7 @@ describe('the SPOD submission', () => {
             productTypeId: 6,
             quantityItems: [{ quantity: 2, sizeId: 3, appearanceId: 2 }],
             configurations: [{ image: { designId: 'd1' }, view: 'FRONT', hotspot: 'MEDIUM_FRONT' }],
+            customerPricePerItem: { amount: 19.99, currency: 'EUR' },
           },
         ],
       },
@@ -179,6 +180,28 @@ describe('the SPOD submission', () => {
     expect(partner.orders[0]?.oneTimeItems.map((item) => item.configurations[0]?.hotspot)).toEqual([
       'MEDIUM_FRONT',
       'CHEST_LEFT',
+    ])
+  })
+
+  test('one product at two prices is two order entries, each priced per piece in euros', async () => {
+    kit.catalog.set(
+      { articleId: 10, variantId: 101 },
+      { supplierId, variantName: 'Black / L', spodProduct: { ...PRODUCT, sizeId: 4 } },
+    )
+    await order([
+      shirt({ quantity: 2, unitPriceCents: 2490 }),
+      shirt({ variantId: 101, variantName: 'Black / L', unitPriceCents: 2490 }),
+      shirt({ variantId: 101, variantName: 'Black / L', unitPriceCents: 2990 }),
+    ])
+    await kit.worker.runOnce()
+    expect(
+      partner.orders[0]?.oneTimeItems.map((item) => ({
+        price: item.customerPricePerItem,
+        quantities: item.quantityItems.map((quantity) => quantity.quantity),
+      })),
+    ).toEqual([
+      { price: { amount: 24.9, currency: 'EUR' }, quantities: [2, 1] },
+      { price: { amount: 29.9, currency: 'EUR' }, quantities: [1] },
     ])
   })
 

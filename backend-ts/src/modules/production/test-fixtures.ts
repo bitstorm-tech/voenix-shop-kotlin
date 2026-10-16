@@ -160,6 +160,7 @@ export function line(overrides: Partial<ProductionLine> = {}): ProductionLine {
     supplierArticleNumber: 'SUP-001',
     variantName: 'Weiß',
     quantity: 1,
+    unitPriceCents: 1999,
     imagePath: null,
     printTemplateWidthMm: null,
     printTemplateHeightMm: null,

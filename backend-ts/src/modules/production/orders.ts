@@ -52,6 +52,11 @@ export interface ProductionLine extends ArticleVariantReference {
   supplierArticleNumber: string | null
   variantName: string
   quantity: number
+  /**
+   * What the customer paid for one piece, prompt included, in cents, before any order discount.
+   * Only the SPOD channel sends it, because the partner requires a price on every one-time item.
+   */
+  unitPriceCents: number
   /** The absolute path of the generated print image, `null` when none was generated. */
   imagePath: string | null
   /** The five mug-layout overrides in millimetres; `null` on a SPOD line. */

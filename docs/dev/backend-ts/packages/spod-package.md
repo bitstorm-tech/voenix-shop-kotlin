@@ -168,9 +168,22 @@ TypeScript article guide).
 ### The order request
 
 `SpodOrderRequest` is `{ externalOrderReference, email, phone, shipping: {
-address }, oneTimeItems }`, with one `SpodOneTimeItem` per (product type,
-design) pair, each with a `SpodQuantityItem` per size and colour and a
-`SpodConfiguration` (`image: { designId }`, `view`, `hotspot`) per placement.
+address }, oneTimeItems }`, with one `SpodOneTimeItem` per product type,
+design, placement, and price, each with a `SpodQuantityItem` per size and
+colour, a `SpodConfiguration` (`image: { designId }`, `view`, `hotspot`) per
+placement, and a `customerPricePerItem` (`SpodPrice`: `{ amount, currency:
+'EUR' }`). The amount is a decimal number in euros (`24.9`), not cents.
+
+`customerPricePerItem` looks optional in the partner's documentation, which
+shows it only in an example, but the partner requires it: without it,
+`POST /orders` answers a bare `400 Bad Request` with no detail at all, before it
+checks anything else of the order. Found on staging in October 2026 by
+removing and adding fields one at a time; an order without `oneTimeItems`, for
+comparison, gets the readable `422` with reason `NO_ORDER_ITEMS`. So a bare
+`400` on an order creation means the body did not even parse into the
+partner's model: a missing required field or a value of the wrong type or
+outside an enum.
+
 Three fields are not the caller's to choose, so `createOrder` adds them when it
 serializes the request:
 

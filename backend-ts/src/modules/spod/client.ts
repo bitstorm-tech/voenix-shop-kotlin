@@ -104,13 +104,24 @@ export interface SpodAddress {
 }
 
 /**
- * One printable product of the order. The grouping is the partner's: one entry per (product type,
- * design) pair, with a quantity line per size and colour.
+ * One printable product of the order. The grouping is the partner's: one entry per product type,
+ * design, and placement at one price, with a quantity line per size and colour.
  */
 export interface SpodOneTimeItem {
   productTypeId: number
   quantityItems: SpodQuantityItem[]
   configurations: SpodConfiguration[]
+  /**
+   * What the customer paid for one piece. The partner requires it: without it, `POST /orders`
+   * answers a bare `400` before it even validates the order.
+   */
+  customerPricePerItem: SpodPrice
+}
+
+/** An amount in the currency's main unit as a decimal number: `14.99`, not cents. */
+export interface SpodPrice {
+  amount: number
+  currency: 'EUR'
 }
 
 export interface SpodQuantityItem {

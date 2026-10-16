@@ -549,7 +549,7 @@ them.
 
 | Read | Answer |
 | --- | --- |
-| `productionData(orderId)` | the shipping address, the customer's e-mail and phone (for the SPOD partner), the Berlin order date, and the lines in `position` order: article and variant id, the snapshotted names, quantity, the five mug millimetres, the snapshotted `spodHotspot`, and `imagePath`, the absolute path from `images.privateStorage.originalPaths`; `null` for an unknown order |
+| `productionData(orderId)` | the shipping address, the customer's e-mail and phone (for the SPOD partner), the Berlin order date, and the lines in `position` order: article and variant id, the snapshotted names, quantity, `unitPriceCents` (price plus prompt price, for the SPOD partner), the five mug millimetres, the snapshotted `spodHotspot`, and `imagePath`, the absolute path from `images.privateStorage.originalPaths`; `null` for an unknown order |
 | `fulfillmentOrders(orderIds)` | per known id exactly nine fields: id, Berlin date, the recipient's first and last name, and the five address fields (country included). No e-mail, no phone, no amount, no token is even read |
 | `shippingNotificationOrder(orderId)` | the recipient's e-mail, first name, and the finished order link; the token itself never crosses |
 

@@ -90,6 +90,8 @@ export interface StoredLine {
   variantName: string
   supplierArticleNumber: string | null
   quantity: number
+  /** What the customer paid for one piece: the variant's price plus the prompt's, in cents. */
+  unitPriceCents: number
   printImageId: number | null
   printTemplateWidthMm: number | null
   printTemplateHeightMm: number | null
@@ -256,6 +258,7 @@ export function createOrderRepository(db: Kysely<Tables>) {
             'variant_name as variantName',
             'supplier_article_number as supplierArticleNumber',
             'quantity',
+            (eb) => eb('price_cents', '+', eb.ref('prompt_price_cents')).as('unitPriceCents'),
             'print_image_id as printImageId',
             'print_template_width_mm as printTemplateWidthMm',
             'print_template_height_mm as printTemplateHeightMm',

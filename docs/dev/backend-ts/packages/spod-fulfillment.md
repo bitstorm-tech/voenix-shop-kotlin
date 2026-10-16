@@ -153,10 +153,16 @@ The request is built in one place (`request` in `submitter.ts`) and carries:
 - `externalOrderReference = "ORD-{orderId}-JOB-{jobId}"`, deterministic so the
   webhook can find the job and a person reads the same string on both screens;
 - `oneTimeItems`, grouped the partner's way: one entry per (product type,
-  design, hotspot), a `quantityItems` line per size and colour, and one
-  `configurations` entry placing the design at `view: FRONT` with the
+  design, hotspot, unit price), a `quantityItems` line per size and colour, and
+  one `configurations` entry placing the design at `view: FRONT` with the
   **hotspot the order line snapshotted**. Two lines previewed with different
-  hotspots cannot share an entry.
+  hotspots cannot share an entry;
+- on every entry `customerPricePerItem`, the line's `unitPriceCents` (variant
+  price plus prompt price, before an order discount) in euros. The partner
+  requires it and answers a bare `400` without it (see
+  [the order request](spod-package.md#the-order-request)); two lines of one
+  product at different prices are two entries, because the price belongs to
+  the entry.
 
 If the partner *refuses* the creation with a `4xx`, it has stated that it
 created nothing, and the job fails with `ORDER_CREATE_REJECTED`, which alerts

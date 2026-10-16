@@ -104,6 +104,7 @@ const sampleRequest = (): SpodOrderRequest => ({
       productTypeId: 812,
       quantityItems: [{ quantity: 2, sizeId: 3, appearanceId: 4 }],
       configurations: [{ image: { designId: 'design-1' }, view: 'FRONT', hotspot: 'MEDIUM_FRONT' }],
+      customerPricePerItem: { amount: 24.9, currency: 'EUR' },
     },
   ],
 })
