@@ -1,10 +1,11 @@
 import { renderShippingNotification } from '@/modules/email'
 import type { SupplierModule, SupplierSummary } from '@/modules/supplier'
 import { createLogger } from '@/platform/logging'
+import { invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { FulfillmentOrder, ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
-import type { SpodOrderRepository } from '../spod/repository'
-import { parseSpodOrderReference } from '../spod/submitter'
+import type { SpodOrderRepository, SpodRelease } from '../spod/repository'
+import { parseSpodOrderReference, spodOrderReference } from '../spod/submitter'
 import { carrierDisplayName, trackingUrl } from './carrier'
 import type {
   FulfillmentRepository,
@@ -67,6 +68,8 @@ export interface AdminJobView {
   lastGenerationErrorCode: string | null
   externalReference: string | null
   remoteState: string | null
+  /** The SPOD creation state (`PENDING`, `CREATED`, `OUTCOME_UNKNOWN`); `null` before the first attempt and for an SFTP job. */
+  createState: string | null
   shippedAt: string | null
   shippedByUserId: number | null
   shippedByChannel: string | null
@@ -253,6 +256,31 @@ export function createFulfillmentService({
       shipped(await ship(jobId, { userId: actorUserId }, null, shipment), jobId, null, adminViews),
 
     /**
+     * An admin's release of a quarantined SPOD job. `confirmation` must be the job's
+     * `ORD-{orderId}-JOB-{jobId}` reference, typed by hand, or the answer is `invalid`; the write
+     * itself refuses a job not in `OUTCOME_UNKNOWN` and an order id another job holds. Answers the
+     * released job's admin view.
+     */
+    releaseSpodJob: async (
+      jobId: number,
+      release: SpodRelease & { confirmation: string },
+      adminUserId: number,
+    ): Promise<OperationResult<AdminJobView>> => {
+      const job = await repository.job(jobId, null)
+      if (job === undefined) return notFound
+      if (release.confirmation !== spodOrderReference(job.orderId, jobId)) {
+        return invalid({ confirmation: ['Confirmation must be the job reference'] })
+      }
+      const released = await spodOrders.release(jobId, release, adminUserId)
+      if (released.kind !== 'ok') return released
+      const releasedJob = await repository.job(jobId, null)
+      const [view] = releasedJob === undefined ? [] : await adminViews([releasedJob])
+      if (view === undefined)
+        throw new Error(`Released production job ${String(jobId)} has no view`)
+      return ok(view)
+    },
+
+    /**
      * One event the partner reported, applied to the job it names. Every outcome is silent: the
      * partner hears `202` either way. A shipment goes through the same guarded ship transaction a
      * human uses; a refused one is logged at error level, since nothing will redeliver it.
@@ -336,6 +364,7 @@ function adminJobView(
     lastGenerationErrorCode: job.lastGenerationErrorCode,
     externalReference: job.externalReference,
     remoteState: job.remoteState,
+    createState: job.createState,
     shippedAt: iso(job.shippedAt),
     shippedByUserId: job.shippedByUserId,
     shippedByChannel: job.shippedByChannel,

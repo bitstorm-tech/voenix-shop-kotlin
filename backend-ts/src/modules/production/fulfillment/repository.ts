@@ -68,6 +68,7 @@ export function createFulfillmentRepository(
         'j.tracking_number as trackingNumber',
         'o.external_reference as externalReference',
         'o.remote_state as remoteState',
+        'o.create_state as createState',
       ])
 
   return {

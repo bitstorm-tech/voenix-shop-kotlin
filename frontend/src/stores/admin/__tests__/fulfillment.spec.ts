@@ -60,6 +60,7 @@ const openJob: AdminJob = {
   lastGenerationErrorCode: null,
   externalReference: null,
   remoteState: null,
+  createState: null,
   shippedAt: null,
   shippedByUserId: null,
   shippedByChannel: null,
@@ -181,6 +182,30 @@ describe('admin fulfillment store', () => {
     })
     expect(shipped.shippedByUserId).toBe(9)
     expect(store.shippingJobId).toBeNull()
+  })
+
+  it('releases a quarantined SPOD job with the decision and the typed reference', async () => {
+    const released = { ...openJob, fulfillmentChannel: 'SPOD', createState: 'PENDING' }
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      void init
+      return input === '/api/antiforgery/token' ? tokenResponse() : jsonResponse(released)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminFulfillmentStore()
+
+    const job = await store.releaseSpodJob(5, {
+      decision: 'NOT_CREATED',
+      confirmation: 'ORD-42-JOB-5',
+    })
+
+    const releaseCall = fetchMock.mock.calls.find(
+      ([path]) => path === '/api/admin/production/jobs/5/spod/release',
+    )
+    expect(releaseCall?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ decision: 'NOT_CREATED', confirmation: 'ORD-42-JOB-5' }),
+    })
+    expect(job).toEqual(released)
   })
 
   it('sends an empty JSON body when nothing about the shipment is known', async () => {

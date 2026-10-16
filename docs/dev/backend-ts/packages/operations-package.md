@@ -11,6 +11,7 @@ This guide explains the TypeScript code in
 - [HTTP API](#http-api)
 - [The order list and the order timeline](#the-order-list-and-the-order-timeline)
   - [The order timeline](#the-order-timeline)
+- [The admin actions](#the-admin-actions)
 - [The kinds of finding](#the-kinds-of-finding)
 - [The scan](#the-scan)
 - [The alert](#the-alert)
@@ -43,7 +44,11 @@ module does:
   42?" in one document, assembled from the capabilities of the order,
   production, and email modules and this module's open findings; the admin
   pages *Orders* (`/admin/orders`) and the order timeline
-  (`/admin/orders/{orderId}`) show them.
+  (`/admin/orders/{orderId}`) show them;
+- two admin actions replace SQL typed by hand: the payment recheck (a button
+  on the order timeline) and the release of a quarantined SPOD job (a dialog
+  on the *Logistics* page). Both delegate to the owning module and land in
+  the order's history with the admin's user id.
 
 A finding is one bounded record: a kind, the row it is about, the order that
 row belongs to, since when it stands still, and its attempt counter and error
@@ -56,15 +61,15 @@ flowchart TB
     Admin["Admin page /admin/operations"]
 
     subgraph Operations["Operations module"]
-        Routes["routes.ts<br/>GET /api/admin/operations/findings<br/>GET /api/admin/orders · …/timeline"]
-        Service["service.ts<br/>timeline · orders"]
+        Routes["routes.ts<br/>GET /api/admin/operations/findings<br/>GET /api/admin/orders · …/timeline<br/>POST …/payment/recheck · …/spod/release"]
+        Service["service.ts<br/>timeline · orders · recheckPayment · releaseSpodJob"]
         Worker["worker.ts<br/>scan every 5 minutes"]
         Repository["repository.ts<br/>record · list · openOfOrder · openCounts"]
     end
 
     subgraph Owners["Owning modules (capabilities)"]
-        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>orders.adminOrder · adminOrders"]
-        Production["production.findings(now)<br/>production.ofOrder<br/>requests · jobs · deliveries · SPOD"]
+        Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>orders.adminOrder · adminOrders<br/>orders.recheckPayment"]
+        Production["production.findings(now)<br/>production.ofOrder · releaseSpodJob<br/>requests · jobs · deliveries · SPOD"]
         Outbox["outbox.findings(now)<br/>outbox.enqueue (the alert)<br/>outbox.ofOrder"]
     end
 
@@ -99,14 +104,16 @@ operations/
 |                      finding types; which kinds are mailed; Alert, UnalertedFinding
 |- service.ts          createOperationsService: the order timeline and the order list, assembled
 |                      from orders.adminOrder/adminOrders, production.ofOrder, outbox.ofOrder,
-|                      and the open findings
+|                      and the open findings; the two actions, orders.recheckPayment and
+|                      production.releaseSpodJob
 |- routes.ts           operationsRoutes(repository, service): the findings list, the order list,
-|                      the timeline; no-store
+|                      the timeline, the two actions with the release's body schema; no-store
 |- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository, outbox,
 |                      alertEmail, frontendBaseUrl, logger }) → { runOnce, start, stop };
 |                      FindingSource; the alert (mail, or log without an address)
 |- worker.test.ts      reconcile first, upsert, resolve, reappear, the alert, the loop
-`- routes.test.ts      the admin guard, no-store, the findings lists, the order list, the timeline
+`- routes.test.ts      the admin guard, no-store, the findings lists, the order list, the timeline,
+                       the two actions with CSRF
 ```
 
 The findings list only forwards to the repository; `service.ts` exists for the
@@ -225,6 +232,46 @@ empty. A SPOD job carries `spod` with `externalReference`, `createState`,
 ones. The four reads are separate, so the document is not one snapshot: a row
 that moves while it is read may show its new state in one section and the old
 one in another, which a reload settles.
+
+## The admin actions
+
+| Method and path | Who | Answer |
+| --- | --- | --- |
+| `POST /api/admin/orders/{orderId}/payment/recheck` | admin | `200 {"status":"PAID","paymentStatus":"PAID"}`, the order's two statuses read after Mollie answered; `404 {"message":"Order not found"}` for an unknown and a non-numeric id; `409 {"message":"The order has no payment"}` |
+| `POST /api/admin/production/jobs/{jobId}/spod/release` | admin | `200` with the job's admin view (as `GET /api/admin/production/jobs` answers it); `400 Validation failed` for a body the schema refuses or a `confirmation` that is not the job's reference; `404 {"message":"Production job not found"}`; `409` for a job not in `OUTCOME_UNKNOWN` and for a partner order id another job holds |
+
+Both are `POST`s behind `requireAdmin`, which also checks the CSRF pair
+(`400 Invalid CSRF token` without it), and both answer `Cache-Control:
+no-store`. Neither answer carries provider text or a database object name. The
+release shares the path `/api/admin/production/jobs` with production's job
+routes, the same arrangement as the order routes above.
+
+**The payment recheck** is `orders.recheckPayment(orderId, adminUserId)`: the
+order module's `refreshed` with the cause `ADMIN_RECHECK`, the same path the
+webhook, the detail read, and the reconciliation take. A payment Mollie
+reports paid pays the order (production request, confirmation mail, promotion
+redemption); a status that changed is recorded as `PAYMENT_STATUS_CHANGED`
+with the admin's user id; an unchanged one records nothing. The recheck has no
+body. See [Reading a status](order-package.md#reading-a-status-stored-versus-refreshed).
+
+**The SPOD release** takes one of two bodies:
+
+```json
+{ "decision": "NOT_CREATED", "confirmation": "ORD-42-JOB-7" }
+{ "decision": "CREATED", "externalReference": "spod-123", "confirmation": "ORD-42-JOB-7" }
+```
+
+The route's Zod schema is a discriminated union on `decision`, strict on
+unknown properties; `externalReference` is 1 to 128 characters without
+control characters. Whether `confirmation` is the job's reference only the
+production module can tell (it knows the job's order), so that comparison is
+the one rule checked behind the route; a mismatch answers the same
+`400 Validation failed` shape with the error on `confirmation`.
+`production.releaseSpodJob` performs the runbook's write and records
+`SPOD_JOB_RELEASED`; the guards and the runbook are in
+[SPOD fulfillment](spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown),
+the implementation in the
+[Production package](production-package.md#releasing-a-quarantined-spod-job).
 
 ## The kinds of finding
 
@@ -443,13 +490,36 @@ one per channel.
 the listed-only rule from the row. The rule is only needed at the moment the
 finding is reported, and the reported `Finding` already carries it.
 
+### Decision 6: Admin actions instead of SQL
+
+The two repairs an operator needs most, asking Mollie about a payment now and
+releasing a quarantined SPOD job, are routes of this module, each delegating to
+the owning module and each recorded in the order's history with the admin's
+user id. The operations module is where the admin looks at the stuck order,
+so the button belongs next to it; the write itself stays with the owner of the
+table.
+
+This **reverses a recorded decision**: the SPOD runbook used to keep the
+release a manual `UPDATE`, "deliberately not an endpoint", because it starts a
+paid production. A SQL statement typed under pressure into the production
+database is the riskier path (no check of the job id, no `WHERE` guard
+enforced, nobody recorded), so the release is an endpoint with three guards
+instead: the typed job reference, the explicit decision, and the
+`SPOD_JOB_RELEASED` event naming the admin
+([SPOD fulfillment](spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown)).
+
+*Rejected:* a release without the typed confirmation, behind a plain "Are you
+sure?" dialog. One click away is exactly what the old decision warned against;
+typing the reference that was just searched in the backoffice ties the click
+to that search.
+
 ## Composition
 
 ```ts
 const operations = createOperationsModule({
   db,
-  orders: order.orders,   // reconcilePayments(now), findings(now), adminOrder, adminOrders
-  production,             // findings(now), ofOrder: requests, jobs, deliveries, SPOD orders
+  orders: order.orders,   // reconcilePayments(now), findings(now), adminOrder, adminOrders, recheckPayment
+  production,             // findings(now), ofOrder, releaseSpodJob: requests, jobs, deliveries, SPOD orders
   outbox: email.outbox,   // findings(now), ofOrder: email_jobs; enqueue: the alert mail
   settings: settings.operations, // { alertEmail: string | null }, OPERATIONS_ALERT_EMAIL
   frontendBaseUrl,        // settings.frontend.baseUrl, for the timeline links
@@ -477,7 +547,7 @@ bun test src/modules/operations
 | File | What it states |
 | --- | --- |
 | [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; several new findings are one `OPERATIONS_ALERT` and all get `alerted_at`, a finding seen again is not mailed again, a reappearing one is; the two SPOD kinds and a stalled `OPERATIONS_ALERT` are listed only; without an address nothing is mailed, `alerted_at` stays `NULL`, and one `error` line per new mailed finding names its kind and subject; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
-| [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | through the composed application, so the order routes are checked next to the order module's PDF routes on the same path: `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago; the timeline of a seeded order with a row in every section (exact document, no access token, only the open finding), an order with empty sections, the `404` for an unknown, a non-numeric, and an exponent id; the order list newest first with its `openFindings`, the case-insensitive exact e-mail filter, a blank filter, and the cap at 50 |
+| [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | through the composed application, so the order routes are checked next to the order module's PDF routes on the same path: `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago; the timeline of a seeded order with a row in every section (exact document, no access token, only the open finding), an order with empty sections, the `404` for an unknown, a non-numeric, and an exponent id; the order list newest first with its `openFindings`, the case-insensitive exact e-mail filter, a blank filter, and the cap at 50; the payment recheck (`200` with the status pair, `409` without a payment, `404` for an unknown and a non-numeric id) and the SPOD release (`CREATED` with the view and the `SPOD_JOB_RELEASED` event naming the admin, `NOT_CREATED`, the second release and an SFTP job as `409`, the wrong confirmation and five refused bodies as `400` with nothing written, the `404`s), each `401` without a session, `403` without the admin role, and `400 Invalid CSRF token` without the CSRF header |
 
 The rules of every kind are tested in their owning module, against seeded rows
 on both sides of every threshold and a fixed `now`: `order/findings.test.ts`,

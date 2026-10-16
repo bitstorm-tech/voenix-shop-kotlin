@@ -106,6 +106,11 @@ export function createOrderModule({
       /** Asks Mollie about every payment under way for over 15 minutes; the operations worker's first step. */
       reconcilePayments: payments.reconcile,
       /**
+       * An admin's recheck of one order's payment with Mollie, recorded with the admin's user id;
+       * answers the order's `{ status, paymentStatus }` read again afterwards.
+       */
+      recheckPayment: payments.recheck,
+      /**
        * The admin timeline's order: the order with contact data and addresses (never the access
        * token), its payments, and its history; `undefined` for an unknown id.
        */

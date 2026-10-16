@@ -26,10 +26,11 @@ export interface ProductionOrders {
 }
 
 /**
- * The two events production writes into an order's history, each in the transaction of the write
- * it describes and only when that write changed a row: the partner reported a new remote state,
- * or a job shipped. A human ship names its user (`ADMIN`, or `SUPPLIER` for a supplier-scoped
- * ship); a channel ship has no user. `details` holds bounded values only, never provider text.
+ * The three events production writes into an order's history, each in the transaction of the
+ * write it describes and only when that write changed a row: the partner reported a new remote
+ * state, a job shipped, or an admin released a quarantined SPOD job. A human ship names its user
+ * (`ADMIN`, or `SUPPLIER` for a supplier-scoped ship); a channel ship has no user. `details` holds
+ * bounded values only, never provider text.
  */
 export type ProductionOrderEvent =
   | {
@@ -42,6 +43,12 @@ export type ProductionOrderEvent =
       actorType: 'ADMIN' | 'SUPPLIER' | 'CHANNEL'
       actorId: number | null
       details: { jobId: number; carrier: string | null }
+    }
+  | {
+      kind: 'SPOD_JOB_RELEASED'
+      actorType: 'ADMIN'
+      actorId: number
+      details: { jobId: number; decision: 'NOT_CREATED' | 'CREATED' }
     }
 
 /**

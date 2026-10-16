@@ -89,6 +89,8 @@ export type OrderEvent =
       kind: 'PAYMENT_STATUS_CHANGED'
       actorType: 'SYSTEM'
       cause: PaymentCause
+      /** The admin who asked for an `ADMIN_RECHECK`; `null` for every other cause. */
+      actorId: number | null
       details: { paymentId: number; from: PaymentStatus; to: PaymentStatus }
     }
   | ({ kind: 'ORDER_PAID' } & PaidBy)

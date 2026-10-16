@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Download, Truck } from 'lucide-vue-next'
+import { Download, ShieldAlert, Truck } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (event: 'download', job: AdminJob): void
   (event: 'ship', job: AdminJob): void
+  (event: 'release', job: AdminJob): void
 }>()
 
 /** The channel that produces its jobs through a partner API instead of an uploaded document. */
@@ -46,6 +47,8 @@ interface Row {
   remoteNote: string | null
   /** Whether this job's document is something to wait for at all. */
   expectsPdf: boolean
+  /** A SPOD job the submission quarantined: only an admin's release lets the worker continue. */
+  quarantined: boolean
 }
 
 const rows = computed<Row[]>(() =>
@@ -60,6 +63,7 @@ const rows = computed<Row[]>(() =>
     generationNote: expectsPdf(job) && !job.pdfAvailable ? generationNote(job) : null,
     remoteNote: remoteNote(job),
     expectsPdf: expectsPdf(job),
+    quarantined: job.fulfillmentChannel === CHANNEL_SPOD && job.createState === 'OUTCOME_UNKNOWN',
   })),
 )
 
@@ -143,6 +147,7 @@ function generationNote(job: AdminJob): string {
               generationNote,
               remoteNote,
               expectsPdf,
+              quarantined,
             } in rows"
             :key="job.jobId"
           >
@@ -192,6 +197,16 @@ function generationNote(job: AdminJob): string {
                 >
                   <Download class="size-4" />
                   {{ downloadingJobId === job.jobId ? 'Downloading...' : 'PDF' }}
+                </Button>
+                <Button
+                  v-if="quarantined"
+                  variant="outline"
+                  size="sm"
+                  :data-testid="`release-job-${job.jobId}`"
+                  @click="emit('release', job)"
+                >
+                  <ShieldAlert class="size-4" />
+                  Release
                 </Button>
                 <!--
                   Readiness of a channel-produced job is not in this answer, so the button stays

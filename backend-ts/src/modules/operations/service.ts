@@ -11,7 +11,8 @@ export type OperationsService = ReturnType<typeof createOperationsService>
 
 /**
  * The two admin reads about orders, each assembled from the owning modules' capabilities and this
- * module's own findings: the timeline of one order and the list of the newest orders. No query
+ * module's own findings: the timeline of one order and the list of the newest orders; and the two
+ * admin actions, each the owning module's: the payment recheck and the SPOD job release. No query
  * here touches another module's table.
  */
 export function createOperationsService({
@@ -21,8 +22,8 @@ export function createOperationsService({
   outbox,
 }: {
   findings: Pick<FindingRepository, 'openOfOrder' | 'openCounts'>
-  orders: Pick<Orders, 'adminOrder' | 'adminOrders'>
-  production: Pick<ProductionModule, 'ofOrder'>
+  orders: Pick<Orders, 'adminOrder' | 'adminOrders' | 'recheckPayment'>
+  production: Pick<ProductionModule, 'ofOrder' | 'releaseSpodJob'>
   outbox: Pick<EmailModule['outbox'], 'ofOrder'>
 }) {
   return {
@@ -60,5 +61,11 @@ export function createOperationsService({
       const counts = await findings.openCounts(list.map((order) => order.orderId))
       return list.map((order) => ({ ...order, openFindings: counts.get(order.orderId) ?? 0 }))
     },
+
+    /** Asks Mollie about the order's payment now, recorded with the admin's user id. */
+    recheckPayment: orders.recheckPayment,
+
+    /** Releases a quarantined SPOD job after the admin looked at the partner's backoffice. */
+    releaseSpodJob: production.releaseSpodJob,
   }
 }

@@ -20,6 +20,7 @@ The print-on-demand channel has a guide of its own,
 - [Producer notification](#producer-notification)
 - [Fulfillment](#fulfillment)
 - [Findings for operations](#findings-for-operations)
+- [Releasing a quarantined SPOD job](#releasing-a-quarantined-spod-job)
 - [What the port changed](#what-the-port-changed)
 - [Tests](#tests)
 
@@ -125,9 +126,9 @@ is no longer reads only.
 | `productionData` | the split, the generation, the submission, the on-demand PDF | the shipping address, the customer's e-mail and phone (for the SPOD partner only), the Berlin order date, and the lines: snapshotted names, quantity, the unit price (for the SPOD partner only), the print image path, the five mug measurements, the snapshotted `spodHotspot`, and `articleId`/`variantId` |
 | `fulfillmentOrders` | the job lists, the producer mail | per order: id, Berlin date, recipient name, the five address fields. Nothing else, which is the data minimization of the supplier surface |
 | `shippingNotificationOrder` | the ship transaction | the recipient's e-mail, first name, and the ready-built order link. The access token never crosses the boundary |
-| `recordEvent` | the ship write, `recordRemoteState` | appends one event to the order's history (`order_events`, owned by the order module) inside the caller's transaction, so the event commits with the write it describes |
+| `recordEvent` | the ship write, `recordRemoteState`, the SPOD release | appends one event to the order's history (`order_events`, owned by the order module) inside the caller's transaction, so the event commits with the write it describes |
 
-Production writes two of the history events of the
+Production writes three of the history events of the
 [Order package](order-package.md#the-order-history), each only when its write
 changed a row and never with partner text in `details`:
 
@@ -135,6 +136,7 @@ changed a row and never with partner text in `details`:
 | --- | --- | --- |
 | `SPOD_REMOTE_STATE_CHANGED` | `spod/repository.ts#recordRemoteState`, when the reported state differs from the stored one | `CHANNEL`; `{ jobId, state }` |
 | `JOB_SHIPPED` | `fulfillment/repository.ts#ship`, the one ship write | `SUPPLIER` with the user id for a supplier-scoped ship, `ADMIN` with the user id for an unscoped human ship, `CHANNEL` for the partner's webhook; `{ jobId, carrier }` (the bounded carrier, never the reported name) |
+| `SPOD_JOB_RELEASED` | `spod/repository.ts#release`, when an admin released a quarantined SPOD job | `ADMIN` with the user id; `{ jobId, decision }` (`NOT_CREATED` or `CREATED`) |
 
 Two things on a line are **not** snapshots, and production resolves them
 itself through `articleCatalog.find(lines)` on every load
@@ -154,7 +156,8 @@ The loader maps every source problem to one bounded code: `SOURCE_NOT_FOUND`
 ```text
 production/
 |- index.ts                 createProductionModule(deps) → { routes, productionPdfGenerator,
-|                           requestProduction, findings, ofOrder, worker: { start, stop } }; the
+|                           requestProduction, findings, ofOrder, releaseSpodJob,
+|                           worker: { start, stop } }; the
 |                           exported types
 |- findings.ts              productionFindings(db, now): the stalled pipeline rows; ProductionFinding
 |- timeline.ts              productionOfOrder(db, orderId): one order's request, jobs, deliveries,
@@ -208,7 +211,8 @@ const production = await createProductionModule({
 app.route('/', production.routes)
 production.worker.start()
 // order receives production.requestProduction and production.productionPdfGenerator,
-// operations receives production.findings and production.ofOrder (the timeline's production section)
+// operations receives production.findings, production.ofOrder (the timeline's production section),
+// and production.releaseSpodJob (the admin's release of a quarantined SPOD job)
 // at shutdown
 await production.worker.stop()
 ```
@@ -608,7 +612,9 @@ tie of two jobs shipped in one transaction, so the cut is stable.
 A job appears from the split on, with its lines. `pdfAvailable` is `false`
 until the artifact exists, and forever on a SPOD job. The admin view adds the
 supplier `{ id, name }`, `fulfillmentChannel`, `generationAttemptCount`,
-`lastGenerationErrorCode`, the SPOD half (`externalReference`, `remoteState`),
+`lastGenerationErrorCode`, the SPOD half (`externalReference`, `remoteState`,
+and `createState`: `PENDING`, `CREATED`, or `OUTCOME_UNKNOWN`, `null` on an
+SFTP job and before the first attempt),
 and who reported the shipment (`shippedByUserId`, `shippedByChannel`, the raw
 `shippingCarrierReported` next to the mapped `shippingCarrier`). `shippedAt`
 is an ISO timestamp.
@@ -719,6 +725,25 @@ timeline in the [Operations package](operations-package.md#the-order-timeline).
 Facts with their own timestamp column (`processed_at`, `generated_at`,
 `prepared_at`, `delivered_at`, `confirmed_at`) are answered from that column and
 are not repeated as history events.
+
+## Releasing a quarantined SPOD job
+
+`production.releaseSpodJob(jobId, release, adminUserId)` is what the
+operations module's release route calls
+([`fulfillment/service.ts`](../../../../backend-ts/src/modules/production/fulfillment/service.ts)).
+`release` is `{ decision: 'NOT_CREATED', confirmation }` or
+`{ decision: 'CREATED', externalReference, confirmation }`. An unknown job is
+`notFound`; a `confirmation` other than the job's `ORD-{orderId}-JOB-{jobId}`
+(`spodOrderReference`) is `invalid` with an error on `confirmation`. Then
+`spodOrders.release` performs the runbook's write in one transaction: guarded
+by `create_state = 'OUTCOME_UNKNOWN'`, so a job in any other state (and an SFTP
+job, which has no SPOD row) is `conflict`, and with the `23505` of the partial
+unique index on `external_reference` mapped to `conflict` through
+`executePostgresWrite`, so an order id another job holds is a conflict as well,
+also when two admins claim it at once. The same transaction writes
+`SPOD_JOB_RELEASED` through `orders.recordEvent`. The answer is the job's admin
+view, read again. The guards, and why this is an endpoint at all, are in
+[SPOD fulfillment](spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown).
 
 ## What the port changed
 

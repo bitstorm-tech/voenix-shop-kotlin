@@ -500,6 +500,7 @@ reorder does.
 | --- | --- | --- | --- |
 | `stores/admin/orders.ts` | `GET /api/admin/orders` and `GET /api/admin/orders?email=` | same | #282 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/timeline` | same | #282 |
+| `stores/admin/orders.ts` | `POST /api/admin/orders/{orderId}/payment/recheck` | same | #282 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs` | same | #100 |
 | `stores/admin/orders.ts` | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | same | #100 |
 
@@ -511,6 +512,13 @@ case. A row opens the timeline page `/admin/orders/{orderId}` (route
 payments, production, mails, history, open findings) and the order's production
 documents. An unknown order answers `404` and the store turns it into
 `OrderNotFoundError`. There is still no status editing.
+
+The timeline page's *Recheck payment* button asks Mollie about the order's
+payment now (`recheckPayment`, no body). The answer `{ status, paymentStatus }`
+is kept in `recheck` and shown above the page, and the timeline is reloaded so
+the payment, the history, and the production sections show what the recheck
+changed; a refusal (`409 The order has no payment`) is kept in `recheckError`
+and shown with the backend's message. Both are cleared when the page mounts.
 
 The production documents are the narrow surface of issue #84: an order-ID input
 on the Orders page (and the timeline of each order), the list of one document per
@@ -537,6 +545,7 @@ that order.
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs?status=OPEN\|SHIPPED&supplierId=` | same | #125 |
 | `stores/admin/fulfillment.ts` | `GET /api/admin/production/jobs/{jobId}/pdf` | same | #125 |
 | `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/ship` | same | #125 |
+| `stores/admin/fulfillment.ts` | `POST /api/admin/production/jobs/{jobId}/spod/release` | same | #282 |
 | `stores/admin/supplierLogins.ts` | `POST /api/admin/supplier-logins` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `GET /api/admin/supplier-logins?supplierId=` | same | #125 |
 | `stores/admin/supplierLogins.ts` | `DELETE /api/admin/supplier-logins/{userId}` | same | #125 |
@@ -558,6 +567,19 @@ routes refuse for exactly the same reasons. That module holds everything the two
 ship surfaces share: the wire types, the carrier list, the error mapping, and the
 wording helpers. It has to, because the dialog they share lives in
 `components/shared/` and may not depend on either area's store.
+
+A SPOD job whose `createState` is `OUTCOME_UNKNOWN` (the quarantine) gets a
+*Release* button on the Logistics page and no other job does.
+`components/admin/logistics/ReleaseSpodJobDialog.vue` asks for the decision
+(no order with the reference, or exactly one order and its id) and for the
+job reference `ORD-{orderId}-JOB-{jobId}` typed by hand; its submit stays
+disabled until a decision is chosen, the partner's order id is filled in for
+`CREATED`, and the typed reference matches. `releaseSpodJob(jobId, body)` posts
+`{ decision, confirmation }` or `{ decision, externalReference, confirmation }`
+and answers the released job. A `409` (the job was released meanwhile, or the
+order id belongs to another job) closes the dialog with a notice and reloads
+the tab; any other refusal stays in the dialog. The runbook behind the dialog
+is in [SPOD fulfillment](../backend-ts/packages/spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown).
 
 The five CRUD destination routes were dispositioned as "no admin UI" until
 the t-shirt work needed one (#205): a SPOD destination is how an order of a

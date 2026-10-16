@@ -263,5 +263,45 @@ describe('admin orders store', () => {
       expect(store.timelineError).toBeInstanceOf(OrderNotFoundError)
       expect(store.isTimelineLoading).toBe(false)
     })
+
+    it('rechecks the payment, keeps the answer, and reloads the timeline', async () => {
+      const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+        void init
+        if (input === '/api/antiforgery/token') return jsonResponse({ requestToken: 'token' })
+        return input.endsWith('/payment/recheck')
+          ? jsonResponse({ status: 'PAID', paymentStatus: 'PAID' })
+          : jsonResponse({ order: { orderId: 42 } })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useAdminOrdersStore()
+
+      await store.recheckPayment(42)
+
+      const recheckCall = fetchMock.mock.calls.find(
+        ([path]) => path === '/api/admin/orders/42/payment/recheck',
+      )
+      expect(recheckCall?.[1]).toMatchObject({ method: 'POST' })
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/orders/42/timeline')
+      expect(store.recheck).toEqual({ status: 'PAID', paymentStatus: 'PAID' })
+      expect(store.recheckError).toBeNull()
+      expect(store.isRechecking).toBe(false)
+    })
+
+    it('keeps a refused recheck as the recheck error', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string) =>
+          input === '/api/antiforgery/token'
+            ? jsonResponse({ requestToken: 'token' })
+            : errorResponse(409, 'The order has no payment'),
+        ),
+      )
+      const store = useAdminOrdersStore()
+
+      await store.recheckPayment(42)
+
+      expect(store.recheck).toBeNull()
+      expect(store.recheckError?.message).toBe('The order has no payment')
+    })
   })
 })

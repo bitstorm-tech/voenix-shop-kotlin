@@ -475,3 +475,63 @@ describe('the order history of a payment', () => {
     ])
   })
 })
+
+describe('orders.recheckPayment', () => {
+  const ADMIN = 9
+
+  test('pays the order the way the webhook does and records the change once, with the admin', async () => {
+    const { module, order, report, calls } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+
+    const first = await module.orders.recheckPayment(order.orderId, ADMIN)
+    const second = await module.orders.recheckPayment(order.orderId, ADMIN)
+
+    expect(first).toEqual({ kind: 'ok', value: { status: 'PAID', paymentStatus: 'PAID' } })
+    expect(second).toEqual(first)
+    expect(calls.find).toBe(1)
+    expect(await count(database.db, 'production_requests')).toBe(1)
+    expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.kind !== 'ORDER_PLACED' && event.kind !== 'PAYMENT_STARTED')
+        .map(({ kind, actorType, actorId, cause, details }) => [
+          kind,
+          actorType,
+          actorId,
+          cause,
+          details,
+        ]),
+    ).toEqual([
+      ['ORDER_PAID', 'SYSTEM', null, 'ADMIN_RECHECK', null],
+      [
+        'PAYMENT_STATUS_CHANGED',
+        'SYSTEM',
+        ADMIN,
+        'ADMIN_RECHECK',
+        { paymentId: 1, from: 'OPEN', to: 'PAID' },
+      ],
+    ])
+  })
+
+  test('an unchanged status answers the pair and records nothing', async () => {
+    const { module, order } = await placed()
+    await module.orders.startPayment(order)
+    expect(await module.orders.recheckPayment(order.orderId, ADMIN)).toEqual({
+      kind: 'ok',
+      value: { status: 'PENDING', paymentStatus: 'OPEN' },
+    })
+    expect((await orderEvents(database.db)).map((event) => event.kind)).toEqual([
+      'ORDER_PLACED',
+      'PAYMENT_STARTED',
+    ])
+  })
+
+  test('an order without a payment is a conflict, an unknown order not found', async () => {
+    const { module, order } = await placed()
+    expect(await module.orders.recheckPayment(order.orderId, ADMIN)).toEqual({ kind: 'conflict' })
+    expect(await module.orders.recheckPayment(order.orderId + 100, ADMIN)).toEqual({
+      kind: 'notFound',
+    })
+  })
+})

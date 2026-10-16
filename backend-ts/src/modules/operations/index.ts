@@ -18,7 +18,8 @@ import { createOperationsWorker } from './worker'
  * `operations_findings`, the only table this module owns, mails the new ones to
  * `settings.alertEmail` through the outbox, and the admin route lists them. The admin order list
  * and the timeline of one order are assembled from `orders.adminOrders` / `orders.adminOrder`,
- * `production.ofOrder`, `outbox.ofOrder`, and the findings of the order. Nothing
+ * `production.ofOrder`, `outbox.ofOrder`, and the findings of the order; the two admin actions
+ * delegate to `orders.recheckPayment` and `production.releaseSpodJob`. Nothing
  * imports this module. The composition root creates it after order and production, mounts
  * `routes`, and starts and stops `worker` next to the other two workers.
  */
@@ -31,8 +32,11 @@ export function createOperationsModule({
   frontendBaseUrl,
 }: {
   db: Kysely<Tables>
-  orders: Pick<Orders, 'findings' | 'reconcilePayments' | 'adminOrder' | 'adminOrders'>
-  production: Pick<ProductionModule, 'findings' | 'ofOrder'>
+  orders: Pick<
+    Orders,
+    'findings' | 'reconcilePayments' | 'adminOrder' | 'adminOrders' | 'recheckPayment'
+  >
+  production: Pick<ProductionModule, 'findings' | 'ofOrder' | 'releaseSpodJob'>
   outbox: Pick<EmailModule['outbox'], 'findings' | 'enqueue' | 'ofOrder'>
   settings: Settings['operations']
   frontendBaseUrl: string

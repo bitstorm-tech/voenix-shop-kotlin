@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
+import { CSRF_HEADER } from '@/platform/auth/cookies'
 import { composedApplication, type ComposedApplication } from '@/test-fixtures'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders } from '@test-support/http'
@@ -511,5 +512,177 @@ describe('GET /api/admin/orders', () => {
     expect(list).toHaveLength(50)
     expect(list[0]?.orderId).toBe(51)
     expect(list.at(-1)?.orderId).toBe(2)
+  })
+})
+
+/** A `POST` of `body` as JSON; `csrf: false` drops the CSRF header a browser would send. */
+const post = async (
+  path: string,
+  body?: unknown,
+  { roles = ['ADMIN'], csrf = true }: { roles?: string[]; csrf?: boolean } = {},
+) => {
+  const { [CSRF_HEADER]: token, ...headers } = await signedInHeaders({ roles })
+  return app().request(path, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      ...(csrf && token !== undefined ? { [CSRF_HEADER]: token } : {}),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+const events = () =>
+  database.db
+    .selectFrom('order_events')
+    .select(['kind', 'actor_type', 'actor_id', 'cause', 'details'])
+    .where('kind', 'in', ['PAYMENT_STATUS_CHANGED', 'SPOD_JOB_RELEASED'])
+    .where('actor_id', 'is not', null)
+    .orderBy('id')
+    .execute()
+
+describe('POST /api/admin/orders/{orderId}/payment/recheck', () => {
+  const recheck = (orderId: string, options?: Parameters<typeof post>[2]) =>
+    post(`${ORDERS}/${orderId}/payment/recheck`, undefined, options)
+
+  test('answers the order and payment status, never cached', async () => {
+    const orderId = await seedTimeline()
+    const response = await recheck(String(orderId))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(response)).toEqual({ status: 'PAID', paymentStatus: 'PAID' })
+  })
+
+  test('an order without a payment is a 409, a missing or non-numeric id a 404', async () => {
+    const orderId = await seedOrder('kunde@example.test', AT)
+    const conflict = await recheck(String(orderId))
+    expect(conflict.status).toBe(409)
+    expect(conflict.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(conflict)).toEqual({ message: 'The order has no payment', errors: {} })
+    for (const id of ['99', 'abc']) {
+      const response = await recheck(id)
+      expect(response.status).toBe(404)
+      expect(await jsonOf(response)).toMatchObject({ message: 'Order not found' })
+    }
+  })
+
+  test('is for admins only and needs the CSRF token', async () => {
+    const orderId = String(await seedTimeline())
+    expect(
+      (await app().request(`${ORDERS}/${orderId}/payment/recheck`, { method: 'POST' })).status,
+    ).toBe(401)
+    expect((await recheck(orderId, { roles: ['USER'] })).status).toBe(403)
+    const forged = await recheck(orderId, { csrf: false })
+    expect(forged.status).toBe(400)
+    expect(await jsonOf(forged)).toMatchObject({ message: 'Invalid CSRF token' })
+  })
+})
+
+describe('POST /api/admin/production/jobs/{jobId}/spod/release', () => {
+  const RELEASE = '/api/admin/production/jobs/2/spod/release'
+  const CONFIRMATION = 'ORD-1-JOB-2'
+
+  test('adopts the partner order of the quarantined job and records the admin', async () => {
+    await seedTimeline()
+    const response = await post(RELEASE, {
+      decision: 'CREATED',
+      externalReference: 'spod-42',
+      confirmation: CONFIRMATION,
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(response)).toMatchObject({
+      jobId: 2,
+      orderId: 1,
+      fulfillmentChannel: 'SPOD',
+      externalReference: 'spod-42',
+      createState: 'CREATED',
+    })
+    expect(await events()).toEqual([
+      {
+        kind: 'SPOD_JOB_RELEASED',
+        actor_type: 'ADMIN',
+        actor_id: 11,
+        cause: null,
+        details: { jobId: 2, decision: 'CREATED' },
+      },
+    ])
+
+    const again = await post(RELEASE, { decision: 'NOT_CREATED', confirmation: CONFIRMATION })
+    expect(again.status).toBe(409)
+    expect(await jsonOf(again)).toEqual({
+      message: 'The job is not quarantined or the external reference belongs to another job',
+      errors: {},
+    })
+  })
+
+  test('NOT_CREATED starts the creation over; an SFTP job is never quarantined', async () => {
+    await seedTimeline()
+    const response = await post(RELEASE, { decision: 'NOT_CREATED', confirmation: CONFIRMATION })
+    expect(response.status).toBe(200)
+    expect(await jsonOf(response)).toMatchObject({
+      createState: 'PENDING',
+      externalReference: null,
+    })
+    const sftp = await post('/api/admin/production/jobs/1/spod/release', {
+      decision: 'NOT_CREATED',
+      confirmation: 'ORD-1-JOB-1',
+    })
+    expect(sftp.status).toBe(409)
+  })
+
+  test('a wrong confirmation or an invalid body is a 400, an unknown job a 404', async () => {
+    await seedTimeline()
+    const wrong = await post(RELEASE, { decision: 'NOT_CREATED', confirmation: 'ORD-1-JOB-3' })
+    expect(wrong.status).toBe(400)
+    expect(wrong.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(wrong)).toEqual({
+      message: 'Validation failed',
+      errors: { confirmation: ['Confirmation must be the job reference'] },
+    })
+    for (const body of [
+      { decision: 'CREATED', confirmation: CONFIRMATION },
+      { decision: 'CREATED', externalReference: '', confirmation: CONFIRMATION },
+      { decision: 'CREATED', externalReference: 'x'.repeat(129), confirmation: CONFIRMATION },
+      { decision: 'CREATED', externalReference: 'spod\n42', confirmation: CONFIRMATION },
+      { decision: 'MAYBE', confirmation: CONFIRMATION },
+    ]) {
+      const response = await post(RELEASE, body)
+      expect(response.status).toBe(400)
+      expect(await jsonOf(response)).toMatchObject({ message: 'Validation failed' })
+    }
+    for (const id of ['99', 'abc']) {
+      const response = await post(`/api/admin/production/jobs/${id}/spod/release`, {
+        decision: 'NOT_CREATED',
+        confirmation: CONFIRMATION,
+      })
+      expect(response.status).toBe(404)
+      expect(await jsonOf(response)).toMatchObject({ message: 'Production job not found' })
+    }
+    const state = await database.db
+      .selectFrom('production_spod_orders')
+      .select('create_state')
+      .executeTakeFirstOrThrow()
+    expect(state.create_state).toBe('OUTCOME_UNKNOWN')
+    expect(await events()).toEqual([])
+  })
+
+  test('is for admins only and needs the CSRF token', async () => {
+    await seedTimeline()
+    const body = { decision: 'NOT_CREATED', confirmation: CONFIRMATION }
+    expect(
+      (
+        await app().request(RELEASE, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      ).status,
+    ).toBe(401)
+    expect((await post(RELEASE, body, { roles: ['USER'] })).status).toBe(403)
+    const forged = await post(RELEASE, body, { csrf: false })
+    expect(forged.status).toBe(400)
+    expect(await jsonOf(forged)).toMatchObject({ message: 'Invalid CSRF token' })
   })
 })

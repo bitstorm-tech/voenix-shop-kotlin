@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Kysely, Transaction } from 'kysely'
 import { write, type Tables } from '@/platform/db/database'
 import { createLogger, errorClass } from '@/platform/logging'
+import { conflict, notFound, ok } from '@/platform/operation'
 import { lockOrder, recordEvent, type PayableOrder, type PaymentCause } from '../repository'
 import type { OrderTransitions } from '../transitions'
 import type { MolliePayment, MolliePayments, PaymentStatus } from './mollie'
@@ -60,10 +61,14 @@ export function createPaymentService({
    * never asked about again. The order lock comes first, then the payment row. `true` when the
    * order is paid now or was already.
    */
-  const confirmOrder = async (stored: StoredPayment, cause: PaymentCause): Promise<boolean> => {
+  const confirmOrder = async (
+    stored: StoredPayment,
+    cause: PaymentCause,
+    actorId: number | null,
+  ): Promise<boolean> => {
     const result = await write(db, async (trx) => {
       const paid = await transitions.markPaid(trx, stored.orderId, { actorType: 'SYSTEM', cause })
-      await movePayment(trx, stored, 'PAID', cause)
+      await movePayment(trx, stored, 'PAID', cause, actorId)
       return paid
     })
     if (result === 'paid' || result === 'alreadyPaid') return true
@@ -78,14 +83,15 @@ export function createPaymentService({
 
   /**
    * Writes the reported status over a payment under way and, only when that moved the row,
-   * records `PAYMENT_STATUS_CHANGED` with `cause` in the same transaction; `false` when the row
-   * was final and nothing moved.
+   * records `PAYMENT_STATUS_CHANGED` with `cause` (and the admin of an `ADMIN_RECHECK` as
+   * `actorId`) in the same transaction; `false` when the row was final and nothing moved.
    */
   const movePayment = async (
     trx: Transaction<Tables>,
     stored: StoredPayment,
     to: PaymentStatus,
     cause: PaymentCause,
+    actorId: number | null,
   ): Promise<boolean> => {
     const moved = await moveStatus(trx, stored.paymentId, to)
     if (moved) {
@@ -93,6 +99,7 @@ export function createPaymentService({
         kind: 'PAYMENT_STATUS_CHANGED',
         actorType: 'SYSTEM',
         cause,
+        actorId,
         details: { paymentId: stored.paymentId, from: stored.status, to },
       })
     }
@@ -111,10 +118,11 @@ export function createPaymentService({
     stored: StoredPayment,
     reported: MolliePayment,
     cause: PaymentCause,
+    actorId: number | null,
   ): Promise<PaymentConfirmation> => {
     if (reported.status === 'PAID') {
       if (reported.amountCents === stored.amountCents) {
-        return (await confirmOrder(stored, cause)) ? 'confirmed' : 'notConfirmed'
+        return (await confirmOrder(stored, cause, actorId)) ? 'confirmed' : 'notConfirmed'
       }
       logger.error(
         {
@@ -126,12 +134,12 @@ export function createPaymentService({
         'Mollie reports a payment as paid with another amount than the shop asked for: ' +
           'the order is not confirmed and needs a human',
       )
-      await write(db, (trx) => movePayment(trx, stored, 'PAID', cause))
+      await write(db, (trx) => movePayment(trx, stored, 'PAID', cause, actorId))
       return 'notConfirmed'
     }
     const recorded =
       stored.status === reported.status ||
-      (await write(db, (trx) => movePayment(trx, stored, reported.status, cause)))
+      (await write(db, (trx) => movePayment(trx, stored, reported.status, cause, actorId)))
     if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
     return 'recorded'
   }
@@ -139,10 +147,14 @@ export function createPaymentService({
   /**
    * The status of one order's payment, asked of Mollie while the payment is still under way: the
    * fallback for a webhook that never arrived, which may confirm the order through the same path
-   * the webhook takes; `cause` is recorded on what it changed. A provider that cannot answer
-   * degrades to the stored status.
+   * the webhook takes; `cause` is recorded on what it changed, with `actorId` the admin of an
+   * `ADMIN_RECHECK`. A provider that cannot answer degrades to the stored status.
    */
-  const refreshed = async (orderId: number, cause: PaymentCause): Promise<PaymentStatus | null> => {
+  const refreshed = async (
+    orderId: number,
+    cause: PaymentCause,
+    actorId: number | null = null,
+  ): Promise<PaymentStatus | null> => {
     const stored = (await repository.currentPayments([orderId])).get(orderId)
     if (stored === undefined) return null
     if (!isUnderWay(stored.status)) return stored.status
@@ -154,7 +166,7 @@ export function createPaymentService({
       )
       return stored.status
     }
-    await applyReported(stored, reported, cause)
+    await applyReported(stored, reported, cause, actorId)
     return reported.status
   }
 
@@ -241,7 +253,7 @@ export function createPaymentService({
         logger.warn('A webhook named a Mollie payment this backend never created')
         return 'unknownPayment'
       }
-      return applyReported(stored, reported, 'WEBHOOK')
+      return applyReported(stored, reported, 'WEBHOOK', null)
     },
 
     /** The stored status of every order that has a payment, in one read, never a provider call. */
@@ -251,6 +263,19 @@ export function createPaymentService({
     },
 
     refreshed,
+
+    /**
+     * An admin's "ask Mollie now" on one order: `refreshed` with cause `ADMIN_RECHECK` and the
+     * admin's user id, then the order's status read again, so a paid answer shows `PAID` on both.
+     * An unknown order is `notFound`, an order without a payment a `conflict`.
+     */
+    recheck: async (orderId: number, adminUserId: number) => {
+      const paymentStatus = await refreshed(orderId, 'ADMIN_RECHECK', adminUserId)
+      const status = await repository.orderStatus(orderId)
+      if (status === undefined) return notFound
+      if (paymentStatus === null) return conflict
+      return ok({ status, paymentStatus })
+    },
 
     /**
      * The operations worker's first step: every payment under way for more than fifteen minutes,

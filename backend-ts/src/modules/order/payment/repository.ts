@@ -140,6 +140,14 @@ export function createPaymentRepository(db: Kysely<Tables>) {
       return rows.map((row) => row.order_id)
     },
 
+    /** The status of one order, `undefined` for an unknown id. */
+    orderStatus: async (orderId: number) =>
+      (
+        await read(db, (trx) =>
+          trx.selectFrom('orders').select('status').where('id', '=', orderId).executeTakeFirst(),
+        )
+      )?.status,
+
     /** The payment Mollie is talking about, or `undefined` when this backend never created it. */
     paymentByMollieId: (molliePaymentId: string) =>
       read(db, (trx) =>

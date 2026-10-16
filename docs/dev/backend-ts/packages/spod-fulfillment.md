@@ -187,7 +187,8 @@ a `5xx`) may or may not have created an order:
   `PENDING`, and the next scan creates again. Worst case: one inert `NEW`
   orphan.
 - The second sets `create_state = 'OUTCOME_UNKNOWN'` in the same statement, and
-  the same transaction enqueues the ops alert. The job is quarantined;
+  the same transaction enqueues the ops alert. The job is quarantined until an
+  admin releases it from the Logistics page;
   [Reconciling a quarantined job](#reconciling-a-quarantined-job-outcome_unknown)
   is the operator's checklist.
 
@@ -274,7 +275,7 @@ There is one difference between that ship and a person's: the `prepared_at`
 guard. A person's ship keeps it (`NOT_READY`). A channel ship drops it, because
 the shipment proves the remote order exists and was confirmed, and because the
 `202` means nothing will ever redeliver the event. The one real case is a job
-quarantined as `OUTCOME_UNKNOWN` whose order an operator adopted by hand. So
+quarantined as `OUTCOME_UNKNOWN` whose order an admin adopted with a release. So
 the statement sets `prepared_at = COALESCE(prepared_at, now())`.
 
 [`webhook.ts`](../../../../backend-ts/src/modules/production/fulfillment/webhook.ts)
@@ -430,7 +431,7 @@ and re-registering; the old URL answers `403` from then on.
 ### Reading a job's state
 
 The admin page *Logistics* (`GET /api/admin/production/jobs`) shows per job
-the `fulfillmentChannel`, the `externalReference`, the `remoteState`, and who
+the `fulfillmentChannel`, the `externalReference`, the `remoteState`, the `createState`, and who
 reported the shipment. SPOD jobs never offer a PDF. The submission's
 `attempt_count` and `last_error_code` are read in the database:
 
@@ -449,40 +450,76 @@ the quarantine.
 
 ### Reconciling a quarantined job (`OUTCOME_UNKNOWN`)
 
-The scan excludes `create_state = 'OUTCOME_UNKNOWN'`, and no endpoint releases
-a job: only a person looking at the partner's backoffice can tell whether it
-holds zero, one, or two orders for this job.
+The scan excludes `create_state = 'OUTCOME_UNKNOWN'`: only a person looking at
+the partner's backoffice can tell whether it holds zero, one, or two orders for
+this job. The Logistics page shows a **Release** button on exactly these jobs
+(the admin job view carries `createState`).
 
-1. Take the job and order number from the alert mail.
+1. Take the job and order number from the alert mail (or from the operations
+   page, where the job is listed as `SPOD_QUARANTINED`).
 2. Search the backoffice for `ORD-{orderId}-JOB-{jobId}`.
 3. Decide:
 
 | What the backoffice shows | What it means | What to do |
 | --- | --- | --- |
-| No order with that reference | Both attempts really failed | Release the job (below); the next scan creates cleanly. |
-| Exactly one order, state `NEW` | The order exists, unconfirmed | Write its id into the job and release it; the next scan confirms it. |
-| Exactly one order, already confirmed | The confirmation went through | Write its id in and release; the next scan sees `CONFIRMED` and only sets `prepared_at`. |
+| No order with that reference | Both attempts really failed | Release with *No order with this reference*; the next scan creates cleanly. |
+| Exactly one order, state `NEW` | The order exists, unconfirmed | Release with *Exactly one order* and its id; the next scan confirms it. |
+| Exactly one order, already confirmed | The confirmation went through | Release with *Exactly one order* and its id; the next scan sees `CONFIRMED` and only sets `prepared_at`. |
 | Two orders with the same reference | The first ambiguity created an orphan | Cancel the extra `NEW` order at the partner, then treat it as the single-order case. |
 
-Releasing is a manual `UPDATE`, deliberately not an endpoint: it starts a paid
-production and must not be one click away.
+The dialog sends
+`POST /api/admin/production/jobs/{jobId}/spod/release` (operations module,
+admin only, with the CSRF pair) with
+`{ "decision": "NOT_CREATED", "confirmation": "ORD-42-JOB-7" }` or
+`{ "decision": "CREATED", "externalReference": "<the partner's order id>", "confirmation": "ORD-42-JOB-7" }`.
+`releaseSpodJob` in the production module performs the two writes this runbook
+used to have the operator type by hand, and nothing else:
 
 ```sql
--- Case "no order at all": start over.
+-- NOT_CREATED: start over.
 UPDATE production_spod_orders
 SET create_state = 'PENDING', create_ambiguous_count = 0, last_error_code = NULL
-WHERE production_job_id = <jobId>;
+WHERE production_job_id = <jobId> AND create_state = 'OUTCOME_UNKNOWN';
 
--- Case "the order exists": adopt it, then let the worker confirm it.
+-- CREATED: adopt the order, then let the worker confirm it.
 UPDATE production_spod_orders
 SET external_reference = '<the partner''s order id>',
     create_state = 'CREATED', create_ambiguous_count = 0, last_error_code = NULL
-WHERE production_job_id = <jobId>;
+WHERE production_job_id = <jobId> AND create_state = 'OUTCOME_UNKNOWN';
 ```
+
+Releasing starts a paid production, so the endpoint keeps three guards:
+
+1. **The typed confirmation.** The admin types the job's reference
+   `ORD-{orderId}-JOB-{jobId}`, the string just searched in the backoffice;
+   the dialog's submit stays disabled until it matches, and the backend
+   compares it again (`400 Validation failed` on `confirmation` otherwise).
+2. **The explicit decision.** There is no default: the admin chooses what the
+   backoffice shows, and `CREATED` needs the partner's order id (1–128
+   characters, no control characters).
+3. **The event naming the admin.** The same commit writes `SPOD_JOB_RELEASED`
+   into the order's history with the admin's user id and the decision, so the
+   timeline answers who released the job and why.
+
+The answers: `200` with the job's admin view, `404` for an unknown job, `409`
+for a job that is not (any more) in `OUTCOME_UNKNOWN` (a second click, a second
+admin, an SFTP job) and for an order id another job already holds. The second
+`409` comes from the partial unique index on `external_reference` (SQL state
+`23505` mapped through `executePostgresWrite`), never from a lookup, so two
+admins adopting the same id at once end as one release and one conflict.
 
 Never invent an `external_reference`: a wrong id confirms somebody else's
 order. If the order cannot be produced at all, the job stays and the customer
 is refunded manually (decision 7).
+
+**Why this is an endpoint now.** Until issue #282 this section said:
+"Releasing is a manual `UPDATE`, deliberately not an endpoint: it starts a paid
+production and must not be one click away." That decision changed, because a
+SQL statement typed under pressure into the production database is the riskier
+path: nothing checks the job id, nothing stops an `UPDATE` without its `WHERE`,
+and nothing records who did it. The intent of the old decision is kept by the
+three guards above: the release is still deliberate (typed reference, explicit
+decision), and it is now also attributable.
 
 ### Handling an alert
 
@@ -653,11 +690,11 @@ false alarm, accepted until issue #225 compares ids. Orders stay
 | File | Contents |
 | --- | --- |
 | [`spod/submitter.ts`](../../../../backend-ts/src/modules/production/spod/submitter.ts) | the stage (line checks, uploads, creation, confirmation), the order request, `spodOrderReference` and its parser |
-| [`spod/repository.ts`](../../../../backend-ts/src/modules/production/spod/repository.ts) | the two tables, the scan, the guarded writes with their alerts, the destination read, `PERMANENT_FAILURES` |
+| [`spod/repository.ts`](../../../../backend-ts/src/modules/production/spod/repository.ts) | the two tables, the scan, the guarded writes with their alerts, the admin's `release`, the destination read, `PERMANENT_FAILURES` |
 | [`spod/print-image.ts`](../../../../backend-ts/src/modules/production/spod/print-image.ts) | WebP → PNG with both budgets |
 | [`fulfillment/webhook.ts`](../../../../backend-ts/src/modules/production/fulfillment/webhook.ts) | the payload reduced to bounded values, the secret comparison |
 | [`fulfillment/routes.ts`](../../../../backend-ts/src/modules/production/fulfillment/routes.ts) | the webhook route next to the two job surfaces |
-| [`fulfillment/service.ts`](../../../../backend-ts/src/modules/production/fulfillment/service.ts) | `handleWebhook`: finding the job, the channel ship, the remote state |
+| [`fulfillment/service.ts`](../../../../backend-ts/src/modules/production/fulfillment/service.ts) | `handleWebhook`: finding the job, the channel ship, the remote state; `releaseSpodJob`: the confirmation check and the released job's view |
 | `spod` module: [`client.ts`](../../../../backend-ts/src/modules/spod/client.ts) | `SpodAccess`, the environments, the calls, the pacer, `SpodResult`, `SpodError` |
 
 ## Differences to the Kotlin code
@@ -684,7 +721,9 @@ false alarm, accepted until issue #225 compares ids. Orders stay
   a refused creation sent once per scan with the same hotspot, one alert; the
   master-data codes before any upload and which of them alert; the renamed and
   the reassigned line; the cancelled job left out of the scan while the
-  needs-action one stays.
+  needs-action one stays; the release both ways with the next scan creating or
+  confirming, the wrong confirmation, the unknown job, the second release, and
+  two jobs claiming one partner order id at once.
 - `pdf/pdf.test.ts`: the PNG conversion, the pixel cap, the bounded shrink, the
   three codes.
 - `fulfillment/fulfillment.test.ts`: the wrong secret refused with zero reads of

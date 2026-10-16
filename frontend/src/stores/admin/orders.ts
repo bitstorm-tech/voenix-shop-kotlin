@@ -18,6 +18,12 @@ export interface AdminOrderListEntry {
   openFindings: number
 }
 
+/** The answer of a payment recheck: the order's status and its payment's, read after Mollie answered. */
+export interface PaymentRecheck {
+  status: OrderStatus
+  paymentStatus: OrderPaymentStatus
+}
+
 /** A postal address as the order stored it. */
 export interface AdminOrderAddress {
   firstName: string
@@ -257,6 +263,12 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
   /** {@link OrderNotFoundError} for an unknown order, otherwise the failure as it came. */
   const timelineError = shallowRef<Error | null>(null)
 
+  /** The answer of the last payment recheck, or `null` before one. */
+  const recheck = shallowRef<PaymentRecheck | null>(null)
+  const isRechecking = shallowRef(false)
+  /** The failure of the last recheck, such as the `409` of an order without a payment. */
+  const recheckError = shallowRef<Error | null>(null)
+
   function reset() {
     documents.value = []
     loadedOrderId.value = null
@@ -353,6 +365,28 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
     }
   }
 
+  /**
+   * Asks Mollie about the order's payment now, through the same path as the webhook, and reloads
+   * the timeline, which then shows what the recheck changed.
+   */
+  async function recheckPayment(orderId: number): Promise<void> {
+    isRechecking.value = true
+    recheckError.value = null
+    recheck.value = null
+
+    try {
+      recheck.value = await fetchJson<PaymentRecheck>(
+        `/api/admin/orders/${orderId}/payment/recheck`,
+        { method: 'POST' },
+      )
+      await fetchTimeline(orderId)
+    } catch (err) {
+      recheckError.value = err instanceof Error ? err : new Error('Unknown error')
+    } finally {
+      isRechecking.value = false
+    }
+  }
+
   return {
     orderList,
     isListLoading,
@@ -362,6 +396,10 @@ export const useAdminOrdersStore = defineStore('admin-orders', () => {
     timelineError,
     fetchOrders,
     fetchTimeline,
+    recheck,
+    isRechecking,
+    recheckError,
+    recheckPayment,
     documents,
     loadedOrderId,
     isLoading,

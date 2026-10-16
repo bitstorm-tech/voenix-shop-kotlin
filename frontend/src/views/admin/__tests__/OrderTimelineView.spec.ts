@@ -15,6 +15,10 @@ const ordersState = reactive({
   isTimelineLoading: false,
   timelineError: null as Error | null,
   fetchTimeline: vi.fn(),
+  recheck: null as { status: string; paymentStatus: string } | null,
+  isRechecking: false,
+  recheckError: null as Error | null,
+  recheckPayment: vi.fn(),
   documents: [] as ProductionPdfInfo[],
   loadedOrderId: null as number | null,
   isLoading: false,
@@ -208,6 +212,11 @@ beforeEach(() => {
   ordersState.isTimelineLoading = false
   ordersState.timelineError = null
   ordersState.fetchTimeline.mockReset().mockResolvedValue(undefined)
+  ordersState.recheck = { status: 'PENDING', paymentStatus: 'OPEN' }
+  ordersState.recheckError = new Error('stale')
+  ordersState.recheckPayment.mockReset().mockImplementation(async () => {
+    ordersState.recheck = { status: 'PAID', paymentStatus: 'PAID' }
+  })
   ordersState.documents = [{ supplierId: 1, fileName: 'ORD-42.pdf' }]
   ordersState.loadedOrderId = 42
   ordersState.isLoading = false
@@ -283,5 +292,31 @@ describe('OrderTimelineView', () => {
     const wrapper = await mountView()
 
     expect(wrapper.text()).toContain('No order exists for this ID.')
+  })
+
+  it('rechecks the payment and shows the answered statuses; an earlier answer is dropped', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-testid="recheck-result"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="recheck-error"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="recheck-payment"]').trigger('click')
+    await flushPromises()
+
+    expect(ordersState.recheckPayment).toHaveBeenCalledWith(42)
+    expect(wrapper.find('[data-testid="recheck-result"]').text()).toContain(
+      'the order is PAID, the payment PAID',
+    )
+  })
+
+  it('shows why a recheck was refused', async () => {
+    ordersState.recheckPayment.mockImplementation(async () => {
+      ordersState.recheckError = new Error('The order has no payment')
+    })
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-testid="recheck-payment"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="recheck-error"]').text()).toBe('The order has no payment')
   })
 })

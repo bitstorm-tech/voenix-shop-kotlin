@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RefreshCw } from 'lucide-vue-next'
 import AdminJobsTable from '@/components/admin/logistics/AdminJobsTable.vue'
+import ReleaseSpodJobDialog from '@/components/admin/logistics/ReleaseSpodJobDialog.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ShipJobDialog from '@/components/shared/ShipJobDialog.vue'
 import { Alert } from '@/components/ui/alert'
@@ -19,7 +20,11 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/composables/useToast'
 import { ApiError, type ApiFieldErrors } from '@/lib/api'
 import { saveBlobAs } from '@/lib/download'
-import { type AdminJob, useAdminFulfillmentStore } from '@/stores/admin/fulfillment'
+import {
+  type AdminJob,
+  type SpodReleaseBody,
+  useAdminFulfillmentStore,
+} from '@/stores/admin/fulfillment'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
 import {
   JobAlreadyShippedError,
@@ -47,6 +52,11 @@ const shipFieldErrors = ref<ApiFieldErrors>({})
 const shipGeneralError = ref<string | null>(null)
 /** A `409` describes the job, not the request — it is shown at the list, not inside the dialog. */
 const listNotice = ref<string | null>(null)
+
+const releaseDialogOpen = ref(false)
+const jobToRelease = ref<AdminJob | null>(null)
+const isReleasing = ref(false)
+const releaseError = ref<string | null>(null)
 
 const selectedSupplierId = computed<number | null>(() =>
   supplierFilter.value === ALL_SUPPLIERS ? null : Number(supplierFilter.value),
@@ -99,6 +109,48 @@ function openShipDialog(job: AdminJob) {
   shipGeneralError.value = null
   listNotice.value = null
   shipDialogOpen.value = true
+}
+
+function openReleaseDialog(job: AdminJob) {
+  jobToRelease.value = job
+  releaseError.value = null
+  listNotice.value = null
+  releaseDialogOpen.value = true
+}
+
+/**
+ * A refused release splits like a refused shipment: a `409` means the job is no longer what the
+ * screen said (released meanwhile, or the order id belongs to another job), so the dialog closes
+ * and the list reloads; anything else stays in the dialog.
+ */
+async function releaseJob(body: SpodReleaseBody) {
+  const job = jobToRelease.value
+  if (job === null) {
+    return
+  }
+
+  isReleasing.value = true
+  releaseError.value = null
+
+  try {
+    await fulfillmentStore.releaseSpodJob(job.jobId, body)
+    releaseDialogOpen.value = false
+    jobToRelease.value = null
+    toast({ title: 'Job released', description: 'The next submission scan picks it up.' })
+    await fulfillmentStore.fetchJobs(activeStatus.value, selectedSupplierId.value)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      releaseDialogOpen.value = false
+      jobToRelease.value = null
+      listNotice.value = `${error.message}. The list has been reloaded.`
+      await fulfillmentStore.fetchJobs(activeStatus.value, selectedSupplierId.value)
+      return
+    }
+    releaseError.value =
+      error instanceof Error && error.message !== '' ? error.message : 'The job was not released.'
+  } finally {
+    isReleasing.value = false
+  }
 }
 
 async function downloadPdf(job: AdminJob) {
@@ -262,6 +314,7 @@ async function closeWithNotice(message: string) {
       :shipping-job-id="fulfillmentStore.shippingJobId"
       @download="downloadPdf"
       @ship="openShipDialog"
+      @release="openReleaseDialog"
     />
 
     <ShipJobDialog
@@ -272,6 +325,14 @@ async function closeWithNotice(message: string) {
       :field-errors="shipFieldErrors"
       :general-error="shipGeneralError"
       @confirm="shipJob"
+    />
+
+    <ReleaseSpodJobDialog
+      v-model:open="releaseDialogOpen"
+      :job="jobToRelease"
+      :submitting="isReleasing"
+      :error="releaseError"
+      @confirm="releaseJob"
     />
   </section>
 </template>

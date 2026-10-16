@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { CreditCard, RefreshCw } from 'lucide-vue-next'
 import OperationsFindingsTable from '@/components/admin/operations/OperationsFindingsTable.vue'
 import AdminProductionPdfSection from '@/components/admin/orders/AdminProductionPdfSection.vue'
 import OrderTimelineOrder from '@/components/admin/orders/OrderTimelineOrder.vue'
@@ -52,18 +52,38 @@ function details(event: OrderEvent): string {
     .join(', ')
 }
 
+function recheckPayment() {
+  void ordersStore.recheckPayment(props.orderId)
+}
+
 function reload() {
   void ordersStore.fetchTimeline(props.orderId)
   void ordersStore.fetchProductionPdfs(props.orderId)
 }
 
-onMounted(reload)
+onMounted(() => {
+  // A recheck answer belongs to the order it was asked for, not to the next one opened.
+  ordersStore.recheck = null
+  ordersStore.recheckError = null
+  reload()
+})
 </script>
 
 <template>
   <section class="space-y-4">
     <AdminPageHeader :title="orderNumber(orderId)" breakpoint="lg">
       <template #actions>
+        <!-- Asks Mollie now, the way the webhook would have; recorded with the admin's user id. -->
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="ordersStore.isRechecking"
+          data-testid="recheck-payment"
+          @click="recheckPayment"
+        >
+          <CreditCard class="size-4" />
+          {{ ordersStore.isRechecking ? 'Asking Mollie...' : 'Recheck payment' }}
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -75,6 +95,14 @@ onMounted(reload)
         </Button>
       </template>
     </AdminPageHeader>
+
+    <Alert v-if="ordersStore.recheck" variant="info" data-testid="recheck-result">
+      Mollie was asked: the order is {{ ordersStore.recheck.status }}, the payment
+      {{ ordersStore.recheck.paymentStatus }}.
+    </Alert>
+    <Alert v-if="ordersStore.recheckError" variant="destructive" data-testid="recheck-error">
+      {{ ordersStore.recheckError.message || 'The payment could not be rechecked.' }}
+    </Alert>
 
     <Alert v-if="timelineError" variant="destructive">{{ timelineError }}</Alert>
 
