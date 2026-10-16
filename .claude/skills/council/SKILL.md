@@ -56,38 +56,49 @@ also sets its effort explicitly, because the model defaults differ.
   Do not add further general reviewers, and no weaker model of the same
   family — such a reviewer repeats a subset of the Fable findings and costs
   a consolidation and rebuttal round for it.
-- **Codex (GPT)**: `gpt-6.1-sol` at reasoning effort `high`, run from the
-  repository root. Give it every needed pointer as repository file paths; it
-  reads the repo itself. Codex only reads; it never implements. Codex writes
-  its own session state to `~/.codex`, so every call must run outside a
-  write-restricted shell sandbox. Flags apply per invocation, not per
-  session, so repeat them on every call. Every call ends with
-  `</dev/null`: without it, `codex exec` waits for additional input on
-  stdin and never starts in a non-interactive shell (the smoke test on
-  2026-10-16 hung until the timeout; with `</dev/null` it answered at
-  once). The #262 run's two-hour Codex timeout most likely had this cause.
-  - Review: a plain `codex exec` with the review briefing, which names the
-    merge base and tells Codex to compute the diff itself
-    (`git diff <merge-base>...HEAD`):
-    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<review briefing>" </dev/null`.
-    Not the built-in review mode: since codex 0.162, `codex exec review`
-    refuses a prompt together with `--base` or `--commit`, so the briefing
-    cannot reach it. Write the briefing to a file outside the repository
-    and pass its path in the prompt when it is long. On a very large diff
-    (tens of thousands of lines, such as the #262 port) scope the briefing
-    to the modules the orchestrator judges riskiest, and say so in the
-    findings comment.
+- **Codex (GPT)**: `gpt-6.1-sol` at reasoning effort `high`, delegated as a
+  T3 Code child task of this thread with the `delegate_task` tool
+  (`target: {providerInstanceId: "codex", model: "gpt-6.1-sol",
+  options: {reasoningEffort: "high"}}`, `role: "review"`, `mode: "async"`,
+  a `clientRequestId` that is unique per round and stable across retries).
+  The child runs in this thread's checkout and reads the repo itself, so
+  give it every needed pointer as repository file paths. Codex only reads;
+  it never implements. T3 cannot narrow a Codex child to read-only, so the
+  task text says so explicitly: "Report only. Do not change, create, or
+  delete any file and do not run git commands that write." Its thread
+  appears in the T3 app next to this one, and its completion wakes this
+  thread; the result arrives as the task's summary, no output file needed.
+  - Review: the task text is the review briefing itself, which names the
+    merge base and tells Codex to compute the diff
+    (`git diff <merge-base>...HEAD`). Write the briefing to a file outside
+    the repository and pass its path in the task when it is long. On a very
+    large diff (tens of thousands of lines, such as the #262 port) scope
+    the briefing to the modules the orchestrator judges riskiest, and say
+    so in the findings comment.
   - Question or rebuttal (also usable ad hoc while planning with Joe, when a
-    second opinion from another model family is worth having):
-    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<prompt>" </dev/null`;
-    continue the same session with
-    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> resume --last "<prompt>" </dev/null`
-    (flags before `resume`).
+    second opinion from another model family is worth having): a new
+    `delegate_task` call with a new `clientRequestId`. A child task has no
+    memory of earlier rounds, so the task text carries the original
+    briefing, Codex's prior findings, the responses to them, and the
+    unresolved objections. The child thread id of the first round is
+    backing storage only; do not continue it with `t3_thread_send`.
+  - Fallback outside T3 Code (a plain Claude Code or remote session, where
+    `delegate_task` does not exist): the CLI,
+    `codex exec --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort="high" --output-last-message <file> "<briefing>" </dev/null`
+    run with Bash `run_in_background` from the repository root and outside
+    a write-restricted shell sandbox (Codex writes its session state to
+    `~/.codex`). Continue the same session with the flags before
+    `resume --last "<prompt>"`. The trailing `</dev/null` is required:
+    without it `codex exec` waits for stdin and never starts in a
+    non-interactive shell (that, not diff size, most likely caused the #262
+    run's two-hour Codex timeout). Not the built-in `codex exec review`
+    mode: since codex 0.162 it refuses a prompt together with `--base` or
+    `--commit`, so the briefing cannot reach it.
 
-Launch the reviewer, simplifier, and security agents and the Codex call
-together in the background (the Agent tool backgrounds by default; run
-Codex with Bash `run_in_background`), then write the orchestrator's own
-review while they run.
+Launch the reviewer, simplifier, and security agents and the Codex task
+together in the background (the Agent tool and `mode: "async"` both
+background by default), then write the orchestrator's own review while they
+run.
 
 ## Implementation
 
@@ -170,9 +181,11 @@ review while they run.
    cost more than it caught). Proposals are not applied; Joe decides which
    ones change this skill. "No proposals" is a valid result.
 
-If Codex's login fails or its call does not finish, verification runs with
-the orchestrator and reviewer agent (plus the two lane reviewers) and the
-findings comment records Codex's absence and the reason.
+If the Codex task fails (provider disabled, login expired, or the task
+ends without a result), verification runs with the orchestrator and
+reviewer agent (plus the two lane reviewers) and the findings comment
+records Codex's absence and the reason. Check `orchestrator_capabilities`
+first when the delegation is refused; it lists the provider's constraints.
 
 ## Stopping
 
