@@ -330,7 +330,8 @@ FROM $1`, so a code every scan records again sends no second mail, while the
 same code recorded after a different one in between (a transient error, say)
 sends a new alert. Every other code stays silent: it heals by itself.
 
-The mail goes to `PRODUCTION_SPOD_ALERT_EMAIL` and names the job number, the
+The mail goes to `OPERATIONS_ALERT_EMAIL`, the address the operations alert
+uses too (see [The alert](operations-package.md#the-alert)), and names the job number, the
 order number, and the partner's order id, with one sentence per reason. It
 carries no customer data, because an alert lands in a shared mailbox, and the
 reason travels as an enum, so nothing the partner wrote reaches a mail.
@@ -357,18 +358,20 @@ by no read, and kept when an update leaves it empty.
 
 ```sh
 PRODUCTION_SPOD_WEBHOOK_SECRET=   # at least 32 characters
-PRODUCTION_SPOD_ALERT_EMAIL=
+OPERATIONS_ALERT_EMAIL=           # required once the secret is set
 ```
 
-Both are blank in a deployment without a print-on-demand supplier. A deployment
-that has one must set **both**, and the application enforces it:
+The secret is blank in a deployment without a print-on-demand supplier. A
+deployment that has one must set the secret **and** the operations alert
+address, and the application enforces it:
 
-- one set and the other blank, or a secret under 32 characters → `loadSettings`
-  fails (`PRODUCTION_SPOD_WEBHOOK_SECRET must be at least 32 characters`,
-  `PRODUCTION_SPOD_ALERT_EMAIL is required when the SPOD channel is configured`);
-- both blank while a `channel = 'SPOD'` destination exists → the production
+- a secret without the address, or a secret under 32 characters →
+  `loadSettings` fails (`PRODUCTION_SPOD_WEBHOOK_SECRET must be at least 32 characters`,
+  `OPERATIONS_ALERT_EMAIL is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set`);
+  the address alone is fine, the operations alert uses it without SPOD;
+- no secret while a `channel = 'SPOD'` destination exists → the production
   module refuses to start with
-  `A print-on-demand destination exists, so production.spod.webhookSecret and production.spod.alertEmail are required`,
+  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmail are required`,
   before its worker exists;
 - the write side: `POST`/`PUT /api/admin/production/destinations` refuses a SPOD
   destination with a `channel` field error while the block is missing, enabled

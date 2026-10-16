@@ -113,6 +113,7 @@ export async function createApplication(
       spod,
       accounts: account.supplierAccounts,
       orders: order.orders,
+      alertEmail: settings.operations.alertEmail,
     })
     // Operations looks across the pipeline through the findings of the three owning modules.
     const operations = createOperationsModule({
@@ -120,6 +121,8 @@ export async function createApplication(
       orders: order.orders,
       production,
       outbox: email.outbox,
+      settings: settings.operations,
+      frontendBaseUrl,
     })
     // The cart owns the print images the guest image route serves, so that route is installed
     // once both sides exist. The checkout is the last consumer and exports nothing.

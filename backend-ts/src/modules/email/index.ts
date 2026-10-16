@@ -27,6 +27,11 @@ export {
   type ShippingNotificationData,
 } from './templates/shipping-notification'
 export { renderSpodOpsAlert, type SpodOpsAlertReason } from './templates/spod-ops-alert'
+export {
+  renderOperationsAlert,
+  type OperationsAlertFinding,
+  type OperationsAlertKind,
+} from './templates/operations-alert'
 
 /**
  * The email module, a leaf: an owning module renders a mail with one of the `render…` functions

@@ -63,7 +63,8 @@ const schema = z
 
     PRODUCTION_ARTIFACT_ROOT: required.default('./data/production/artifacts'),
     PRODUCTION_SPOD_WEBHOOK_SECRET: optional,
-    PRODUCTION_SPOD_ALERT_EMAIL: optional,
+
+    OPERATIONS_ALERT_EMAIL: optional,
 
     GENERATOR_DUMMY_MODE: booleanText.default(false),
     GENERATOR_API_KEY: optional,
@@ -98,18 +99,17 @@ const schema = z
     if (!env.GENERATOR_DUMMY_MODE && env.GENERATOR_API_KEY === '') {
       issue('GENERATOR_API_KEY', 'is required unless dummy mode is enabled')
     }
-    // The print-on-demand channel is configured as a whole or not at all: a half-filled pair is a
-    // mistake that would start a shop whose SPOD orders can never report a shipment.
-    const spodConfigured =
-      env.PRODUCTION_SPOD_WEBHOOK_SECRET !== '' || env.PRODUCTION_SPOD_ALERT_EMAIL !== ''
+    // The print-on-demand channel mails its operator decisions to the operations address, so a
+    // SPOD channel without one would quarantine and cancel jobs without telling anyone.
+    const spodConfigured = env.PRODUCTION_SPOD_WEBHOOK_SECRET !== ''
     if (spodConfigured && env.PRODUCTION_SPOD_WEBHOOK_SECRET.length < 32) {
       issue('PRODUCTION_SPOD_WEBHOOK_SECRET', 'must be at least 32 characters')
     }
-    if (spodConfigured && env.PRODUCTION_SPOD_ALERT_EMAIL === '') {
-      issue('PRODUCTION_SPOD_ALERT_EMAIL', 'is required when the SPOD channel is configured')
+    if (spodConfigured && env.OPERATIONS_ALERT_EMAIL === '') {
+      issue('OPERATIONS_ALERT_EMAIL', 'is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set')
     }
-    if (!noControlCharacters(env.PRODUCTION_SPOD_ALERT_EMAIL)) {
-      issue('PRODUCTION_SPOD_ALERT_EMAIL', 'must not contain control characters')
+    if (!noControlCharacters(env.OPERATIONS_ALERT_EMAIL)) {
+      issue('OPERATIONS_ALERT_EMAIL', 'must not contain control characters')
     }
     // The webhook route only answers on /api/payments/webhook/<secret>, so a URL ending elsewhere
     // describes a deployment in which every real callback is refused.
@@ -160,10 +160,11 @@ export function loadSettings(env: Record<string, string | undefined>) {
       spod:
         v.PRODUCTION_SPOD_WEBHOOK_SECRET === ''
           ? null
-          : {
-              webhookSecret: v.PRODUCTION_SPOD_WEBHOOK_SECRET,
-              alertEmail: v.PRODUCTION_SPOD_ALERT_EMAIL,
-            },
+          : { webhookSecret: v.PRODUCTION_SPOD_WEBHOOK_SECRET },
+    },
+    operations: {
+      /** Where the operations alert and the SPOD ops alert go, or `null` to only log them. */
+      alertEmail: v.OPERATIONS_ALERT_EMAIL === '' ? null : v.OPERATIONS_ALERT_EMAIL,
     },
     generator: { dummyMode: v.GENERATOR_DUMMY_MODE, apiKey: v.GENERATOR_API_KEY },
     mollie: {

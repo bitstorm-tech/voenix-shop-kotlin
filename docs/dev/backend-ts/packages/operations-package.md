@@ -11,6 +11,7 @@ This guide explains the TypeScript code in
 - [HTTP API](#http-api)
 - [The kinds of finding](#the-kinds-of-finding)
 - [The scan](#the-scan)
+- [The alert](#the-alert)
 - [The design decisions](#the-design-decisions)
 - [Composition](#composition)
 - [Tests](#tests)
@@ -30,6 +31,8 @@ module does:
   production, and email modules which of their rows stand still, and records each answer as a **finding** in
   `operations_findings`, the only table this module owns;
 - a finding that the next scan no longer reports is **resolved** on its own;
+- every scan with a new finding of a **mailed** kind enqueues one **alert
+  mail** (`OPERATIONS_ALERT`) to `OPERATIONS_ALERT_EMAIL` that lists them all;
 - the admin route `GET /api/admin/operations/findings` lists the open findings
   (and those resolved in the last seven days), and the admin page
   *Operations* (`/admin/operations`) shows them.
@@ -53,7 +56,7 @@ flowchart TB
     subgraph Owners["Owning modules (capabilities)"]
         Orders["orders.reconcilePayments(now)<br/>orders.findings(now)<br/>payments"]
         Production["production.findings(now)<br/>requests · jobs · deliveries · SPOD"]
-        Outbox["outbox.findings(now)<br/>email_jobs"]
+        Outbox["outbox.findings(now)<br/>outbox.enqueue (the alert)<br/>email_jobs"]
     end
 
     Table[("PostgreSQL<br/>operations_findings")]
@@ -77,15 +80,17 @@ The boundaries are:
 
 ```text
 operations/
-|- index.ts            createOperationsModule({ db, orders, production, outbox }) → { routes, worker }
+|- index.ts            createOperationsModule({ db, orders, production, outbox, settings,
+|                      frontendBaseUrl }) → { routes, worker }
 |- schema.ts           OperationsFindingsTable, merged into the platform's Tables
-|- repository.ts       createFindingRepository(db) → { record, list }; Finding, the union of the
-|                      three owning modules' finding types
+|- repository.ts       createFindingRepository(db) → { record(findings, alert), list }; Finding,
+|                      the union of the three owning modules' finding types; which kinds are
+|                      mailed; Alert, UnalertedFinding
 |- routes.ts           operationsRoutes(repository): the admin list, no-store
-|- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository })
-|                      → { runOnce, start, stop };
-|                      FindingSource
-|- worker.test.ts      reconcile first, upsert, resolve, reappear, the loop
+|- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository, outbox,
+|                      alertEmail, frontendBaseUrl, logger }) → { runOnce, start, stop };
+|                      FindingSource; the alert (mail, or log without an address)
+|- worker.test.ts      reconcile first, upsert, resolve, reappear, the alert, the loop
 `- routes.test.ts      the admin guard, no-store, both lists
 ```
 
@@ -96,7 +101,9 @@ rules themselves live in the owning modules:
 (`findings`),
 [`production/findings.ts`](../../../../backend-ts/src/modules/production/findings.ts),
 and [`email/outbox.ts`](../../../../backend-ts/src/modules/email/outbox.ts)
-(`stalledEmails`).
+(`stalledEmails`). The alert mail is rendered by the email module
+([`email/templates/operations-alert.ts`](../../../../backend-ts/src/modules/email/templates/operations-alert.ts)).
+
 
 ## HTTP API
 
@@ -123,8 +130,9 @@ list. One finding on the wire:
 ```
 
 `orderId` is `null` only for a mail that was enqueued without an order (the
-SPOD ops alert). `alertedAt` stays `null` until the alert mail exists, which is
-a later step of issue #282.
+SPOD ops alert and the operations alert). `alertedAt` is the time the alert
+mail about the finding was enqueued, and stays `null` for a listed-only finding
+and in a deployment without `OPERATIONS_ALERT_EMAIL` (see [The alert](#the-alert)).
 
 ## The kinds of finding
 
@@ -162,7 +170,7 @@ every five minutes, until `stop`), and `stop` (aborts the sleep and resolves
 once the scan in progress is finished). A scan that throws is logged with the
 error's class and the next scan tries again. Run one worker per database.
 
-One scan does three things, all against the same `now`:
+One scan does four things, all against the same `now`:
 
 1. **Reconcile.** It calls `orders.reconcilePayments(now)`: the order module
    asks Mollie about every payment under way for over 15 minutes and applies
@@ -195,9 +203,55 @@ One scan does three things, all against the same `now`:
    touched or inserted has `last_seen_at = now()`, and every open row with an
    older `last_seen_at` is one this scan did not report.
 
+4. **Alert**, in the same transaction: see [The alert](#the-alert).
+
 A resolved row is never touched again. A finding that resolves and later
 reappears is a new row with a new `first_seen_at`, and the old one stays as
 history.
+
+## The alert
+
+The last step of the record transaction tells an operator about the new
+findings. Of the findings the scan reported, the repository keeps the
+**mailed** ones and selects their open rows that have no `alerted_at` yet:
+
+```sql
+SELECT … FROM operations_findings
+WHERE resolved_at IS NULL AND alerted_at IS NULL
+  AND (kind, subject_type, subject_id) IN ((…), (…))
+ORDER BY id;
+```
+
+When there is at least one, the worker renders **one** `OPERATIONS_ALERT` with
+`renderOperationsAlert` and stores it with `outbox.enqueue(trx, mail)` in the
+same transaction, and the repository sets `alerted_at = now()` on exactly those
+rows. A scan without a new mailed finding enqueues nothing. A finding seen
+again already has `alerted_at` and is not mailed again; a finding that resolved
+and reappears is a new row and is in the next mail again.
+
+| Mailed | Listed only (on the admin page, never in a mail, `alerted_at` stays `NULL`) |
+| --- | --- |
+| `PAYMENT_UNRESOLVED`, `PAYMENT_PAID_ORDER_UNPAID`, `PRODUCTION_REQUEST_STALLED`, `JOB_GENERATION_STALLED`, `DELIVERY_STALLED`, `SPOD_SUBMISSION_STALLED`, `SHIPMENT_OVERDUE`, `EMAIL_STALLED` of every mail kind but one | `SPOD_QUARANTINED`, `SPOD_REMOTE_ATTENTION`, and `EMAIL_STALLED` whose stalled mail is itself an `OPERATIONS_ALERT` |
+
+The table does not store the stalled mail's kind, so the rule is applied to
+the reported `Finding` objects (`EmailFinding.emailKind`) before the select,
+not to the rows.
+
+The mail (German, like every mail of the shop) has one block per finding: the
+German name of its kind (a table of cases in the template, so no provider text
+can reach it), the subject type and id, the order number, `since`, the attempt
+count and error code, and a link to the admin timeline of the order
+(`{FRONTEND_BASE_URL}/admin/orders/{orderId}`; none when the finding has no
+order). The subject names the count, `Betrieb: 3 neue Befunde`. It carries no
+customer data.
+
+**Without an address.** `OPERATIONS_ALERT_EMAIL` is optional (it is required
+only together with `PRODUCTION_SPOD_WEBHOOK_SECRET`, because the SPOD ops alert
+uses the same address). Without it the findings are still recorded, no mail is
+enqueued, `alerted_at` stays `NULL`, and the worker logs one `error` line per
+new mailed finding (inserted in this scan) naming its kind and subject. The
+admin page works regardless. Configuring the address later mails the open
+findings that were never alerted with the next scan.
 
 ## The design decisions
 
@@ -239,8 +293,7 @@ notification pass theirs.
 The worker writes what it saw into a table instead of the admin route asking
 the three modules on every page load. Only a table can say *since when* the
 shop knows about a finding (`first_seen_at`), that it went away
-(`resolved_at`), and, in a later step, whether an operator was already alerted
-(`alerted_at`). One open row per kind and subject is the database's job: the
+(`resolved_at`), and whether an operator was already alerted (`alerted_at`). One open row per kind and subject is the database's job: the
 partial unique index `ux_operations_findings_open` holds it, and the upsert
 relies on it instead of a prior existence query.
 
@@ -253,7 +306,7 @@ The table (`V33__operations_findings.sql`):
 | `since` | when the subject entered the state it is stuck in, as the owning module reports it |
 | `attempt_count`, `last_error_code` | the subject's own counter and code, refreshed by every scan |
 | `first_seen_at`, `last_seen_at` | the first and the latest scan that reported it |
-| `alerted_at` | when an operator was mailed about it; written by the alert mail of a later step |
+| `alerted_at` | when the alert mail about it was enqueued; `NULL` for a listed-only finding and without an address |
 | `resolved_at` | the first scan that no longer reported it; `NULL` while open |
 
 ### Decision 4: The scan reconciles the payments before it collects the findings
@@ -272,6 +325,32 @@ Mollie.
 worker for one query, and the ordering "repair first, then judge" would be a
 race between two loops instead of two lines in one scan.
 
+### Decision 5: One alert per scan, and some kinds are listed only
+
+A scan mails all its new findings in **one** mail, not one mail per finding: an
+SFTP or provider outage that stalls fifty orders is one mail, not fifty. The
+mail is enqueued in the record transaction, so a finding is marked alerted
+exactly when its mail is stored.
+
+Two kinds are listed only, `SPOD_QUARANTINED` and `SPOD_REMOTE_ATTENTION`,
+because the SPOD channel already mails each of those state transitions (the
+SPOD ops alert, [SPOD fulfillment](spod-fulfillment.md)), and a second mail for
+the same fact is noise. An `EMAIL_STALLED` about a stalled `OPERATIONS_ALERT` is
+listed only as well: otherwise a broken outbox would enqueue one new alert about
+the stalled alert per scan, and the operator would receive hundreds of alerts
+about alerts once the outbox heals. Every other `EMAIL_STALLED` is mailed,
+through the very outbox that is stalled; that is accepted, because the finding
+is on the admin page anyway and the mail arrives as soon as the outbox heals,
+which is also when an operator can act on it.
+
+Both alerts share one address, `OPERATIONS_ALERT_EMAIL`, which replaced the
+former SPOD-only alert address: there is one operations mailbox, not
+one per channel.
+
+*Rejected:* storing the stalled mail's kind in `operations_findings` to decide
+the listed-only rule from the row. The rule is only needed at the moment the
+finding is reported, and the reported `Finding` already carries it.
+
 ## Composition
 
 ```ts
@@ -279,7 +358,9 @@ const operations = createOperationsModule({
   db,
   orders: order.orders,   // reconcilePayments(now), findings(now): payments
   production,             // findings(now): requests, jobs, deliveries, SPOD orders
-  outbox: email.outbox,   // findings(now): email_jobs
+  outbox: email.outbox,   // findings(now): email_jobs; enqueue: the alert mail
+  settings: settings.operations, // { alertEmail: string | null }, OPERATIONS_ALERT_EMAIL
+  frontendBaseUrl,        // settings.frontend.baseUrl, for the timeline links
 })
 app.route('/', operations.routes)
 operations.worker.start()
@@ -288,8 +369,10 @@ await operations.worker.stop()
 ```
 
 The three parameters are typed as `FindingSource`, an object with
-`findings(now)`, and `orders` also has `reconcilePayments(now)`; the
-composition root passes the modules' own objects.
+`findings(now)`, `orders` also has `reconcilePayments(now)`, and `outbox` also
+has `enqueue`; the composition root passes the modules' own objects. The same
+`settings.operations.alertEmail` goes to the production module as `alertEmail`,
+for the SPOD ops alert.
 
 ## Tests
 
@@ -301,7 +384,7 @@ bun test src/modules/operations
 
 | File | What it states |
 | --- | --- |
-| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
+| [`worker.test.ts`](../../../../backend-ts/src/modules/operations/worker.test.ts) | the reconciliation runs before the findings are read and with the same `now`, so a finding it resolves is not recorded in that scan; a scan inserts new findings and refreshes a known one with its counter and code while keeping `first_seen_at`; a finding no longer reported is resolved, an empty scan resolves everything, a reappearing finding is a new row and the old one keeps its `resolved_at`; several new findings are one `OPERATIONS_ALERT` and all get `alerted_at`, a finding seen again is not mailed again, a reappearing one is; the two SPOD kinds and a stalled `OPERATIONS_ALERT` are listed only; without an address nothing is mailed, `alerted_at` stays `NULL`, and one `error` line per new mailed finding names its kind and subject; `start` scans at once, a second `start` throws, and `stop` ends the loop without waiting for the interval |
 | [`routes.test.ts`](../../../../backend-ts/src/modules/operations/routes.test.ts) | `401` without a session, `403` without the admin role, `no-store`; the open list with the exact wire shape, newest `firstSeenAt` first; `?resolved=true` with `resolvedAt` and without a finding resolved eight days ago |
 
 The rules of every kind are tested in their owning module, against seeded rows

@@ -41,7 +41,7 @@ import type { SubmissionClient } from './spod/submitter'
 
 export const WEBHOOK_SECRET = 'spod-webhook-secret-with-32-characters!'
 export const ALERT_EMAIL = 'ops@voenix.test'
-export const SPOD_SETTINGS = { webhookSecret: WEBHOOK_SECRET, alertEmail: ALERT_EMAIL }
+export const SPOD_SETTINGS = { webhookSecret: WEBHOOK_SECRET }
 
 /** Empties every production table and the rows the tests seed next to them. */
 export async function resetProduction(db: Kysely<Tables>): Promise<void> {
@@ -354,6 +354,7 @@ export async function productionTestKit(
     spod: client,
     accounts: logins.accounts,
     orders: orders.reads,
+    alertEmail: ALERT_EMAIL,
   })
   const artifacts = await createArtifactStore(settings.artifactRoot)
   const worker = createProductionWorker({
@@ -365,7 +366,7 @@ export async function productionTestKit(
     spodOrders: createSpodOrderRepository({
       db,
       outbox: email.outbox,
-      alertEmail: spodSettings?.alertEmail ?? null,
+      alertEmail: ALERT_EMAIL,
     }),
     spod: client,
   })

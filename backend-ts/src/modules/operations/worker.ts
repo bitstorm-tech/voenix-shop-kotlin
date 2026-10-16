@@ -1,8 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import { createLogger, errorClass } from '@/platform/logging'
-import type { Finding, FindingRepository } from './repository'
+import { renderOperationsAlert, type EmailModule } from '@/modules/email'
+import { errorClass, type Logger } from '@/platform/logging'
+import type { Alert, Finding, FindingRepository } from './repository'
 
-const logger = createLogger('operations-worker')
 const SCAN_INTERVAL_MILLIS = 5 * 60_000
 
 /** One owning module's report of its stalled rows at `now`. */
@@ -14,23 +14,51 @@ export interface FindingSource {
  * The operations worker: every five minutes it first reconciles the payments under way with Mollie,
  * so a payment resolved now never becomes a finding, then asks the order, production, and email
  * modules for their findings (plain reads, outside any write of this module) and records the
- * answers in one transaction of its own. One instance per database, like the other two workers.
+ * answers in one transaction of its own, which also enqueues one `OPERATIONS_ALERT` to `alertEmail`
+ * for the new mailed findings. Without an address it logs one `error` line per new mailed finding
+ * instead and leaves them unalerted. One instance per database, like the other two workers.
  */
 export function createOperationsWorker({
   reconcilePayments,
   sources,
   repository,
+  outbox,
+  alertEmail,
+  frontendBaseUrl,
+  logger,
 }: {
   reconcilePayments: (now: Date) => Promise<void>
   sources: readonly FindingSource[]
   repository: Pick<FindingRepository, 'record'>
+  outbox: Pick<EmailModule['outbox'], 'enqueue'>
+  alertEmail: string | null
+  frontendBaseUrl: string
+  logger: Logger
 }) {
+  const alert: Alert = async (trx, findings) => {
+    if (alertEmail === null) {
+      for (const finding of findings) {
+        if (!finding.isNew) continue
+        logger.error(
+          { kind: finding.kind, subjectType: finding.subjectType, subjectId: finding.subjectId },
+          'An operations finding is not mailed, because no alert address is set',
+        )
+      }
+      return false
+    }
+    await outbox.enqueue(
+      trx,
+      renderOperationsAlert({ recipient: alertEmail, frontendBaseUrl, findings }),
+    )
+    return true
+  }
+
   const runOnce = async () => {
     const now = new Date()
     await reconcilePayments(now)
     const findings: Finding[] = []
     for (const source of sources) findings.push(...(await source.findings(now)))
-    await repository.record(findings)
+    await repository.record(findings, alert)
   }
 
   let controller: AbortController | null = null

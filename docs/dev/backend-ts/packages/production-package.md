@@ -176,7 +176,7 @@ production/
 ```ts
 const production = await createProductionModule({
   db,
-  settings: settings.production,          // { artifactRoot, spod: { webhookSecret, alertEmail } | null }
+  settings: settings.production,          // { artifactRoot, spod: { webhookSecret } | null }
   email,                                  // its outbox
   suppliers,                              // find(ids), for supplier names
   articleCatalog: article.articleCatalog, // today's supplier and partner ids
@@ -184,6 +184,7 @@ const production = await createProductionModule({
   spod,                                   // the application's one SpodClient
   accounts,                               // SupplierAccounts, implemented by account
   orders,                                 // ProductionOrderReads, implemented by order
+  alertEmail: settings.operations.alertEmail, // OPERATIONS_ALERT_EMAIL, where the SPOD ops alert goes
 })
 app.route('/', production.routes)
 production.worker.start()
@@ -198,12 +199,12 @@ module runs:
 
 - It **refuses to start** when a `channel = 'SPOD'` destination exists while
   `settings.production.spod` is `null`, with
-  `A print-on-demand destination exists, so production.spod.webhookSecret and production.spod.alertEmail are required`.
+  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmail are required`.
   A channel whose shipments arrive by webhook could not report one, and a
   worker started first could submit a paid order during a startup that is
-  about to fail. The half-filled block (only one of
-  `PRODUCTION_SPOD_WEBHOOK_SECRET`, `PRODUCTION_SPOD_ALERT_EMAIL`, or a secret
-  under 32 characters) already fails in the platform's `loadSettings`.
+  about to fail. A half-configured channel (`PRODUCTION_SPOD_WEBHOOK_SECRET`
+  without `OPERATIONS_ALERT_EMAIL`, or a secret under 32 characters) already
+  fails in the platform's `loadSettings`.
 - It **creates the artifact root** (`PRODUCTION_ARTIFACT_ROOT`, default
   `./data/production/artifacts`), so an unusable root fails the startup rather
   than the first generation.

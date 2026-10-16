@@ -19,6 +19,7 @@ export type QueuedEmailKind =
   | 'PRODUCER_PDF_NOTIFICATION'
   | 'SHIPPING_NOTIFICATION'
   | 'SPOD_OPS_ALERT'
+  | 'OPERATIONS_ALERT'
 
 export type EmailKind = UserEmailKind | QueuedEmailKind
 

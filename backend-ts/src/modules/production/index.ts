@@ -61,6 +61,7 @@ export async function createProductionModule({
   spod,
   accounts,
   orders,
+  alertEmail,
 }: {
   db: Kysely<Tables>
   settings: Settings['production']
@@ -71,12 +72,14 @@ export async function createProductionModule({
   spod: SubmissionClient
   accounts: SupplierAccounts
   orders: ProductionOrderReads
+  /** The operations address the SPOD ops alert goes to, `null` when none is set. */
+  alertEmail: string | null
 }) {
   const destinations = createDestinationRepository(db)
   if (settings.spod === null && (await destinations.hasSpodDestination())) {
     throw new Error(
       'A print-on-demand destination exists, so production.spod.webhookSecret and ' +
-        'production.spod.alertEmail are required',
+        'operations.alertEmail are required',
     )
   }
   const artifacts = await createArtifactStore(settings.artifactRoot)
@@ -84,7 +87,7 @@ export async function createProductionModule({
   const spodOrders = createSpodOrderRepository({
     db,
     outbox: email.outbox,
-    alertEmail: settings.spod?.alertEmail ?? null,
+    alertEmail,
   })
   const worker = createProductionWorker({
     db,

@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { sql } from 'kysely'
+import { createEmailModule, type QueuedEmailKind } from '@/modules/email'
+import { createLogger } from '@/platform/logging'
 import { testDatabase } from '@test-support/database'
 import { createFindingRepository, type Finding } from './repository'
 import { createOperationsWorker } from './worker'
@@ -26,11 +28,36 @@ const unresolvedPayment: Finding = {
   lastErrorCode: null,
 }
 
+const ALERT_EMAIL = 'ops@voenix.test'
+const logger = createLogger('operations-worker-test')
+
+const stalledEmail = (id: number, emailKind: QueuedEmailKind): Finding => ({
+  kind: 'EMAIL_STALLED',
+  subject: { type: 'EMAIL', id },
+  orderId: null,
+  since: SINCE,
+  attemptCount: 3,
+  lastErrorCode: 'SWEEGO_UNAVAILABLE',
+  emailKind,
+})
+
+const spodJob = (kind: 'SPOD_QUARANTINED' | 'SPOD_REMOTE_ATTENTION', id: number): Finding => ({
+  kind,
+  subject: { type: 'JOB', id },
+  orderId: 43,
+  since: SINCE,
+  attemptCount: null,
+  lastErrorCode: null,
+})
+
 /**
  * A worker over one source whose answer the test sets before each scan; `reconcilePayments` runs
- * as the scan's first step.
+ * as the scan's first step. It alerts `alertEmail` through the real outbox and logs to `logger`.
  */
-function scripted(reconcilePayments: (now: Date) => Promise<void> = () => Promise.resolve()) {
+function scripted(
+  reconcilePayments: (now: Date) => Promise<void> = () => Promise.resolve(),
+  alertEmail: string | null = ALERT_EMAIL,
+) {
   const answer: { findings: Finding[]; scans: number; readAt: Date | null } = {
     findings: [],
     scans: 0,
@@ -48,6 +75,20 @@ function scripted(reconcilePayments: (now: Date) => Promise<void> = () => Promis
       },
     ],
     repository: createFindingRepository(database.db),
+    outbox: createEmailModule({
+      db: database.db,
+      settings: {
+        enabled: false,
+        pollIntervalMinutes: 5,
+        apiKey: '',
+        fromEmail: '',
+        fromName: 'Voenix',
+      },
+      fetch: () => Promise.reject(new Error('No mail is sent in this test')),
+    }).outbox,
+    alertEmail,
+    frontendBaseUrl: 'https://shop.example',
+    logger,
   })
   return { worker, answer }
 }
@@ -66,13 +107,19 @@ const rows = () =>
       'last_error_code',
       'first_seen_at',
       'last_seen_at',
+      'alerted_at',
       'resolved_at',
     ])
     .orderBy('id')
     .execute()
 
+const mails = async () =>
+  (await database.db.selectFrom('email_jobs').select('payload').orderBy('id').execute()).map(
+    (row) => row.payload,
+  )
+
 beforeEach(async () => {
-  await sql`TRUNCATE operations_findings RESTART IDENTITY`.execute(database.db)
+  await sql`TRUNCATE operations_findings, email_jobs RESTART IDENTITY`.execute(database.db)
 })
 
 describe('the operations scan', () => {
@@ -169,5 +216,98 @@ describe('the operations scan', () => {
 
     expect(answer.scans).toBe(1)
     expect(await rows()).toMatchObject([{ kind: 'PAYMENT_UNRESOLVED', resolved_at: null }])
+  })
+})
+
+describe('the operations alert', () => {
+  test('several new findings are one mail in the scan, and a finding seen again is not mailed again', async () => {
+    const { worker, answer } = scripted()
+    answer.findings = [stalledJob(1, null), unresolvedPayment]
+    await worker.runOnce()
+    const [mail, ...others] = await mails()
+    expect(others).toEqual([])
+    expect(mail).toMatchObject({
+      kind: 'OPERATIONS_ALERT',
+      recipient: ALERT_EMAIL,
+      subject: 'Betrieb: 2 neue Befunde',
+    })
+    expect(mail?.text).toContain('Produktions-PDF wird nicht erzeugt')
+    expect(mail?.text).toContain('Zahlung seit über einer Stunde ohne Ergebnis')
+    expect(mail?.text).toContain('https://shop.example/admin/orders/42')
+    const [job, payment] = await rows()
+    expect(job?.alerted_at).toEqual(job?.first_seen_at ?? null)
+    expect(payment?.alerted_at).toEqual(payment?.first_seen_at ?? null)
+
+    answer.findings = [stalledJob(4, 'MISSING_IMAGE'), unresolvedPayment]
+    await worker.runOnce()
+    answer.findings = [unresolvedPayment]
+    await worker.runOnce()
+    expect(await mails()).toHaveLength(1)
+    expect((await rows())[1]?.alerted_at).toEqual(payment?.alerted_at ?? null)
+  })
+
+  test('the two SPOD kinds and a stalled operations alert are listed only', async () => {
+    const { worker, answer } = scripted()
+    answer.findings = [
+      spodJob('SPOD_QUARANTINED', 5),
+      spodJob('SPOD_REMOTE_ATTENTION', 6),
+      stalledEmail(7, 'OPERATIONS_ALERT'),
+    ]
+    await worker.runOnce()
+    expect(await mails()).toEqual([])
+
+    answer.findings = [...answer.findings, stalledEmail(8, 'ORDER_CONFIRMATION')]
+    await worker.runOnce()
+    const [mail, ...others] = await mails()
+    expect(others).toEqual([])
+    expect(mail?.subject).toBe('Betrieb: 1 neuer Befund')
+    expect(mail?.text).toContain('Betroffen:      EMAIL 8')
+    const recorded = await rows()
+    expect(recorded.map((row) => [row.subject_id, row.alerted_at === null])).toEqual([
+      [5, true],
+      [6, true],
+      [7, true],
+      [8, false],
+    ])
+  })
+
+  test('a finding that resolved and reappears is mailed again', async () => {
+    const { worker, answer } = scripted()
+    answer.findings = [stalledJob(1, null)]
+    await worker.runOnce()
+    answer.findings = []
+    await worker.runOnce()
+    answer.findings = [stalledJob(2, null)]
+    await worker.runOnce()
+    expect(await mails()).toHaveLength(2)
+    expect((await rows()).map((row) => row.alerted_at === null)).toEqual([false, false])
+  })
+
+  test('without an address the findings are recorded unalerted and each new one is logged once', async () => {
+    const error = spyOn(logger, 'error').mockImplementation(() => undefined)
+    try {
+      const { worker, answer } = scripted(undefined, null)
+      answer.findings = [stalledJob(1, null), unresolvedPayment, spodJob('SPOD_QUARANTINED', 5)]
+      await worker.runOnce()
+      await worker.runOnce()
+      expect(await mails()).toEqual([])
+      expect((await rows()).map((row) => [row.kind, row.alerted_at])).toEqual([
+        ['JOB_GENERATION_STALLED', null],
+        ['PAYMENT_UNRESOLVED', null],
+        ['SPOD_QUARANTINED', null],
+      ])
+      expect(error.mock.calls).toEqual([
+        [
+          { kind: 'JOB_GENERATION_STALLED', subjectType: 'JOB', subjectId: 3 },
+          'An operations finding is not mailed, because no alert address is set',
+        ],
+        [
+          { kind: 'PAYMENT_UNRESOLVED', subjectType: 'PAYMENT', subjectId: 9 },
+          'An operations finding is not mailed, because no alert address is set',
+        ],
+      ])
+    } finally {
+      error.mockRestore()
+    }
   })
 })

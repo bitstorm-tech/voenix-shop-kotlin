@@ -3,6 +3,11 @@ import { renderAccountConfirmation } from './account-confirmation'
 import { renderChangeEmailConfirmation } from './change-email-confirmation'
 import { renderChangeEmailNotification } from './change-email-notification'
 import { DURABLE_LINK_HINT, type RenderedEmail } from './layout'
+import {
+  renderOperationsAlert,
+  type OperationsAlertFinding,
+  type OperationsAlertKind,
+} from './operations-alert'
 import { renderOrderConfirmation, type OrderConfirmationData } from './order-confirmation'
 import { renderPasswordChanged } from './password-changed'
 import { renderPasswordReset } from './password-reset'
@@ -348,5 +353,164 @@ describe('SPOD ops alert', () => {
     )
     expect(new Set(texts).size).toBe(4)
     for (const text of texts) expect(text).toContain('SPOD-Auftragsnummer:  noch keine')
+  })
+})
+
+describe('operations alert', () => {
+  const finding = (
+    kind: OperationsAlertKind,
+    overrides: Partial<OperationsAlertFinding> = {},
+  ): OperationsAlertFinding => ({
+    kind,
+    subjectType: 'JOB',
+    subjectId: 3,
+    orderId: 42,
+    since: new Date('2026-10-16T10:00:00.000Z'),
+    attemptCount: 3,
+    lastErrorCode: 'SFTP_CONNECT_FAILED',
+    ...overrides,
+  })
+  const alert = (findings: OperationsAlertFinding[]) =>
+    renderOperationsAlert({ recipient: 'ops@voenix.shop', frontendBaseUrl: BASE_URL, findings })
+
+  test('one row per finding, every mailed kind under its own German name', () => {
+    const mail = alert([
+      finding('PAYMENT_UNRESOLVED', {
+        subjectType: 'PAYMENT',
+        subjectId: 9,
+        orderId: 41,
+        attemptCount: null,
+        lastErrorCode: null,
+      }),
+      finding('PAYMENT_PAID_ORDER_UNPAID', {
+        subjectType: 'PAYMENT',
+        subjectId: 10,
+        attemptCount: null,
+        lastErrorCode: null,
+      }),
+      finding('PRODUCTION_REQUEST_STALLED', { subjectType: 'REQUEST', subjectId: 1 }),
+      finding('JOB_GENERATION_STALLED', { lastErrorCode: 'MISSING_IMAGE' }),
+      finding('DELIVERY_STALLED', { subjectType: 'DELIVERY', subjectId: 2 }),
+      finding('SPOD_SUBMISSION_STALLED', { subjectId: 4, attemptCount: 0, lastErrorCode: null }),
+      finding('SHIPMENT_OVERDUE', { subjectId: 5, attemptCount: null, lastErrorCode: null }),
+      finding('EMAIL_STALLED', {
+        subjectType: 'EMAIL',
+        subjectId: 6,
+        orderId: null,
+        lastErrorCode: 'SWEEGO_UNAVAILABLE',
+      }),
+    ])
+    expect(mail.kind).toBe('OPERATIONS_ALERT')
+    expect(mail.recipient).toBe('ops@voenix.shop')
+    expect(mail.recipientName).toBeNull()
+    expect(mail.subject).toBe('Betrieb: 8 neue Befunde')
+    expectFramedWithLink(mail, `${BASE_URL}/admin/orders/41`)
+    expect(mail.text).toBe(
+      [
+        'Neue Befunde im Betrieb',
+        '========================================',
+        '',
+        'Neu seit dem letzten Prüflauf: 8 neue Befunde. Alle offenen Befunde stehen in der Administration unter „Operations“.',
+        '',
+        '----------------------------------------',
+        'Zahlung seit über einer Stunde ohne Ergebnis',
+        'Betroffen:      PAYMENT 9',
+        'Bestellnummer:  ORD-41',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       –',
+        'Fehlercode:     keine',
+        'Verlauf:        https://shop.example/admin/orders/41',
+        '',
+        '----------------------------------------',
+        'Zahlung bezahlt, Bestellung aber nicht',
+        'Betroffen:      PAYMENT 10',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       –',
+        'Fehlercode:     keine',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'Produktionsanfrage wird nicht aufgeteilt',
+        'Betroffen:      REQUEST 1',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       3',
+        'Fehlercode:     SFTP_CONNECT_FAILED',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'Produktions-PDF wird nicht erzeugt',
+        'Betroffen:      JOB 3',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       3',
+        'Fehlercode:     MISSING_IMAGE',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'SFTP-Übertragung kommt nicht an',
+        'Betroffen:      DELIVERY 2',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       3',
+        'Fehlercode:     SFTP_CONNECT_FAILED',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'SPOD-Auftrag wird nicht angelegt',
+        'Betroffen:      JOB 4',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       0',
+        'Fehlercode:     keine',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'Versand seit über sieben Tagen überfällig',
+        'Betroffen:      JOB 5',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       –',
+        'Fehlercode:     keine',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'E-Mail wird nicht versendet',
+        'Betroffen:      EMAIL 6',
+        'Bestellnummer:  keine',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       3',
+        'Fehlercode:     SWEEGO_UNAVAILABLE',
+      ].join('\n'),
+    )
+    // A finding without an order has no timeline link.
+    expect(mail.html.match(/href=/g)).toHaveLength(7)
+  })
+
+  test('a single finding names the count in the singular', () => {
+    const mail = alert([finding('DELIVERY_STALLED', { subjectType: 'DELIVERY', subjectId: 2 })])
+    expect(mail.subject).toBe('Betrieb: 1 neuer Befund')
+    expect(mail.html).toContain('<h3>SFTP-Übertragung kommt nicht an</h3>')
+    expect(mail.html).toContain(
+      '<a href="https://shop.example/admin/orders/42">Verlauf der Bestellung öffnen</a>',
+    )
+    expect(mail.text).toBe(
+      [
+        'Neue Befunde im Betrieb',
+        '========================================',
+        '',
+        'Neu seit dem letzten Prüflauf: 1 neuer Befund. Alle offenen Befunde stehen in der Administration unter „Operations“.',
+        '',
+        '----------------------------------------',
+        'SFTP-Übertragung kommt nicht an',
+        'Betroffen:      DELIVERY 2',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       3',
+        'Fehlercode:     SFTP_CONNECT_FAILED',
+        'Verlauf:        https://shop.example/admin/orders/42',
+      ].join('\n'),
+    )
   })
 })

@@ -99,6 +99,7 @@ await email.worker.stop()
 | `PRODUCER_PDF_NOTIFICATION` | `renderProducerPdfNotification({ …, producerName })` | queued | producer name, else the destination label |
 | `SHIPPING_NOTIFICATION` | `renderShippingNotification(ShippingNotificationData)` | queued | customer first name |
 | `SPOD_OPS_ALERT` | `renderSpodOpsAlert({ …, reason, externalReference })` | queued | — (an operations mailbox is not a person) |
+| `OPERATIONS_ALERT` | `renderOperationsAlert({ recipient, frontendBaseUrl, findings })` | queued | — (an operations mailbox is not a person) |
 
 Every function returns a `RenderedEmail`:
 
@@ -128,6 +129,12 @@ Some decisions live in the copy and stay as the Kotlin backend made them:
 - The SPOD ops alert names the job, the order, and the partner's order id
   (`noch keine` while none is known). Its `reason` is a bounded union, so no
   provider text reaches a mail.
+- The operations alert lists the new findings of one operations scan, one
+  block per finding with the German name of its kind (a bounded union with a
+  table of cases), the subject, the order number, since when, the attempts and
+  error code, and the link to the admin timeline of the order; the subject
+  names the count. It carries no customer data (see
+  [The alert](operations-package.md#the-alert)).
 
 ### Links
 
@@ -189,7 +196,8 @@ The optional third argument `{ orderId }` stores the order the mail is about
 in `email_jobs.order_id`. The three order mails pass it: the order
 confirmation (order module, at placement), the producer notification
 (production, when a delivery closes), and the shipping notification
-(production, in the ship transaction). The SPOD ops alert passes none. The
+(production, in the ship transaction). The SPOD ops alert and the operations
+alert pass none. The
 column has no foreign key on purpose: email stays a leaf that knows no order
 table, and deleting an order must never fail on an unrelated mail.
 
