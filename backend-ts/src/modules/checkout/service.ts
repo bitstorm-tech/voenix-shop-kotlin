@@ -67,10 +67,11 @@ export type CheckoutService = ReturnType<typeof createCheckoutService>
 /**
  * The checkout in two transactions (#247). The read-only guards run first, so a checkout that could
  * never succeed writes nothing. **TX1** holds the cart row lock while it reserves the coupon, places
- * the order with its confirmation mail, and, for a free order, confirms it and closes the cart. The
- * provider call runs outside any transaction. **TX2** closes the cart once a payment exists. A
- * provider refusal leaves the cart active: `orders.startPayment` has cancelled the order and
- * released the reservation, and the customer's next attempt finds their cart again.
+ * the order with its confirmation mail, and, for a free order or a live order that is already paid,
+ * settles it and closes the cart. The provider call runs outside any transaction. **TX2** closes
+ * the cart once a payment exists. A provider refusal leaves the cart active: `orders.startPayment`
+ * has cancelled the order and released the reservation, and the customer's next attempt finds
+ * their cart again.
  *
  * The guest token is read, never minted, and never logged: the only identifier that reaches a log
  * line here is the order id.
@@ -129,13 +130,18 @@ export function createCheckoutService({
       }
       // `alreadyPlaced` takes the same path: both submissions are answered with the one order.
       const { order } = placed
-      if (order.totalCents > 0) return { kind: 'payable', order }
-      const confirmation = await orders.confirmFree(trx, order.orderId)
-      if (confirmation !== 'paid' && confirmation !== 'alreadyPaid') {
-        throw new Error(
-          `Free order ${String(order.orderId)} could not be confirmed: ${confirmation}`,
-        )
+      if (placed.kind !== 'alreadyPaid') {
+        if (order.totalCents > 0) return { kind: 'payable', order }
+        const confirmation = await orders.confirmFree(trx, order.orderId)
+        if (confirmation !== 'paid' && confirmation !== 'alreadyPaid') {
+          throw new Error(
+            `Free order ${String(order.orderId)} could not be confirmed: ${confirmation}`,
+          )
+        }
       }
+      // A free order, or a live order paid while its cart stayed open (a checkout that died
+      // between its two transactions, paid through the retry route): nothing is left to pay, so
+      // the cart closes here and the answer is the settled order.
       await closeCart(trx, cart.cartId)
       return { kind: 'started', orderId: order.orderId, checkoutUrl: null }
     })
@@ -178,8 +184,10 @@ export function createCheckoutService({
     },
 
     /**
-     * Starts the payment of an already placed order again. No cart is read and none is closed;
-     * whatever cart the order came from was closed when it was placed.
+     * Starts the payment of an already placed order again. No cart is read; the cart the order
+     * came from is closed once the payment stands, which is a no-op for the usual retry (the
+     * checkout closed it) and the repair for a checkout that died between its two transactions,
+     * whose cart would otherwise stay open on a paid order.
      */
     startPayment: async (
       orderId: number,
@@ -197,9 +205,9 @@ export function createCheckoutService({
           return { kind: 'notPayable' }
         case 'payable': {
           const checkoutUrl = await orders.startPayment(payable.order)
-          return checkoutUrl === null
-            ? { kind: 'paymentNotStarted' }
-            : { kind: 'started', orderId, checkoutUrl }
+          if (checkoutUrl === null) return { kind: 'paymentNotStarted' }
+          await write(db, (trx) => carts.markCheckedOut(trx, payable.order.cartId))
+          return { kind: 'started', orderId, checkoutUrl }
         }
       }
     },

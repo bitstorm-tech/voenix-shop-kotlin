@@ -20,12 +20,25 @@ import {
 
 /**
  * What a placement ends in. `alreadyPlaced` is a success: the cart has a live order, and the
- * answer is that stored order, never the request just made. `unknownArticle` wrote nothing.
+ * answer is that stored order, never the request just made; `alreadyPaid` is that same case for a
+ * live order that is already `PAID`, which has nothing left to pay. `unknownArticle` wrote nothing.
  */
 export type PlaceOrderResult =
   | { kind: 'placed'; order: PayableOrder }
   | { kind: 'alreadyPlaced'; order: PayableOrder }
+  | { kind: 'alreadyPaid'; order: PayableOrder }
   | { kind: 'unknownArticle' }
+
+/**
+ * The one read this module needs of the cart's `print_images` table, declared here as a type and
+ * implemented by the cart module (`createPrintImageReads`), which depends on this one and can
+ * therefore not be asked directly: the composition root hands the implementation in. No ownership
+ * rule applies; the caller is the production read, never a customer.
+ */
+export interface PrintImageReads {
+  /** The stored file name of every known id in `imageIds`; unknown ids are absent. */
+  filenames(imageIds: Iterable<number>): Promise<Map<number, string>>
+}
 
 /**
  * Why an order can or cannot start a second payment journey. `notFound` covers unknown *and*
@@ -52,6 +65,7 @@ export function createOrderService({
   articleCatalog,
   email,
   images,
+  printImages,
   payments,
   frontendBaseUrl,
 }: {
@@ -59,6 +73,7 @@ export function createOrderService({
   articleCatalog: Pick<ArticleCatalog, 'find'>
   email: Pick<EmailModule, 'outbox'>
   images: Pick<ImageModule, 'privateStorage'>
+  printImages: PrintImageReads
   payments: Pick<PaymentService, 'stored' | 'refreshed'>
   frontendBaseUrl: string
 }) {
@@ -118,7 +133,9 @@ export function createOrderService({
      */
     place: async (trx: Transaction<Tables>, input: PlaceOrderInput): Promise<PlaceOrderResult> => {
       const live = await liveOrderOfCart(trx, input.cartId)
-      if (live !== undefined) return { kind: 'alreadyPlaced', order: live }
+      if (live !== undefined) {
+        return { kind: live.status === 'PAID' ? 'alreadyPaid' : 'alreadyPlaced', order: live.order }
+      }
       const catalog = await articleCatalog.find(input.lines)
       if (input.lines.some((line) => !catalog.has(catalogKey(line)))) {
         return { kind: 'unknownArticle' }
@@ -158,6 +175,7 @@ export function createOrderService({
         kind: 'placed',
         order: {
           orderId,
+          cartId: input.cartId,
           totalCents,
           email: input.email,
           phone: input.phone,
@@ -183,17 +201,17 @@ export function createOrderService({
 
     /**
      * The production view of one order: the snapshot of every line plus the absolute path of its
-     * print image from the image module. A file the storage cannot answer for leaves `imagePath`
-     * `null`, which production records as retryable.
+     * print image, the file name from the cart module and the path from the image module. A file
+     * the storage cannot answer for leaves `imagePath` `null`, which production records as
+     * retryable.
      */
     productionData: async (orderId: number): Promise<ProductionData | null> => {
       const order = await repository.storedOrder(orderId)
       if (order === undefined) return null
-      const paths = await images.privateStorage.originalPaths(
-        order.lines.flatMap((line) =>
-          line.printImageFilename === null ? [] : [line.printImageFilename],
-        ),
+      const filenames = await printImages.filenames(
+        order.lines.flatMap((line) => (line.printImageId === null ? [] : [line.printImageId])),
       )
+      const paths = await images.privateStorage.originalPaths(filenames.values())
       const { shippingAddress: shipping } = order
       return {
         orderId: order.orderId,
@@ -207,10 +225,13 @@ export function createOrderService({
         shippingPostalCode: shipping.postalCode,
         shippingCity: shipping.city,
         shippingCountry: shipping.country,
-        lines: order.lines.map(({ printImageFilename, ...line }) => ({
-          ...line,
-          imagePath: printImageFilename === null ? null : (paths.get(printImageFilename) ?? null),
-        })),
+        lines: order.lines.map(({ printImageId, ...line }) => {
+          const filename = printImageId === null ? undefined : filenames.get(printImageId)
+          return {
+            ...line,
+            imagePath: filename === undefined ? null : (paths.get(filename) ?? null),
+          }
+        }),
       }
     },
 

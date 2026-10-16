@@ -598,7 +598,9 @@ write is ruled out first:
   belongs to that category. The answer holds until the transaction ends,
   because every writer that deletes a subcategory or moves one in or out of a
   category locks that category row first. The price id is minted in the same
-  transaction. What is left is the slot variants of the mapping insert.
+  transaction, and the price write locks its VAT entries and throws instead of
+  failing on a deleted one (see the pricing guide). What is left is the slot
+  variants of the mapping insert.
 
 A create or update maps `23505` to the name conflict although the wrapper also
 sees the `COMMIT`: the position it writes is decided under the anchor, so a

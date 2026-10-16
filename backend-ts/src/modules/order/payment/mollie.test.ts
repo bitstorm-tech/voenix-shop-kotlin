@@ -5,6 +5,7 @@ import { amountText, createMolliePayments, MOLLIE_PAYMENTS_URL } from './mollie'
 
 const order: PayableOrder = {
   orderId: 42,
+  cartId: 7,
   totalCents: 4070,
   email: 'customer@example.com',
   phone: '0176 23123456',

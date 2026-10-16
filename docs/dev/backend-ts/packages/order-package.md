@@ -73,7 +73,7 @@ flowchart TB
         end
     end
 
-    Others["promotionCodes.redeem/release<br/>requestProduction · outbox.enqueue<br/>articleCatalog.find · privateStorage"]
+    Others["promotionCodes.redeem/release<br/>requestProduction · outbox.enqueue<br/>articleCatalog.find · privateStorage · printImages.filenames"]
     Database[("PostgreSQL<br/>orders · order_items · payments")]
 
     Client --> Routes --> Service
@@ -106,8 +106,8 @@ order/
 |- routes.ts                orderRoutes (customer + lookup subtrees), adminPdfRoutes(generator),
 |                           the no-store middleware, the PRODUCTION_PDF_* table
 |- service.ts               createOrderService: the three reads, place, payable, the production reads;
-|                           PlaceOrderResult, PayableResult
-|- transitions.ts           createOrderTransitions: markPaid(trx, id), cancel(id), paymentEnded(id)
+|                           PlaceOrderResult, PayableResult, PrintImageReads (the cart implements it)
+|- transitions.ts           createOrderTransitions: markPaid(trx, id), cancel(trx, id), paymentEnded(id)
 |- repository.ts            createOrderRepository (the reads) and the statements taking a trx
 |                           (liveOrderOfCart, insertOrder, lockOrder, setOrderStatus); the value
 |                           types PayableOrder, OrderView, PlaceOrderInput, StoredOrder; berlinDate
@@ -115,8 +115,8 @@ order/
 |  |- mollie.ts             MolliePayments (the provider seam), PaymentStatus, createMolliePayments
 |  |- service.ts            createPaymentService: startPayment, confirm, stored, refreshed;
 |  |                        PaymentConfirmation
-|  |- repository.ts         createPaymentRepository; livePayment and insertPayment taking a trx;
-|  |                        isLive
+|  |- repository.ts         createPaymentRepository; livePayment, insertPayment, and moveStatus
+|  |                        taking a trx; isLive, isUnderWay
 |  |- routes.ts             paymentRoutes: the webhook and its constant-time secret compare
 |  |- mollie.test.ts        the adapter against a stubbed fetch
 |  `- payment.test.ts       startPayment, the webhook, the status refresh
@@ -270,10 +270,14 @@ the lines with the prices the customer was quoted.
 1. **The live order of the cart.** If the cart already has an order that is not
    cancelled, the answer is `{ kind: 'alreadyPlaced', order }`, the *stored*
    order, and nothing is written. This is what makes a double-submitted
-   checkout harmless. The read is exact because the caller holds the cart lock;
-   the partial unique index `ux_orders_live_cart` stays the authority behind it,
-   and a caller without the lock that races a second placement gets its `23505`
-   as an exception.
+   checkout harmless. A live order that is already `PAID` is answered as
+   `{ kind: 'alreadyPaid', order }` instead, so the checkout knows there is
+   nothing left to pay (its cart stayed open because a checkout died between
+   its two transactions; see [the Checkout package](checkout-package.md)). The
+   read is exact because the caller holds the cart lock; the partial unique
+   index `ux_orders_live_cart` stays the authority behind it, and a caller
+   without the lock that races a second placement gets its `23505` as an
+   exception.
 2. **The catalog snapshot.** `articleCatalog.find(lines)` resolves every
    `(articleId, variantId)` once, and every reference has to come back;
    otherwise the answer is `unknownArticle` and nothing is written. The line
@@ -288,8 +292,9 @@ the lines with the prices the customer was quoted.
 
 A `null` billing address means "same as shipping" and is stored as the
 shipping values. The answer of a fresh placement is `{ kind: 'placed', order }`
-with the `PayableOrder` snapshot: order id, total, e-mail, phone, and the two
-stored addresses, which is everything a payment needs and nothing else.
+with the `PayableOrder` snapshot: order id, cart id, total, e-mail, phone, and
+the two stored addresses, which is everything a payment needs and nothing else
+(the cart id is what the checkout's retry route closes once the payment stands).
 
 ### Why the confirmation mail hangs on the placement
 
@@ -317,7 +322,8 @@ the order again per attempt.
 [`transitions.ts`](../../../../backend-ts/src/modules/order/transitions.ts)
 runs in the caller's transaction. Checkout calls it as `orders.confirmFree`
 inside TX1 for an order of `0` cents; the webhook and the detail refresh run it
-in a transaction of their own.
+in one transaction together with the payment's `PAID` write (see
+[The webhook](#the-webhook)).
 
 ```text
 SELECT … FROM orders WHERE id = ? FOR UPDATE      before the status is read
@@ -340,12 +346,14 @@ Nothing takes them the other way round.
 
 ## Cancelling an order, and a payment that ends
 
-`cancel(orderId)` locks the order the same way. A `PENDING` order becomes
-`CANCELLED`, falls out of `ux_orders_live_cart` (so the cart can be checked out
-again), and its promotion reservation is released in the same commit. A `PAID`
-order is refused (`'paid'`) and logged: the money moved and production is
-requested. The one production caller is `startPayment` when Mollie refuses to
-create a payment.
+`cancel(trx, orderId)` locks the order the same way, in the caller's
+transaction. A `PENDING` order becomes `CANCELLED`, falls out of
+`ux_orders_live_cart` (so the cart can be checked out again), and its promotion
+reservation is released in the same commit. A `PAID` order is refused
+(`'paid'`) and logged: the money moved and production is requested. The one
+production caller is `startPayment` when Mollie refuses to create a payment,
+and it calls `cancel` inside the transaction that already holds the order lock
+(the reason is under [Starting a payment](#starting-a-payment)).
 
 `paymentEnded(orderId)` is what a payment that failed, expired, or was
 cancelled by the customer does: the order stays `PENDING` (the customer may pay
@@ -390,9 +398,15 @@ on the live index, the re-read of the winner, the cancellation of the loser's
 provider payment, the one bounded retry into a vacated slot): with the lock
 there is no loser. Two compensations stay:
 
-- **Mollie refuses or cannot be reached** → `cancel(orderId)`: the order is
+- **Mollie refuses or cannot be reached** → `cancel(trx, orderId)` in the
+  *same* transaction, under the lock the start already holds: the order is
   cancelled and its reservation released, a warning names the order, and the
-  caller gets `null`. Checkout does not have to cancel anything itself.
+  caller gets `null`. Checkout does not have to cancel anything itself. The
+  cancellation must not be a transaction of its own: the refusal would commit
+  nothing and release the lock, a second start queued on that lock would then
+  create a live payment and answer its URL, and the first start's cancellation
+  would take the order away under the customer about to pay it. Under the one
+  lock the queued start finds the order `CANCELLED` and starts nothing.
 - **The database fails after Mollie created the payment** → the created
   payment is cancelled at Mollie (best effort) before the error travels on.
   An open payment nobody will be sent to is the one thing that could still take
@@ -431,10 +445,10 @@ place:
 | missing or blank `id` | `400 {"message":"Missing payment id"}` |
 | Mollie unreachable, unreadable, an unknown status word, or an answer about another payment | `502`, so Mollie redelivers |
 | status recorded, not `PAID` | `200`; a terminal status also releases the reservation (`paymentEnded`) |
-| `PAID`, and the order is paid now or already was | `200` |
+| `PAID`, and the order is paid now or already was | `200`; the payment's `PAID` and [the paid transition](#the-paid-transition) commit together, so a transition that fails leaves the payment under way and the redelivery confirms it |
 | `PAID`, but Mollie's amount differs from the stored `amount_cents` | `200`, the order is **not** paid, ERROR log for a human |
 | `PAID` for a `CANCELLED` order | `200`, ERROR log: the amount has to be refunded by hand |
-| the status write was refused by the live index (a dead payment reporting itself next to a live one) | `200`, ERROR "may have been charged twice"; on `PAID` the order is still paid |
+| a status for a payment that is final (`PAID`, or `FAILED`, `CANCELED`, `EXPIRED`) | `200`, nothing moves: a delayed answer about an earlier state never takes a paid payment back; a `PAID` report still runs the paid transition, which finds the order paid |
 | a payment Mollie knows and this backend never created | `200`, WARN |
 | database failure | `500` (the application's error answer), so Mollie redelivers |
 
@@ -446,6 +460,16 @@ an id Mollie does not know is a `502`, not a probe of which ids this shop has.
 A redelivered terminal status releases the reservation again. The release is
 idempotent, and a redelivery is the only retry a release lost to a database
 failure has.
+
+A status is written **forward only**: `moveStatus(trx, paymentId, status)` in
+[`payment/repository.ts`](../../../../backend-ts/src/modules/order/payment/repository.ts)
+updates the row only while its status is `OPEN`, `PENDING`, or `AUTHORIZED`
+(`isUnderWay`). `PAID` and the three terminal statuses are final, so a refresh
+whose Mollie answer was delayed past a webhook's `PAID` writes nothing, and a
+dead payment can never re-enter `ux_payments_live_order` next to a live one:
+there is no unique violation left to map, and no "superseded" outcome. The
+paid path takes the order lock first (`markPaid`) and the payment row second,
+which keeps the module's lock order.
 
 ### Reading a status: stored versus refreshed
 
@@ -459,8 +483,7 @@ refunds), and the terminal three never move. What it does with Mollie's answer
 is exactly what the webhook does, through the same function, so the amount
 check and the cancelled-order rule hold whichever of the two learns it first.
 A provider that cannot answer is not an error here: the stored status is a
-truthful answer, logged at WARN. A write the live index refused answers the
-status the row *has*, never one that was only reported.
+truthful answer, logged at WARN.
 
 ### The Mollie adapter
 
@@ -542,10 +565,15 @@ the production PDF, and the supplier pages all take the date from that one
 function.
 
 The print image's file name lives in `print_images`, a table the **cart**
-module owns. Cart depends on order, so order cannot ask cart; it reads the two
-columns `id, filename` with one plain SQL statement and declares nothing of
-that table in its `schema.ts`. This is the one place this module reads a table
-it does not own.
+module owns, and a module queries only its own tables (`AGENTS.md`). Cart
+depends on order, so order cannot import cart; it does what production does
+with order: `service.ts` declares the read it needs as the type
+`PrintImageReads` (`filenames(imageIds)`, a `Map` of id to file name, no
+ownership rule), the cart module implements it as `createPrintImageReads(db)`,
+and the composition root hands the implementation to `createOrderModule`.
+`storedOrder` answers each line's `printImageId`; `productionData` resolves the
+ids to file names through `printImages` and the file names to paths through
+`images.privateStorage`.
 
 ## The schema
 
@@ -571,11 +599,11 @@ migrations until `orders` existed.
 
 | Function | Caller | What it does |
 | --- | --- | --- |
-| `place(trx, input)` | checkout TX1 | [Placing an order](#placing-an-order); answers `placed`, `alreadyPlaced`, or `unknownArticle` |
+| `place(trx, input)` | checkout TX1 | [Placing an order](#placing-an-order); answers `placed`, `alreadyPlaced`, `alreadyPaid`, or `unknownArticle` |
 | `confirmFree(trx, orderId)` | checkout TX1, free order | [the paid transition](#the-paid-transition) in the caller's transaction; answers `'paid' \| 'alreadyPaid' \| 'cancelled' \| 'notFound'` |
 | `startPayment(order)` | checkout, after TX1, and the retry route | [Starting a payment](#starting-a-payment); its own transaction, never the caller's |
 | `payable(orderId, userId, guestToken)` | the retry route | `payable` with the `PayableOrder`, or `notFound` (unknown and foreign), `alreadyPaid`, `cancelled`, `free` |
-| `cancel(orderId)` | `startPayment` itself | [Cancelling](#cancelling-an-order-and-a-payment-that-ends); answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
+| `cancel(trx, orderId)` | `startPayment` itself | [Cancelling](#cancelling-an-order-and-a-payment-that-ends) in the caller's transaction; answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
 | `orderItem(orderItemId, userId, guestToken)` | cart reorder | `{ articleId, variantId, promptId, printImageId }` of an owned line, or `undefined`; no price and no quantity, because a reorder is an ordinary add at today's price |
 | `productionData`, `fulfillmentOrders`, `shippingNotificationOrder` | production | [The three production reads](#the-three-production-reads) |
 
@@ -586,7 +614,9 @@ own error policy.
 
 Production is created *with* `orders`, and order needs two things from
 production: `requestProduction` for the paid transition and
-`productionPdfGenerator` for the two admin routes. Neither needs late binding:
+`productionPdfGenerator` for the two admin routes. The cart is created with
+`orders` too, and order needs one read of the cart, the print image file
+names. None of this needs late binding:
 
 - `requestProduction(trx, orderId)` is a plain function that production's
   `index.ts` exports. The transition imports it; no instance of production is
@@ -595,6 +625,9 @@ production: `requestProduction` for the paid transition and
   `adminPdfRoutes(generator)`, a function the composition root calls once
   production exists, the same shape as the image module's
   `guestImageRoute(resolver)`.
+- The cart's `createPrintImageReads(db)` is a factory the composition root
+  calls *before* `createOrderModule`, not a member of the cart module: it is a
+  plain read of `print_images` that needs no cart instance.
 
 ```ts
 const order = createOrderModule({
@@ -604,6 +637,7 @@ const order = createOrderModule({
   promotionCodes: promotion.promotionCodes,
   email,                                  // its outbox
   images,                                 // its privateStorage
+  printImages: createPrintImageReads(db), // the cart's PrintImageReads
   guestTokens: auth.guestTokens,
   // mollie: defaults to createMolliePayments(settings.mollie) on the global fetch
 })
@@ -633,10 +667,10 @@ transaction fail.
 | File | What it states |
 | --- | --- |
 | `routes.test.ts` | the history (own orders newest first, the account/guest separation, nobody gets `[]`), the exact wire shape, the detail's `404` for foreign, unknown, and malformed ids, the lookup with its uniform `404` and no token in the answer, `no-store` everywhere, the admin PDF list, download, and failure codes against a fake generator |
-| `placement.test.ts` | the snapshot of a mug and a SPOD line (`spod_hotspot` included), the billing fallback, the mail payload with the permanent link; `alreadyPlaced`; a cancelled order freeing the cart; `unknownArticle` writing nothing; order and mail as one commit (a failing enqueue, a rolled-back caller); the `payable` matrix; `orderItem` for owner and stranger |
+| `placement.test.ts` | the snapshot of a mug and a SPOD line (`spod_hotspot` included), the billing fallback, the mail payload with the permanent link; `alreadyPlaced` (and `alreadyPaid` in the checkout journeys); a cancelled order freeing the cart; `unknownArticle` writing nothing; order and mail as one commit (a failing enqueue, a rolled-back caller); the `payable` matrix; `orderItem` for owner and stranger |
 | `transitions.test.ts` | the paid transition: redemption plus production request in one commit, exactly once, also for two concurrent calls; rolled back by a failing production request; an exhausted coupon still paying; a cancelled order never paid; `cancel` releasing the reservation and refusing a paid order |
-| `production-reads.test.ts` | `productionData` with the snapshot, the image path, and the Berlin date across midnight; a vanished image file; `fulfillmentOrders`; `shippingNotificationOrder` |
-| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh |
+| `production-reads.test.ts` | `productionData` with the snapshot, the image path, and the Berlin date across midnight; a vanished image file; `fulfillmentOrders`; `shippingNotificationOrder`. The `PrintImageReads` here is a one-statement fake in `test-fixtures.ts` (order may not import cart); the cart's implementation is tested in the cart module |
+| `payment/payment.test.ts` | `startPayment`: one row and no second provider call on repeat, three concurrent starts making one payment, a second payment after an expired one, a refusal cancelling the order and releasing the reservation, a refusal racing a second start (the order ends cancelled with no payment), no payment for a non-pending order; the webhook: a double and concurrent `PAID` paying once, `PAID` and the paid transition rolled back together by a failing production request and confirmed by the redelivery, `OPEN` after `PAID` leaving `PAID`, the amount mismatch, a failed payment releasing the reservation, `403`, `400`, `502`, and the unknown payment; the history never calling Mollie, the detail refresh repairing a missed webhook, the degraded refresh |
 | `payment/mollie.test.ts` | the adapter against a stubbed `fetch`: the full request body and headers, phone normalization and amount formatting, the seven status words, every unusable answer (refusal, redirect, transport failure, missing checkout URL, truncated body, foreign currency, a third decimal, another payment's id), `cancel` |
 
 There is no `validation.test.ts`: no route of this module takes a JSON body.

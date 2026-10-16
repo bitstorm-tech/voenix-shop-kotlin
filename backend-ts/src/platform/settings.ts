@@ -11,6 +11,10 @@ import { z } from 'zod'
 export type Settings = ReturnType<typeof loadSettings>
 
 const required = z.string({ error: 'is required' }).trim().min(1, 'is required')
+/** Like `required`, but the value is taken as written: a password may begin or end with a space. */
+const requiredUntrimmed = z
+  .string({ error: 'is required' })
+  .refine((value) => value.trim() !== '', 'is required')
 const optional = z.string().trim().default('')
 const booleanText = z.enum(['true', 'false']).transform((value) => value === 'true')
 const integerText = z.string().regex(/^\d+$/, 'must be a whole number').transform(Number)
@@ -25,7 +29,7 @@ const schema = z
     DATABASE_PORT: integerText.default(5432),
     DATABASE_NAME: required,
     DATABASE_USERNAME: required,
-    DATABASE_PASSWORD: required,
+    DATABASE_PASSWORD: requiredUntrimmed,
     DATABASE_SEARCH_PATH: z
       .string()
       .regex(/^[a-z_][a-z0-9_]{0,62}$/, 'must be one lowercase PostgreSQL identifier')

@@ -17,7 +17,8 @@ export type OrderTransitions = ReturnType<typeof createOrderTransitions>
  * The three writes that move an order after its placement. Each takes the order row lock before
  * it reads the status it decides from, so a confirmation, a cancellation, and a payment ending of
  * one order queue up and the order ends in exactly one status with the side effects that status
- * implies. The lock order is always orders, then promotions.
+ * implies. The lock order is always orders, then promotions. `markPaid` and `cancel` run in the
+ * caller's transaction; a caller that already holds the order lock simply keeps it.
  */
 export function createOrderTransitions({
   db,
@@ -62,26 +63,27 @@ export function createOrderTransitions({
     },
 
     /**
-     * Gives up an order whose payment could not even be started: `CANCELLED`, out of the
-     * one-live-order-per-cart index, and its promotion reservation released in the same commit. A
+     * Gives up an order whose payment could not even be started, inside the caller's transaction:
+     * `CANCELLED`, out of the one-live-order-per-cart index, and its promotion reservation released
+     * in the same commit. The payment start calls it under the order lock it already holds, so a
+     * second start queued on that lock finds the order cancelled instead of paying for it. A
      * `PAID` order is refused, because the money moved and production is requested.
      */
-    cancel: (orderId: number): Promise<CancelResult> =>
-      write(db, async (trx) => {
-        const locked = await lockOrder(trx, orderId)
-        if (locked === undefined) {
-          logger.warn({ orderId }, 'The cancellation found no such order')
-          return 'notFound'
-        }
-        if (locked.status === 'PAID') {
-          logger.warn({ orderId }, 'The cancellation changed nothing: the order is PAID')
-          return 'paid'
-        }
-        if (locked.status === 'CANCELLED') return 'alreadyCancelled'
-        if (locked.promotionId !== null) await promotionCodes.release(trx, locked.cartId)
-        await setOrderStatus(trx, orderId, 'CANCELLED')
-        return 'cancelled'
-      }),
+    cancel: async (trx: Transaction<Tables>, orderId: number): Promise<CancelResult> => {
+      const locked = await lockOrder(trx, orderId)
+      if (locked === undefined) {
+        logger.warn({ orderId }, 'The cancellation found no such order')
+        return 'notFound'
+      }
+      if (locked.status === 'PAID') {
+        logger.warn({ orderId }, 'The cancellation changed nothing: the order is PAID')
+        return 'paid'
+      }
+      if (locked.status === 'CANCELLED') return 'alreadyCancelled'
+      if (locked.promotionId !== null) await promotionCodes.release(trx, locked.cartId)
+      await setOrderStatus(trx, orderId, 'CANCELLED')
+      return 'cancelled'
+    },
 
     /**
      * A payment ended terminally while the order stays `PENDING` (the customer may pay again):

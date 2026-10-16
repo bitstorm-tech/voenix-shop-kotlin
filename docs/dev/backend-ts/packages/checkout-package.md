@@ -62,9 +62,31 @@ order module's payment start between them:
   refuses, both leave the customer a cart to submit again.
 
 What a refusal does is now the order module's business: when Mollie starts no
-payment, `startPayment` cancels the order and releases the reservation in one
-transaction and answers `null`; the checkout only answers
-`502 PAYMENT_NOT_STARTED`. There is no compensation left in this module.
+payment, `startPayment` cancels the order and releases the reservation inside
+the very transaction that holds the order lock and answers `null`; the
+checkout only answers `502 PAYMENT_NOT_STARTED`. There is no compensation left
+in this module.
+
+### A checkout that dies between its two transactions
+
+TX1 and the payment start are committed, TX2 is not: the order is `PENDING`,
+its payment is live, and the cart is still `ACTIVE`. Two paths meet that state,
+and both end it (#262, Codex finding A4):
+
+- **The retry route closes the originating cart** once the payment stands. The
+  `PayableOrder` carries its `cartId` for this; `markCheckedOut` is idempotent,
+  so for the usual retry (the checkout closed the cart long ago) it is one
+  `UPDATE` that changes nothing. Without it a customer who paid through the
+  order page would keep a cart whose live order is paid, and every later
+  `POST /api/checkout`, new lines included, would resolve that order and be
+  answered `502`.
+- **A checkout of a cart whose live order is already paid settles it.**
+  `orders.place` answers `alreadyPaid` for such an order, TX1 closes the cart
+  and answers the order as settled (`201`, `checkoutUrl: null`), the same answer
+  a free order gets. Nothing is placed, Mollie is not called.
+
+A checkout resubmitted before anybody paid needs neither: `alreadyPlaced`,
+then `startPayment` answers the live payment's URL, then TX2 closes the cart.
 
 The lock order stays acyclic: TX1 takes the cart row, then the promotion row
 (inside `reserve`); the free-order confirmation inside TX1 takes the order row
@@ -155,7 +177,7 @@ moment later with `CART_ITEM_UNAVAILABLE`, the answer that actually helps.
 
 | Status | `code` | When |
 | --- | --- | --- |
-| `201` | none | the order exists; `checkoutUrl` is `null` for a free order |
+| `201` | none | the order exists; `checkoutUrl` is `null` for a free order and for a cart whose live order is already paid |
 | `400` | none | the body broke its field rules (`Validation failed` with the field errors) |
 | `400` | `CART_EMPTY` | no identity, no active cart, a cart without a line, or a cart that a concurrent checkout closed between the snapshot and the lock |
 | `400` | none | the shop does not ship to `shippingAddress.country`: a **field error** |
@@ -188,7 +210,8 @@ In five lines:
    cart, no line → `CART_EMPTY`), the integer bound, `isShippable`, the phone
    rule. A checkout that could never succeed writes nothing.
 2. **TX1**: `lockForCheckout`; `reserve` when the cart carries a coupon;
-   `orders.place`; a free order: `confirmFree` and `markCheckedOut`.
+   `orders.place`; a free order: `confirmFree` and `markCheckedOut`; a live
+   order already paid: `markCheckedOut`.
 3. **Outside this module's transactions**: `orders.startPayment(order)`, which
    runs the provider call and stores the payment in its own transaction under
    the order row lock; `null` answers `502` and ends here.
@@ -210,6 +233,8 @@ Three details of step 2:
   order that was placed, and `startPayment` answers that order's stored
   checkout URL without a provider call, because the order row lock serializes
   the two starts. Both submissions therefore receive the same body.
+  `alreadyPaid` is the same order once it is paid: the cart is closed in TX1
+  and the answer is the settled order (see the decision above).
 
 `markCheckedOut` answering `false` is logged at `warn` with the cart id: this
 checkout read the cart as `ACTIVE` a moment earlier and has settled an order for
@@ -239,7 +264,10 @@ it on the order page.
 - It has **no body**. Everything the payment needs is read back as a
   `PayableOrder` through `orders.payable`, under the same ownership rule as the
   order reads.
-- It reads **no cart** and closes none.
+- It reads **no cart**, and closes the one the order came from once the
+  payment stands (`PayableOrder.cartId`): a no-op after a normal checkout, the
+  repair after a checkout that died between its two transactions (see the
+  decision above).
 - A live payment answers its stored URL without touching the provider; a
   terminal one starts a second payment row. Two simultaneous retries queue on
   the order row lock and are sent to the same payment.
@@ -307,12 +335,16 @@ bun test src/modules/checkout
   production requested, no provider call), the refused provider (order
   cancelled, reservation released, cart active), the empty cart, the
   unshippable country, the SPOD phone rule, the expired coupon, the
-  unresolvable line that gives its coupon back, and the two races (two
+  unresolvable line that gives its coupon back, the two races (two
   submissions of one cart end as one order and one payment; two carts racing
-  the last unit of a coupon end as one order and one conflict). The retry
+  the last unit of a coupon end as one order and one conflict), and the cart
+  whose live order was paid while it stayed open (settled, not `502`). The retry
   matrix covers the live payment, the terminal payment that frees the coupon,
-  two simultaneous retries, the foreign and malformed ids, and the paid,
-  cancelled, and free orders.
+  two simultaneous retries, the retry after a checkout that died before TX2
+  (the cart ends `CHECKED_OUT`), the foreign and malformed ids, and the paid,
+  cancelled, and free orders. The dying checkout is simulated with a trigger
+  that refuses the cart's close, the same technique the order tests use for
+  atomicity.
 
 The journey tests build the composition root from inside the module folder.
 Test files and `test-fixtures.ts` may import the composition root by the `test`

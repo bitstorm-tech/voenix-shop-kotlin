@@ -94,6 +94,18 @@ describe('a JSON body', () => {
     })
   })
 
+  test('an unknown property named like an inherited one answers 400 under its own name', async () => {
+    for (const name of ['constructor', 'toString', '__proto__']) {
+      const response = await postJson(probeApp(), '/probe/widgets', `{"label":"green","${name}":1}`)
+      expect(response.status).toBe(400)
+      const answer = (await jsonOf(response)) as { errors: Record<string, unknown> }
+      expect(Object.keys(answer.errors)).toEqual([name])
+      expect(Object.getOwnPropertyDescriptor(answer.errors, name)?.value).toEqual([
+        'Unknown property',
+      ])
+    }
+  })
+
   test('a body that is not JSON answers 400 Malformed request body', async () => {
     for (const body of ['', '{"label":', 'null', '[]']) {
       const response = await postJson(probeApp(), '/probe/widgets', body)

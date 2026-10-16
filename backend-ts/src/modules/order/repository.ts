@@ -18,13 +18,15 @@ export interface OrderAddress {
 }
 
 /**
- * A placed order as a payment is built from it: the amount, the customer, and the two stored
- * addresses, nothing else. Both a placement and the retry read answer this shape, built from the
- * stored columns either way. `billingAddress` is always present: "same address" was resolved into
- * the billing columns at placement.
+ * A placed order as a payment is built from it: the amount, the customer, the two stored
+ * addresses, and the cart it came from (which a successful payment start closes), nothing else.
+ * Both a placement and the retry read answer this shape, built from the stored columns either way.
+ * `billingAddress` is always present: "same address" was resolved into the billing columns at
+ * placement.
  */
 export interface PayableOrder {
   orderId: number
+  cartId: number
   totalCents: number
   email: string
   phone: string | null
@@ -88,7 +90,7 @@ export interface StoredLine {
   variantName: string
   supplierArticleNumber: string | null
   quantity: number
-  printImageFilename: string | null
+  printImageId: number | null
   printTemplateWidthMm: number | null
   printTemplateHeightMm: number | null
   documentFormatWidthMm: number | null
@@ -132,6 +134,7 @@ export type OrderRepository = ReturnType<typeof createOrderRepository>
 
 const payableColumns = [
   'id',
+  'cart_id',
   'total_cents',
   'email',
   'phone',
@@ -233,7 +236,8 @@ export function createOrderRepository(db: Kysely<Tables>) {
 
     /**
      * The whole stored order without an ownership rule: its callers are the production worker and
-     * the shipping mail, never a customer, and no route reaches it.
+     * the shipping mail, never a customer, and no route reaches it. A line carries its print image
+     * id only; the file name is the cart module's to answer (see `PrintImageReads`).
      */
     storedOrder: (orderId: number): Promise<StoredOrder | undefined> =>
       read(db, async (trx) => {
@@ -252,7 +256,7 @@ export function createOrderRepository(db: Kysely<Tables>) {
             'variant_name as variantName',
             'supplier_article_number as supplierArticleNumber',
             'quantity',
-            'print_image_id',
+            'print_image_id as printImageId',
             'print_template_width_mm as printTemplateWidthMm',
             'print_template_height_mm as printTemplateHeightMm',
             'document_format_width_mm as documentFormatWidthMm',
@@ -263,19 +267,11 @@ export function createOrderRepository(db: Kysely<Tables>) {
           .where('order_id', '=', orderId)
           .orderBy('position')
           .execute()
-        const filenames = await printImageFilenames(
-          trx,
-          lines.flatMap((line) => (line.print_image_id === null ? [] : [line.print_image_id])),
-        )
         return {
           ...toPayableOrder(row),
           accessToken: row.access_token,
           orderDate: berlinDate(row.created_at),
-          lines: lines.map(({ print_image_id, ...line }) => ({
-            ...line,
-            printImageFilename:
-              print_image_id === null ? null : (filenames.get(print_image_id) ?? null),
-          })),
+          lines,
         }
       }),
 
@@ -322,18 +318,18 @@ export function createOrderRepository(db: Kysely<Tables>) {
   }
 }
 
-/** The live (not cancelled) order of a cart, read inside the caller's transaction. */
+/** The live (not cancelled) order of a cart with its status, read inside the caller's transaction. */
 export async function liveOrderOfCart(
   trx: Transaction<Tables>,
   cartId: number,
-): Promise<PayableOrder | undefined> {
+): Promise<{ order: PayableOrder; status: OrderStatus } | undefined> {
   const row = await trx
     .selectFrom('orders')
-    .select(payableColumns)
+    .select([...payableColumns, 'status'])
     .where('cart_id', '=', cartId)
     .where('status', '<>', 'CANCELLED')
     .executeTakeFirst()
-  return row === undefined ? undefined : toPayableOrder(row)
+  return row === undefined ? undefined : { order: toPayableOrder(row), status: row.status }
 }
 
 /**
@@ -512,26 +508,12 @@ async function withLines(
   }))
 }
 
-/**
- * The stored file name of each print image. `print_images` belongs to the cart module, which
- * depends on this one, so the order module cannot ask it; it reads the two columns it needs with
- * one plain statement and declares nothing of that table (see the order guide).
- */
-async function printImageFilenames(
-  trx: Transaction<Tables>,
-  imageIds: number[],
-): Promise<Map<number, string>> {
-  if (imageIds.length === 0) return new Map()
-  const { rows } = await sql<{ id: number; filename: string }>`
-    SELECT id, filename FROM print_images WHERE id = ANY(${imageIds})`.execute(trx)
-  return new Map(rows.map((row) => [row.id, row.filename]))
-}
-
 type PayableRow = { id: number } & Pick<OrdersTable, Exclude<(typeof payableColumns)[number], 'id'>>
 
 export function toPayableOrder(row: PayableRow): PayableOrder {
   return {
     orderId: row.id,
+    cartId: row.cart_id,
     totalCents: row.total_cents,
     email: row.email,
     phone: row.phone,

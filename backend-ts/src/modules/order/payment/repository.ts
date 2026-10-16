@@ -1,6 +1,5 @@
 import { sql, type Kysely, type Transaction } from 'kysely'
 import { read, type Tables } from '@/platform/db/database'
-import { executePostgresWrite } from '@/platform/db/postgres-write'
 import type { PaymentStatus } from './mollie'
 import '../schema'
 
@@ -22,6 +21,16 @@ const TERMINAL_STATUSES: readonly PaymentStatus[] = ['FAILED', 'CANCELED', 'EXPI
 
 /** Whether a payment in this status still occupies its order's one live payment slot. */
 export const isLive = (status: PaymentStatus): boolean => !TERMINAL_STATUSES.includes(status)
+
+/**
+ * The statuses a payment can still move from: the customer has not paid and the payment has not
+ * ended. A detail read asks Mollie only about these, and only these are ever written over: `PAID`
+ * and the three terminal statuses are final, so a delayed answer about an earlier state cannot
+ * take a paid payment back (and a dead payment can never re-enter the live index).
+ */
+const UNDER_WAY_STATUSES: readonly PaymentStatus[] = ['OPEN', 'PENDING', 'AUTHORIZED']
+
+export const isUnderWay = (status: PaymentStatus): boolean => UNDER_WAY_STATUSES.includes(status)
 
 const columns = [
   'id as paymentId',
@@ -69,21 +78,26 @@ export function createPaymentRepository(db: Kysely<Tables>) {
           .where('mollie_payment_id', '=', molliePaymentId)
           .executeTakeFirst(),
       ),
-
-    /**
-     * Writes the status Mollie reported, or answers `'superseded'` when the live index refused it:
-     * a dead payment reporting itself alive while another live payment stands for its order.
-     */
-    updateStatus: (paymentId: number, status: PaymentStatus) =>
-      executePostgresWrite({ uniqueViolation: 'superseded' }, async () => {
-        await db
-          .updateTable('payments')
-          .set({ status, updated_at: sql<Date>`now()` })
-          .where('id', '=', paymentId)
-          .execute()
-        return 'applied' as const
-      }),
   }
+}
+
+/**
+ * Writes the status Mollie reported, inside the caller's transaction and only while the payment is
+ * under way; `false` means the row is final and nothing moved. A write from a live status never
+ * conflicts with `ux_payments_live_order`: the row already holds its order's slot or gives it up.
+ */
+export async function moveStatus(
+  trx: Transaction<Tables>,
+  paymentId: number,
+  status: PaymentStatus,
+): Promise<boolean> {
+  const result = await trx
+    .updateTable('payments')
+    .set({ status, updated_at: sql<Date>`now()` })
+    .where('id', '=', paymentId)
+    .where('status', 'in', UNDER_WAY_STATUSES)
+    .executeTakeFirst()
+  return result.numUpdatedRows > 0n
 }
 
 /** The order's live payment, read inside the caller's transaction (which holds the order lock). */

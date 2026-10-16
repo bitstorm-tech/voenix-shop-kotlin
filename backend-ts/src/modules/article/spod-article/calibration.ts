@@ -48,12 +48,13 @@ export type PrintFrameMeasurement =
  * of two rounded edges, so `left + width` never exceeds 100 by a rounding hair.
  */
 export async function measurePrintFrame(image: Uint8Array): Promise<PrintFrameMeasurement> {
-  const decoded = await sharp(image)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-    .catch(() => null)
-  if (decoded === null) return { kind: 'failed', reason: 'UNREADABLE_IMAGE' }
+  let decoded
+  try {
+    // Inside the try: sharp throws synchronously for some inputs (an empty buffer), not only later.
+    decoded = await sharp(image).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  } catch {
+    return { kind: 'failed', reason: 'UNREADABLE_IMAGE' }
+  }
   const { data, info } = decoded
   const { width, height, channels } = info
   let minX = Number.MAX_SAFE_INTEGER

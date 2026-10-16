@@ -234,6 +234,23 @@ describe('the production worker', () => {
     ).toEqual({ last_error_code: 'SOURCE_NOT_FOUND' })
   })
 
+  test('a failing catalog lookup is SOURCE_UNAVAILABLE and the scan goes on with the next order', async () => {
+    kit.catalog.break({ articleId: 3, variantId: 3 })
+    const broken = await requestOrder([line({ articleId: 3, variantId: 3, imagePath: image })])
+    const healthy = await requestOrder()
+    await kit.worker.runOnce()
+    const states = await database.db
+      .selectFrom('production_requests')
+      .select(['order_id as orderId', 'last_error_code as code'])
+      .orderBy('order_id')
+      .execute()
+    expect(states).toEqual([
+      { orderId: broken, code: 'SOURCE_UNAVAILABLE' },
+      { orderId: healthy, code: null },
+    ])
+    expect((await jobs()).length).toBe(2)
+  })
+
   test('a generation failure records its code and the job recovers', async () => {
     await requestOrder([line({ imagePath: join(kit.root, 'not-yet.png') })])
     await kit.worker.runOnce()
@@ -372,6 +389,25 @@ describe('deliverOverSftp', () => {
       ),
     ).toBe('CONNECTION_FAILED')
     silent.close()
+  })
+
+  test('a server that authenticates but never opens the session is a bounded transfer failure', async () => {
+    const stuck = await startSftpServer({ silentSessions: true })
+    try {
+      expect(
+        await deliverOverSftp(
+          destination({
+            port: stuck.port,
+            hostKeyFingerprint: stuck.fingerprint,
+            timeoutSeconds: 1,
+          }),
+          'ORD-7.pdf',
+          bytes,
+        ),
+      ).toBe('TRANSFER_FAILED')
+    } finally {
+      await stuck.close()
+    }
   })
 })
 

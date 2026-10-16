@@ -258,7 +258,13 @@ An `SFTP` body brings `sftp` instead, with `host`, `port`, `username`,
 [article module](article-package.md#the-spod-catalog-sync) runs. Production
 reads what the sync cannot read itself, the supplier, the installation, and
 the token, and calls `spodCatalogSync.sync({ supplierId, access })`. It opens
-no transaction. The admin waits for the answer:
+no transaction. The admin waits for the answer. The server closes a connection
+that stays silent for 255 seconds (`idleTimeout` in `src/main.ts`, Bun's
+maximum), and a paced sync of a large catalog can take longer: the client then
+loses its connection while the run completes server-side. Its writes land, but
+its `SpodSyncReport` is lost with the connection; look at the articles instead of
+starting the sync again (a second start answers `SYNC_RUNNING` until the first
+run ends).
 
 | Answer | When |
 | --- | --- |

@@ -14,12 +14,12 @@ import { paymentRoutes } from './payment/routes'
 import { createPaymentService } from './payment/service'
 import { createOrderRepository } from './repository'
 import { adminPdfRoutes, orderRoutes } from './routes'
-import { createOrderService } from './service'
+import { createOrderService, type PrintImageReads } from './service'
 import { createOrderTransitions } from './transitions'
 
 export type { MolliePayment, MolliePayments } from './payment/mollie'
 export type { OrderAddress, OrderItemReference, PayableOrder, PlaceOrderInput } from './repository'
-export type { PayableResult, PlaceOrderResult } from './service'
+export type { PayableResult, PlaceOrderResult, PrintImageReads } from './service'
 export type { CancelResult, PaidResult } from './transitions'
 
 /**
@@ -29,7 +29,9 @@ export type { CancelResult, PaidResult } from './transitions'
  * production's generator and are therefore a function the composition root calls afterwards:
  * `app.route('/', order.adminPdfRoutes(production.productionPdfGenerator))`. The paid transition
  * imports `requestProduction`, a plain function, so no instance of production is needed for it.
- * `mollie` defaults to the Mollie adapter on the global `fetch`; tests hand in a stub.
+ * `printImages` is the cart module's `createPrintImageReads(db)`, a plain read the composition root
+ * creates before this module (the cart itself is created after it, with `orders`). `mollie`
+ * defaults to the Mollie adapter on the global `fetch`; tests hand in a stub.
  */
 export function createOrderModule({
   db,
@@ -38,6 +40,7 @@ export function createOrderModule({
   promotionCodes,
   email,
   images,
+  printImages,
   guestTokens,
   mollie = createMolliePayments(settings.mollie),
 }: {
@@ -47,6 +50,7 @@ export function createOrderModule({
   promotionCodes: Pick<PromotionCodes, 'redeem' | 'release'>
   email: Pick<EmailModule, 'outbox'>
   images: Pick<ImageModule, 'privateStorage'>
+  printImages: PrintImageReads
   guestTokens: Auth['guestTokens']
   mollie?: MolliePayments
 }) {
@@ -63,6 +67,7 @@ export function createOrderModule({
     articleCatalog,
     email,
     images,
+    printImages,
     payments,
     frontendBaseUrl: settings.frontendBaseUrl,
   })
@@ -86,7 +91,7 @@ export function createOrderModule({
       payable: service.payable,
       /** Checkout TX1 for a free order: the paid transition in `trx`. */
       confirmFree: transitions.markPaid,
-      /** Gives up a pending order and releases its reservation; `startPayment` calls it itself. */
+      /** Gives up a pending order and releases its reservation, in `trx`; `startPayment` calls it itself. */
       cancel: transitions.cancel,
       /** Starts (or re-answers) the payment of an order; its own transaction, outside the caller's. */
       startPayment: payments.startPayment,

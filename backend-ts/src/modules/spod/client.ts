@@ -185,7 +185,8 @@ export function createSpodClient({
       const wait =
         earliestNextRequest === undefined ? 0 : Math.max(0, earliestNextRequest - current)
       if (wait > 0) await sleep(wait)
-      earliestNextRequest = current + wait + MIN_REQUEST_INTERVAL_MILLIS
+      // The clock is read again: a sleep that overshoots must push the next request out with it.
+      earliestNextRequest = now() + MIN_REQUEST_INTERVAL_MILLIS
     })
     return queue
   }
@@ -224,7 +225,7 @@ export function createSpodClient({
         signal: AbortSignal.timeout(access.timeoutSeconds * 1000),
       })
       if (!response.ok) {
-        await response.body?.cancel()
+        await discardBody(response)
         logger.warn(`SPOD ${context} was refused with status ${String(response.status)}`)
         return refusalOf(response.status)
       }
@@ -380,7 +381,7 @@ export function createSpodClient({
         })
         const contentType = (response.headers.get('Content-Type') ?? '').split(';', 1)[0]?.trim()
         if (!response.ok || !contentType?.toLowerCase().startsWith('image/')) {
-          await response.body?.cancel()
+          await discardBody(response)
           if (response.ok) {
             logger.warn(`SPOD ${context} did not answer an image`)
             return UNUSABLE_IMAGE
@@ -414,6 +415,14 @@ function refusalOf(status: number): SpodFailure {
   return { kind: 'failed', error, ambiguous: serverSide }
 }
 
+/**
+ * Drops an answer's unread body. Best effort: a body that already failed rejects the cancel, and the
+ * status that was read decides the outcome all the same.
+ */
+async function discardBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined)
+}
+
 /** The body, or `null` as soon as it exceeds the cap, whatever `Content-Length` announced. */
 async function readCapped(response: Response): Promise<Uint8Array | null> {
   if (response.body === null) return new Uint8Array()
@@ -440,16 +449,18 @@ async function readCapped(response: Response): Promise<Uint8Array | null> {
   return bytes
 }
 
-const HTTPS_PREFIX = 'https://'
-
 /**
- * The host of an `https` URL, or `null` for anything else. Picked apart by hand rather than parsed,
- * and stripped of user info, port, path, query and fragment, because what it answers is logged: a
- * partner-written `https://secret@host/` or `https://host?signature=secret` must not leak.
+ * The host name of an `https` URL, or `null` for anything else, including a URL that does not
+ * parse. Taken from the parsed URL, the way the fetch itself reads it (a `\` counts as a `/`),
+ * and only the host name, because what it answers is logged: a partner-written
+ * `https://secret@host/` or `https://host?signature=secret` must not leak.
  */
 function httpsHostOf(url: string): string | null {
-  if (!url.toLowerCase().startsWith(HTTPS_PREFIX)) return null
-  const authority = /^[^/?#]*/.exec(url.slice(HTTPS_PREFIX.length))?.[0] ?? ''
-  const host = (authority.split('@').at(-1) ?? '').split(':', 1)[0] ?? ''
-  return host === '' ? null : host
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  return parsed.protocol === 'https:' && parsed.hostname !== '' ? parsed.hostname : null
 }

@@ -26,7 +26,10 @@ Two things make it different from most other packages:
 
 It exports two things in return: `guestImageResolver`, which the image
 module's guest delivery route asks who owns a print image, and
-`checkoutCarts`, which the checkout reads, locks, and closes a cart with.
+`checkoutCarts`, which the checkout reads, locks, and closes a cart with. A
+third export stands next to the module rather than on it:
+`createPrintImageReads(db)`, the order module's `PrintImageReads`, which the
+composition root creates before the order module exists (see below).
 
 ## The five-minute mental model
 
@@ -71,11 +74,13 @@ the image route reach the module only through the two exports.
 
 ```text
 cart/
-|- index.ts            createCartModule(deps) → { routes, guestImageResolver, checkoutCarts }; CheckoutCart types
+|- index.ts            createCartModule(deps) → { routes, guestImageResolver, checkoutCarts }; CheckoutCart types;
+|                      re-exports createPrintImageReads
 |- routes.ts           cartRoutes(service, guestTokens); the three request schemas; the path ids
 |- service.ts          createCartService(deps); CartView, CartLine, AppliedPromotion, CheckoutCart, AddItemInput
 |- totals.ts           cartTotals(lines, discount): subtotal, shipping, discount, total
-|- repository.ts       createCartRepository(db, promotionCodes); CartOwner, StoredCart; the row lock
+|- repository.ts       createCartRepository(db, promotionCodes); CartOwner, StoredCart; the row lock;
+|                      createPrintImageReads(db), the order module's read of print_images
 |- schema.ts           carts, cart_items, print_images, merged into the platform's Tables
 |- test-fixtures.ts    the module with fake catalogs and real promotion, order, and image; seeding
 |- routes.test.ts      one journey per route and the module errors over HTTP
@@ -328,7 +333,8 @@ creates three tables, declared in `schema.ts`:
 - **`print_images`**: a unique file name, the guest token and/or user id that
   owns it, and a CHECK that there is at least one owner. The file itself lives
   in the image module's private storage, always as WebP. The order module reads
-  file names from it with one raw statement and declares nothing of it.
+  file names from it through `createPrintImageReads` (below), never with a
+  statement of its own.
 - **`carts`**: an optional guest token, an optional user, `status`
   (`ACTIVE`/`CHECKED_OUT`), `ck_carts_single_owner`, one partial unique index
   per identity over active carts, and an optional `promotion_id`.
@@ -442,6 +448,28 @@ else's image": both are `null`, the route answers `404` for both, and an id
 cannot be probed for existence. The reorder asks the same function before it
 reuses an ordered image.
 
+## The print image read for the order module
+
+The production read of a placed order needs the file name behind each line's
+`print_image_id`, and a module queries only its own tables (`AGENTS.md`). The
+order module cannot import the cart (the cart imports order for the reorder),
+so it declares the read it needs as the type `PrintImageReads` in its
+`service.ts`, exactly as production declares its order reads:
+
+```ts
+interface PrintImageReads {
+  filenames(imageIds: Iterable<number>): Promise<Map<number, string>>  // unknown ids are absent
+}
+```
+
+`createPrintImageReads(db)` in `repository.ts` is the cart's implementation:
+one `SELECT id, filename` over the given ids, with **no ownership rule**, since
+the caller is the production worker, never a customer. It is a factory the
+composition root calls on its own, not a member of `createCartModule`, because
+the order module is created *before* the cart and the read needs no cart
+instance; that keeps the module graph a line (`checkout → cart → order`) with
+no late binding.
+
 ## The exported `checkoutCarts`
 
 `checkoutCarts` is the cart's side of checkout's first transaction (#247):
@@ -477,6 +505,7 @@ checkoutCarts.markCheckedOut(trx, cartId)     // Promise<boolean>: ACTIVE → CH
 ## Composition
 
 ```ts
+// before the order module: createOrderModule({ …, printImages: createPrintImageReads(db) })
 const cart = createCartModule({
   db,
   articleCatalog: article.articleCatalog,
@@ -492,7 +521,9 @@ app.route('/', images.guestImageRoute(cart.guestImageResolver))
 ```
 
 Create it after image, article, prompt, promotion, and order, and install the
-image module's guest route afterwards with the cart's resolver.
+image module's guest route afterwards with the cart's resolver. The print
+image read is the one piece of the cart that exists earlier: the composition
+root calls `createPrintImageReads(db)` when it creates the order module.
 
 ## Tests
 
@@ -507,7 +538,7 @@ Ordered lines are seeded with SQL.
 | File | What it states |
 | --- | --- |
 | `routes.test.ts` | the empty view without a cookie; the guest journey (upload, add with the exact wire shape, read, update, remove); the guest cookie of the first mutation; signed-in and guest carts apart in one browser; the upload `400`s; not purchasable, unusable prompt, and foreign image writing nothing; the price snapshot surviving a price change; foreign, unknown, and malformed item ids; apply and remove with the discount; the release of a checkout's reservation; the rejection codes keeping the applied code; the reorder at today's price with its merge, the foreign and malformed order item, `ORDER_IMAGE_UNAVAILABLE` |
-| `service.test.ts` | merge and the 99 cap, positions; two concurrent first adds making one cart and one line; concurrent different adds getting distinct positions; the print-image ownership matrix through `guestImageResolver` (including the signed-in upload a kept token no longer reaches); the upload compensation; `activeCart`'s complete snapshot, the signed-in lookup, the empty cart; `lockForCheckout` and `markCheckedOut`; an add racing a checkout landing in a fresh cart |
+| `service.test.ts` | merge and the 99 cap, positions; two concurrent first adds making one cart and one line; concurrent different adds getting distinct positions; the print-image ownership matrix through `guestImageResolver` (including the signed-in upload a kept token no longer reaches); `createPrintImageReads` answering every owner's file name and leaving unknown ids out; the upload compensation; `activeCart`'s complete snapshot, the signed-in lookup, the empty cart; `lockForCheckout` and `markCheckedOut`; an add racing a checkout landing in a fresh cart |
 | `totals.test.ts` | subtotal, the shipping threshold, the percentage cap, rounding of halves and fractional percentages, the fixed-amount cap |
 | `validation.test.ts` | the three schemas' field names and messages |
 

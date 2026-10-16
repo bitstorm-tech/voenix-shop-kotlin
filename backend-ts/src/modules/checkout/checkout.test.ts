@@ -104,6 +104,27 @@ const molliePaymentId = async (orderId: number) =>
       .executeTakeFirstOrThrow()
   ).mollie_payment_id
 
+/**
+ * A checkout that died between its two transactions: TX1 committed the order and the payment
+ * start committed the payment, then TX2 failed, here through a trigger that refuses the cart's
+ * close. The order is `PENDING` with a live payment and the cart is still `ACTIVE`. Answers the
+ * order id.
+ */
+const checkoutDyingBeforeCartClose = async (headers: Record<string, string>) => {
+  await sql`CREATE FUNCTION refuse_close() RETURNS trigger LANGUAGE plpgsql AS
+    $$ BEGIN RAISE EXCEPTION 'the process died here'; END $$`.execute(database.db)
+  await sql`CREATE TRIGGER refuse_close BEFORE UPDATE ON carts
+    FOR EACH ROW EXECUTE FUNCTION refuse_close()`.execute(database.db)
+  try {
+    expect((await checkout(headers)).status).toBe(500)
+  } finally {
+    await sql`DROP TRIGGER refuse_close ON carts`.execute(database.db)
+    await sql`DROP FUNCTION refuse_close()`.execute(database.db)
+  }
+  const placed = await database.db.selectFrom('orders').select('id').executeTakeFirstOrThrow()
+  return placed.id
+}
+
 describe('POST /api/checkout', () => {
   test('a guest checkout places the order, starts the payment, and closes the cart', async () => {
     const headers = await guest('guest-a')
@@ -286,6 +307,25 @@ describe('POST /api/checkout', () => {
     expect(await cartStatus(cartId)).toBe('CHECKED_OUT')
   })
 
+  test('a cart whose live order was paid meanwhile is settled, not refused', async () => {
+    const headers = await guest('guest-a')
+    const cartId = await seedCart(database.db, { guestToken: 'guest-a' })
+    const orderId = await checkoutDyingBeforeCartClose(headers)
+    const paymentId = await molliePaymentId(orderId)
+    app().mollie.report(paymentId, { status: 'PAID' })
+    expect((await webhook(paymentId)).status).toBe(200)
+    expect(await order(orderId)).toMatchObject({ status: 'PAID' })
+    expect(await cartStatus(cartId)).toBe('ACTIVE')
+
+    const response = await checkout(headers)
+
+    expect(response.status).toBe(201)
+    expect(await answerOf(response)).toEqual({ orderId, checkoutUrl: null })
+    expect(await cartStatus(cartId)).toBe('CHECKED_OUT')
+    expect(await count(database.db, 'orders')).toBe(1)
+    expect(app().mollie.calls.create).toBe(1)
+  })
+
   test('two carts racing the last unit of a coupon produce one order and one conflict', async () => {
     const promotionId = await seedPromotion(database.db, 'LASTONE', { usageLimitTotal: 1 })
     await seedCart(database.db, { guestToken: 'one' }, { promotionId })
@@ -373,6 +413,21 @@ describe('POST /api/checkout/orders/{orderId}/payment', () => {
       expect(await jsonOf(response)).toEqual({ message: 'Order not found', errors: {} })
     }
     expect(app().mollie.calls.create).toBe(1)
+  })
+
+  test('after a checkout that died before TX2, the retry closes the cart the order came from', async () => {
+    const headers = await guest('guest-a')
+    const cartId = await seedCart(database.db, { guestToken: 'guest-a' })
+    const orderId = await checkoutDyingBeforeCartClose(headers)
+    expect(await cartStatus(cartId)).toBe('ACTIVE')
+    expect(await count(database.db, 'payments')).toBe(1)
+
+    const response = await retry(headers, orderId)
+
+    expect(response.status).toBe(200)
+    expect((await answerOf(response)).checkoutUrl).toBe(`https://mollie.test/checkout/tr_1_1`)
+    expect(app().mollie.calls.create).toBe(1)
+    expect(await cartStatus(cartId)).toBe('CHECKED_OUT')
   })
 
   test('a paid, a cancelled, and a free order cannot be paid again', async () => {

@@ -126,6 +126,16 @@ describe('POST /api/admin/promotions', () => {
       errors: {},
     })
   })
+
+  test('a body that is not an object answers 400 with the root error alone', async () => {
+    for (const body of ['null', '[]', '5']) {
+      const response = await send('POST', '/api/admin/promotions', body)
+      expect(response.status).toBe(400)
+      const answer = (await jsonOf(response)) as { message: string; errors: object }
+      expect(answer.message).toBe('Validation failed')
+      expect(Object.keys(answer.errors)).toEqual([''])
+    }
+  })
 })
 
 describe('GET /api/admin/promotions/:id', () => {

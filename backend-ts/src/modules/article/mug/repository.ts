@@ -98,7 +98,7 @@ export type MugRepository = ReturnType<typeof createMugRepository>
  * referenced category row, then the mug row (update, delete). Under the category lock the supplier
  * is the only reference an article statement can still fail on, which is what makes `23503`
  * unambiguous there. The price is written inside the transaction but outside that mapping: a VAT
- * deleted since `prepare` raises `23503` too and must stay an unexpected failure.
+ * deleted since `prepare` must stay an unexpected failure (the price write throws for it).
  */
 export function createMugRepository(
   db: Kysely<Tables>,

@@ -27,11 +27,17 @@ const usageLimit = (displayName: string) =>
     .nullable()
     .default(null)
 
-/** Runs a cross-field rule only when the fields it reads passed their own rules. */
+/**
+ * Runs a cross-field rule only when the body is an object and the fields it reads passed their own
+ * rules. A root issue (a `null`, an array, a number) has an empty path and stops every such rule.
+ */
 const whenValid =
   (...fields: string[]) =>
   (payload: z.core.ParsePayload) =>
-    !payload.issues.some((issue) => fields.some((field) => field === issue.path?.[0]))
+    !payload.issues.some((issue) => {
+      const field = issue.path?.[0]
+      return field === undefined || fields.some((name) => name === field)
+    })
 
 /**
  * The create and update body, flat (the response nests the discount). Every field but `isActive`

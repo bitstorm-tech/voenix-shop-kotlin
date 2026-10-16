@@ -287,7 +287,9 @@ order the capabilities allow, with no late binding anywhere:
    capabilities: country, pricing, supplier, email, image, the one SPOD client,
    promotion, article, prompt, account, generator (with the platform's per-IP
    rate limiter), **order before production** (production is created with
-   `order.orders`), cart, and last the checkout.
+   `order.orders`; the order module itself takes the cart's
+   `createPrintImageReads(db)`, a plain repository read created before the
+   cart module exists), cart, and last the checkout.
 4. The sub-apps, mounted with `app.route('/', x.routes)` in that order, plus
    the two routes that need a later module: `order.adminPdfRoutes(production.productionPdfGenerator)`
    and `image.guestImageRoute(cart.guestImageResolver)`.

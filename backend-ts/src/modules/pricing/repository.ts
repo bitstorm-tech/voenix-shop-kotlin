@@ -128,8 +128,12 @@ export function createPricingRepository(db: Kysely<Tables>) {
       )
     },
 
-    /** Inserts `price` in the caller's transaction and answers the new id. */
+    /**
+     * Inserts `price` in the caller's transaction and answers the new id. Its VAT entries are
+     * locked first (see `lockVats`), so the insert itself cannot fail on a missing VAT.
+     */
     insertPrice: async (trx: Transaction<Tables>, price: CalculatedPrice): Promise<number> => {
+      await lockVats(trx, price)
       const { id } = await trx
         .insertInto('prices')
         .values(priceRow(price))
@@ -138,12 +142,16 @@ export function createPricingRepository(db: Kysely<Tables>) {
       return id
     },
 
-    /** Replaces every input of the price `id` in the caller's transaction; whether it existed. */
+    /**
+     * Replaces every input of the price `id` in the caller's transaction; whether it existed. Its
+     * VAT entries are locked first, as for the insert.
+     */
     updatePrice: async (
       trx: Transaction<Tables>,
       id: number,
       price: CalculatedPrice,
     ): Promise<boolean> => {
+      await lockVats(trx, price)
       const result = await trx
         .updateTable('prices')
         .set(priceRow(price))
@@ -157,6 +165,26 @@ export function createPricingRepository(db: Kysely<Tables>) {
       const result = await trx.deleteFrom('prices').where('id', '=', id).executeTakeFirst()
       return result.numDeletedRows > 0n
     },
+  }
+}
+
+/**
+ * Locks the two VAT entries `price` references with `FOR KEY SHARE` until the caller's transaction
+ * ends: a concurrent VAT delete waits and then fails as still in use. An entry deleted between
+ * `prepare` and this write throws, so the price write never raises a foreign-key violation of its
+ * own, and the owner's transaction keeps one unambiguous foreign key to map (the prompt's slot
+ * variants). The race is an admin deleting an unused VAT while another admin saves a price on it.
+ */
+async function lockVats(trx: Transaction<Tables>, price: CalculatedPrice): Promise<void> {
+  const wanted = [...new Set([price.purchaseVatId, price.salesVatId])]
+  const rows = await trx
+    .selectFrom('value_added_taxes')
+    .select('id')
+    .where('id', 'in', wanted)
+    .forKeyShare()
+    .execute()
+  if (rows.length !== wanted.length) {
+    throw new Error('A VAT entry of the price was deleted after the price was prepared')
   }
 }
 

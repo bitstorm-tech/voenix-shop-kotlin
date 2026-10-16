@@ -6,7 +6,7 @@ import { write } from '@/platform/db/database'
 import { count, testDatabase } from '@test-support/database'
 import { guestCookie, guestHeaders, jsonOf, signedInHeaders, testApp } from '@test-support/http'
 import { pngBytes } from '@test-support/values'
-import { createCartRepository } from './repository'
+import { createCartRepository, createPrintImageReads } from './repository'
 import { createCartService } from './service'
 import {
   cartModuleFor,
@@ -129,6 +129,28 @@ describe('print images', () => {
       (await addItem(await guest(), { imageId: signedInImage })).status,
       'the add applies the same rule',
     ).toBe(400)
+  })
+
+  test('the order module’s print image read answers file names by id, without an ownership rule', async () => {
+    const service_ = service()
+    const guestUpload = await service_.uploadPrintImage(
+      { guestToken: 'guest-a', userId: null },
+      await pngUpload(),
+    )
+    const signedInUpload = await service_.uploadPrintImage(
+      { guestToken: null, userId: 7 },
+      await pngUpload(),
+    )
+    if (guestUpload.kind !== 'ok' || signedInUpload.kind !== 'ok') throw new Error('Upload failed')
+    const reads = createPrintImageReads(database.db)
+
+    const filenames = await reads.filenames([guestUpload.value.id, signedInUpload.value.id, 999])
+
+    expect([...filenames.keys()].sort()).toEqual(
+      [guestUpload.value.id, signedInUpload.value.id].sort(),
+    )
+    for (const filename of filenames.values()) expect(filename).toMatch(/^[0-9a-f-]{36}\.webp$/)
+    expect((await reads.filenames([])).size).toBe(0)
   })
 
   test('an upload whose row cannot be written deletes its file again', async () => {

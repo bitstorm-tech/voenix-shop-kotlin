@@ -26,6 +26,10 @@ async function placedWithCoupon(usageLimitTotal: number | null = null) {
   return module.orders
 }
 
+/** The cancellation in a transaction of its own, as the tests here need it. */
+const cancel = (orders: Awaited<ReturnType<typeof placedWithCoupon>>, orderId: number) =>
+  write(database.db, (trx) => orders.cancel(trx, orderId))
+
 const statusOf = async (orderId: number) =>
   (
     await database.db
@@ -105,7 +109,7 @@ describe('the paid transition (orders.confirmFree, the webhook)', () => {
 
   test('a cancelled order is never paid, and an unknown one is reported', async () => {
     const orders = await placedWithCoupon()
-    await orders.cancel(1)
+    await cancel(orders, 1)
     expect(await write(database.db, (trx) => orders.confirmFree(trx, 1))).toBe('cancelled')
     expect(await write(database.db, (trx) => orders.confirmFree(trx, 99))).toBe('notFound')
     expect(await statusOf(1)).toBe('CANCELLED')
@@ -116,9 +120,9 @@ describe('the paid transition (orders.confirmFree, the webhook)', () => {
 describe('orders.cancel', () => {
   test('cancels a pending order and releases its reservation in the same commit', async () => {
     const orders = await placedWithCoupon()
-    expect(await orders.cancel(1)).toBe('cancelled')
-    expect(await orders.cancel(1)).toBe('alreadyCancelled')
-    expect(await orders.cancel(99)).toBe('notFound')
+    expect(await cancel(orders, 1)).toBe('cancelled')
+    expect(await cancel(orders, 1)).toBe('alreadyCancelled')
+    expect(await cancel(orders, 99)).toBe('notFound')
     expect(await statusOf(1)).toBe('CANCELLED')
     expect(await count(database.db, 'promotion_reservations')).toBe(0)
   })
@@ -126,7 +130,7 @@ describe('orders.cancel', () => {
   test('refuses a paid order', async () => {
     const orders = await placedWithCoupon()
     await write(database.db, (trx) => orders.confirmFree(trx, 1))
-    expect(await orders.cancel(1)).toBe('paid')
+    expect(await cancel(orders, 1)).toBe('paid')
     expect(await statusOf(1)).toBe('PAID')
   })
 })

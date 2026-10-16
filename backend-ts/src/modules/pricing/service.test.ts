@@ -224,6 +224,54 @@ describe('the priceCatalog writes join the caller transaction', () => {
   })
 })
 
+describe('the VAT entries of a price write', () => {
+  beforeEach(() => reset(true))
+
+  /** The owner maps a foreign-key violation of its own; the price write must never raise one. */
+  test('a VAT deleted after prepare fails the store and the replace without a foreign-key violation', async () => {
+    const { id } = await store(priceInput({ salesTotalInputCents: 1_190 }))
+    const prepared = await prices().prepare(priceInput({ salesVatId: 2 }))
+    if (prepared.kind !== 'ok') throw new Error('prepare failed')
+    expect(await vats().deleteVat(2)).toEqual({ kind: 'ok', value: undefined })
+
+    const changes: ((trx: Transaction<Tables>) => Promise<unknown>)[] = [
+      (trx) => catalog().storeInTransaction(trx, prepared.value),
+      (trx) => catalog().replaceInTransaction(trx, id, prepared.value),
+    ]
+    for (const change of changes) {
+      const failure = await write(database.db, change).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as { code?: unknown }).code).toBeUndefined()
+    }
+    expect(await priceCount()).toBe(1)
+  })
+
+  test('a VAT delete racing a price store waits for it and then fails as in use', async () => {
+    const prepared = await prices().prepare(priceInput({ salesVatId: 2 }))
+    if (prepared.kind !== 'ok') throw new Error('prepare failed')
+
+    let deleteWasBlocked = false
+    const { racing } = await write(database.db, async (trx) => {
+      await catalog().storeInTransaction(trx, prepared.value)
+      const racing = vats().deleteVat(2)
+      // The poll gives up after five seconds.
+      for (let attempt = 0; attempt < 100 && !deleteWasBlocked; attempt++) {
+        const { rows } = await sql<{ waiting: number }>`
+          SELECT count(*) AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`.execute(database.db)
+        deleteWasBlocked = (rows[0]?.waiting ?? 0) > 0
+        if (!deleteWasBlocked) await Bun.sleep(50)
+      }
+      // Wrapped, so the transaction commits (and frees the lock) before the delete is awaited.
+      return { racing }
+    })
+
+    expect(deleteWasBlocked).toBe(true)
+    expect(await racing).toEqual({ kind: 'conflict' })
+    expect(await priceCount()).toBe(1)
+  })
+})
+
 describe('VAT entries', () => {
   beforeEach(() => reset(false))
 

@@ -51,6 +51,7 @@ describe('orders.place', () => {
       kind: 'placed',
       order: {
         orderId: 1,
+        cartId,
         totalCents: 7370,
         email: 'kunde@example.com',
         phone: '+4917623123456',
@@ -154,7 +155,8 @@ describe('orders.place', () => {
   test('a cancelled order frees the cart for a new placement', async () => {
     const cartId = await seedCart(database.db)
     await place(placeInput(cartId))
-    expect(await (await module()).orders.cancel(1)).toBe('cancelled')
+    const { orders } = await module()
+    expect(await write(database.db, (trx) => orders.cancel(trx, 1))).toBe('cancelled')
     expect((await place(placeInput(cartId))).kind).toBe('placed')
     expect(await count(database.db, 'orders')).toBe(2)
   })
@@ -211,7 +213,7 @@ describe('orders.payable', () => {
     // An account order, placed with that browser's guest cookie as well.
     await place(placeInput(await seedCart(database.db, { userId }), { userId }))
     await write(database.db, (trx) => orders.confirmFree(trx, 2))
-    await orders.cancel(3)
+    await write(database.db, (trx) => orders.cancel(trx, 3))
 
     expect(await orders.payable(1, null, 'guest-a')).toEqual({
       kind: 'payable',

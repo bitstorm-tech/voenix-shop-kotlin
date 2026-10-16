@@ -11,12 +11,15 @@ import { cartRoutes } from './routes'
 import { createCartService } from './service'
 
 export type { CheckoutCart, CheckoutCartLine } from './service'
+export { createPrintImageReads } from './repository'
 
 /**
  * The cart module: the eight `/api/cart` routes and the two things it exports. `guestImageResolver`
  * is the image module's `GuestImageResolver`, which the composition root installs with
  * `image.guestImageRoute(cart.guestImageResolver)`. `checkoutCarts` is what the checkout needs:
- * the priced active cart, the row lock of its first transaction, and the close.
+ * the priced active cart, the row lock of its first transaction, and the close. The third export
+ * of this module, `createPrintImageReads`, is a factory rather than a member, because the order
+ * module needs it and is created before the cart.
  */
 export function createCartModule({
   db,

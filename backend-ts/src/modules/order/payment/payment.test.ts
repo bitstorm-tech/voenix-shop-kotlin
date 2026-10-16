@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { sql } from 'kysely'
 import { write } from '@/platform/db/database'
 import { stubMollie } from '@/test-fixtures'
 import { count, testDatabase } from '@test-support/database'
@@ -97,6 +98,28 @@ describe('orders.startPayment', () => {
     expect(await count(database.db, 'payments')).toBe(0)
   })
 
+  test('a refusal cancels the order under the lock a concurrent start waits on: no payment for a cancelled order', async () => {
+    const { module, order, calls, mollie } = await placed()
+    // Mollie refuses the first start and would accept the second. The first holds the order lock
+    // through the refusal and the cancellation, so the second finds the order CANCELLED and starts
+    // nothing; were the cancellation a transaction of its own, the second would create a live
+    // payment and the first would then cancel the order the customer is about to pay.
+    const create = mollie.create.bind(mollie)
+    mollie.create = (payable, key) =>
+      calls.create === 0 ? create(payable, key).then(() => null) : create(payable, key)
+
+    const urls = await Promise.all([
+      module.orders.startPayment(order),
+      module.orders.startPayment(order),
+    ])
+
+    expect(urls).toEqual([null, null])
+    expect(calls.create).toBe(1)
+    expect(await orderStatus()).toBe('CANCELLED')
+    expect(await count(database.db, 'payments')).toBe(0)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
   test('an order that is no longer pending gets no payment', async () => {
     const { module, order, calls } = await placed()
     await write(database.db, (trx) => module.orders.confirmFree(trx, order.orderId))
@@ -120,6 +143,45 @@ describe('POST /api/payments/webhook/{secret}', () => {
     expect(await orderStatus()).toBe('PAID')
     expect((await payments())[0]?.status).toBe('PAID')
     expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+    expect(await count(database.db, 'production_requests')).toBe(1)
+  })
+
+  test('PAID and the paid transition commit together: a failed transition leaves the payment under way', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+    await sql`CREATE FUNCTION refuse_request() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'production refused'; END $$`.execute(database.db)
+    await sql`CREATE TRIGGER refuse_request BEFORE INSERT ON production_requests
+      FOR EACH ROW EXECUTE FUNCTION refuse_request()`.execute(database.db)
+    try {
+      expect((await webhook(app, 'tr_1_1')).status).toBe(500)
+    } finally {
+      await sql`DROP TRIGGER refuse_request ON production_requests`.execute(database.db)
+      await sql`DROP FUNCTION refuse_request()`.execute(database.db)
+    }
+    // Neither the payment nor the order moved, so the redelivery is not skipped as already PAID.
+    expect((await payments())[0]?.status).toBe('OPEN')
+    expect(await orderStatus()).toBe('PENDING')
+    expect(await count(database.db, 'promotion_redemptions')).toBe(0)
+
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    expect((await payments())[0]?.status).toBe('PAID')
+    expect(await orderStatus()).toBe('PAID')
+    expect(await count(database.db, 'production_requests')).toBe(1)
+  })
+
+  test('a stale answer never takes a paid payment back: OPEN after PAID leaves PAID', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    report('tr_1_1', { status: 'OPEN' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    expect((await payments())[0]?.status).toBe('PAID')
+    expect(await orderStatus()).toBe('PAID')
     expect(await count(database.db, 'production_requests')).toBe(1)
   })
 

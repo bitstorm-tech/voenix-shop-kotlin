@@ -297,6 +297,33 @@ describe('failures', () => {
     expect(spod.logged.every((line) => line.includes('403'))).toBe(true)
     expectNoSecrets(spod.logged)
   })
+
+  /** A body that broke after the status arrived: its cancel rejects, the status still decides. */
+  test('a refusal whose body cannot be cancelled is still judged by its status', async () => {
+    const brokenBody = () =>
+      new ReadableStream({
+        start: (controller) => {
+          controller.error(new Error(PROVIDER_BODY))
+        },
+      })
+    const spod = harness((request) =>
+      request.url.startsWith(IMAGE_URL)
+        ? new Response(brokenBody(), { status: 403 })
+        : new Response(brokenBody(), { status: 429 }),
+    )
+
+    expect(await spod.client.createOrder(access(), sampleRequest())).toEqual({
+      kind: 'failed',
+      error: 'RATE_LIMITED',
+      ambiguous: false,
+    })
+    expect(await spod.client.download(IMAGE_URL, 30)).toEqual({
+      kind: 'failed',
+      error: 'REFUSED',
+      ambiguous: false,
+    })
+    expectNoSecrets(spod.logged)
+  })
 })
 
 describe('the pacer', () => {
@@ -328,6 +355,26 @@ describe('the pacer', () => {
 
     expect(spod.waits).toEqual([MIN_INTERVAL, MIN_INTERVAL])
     expect(spod.requests).toHaveLength(3)
+  })
+
+  /** A late wake-up must not shorten the next interval: the deadline counts from the real time. */
+  test('a sleep that overshoots pushes the next request out with it', async () => {
+    let clock = 1000
+    const waits: number[] = []
+    const client = createSpodClient({
+      fetch: () => Promise.resolve(jsonAnswer('{"id":"spod-1","state":"NEW"}')),
+      now: () => clock,
+      sleep: (millis) => {
+        waits.push(millis)
+        clock += millis + 500
+        return Promise.resolve()
+      },
+      logger: pino({ level: 'silent' }),
+    })
+
+    await Promise.all([1, 2, 3].map(() => client.getOrder(access(), 'spod-1')))
+
+    expect(waits).toEqual([MIN_INTERVAL, MIN_INTERVAL])
   })
 
   /** The 60-per-minute budget is the API's. A CDN image is not one of those 60. */
@@ -602,8 +649,10 @@ describe('the image download', () => {
     await spod.client.download(SIGNED_IMAGE_URL, 30)
     await spod.client.download(`https://user:password@image.cdn.example:443/${IMAGE_PATH}`, 30)
     await spod.client.download(`${IMAGE_URL}?timeout`, 30)
+    // The URL parser reads a backslash as a slash, so what follows it is path, not host.
+    await spod.client.download(`https://image.cdn.example\\${IMAGE_PATH}`, 30)
 
-    expect(spod.logged).toHaveLength(3)
+    expect(spod.logged).toHaveLength(4)
     expect(spod.logged.every((line) => line.includes('image.cdn.example'))).toBe(true)
     const all = spod.logged.join('\n')
     for (const secret of [IMAGE_PATH, SIGNATURE, 'password', PROVIDER_BODY]) {

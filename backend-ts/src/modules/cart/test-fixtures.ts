@@ -9,6 +9,7 @@ import { createPromotionModule } from '@/modules/promotion'
 import type { Tables } from '@/platform/db/database'
 import { testAuth } from '@test-support/http'
 import { createCartModule } from './index'
+import { createPrintImageReads } from './repository'
 
 /**
  * What the cart tests share: the module wired to the real promotion codes, the real order reads,
@@ -113,6 +114,7 @@ export async function cartModuleFor(db: Kysely<Tables>) {
     // The order reads are what the cart uses; nothing here places an order or sends its mail.
     email: { outbox: { enqueue: () => Promise.reject(new Error('The cart tests send no mail')) } },
     images,
+    printImages: createPrintImageReads(db),
     guestTokens,
     mollie: {
       create: () => Promise.reject(new Error('The cart tests start no payment')),

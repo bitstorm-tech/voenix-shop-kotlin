@@ -8,7 +8,9 @@ import type { MolliePayment, MolliePayments, PaymentStatus } from './mollie'
 import {
   insertPayment,
   isLive,
+  isUnderWay,
   livePayment,
+  moveStatus,
   type PaymentRepository,
   type StoredPayment,
 } from './repository'
@@ -18,21 +20,16 @@ import {
  * a redelivery would change nothing about it, and what a human has to settle is in the log.
  */
 export type PaymentConfirmation =
-  /** The reported status is stored (or already was) and it is not `PAID`. */
+  /** The reported status is stored (or already was, or the row is final) and it is not `PAID`. */
   | 'recorded'
   /** `PAID`, and the order is paid now or was already. */
   | 'confirmed'
   /** `PAID`, but Mollie's amount differs from the stored one, or the order is `CANCELLED`. */
   | 'notConfirmed'
-  /** The status write was refused by the live index: the customer may have been charged twice. */
-  | 'superseded'
   /** A payment Mollie knows and this backend never created. */
   | 'unknownPayment'
   /** Mollie could not be reached or said nothing usable; a redelivery may succeed. */
   | 'providerUnavailable'
-
-/** The statuses a detail read asks Mollie about: the payment is under way and a webhook may be missed. */
-const REFRESHABLE: readonly PaymentStatus[] = ['OPEN', 'PENDING', 'AUTHORIZED']
 
 export type PaymentService = ReturnType<typeof createPaymentService>
 
@@ -53,28 +50,19 @@ export function createPaymentService({
 }) {
   const logger = createLogger('payment')
 
-  /** Writes the reported status when it moved; a terminal status releases the reservation. */
-  const applyStatus = async (stored: StoredPayment, reported: PaymentStatus): Promise<boolean> => {
-    let applied = stored.status === reported
-    if (!applied) {
-      applied = (await repository.updateStatus(stored.paymentId, reported)) === 'applied'
-      if (!applied) {
-        logger.error(
-          { paymentId: stored.paymentId, orderId: stored.orderId, status: reported },
-          'A payment reports a status while another live payment stands for its order: ' +
-            'the customer may have been charged twice',
-        )
-      }
-    }
-    // A redelivered terminal status releases again: the release is idempotent, and the
-    // redelivery is the only retry a release lost to a failure has.
-    if (applied && !isLive(reported)) await transitions.paymentEnded(stored.orderId)
-    return applied
-  }
-
-  /** Hands a paid payment to the order; `true` when the order is paid now or was already. */
+  /**
+   * Hands a paid payment to the order and records `PAID` on the payment in the same transaction,
+   * so a paid transition that fails (the redemption, the production request) leaves the payment
+   * under way and the next webhook or refresh confirms the order; a payment stored as `PAID` is
+   * never asked about again. The order lock comes first, then the payment row. `true` when the
+   * order is paid now or was already.
+   */
   const confirmOrder = async (stored: StoredPayment): Promise<boolean> => {
-    const result = await write(db, (trx) => transitions.markPaid(trx, stored.orderId))
+    const result = await write(db, async (trx) => {
+      const paid = await transitions.markPaid(trx, stored.orderId)
+      await moveStatus(trx, stored.paymentId, 'PAID')
+      return paid
+    })
     if (result === 'paid' || result === 'alreadyPaid') return true
     logger.error(
       { paymentId: stored.paymentId, orderId: stored.orderId, amountCents: stored.amountCents },
@@ -85,16 +73,21 @@ export function createPaymentService({
     return false
   }
 
-  /** What the webhook and the detail refresh both do with a status Mollie reported. */
+  /**
+   * What the webhook and the detail refresh both do with a status Mollie reported. A status the
+   * row already has, or a row that is final (`PAID` or ended), is written over by nothing: a
+   * delayed `OPEN` arriving after `PAID` was recorded leaves `PAID`. A terminal status releases the
+   * reservation, on a redelivery again: the release is idempotent, and the redelivery is the only
+   * retry a release lost to a failure has.
+   */
   const applyReported = async (
     stored: StoredPayment,
     reported: MolliePayment,
   ): Promise<PaymentConfirmation> => {
-    const superseded = !(await applyStatus(stored, reported.status))
-    let outcome: PaymentConfirmation
-    if (reported.status !== 'PAID') {
-      outcome = 'recorded'
-    } else if (reported.amountCents !== stored.amountCents) {
+    if (reported.status === 'PAID') {
+      if (reported.amountCents === stored.amountCents) {
+        return (await confirmOrder(stored)) ? 'confirmed' : 'notConfirmed'
+      }
       logger.error(
         {
           paymentId: stored.paymentId,
@@ -105,11 +98,14 @@ export function createPaymentService({
         'Mollie reports a payment as paid with another amount than the shop asked for: ' +
           'the order is not confirmed and needs a human',
       )
-      outcome = 'notConfirmed'
-    } else {
-      outcome = (await confirmOrder(stored)) ? 'confirmed' : 'notConfirmed'
+      await write(db, (trx) => moveStatus(trx, stored.paymentId, 'PAID'))
+      return 'notConfirmed'
     }
-    return superseded ? 'superseded' : outcome
+    const recorded =
+      stored.status === reported.status ||
+      (await write(db, (trx) => moveStatus(trx, stored.paymentId, reported.status)))
+    if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
+    return 'recorded'
   }
 
   /** Closes a provider payment nobody will be sent to; a refusal is worth a line. */
@@ -128,9 +124,11 @@ export function createPaymentService({
      * customer is sent to, or `null` when no payment was started. One transaction holds the order
      * row lock around "live payment? → Mollie create → insert", so concurrent starts of one order
      * queue on the lock and the second answers the first one's stored URL without a provider
-     * call. A provider that refuses cancels the order (and releases its reservation); a database
-     * failure after Mollie created the payment cancels that payment before the error travels on.
-     * The lock is held during the provider call, which the adapter bounds at ten seconds.
+     * call. A provider that refuses cancels the order (and releases its reservation) under that
+     * same lock, so a start queued behind the refusal finds the order cancelled instead of paying
+     * for it; a database failure after Mollie created the payment cancels that payment before the
+     * error travels on. The lock is held during the provider call, which the adapter bounds at
+     * eight seconds.
      */
     startPayment: async (order: PayableOrder): Promise<string | null> => {
       if (order.totalCents <= 0) throw new Error('A payment amount must be greater than zero')
@@ -143,7 +141,10 @@ export function createPaymentService({
           const live = await livePayment(trx, order.orderId)
           if (live !== undefined) return { kind: 'started', checkoutUrl: live.checkoutUrl }
           const created = await mollie.create(order, randomUUID())
-          if (created?.checkoutUrl == null) return { kind: 'refused' }
+          if (created?.checkoutUrl == null) {
+            await transitions.cancel(trx, order.orderId)
+            return { kind: 'refused' }
+          }
           attempt.created = created
           await insertPayment(trx, {
             orderId: order.orderId,
@@ -164,7 +165,6 @@ export function createPaymentService({
         case 'notPending':
           return null
         case 'refused':
-          await transitions.cancel(order.orderId)
           logger.warn(
             { orderId: order.orderId },
             'Mollie started no payment: the order is cancelled and no checkout URL exists',
@@ -198,13 +198,12 @@ export function createPaymentService({
     /**
      * The status of one order's payment, asked of Mollie while the payment is still under way: the
      * fallback for a webhook that never arrived, which may confirm the order through the same path
-     * the webhook takes. A provider that cannot answer degrades to the stored status, and a write
-     * the live index refused answers what the row says, never the reported status.
+     * the webhook takes. A provider that cannot answer degrades to the stored status.
      */
     refreshed: async (orderId: number): Promise<PaymentStatus | null> => {
       const stored = (await repository.currentPayments([orderId])).get(orderId)
       if (stored === undefined) return null
-      if (!REFRESHABLE.includes(stored.status)) return stored.status
+      if (!isUnderWay(stored.status)) return stored.status
       const reported = await mollie.find(stored.molliePaymentId)
       if (reported === null) {
         logger.warn(
@@ -213,9 +212,8 @@ export function createPaymentService({
         )
         return stored.status
       }
-      return (await applyReported(stored, reported)) === 'superseded'
-        ? stored.status
-        : reported.status
+      await applyReported(stored, reported)
+      return reported.status
     },
   }
 }

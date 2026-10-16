@@ -57,6 +57,14 @@ describe('loadSettings', () => {
     )
   })
 
+  test('the database password is taken as written, surrounding spaces included', () => {
+    const settings = loadSettings({ ...development, DATABASE_PASSWORD: ' secret ' })
+    expect(settings.database.password).toBe(' secret ')
+    expect(failure({ ...development, DATABASE_PASSWORD: undefined })).toBe(
+      'Invalid configuration: DATABASE_PASSWORD is required',
+    )
+  })
+
   test('the session secret needs 32 UTF-8 bytes', () => {
     expect(failure({ ...development, AUTH_SESSION_SECRET: 'é'.repeat(15) + 'a' })).toBe(
       'Invalid configuration: AUTH_SESSION_SECRET must contain at least 32 UTF-8 bytes',

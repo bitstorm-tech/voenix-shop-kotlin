@@ -295,8 +295,10 @@ delete orphaned image files (best effort)
 ```
 
 The price write sits outside the `23503` mapping: a VAT deleted after
-`prepare` raises the same state, and it must stay a `500` rather than become
-`supplierId: Supplier does not exist`.
+`prepare` must stay a `500` rather than become
+`supplierId: Supplier does not exist`. The price write locks its VAT entries
+and throws a plain error for a missing one (see the pricing guide), so it
+raises no `23503` in the first place.
 
 ### SPOD articles
 

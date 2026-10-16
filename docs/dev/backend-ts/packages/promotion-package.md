@@ -210,7 +210,9 @@ The two rules that read two fields (the discount value against the type, the
 window) are `superRefine` steps with a `when` guard: each runs only when the
 fields it reads passed their own rules, so an unknown discount type leaves the
 value unjudged, as before, while an error in an unrelated field does not stop
-it. Their messages are therefore listed after the single-field messages in the
+it. A body that is not an object at all (`null`, an array, a number) stops
+both: its one root error is the whole `400 Validation failed` answer, as for
+every other schema, instead of a rule reading fields that are not there. Their messages are therefore listed after the single-field messages in the
 `errors` map. The schema trims the text and parses the timestamps to `Date`;
 the repository derives `coupon_code_normalized` with `normalizedCouponCode`.
 

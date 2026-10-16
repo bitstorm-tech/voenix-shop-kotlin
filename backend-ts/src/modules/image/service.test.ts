@@ -31,6 +31,13 @@ afterAll(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
+/** A 60×40 JPEG whose EXIF orientation 6 says "rotate 90° clockwise to view": upright it is 40×60. */
+const sidewaysJpeg = () =>
+  sharp({ create: { width: 60, height: 40, channels: 3, background: '#336699' } })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer()
+
 const derivedOf = async (size: string, filename: string) => {
   const result = await service.get('public', size, filename)
   if (result.kind !== 'ok') throw new Error(`Expected an image, got ${result.kind}`)
@@ -50,6 +57,14 @@ describe('derivation', () => {
     })
     expect(await sharp((await derivedOf('600', 'fit.png')).path).metadata()).toMatchObject({
       width: 600,
+    })
+  })
+
+  test('turns an original upright by its EXIF orientation', async () => {
+    await writeFile(join(roots.public, 'sideways.jpg'), await sidewaysJpeg())
+    expect(await sharp((await derivedOf('30', 'sideways.jpg')).path).metadata()).toMatchObject({
+      width: 30,
+      height: 45,
     })
   })
 
@@ -105,6 +120,13 @@ describe('storage', () => {
       const [path] = (await storage().originalPaths([stored.value.filename])).values()
       expect(await sharp(path).metadata()).toMatchObject({ format: 'webp', width: 60, height: 40 })
     }
+  })
+
+  test('stores an upload upright by its EXIF orientation', async () => {
+    const stored = await storage().store({ bytes: await sidewaysJpeg(), contentType: 'image/jpeg' })
+    if (stored.kind !== 'ok') throw new Error('The sideways upload was rejected')
+    const [path] = (await storage().originalPaths([stored.value.filename])).values()
+    expect(await sharp(path).metadata()).toMatchObject({ width: 40, height: 60 })
   })
 
   test('rejects non-image, disguised, empty, and oversized uploads on the file field', async () => {

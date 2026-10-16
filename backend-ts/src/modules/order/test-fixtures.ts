@@ -125,6 +125,20 @@ export function placeInput(
   }
 }
 
+/**
+ * The cart's `PrintImageReads` as one SQL read: this module may not import the cart, and the
+ * contract is two columns of a table `seedPrintImage` writes with SQL anyway.
+ */
+const printImageReads = (db: Kysely<Tables>) => ({
+  filenames: async (imageIds: Iterable<number>) => {
+    const wanted = [...imageIds]
+    if (wanted.length === 0) return new Map<number, string>()
+    const { rows } = await sql<{ id: number; filename: string }>`SELECT id, filename
+      FROM print_images WHERE id = ANY(${wanted})`.execute(db)
+    return new Map(rows.map((row) => [row.id, row.filename]))
+  },
+})
+
 /** The module under test plus its private image storage; `mollie` defaults to a fresh stub. */
 export async function orderModuleFor(db: Kysely<Tables>, mollie = stubMollie().mollie) {
   const root = await mkdtemp(join(tmpdir(), 'order-test-'))
@@ -154,6 +168,7 @@ export async function orderModuleFor(db: Kysely<Tables>, mollie = stubMollie().m
     promotionCodes: createPromotionModule({ db }).promotionCodes,
     email,
     images,
+    printImages: printImageReads(db),
     guestTokens,
     mollie,
   })

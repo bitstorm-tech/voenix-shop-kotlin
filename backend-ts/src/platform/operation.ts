@@ -26,12 +26,13 @@ export const invalid = (errors: ValidationErrors): OperationResult<never> => ({
 /**
  * Collects validation messages per field. Several rules may reject the same field, so a second
  * message is appended to the first rather than replacing it; fields and messages keep the order
- * in which they were added.
+ * in which they were added. The map has no prototype, so a field named like an inherited property
+ * (`constructor`, `toString`, `__proto__`) starts empty like any other.
  */
 export function buildValidationErrors(
   build: (add: (field: string, message: string) => void) => void,
 ): ValidationErrors {
-  const errors: ValidationErrors = {}
+  const errors: ValidationErrors = Object.create(null) as ValidationErrors
   build((field, message) => {
     ;(errors[field] ??= []).push(message)
   })

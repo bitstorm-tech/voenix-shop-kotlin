@@ -31,8 +31,8 @@ const NO_SUCH_FILE = 2
  * Uploads one artifact: password authentication, the pinned host key verified before any
  * credential is sent (no permissive fallback), the bytes written to `{name}.part`, an earlier
  * final file removed, then the rename to the final `ORD-{orderId}.pdf`, so a hotfolder never sees a
- * partial file. The destination's timeout bounds the connection and authentication together and
- * every transfer step on its own. Answers `null` once the server accepted the renamed file, or the
+ * partial file. The destination's timeout bounds the connection and authentication together, the
+ * opening of the SFTP session, and every transfer step on its own. Answers `null` once the server accepted the renamed file, or the
  * bounded code of the stage that failed; nothing about the server, the path, or the credentials
  * leaves this function except the destination id in a log line.
  */
@@ -46,11 +46,13 @@ export function deliverOverSftp(
   let stage: 'connect' | 'authenticate' | 'transfer' = 'connect'
   let hostKeyRejected = false
   let settled = false
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined
 
   return new Promise<SftpDeliveryError | null>((resolve) => {
     const finish = (error: unknown) => {
       if (settled) return
       settled = true
+      clearTimeout(sessionTimer)
       client.end()
       if (error === null) {
         resolve(null)
@@ -76,7 +78,13 @@ export function deliverOverSftp(
       })
       .on('ready', () => {
         stage = 'transfer'
+        // ssh2 drops `readyTimeout` once authenticated, and the step timers start only with the
+        // session: a server that never answers the subsystem request needs a deadline of its own.
+        sessionTimer = setTimeout(() => {
+          finish(new Error('The SFTP session did not open within the destination timeout'))
+        }, timeoutMillis)
         client.sftp((error, sftp) => {
+          clearTimeout(sessionTimer)
           if (error !== undefined) {
             finish(error)
             return

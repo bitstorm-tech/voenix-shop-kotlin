@@ -41,7 +41,7 @@ export interface CartItemsTable {
 /**
  * The `print_images` table (V15): the registry of uploaded print images, whose files live in the
  * image module's private storage. An upload made while signed in stores both owners; the order
- * module reads the file names with one raw statement.
+ * module reads the file names through `createPrintImageReads`.
  */
 export interface PrintImagesTable {
   id: Generated<number>

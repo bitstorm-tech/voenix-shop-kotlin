@@ -299,7 +299,10 @@ Five properties of the adapter are deliberate:
 Each of the two requests has a 120-second timeout through
 `AbortSignal.timeout`, because generating an image takes far longer than an
 ordinary API call. `fetch` has no separate connect timeout; the Kotlin client's
-10-second one is gone.
+10-second one is gone. The browser's request waits for both, so the server's
+`idleTimeout` in `src/main.ts` is 255 seconds (Bun's maximum, above the
+2 × 120 seconds) instead of Bun's default of 10, which would cut every
+generation off.
 
 `aspect_ratio` is not the adapter's decision. It is the article's
 `PrintAspectRatio` (`'16:9' | '1:1'`), written into the request verbatim. The

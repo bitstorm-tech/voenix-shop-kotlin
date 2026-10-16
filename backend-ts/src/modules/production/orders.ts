@@ -112,8 +112,8 @@ const logger = createLogger('production')
 
 /**
  * Loads one order and resolves its lines against today's catalog. `null` from the order module is
- * `SOURCE_NOT_FOUND`, an order without lines `SOURCE_INVALID`, and any exception
- * `SOURCE_UNAVAILABLE`: a worker must never mistake "we could not look" for "there is nothing".
+ * `SOURCE_NOT_FOUND`, an order without lines `SOURCE_INVALID`, and any exception of the order read
+ * or the catalog lookup `SOURCE_UNAVAILABLE`: a worker must never mistake "we could not look" for "there is nothing".
  * Only the error's class is logged.
  */
 export function createOrderLoader(
@@ -123,19 +123,24 @@ export function createOrderLoader(
   return async (
     orderId: number,
   ): Promise<{ kind: 'found'; order: ProductionOrder } | { kind: 'failed'; code: SourceError }> => {
+    const unavailable = (error: unknown, what: string) => {
+      logger.error({ orderId, errorClass: errorClass(error) }, `Production could not read ${what}`)
+      return { kind: 'failed', code: 'SOURCE_UNAVAILABLE' } as const
+    }
     let data: ProductionData | null
     try {
       data = await orders.productionData(orderId)
     } catch (error) {
-      logger.error(
-        { orderId, errorClass: errorClass(error) },
-        'Production could not read the order',
-      )
-      return { kind: 'failed', code: 'SOURCE_UNAVAILABLE' }
+      return unavailable(error, 'the order')
     }
     if (data === null) return { kind: 'failed', code: 'SOURCE_NOT_FOUND' }
     if (data.lines.length === 0) return { kind: 'failed', code: 'SOURCE_INVALID' }
-    const catalog = await articleCatalog.find(data.lines)
+    let catalog: Awaited<ReturnType<ArticleCatalog['find']>>
+    try {
+      catalog = await articleCatalog.find(data.lines)
+    } catch (error) {
+      return unavailable(error, 'the article catalog')
+    }
     const { lines, ...header } = data
     return {
       kind: 'found',

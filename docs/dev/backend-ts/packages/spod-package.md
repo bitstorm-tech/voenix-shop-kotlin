@@ -227,7 +227,10 @@ back without a usable answer may have created an order.
 client makes, measured on the monotonic `performance.now()`. Each call chains
 its wait onto a promise queue, which is the in-process mutex: concurrent callers
 queue up behind each other instead of all sleeping the same interval and then
-firing together. 60 requests per minute would be exactly 1000 ms; the extra
+firing together. After a wait the clock is read again before the next
+deadline is booked, so a timer that wakes up late pushes the following
+requests out with it instead of letting them fire in a burst. 60 requests per
+minute would be exactly 1000 ms; the extra
 50 ms absorb the jitter between reading the clock and the request leaving. A
 `429` that happens anyway is the retryable `RATE_LIMITED`. The queue lives in
 memory, so it holds the budget for the one backend process; a second process
@@ -276,14 +279,22 @@ decision 5):
 - **It is not paced.** The 60-per-minute budget belongs to the API; pacing a
   few hundred CDN images behind it would make a sync take minutes for nothing.
 
-Only the host of the URL may be logged. It is picked apart by hand rather than
-parsed, without user info, port, path, query, and fragment, so a
-partner-written `https://secret@host/` or `https://host/a.png?signature=secret`
-cannot put its secret in a log line. A URL or an answer that is not a usable
+Only the host name of the URL may be logged. It is read from `new URL(url)`,
+the same parser the fetch uses, so a partner-written `https://host\secret/a.png`
+logs `host` (the parser reads the backslash as a slash), and user info, port,
+path, query, and fragment never reach a log line: neither
+`https://secret@host/` nor `https://host/a.png?signature=secret` can put its
+secret there. A URL that does not parse is refused without its text being
+logged. A URL or an answer that is not a usable
 image becomes `PROVIDER_ANSWER_UNREADABLE` with `ambiguous: false`; there is
 deliberately no error code of its own, because every caller acts on all three
 refusals in the same way. A refusal status and a failed request are judged like
 every API call.
+
+The unread body of a refusal (here and for every API call) is cancelled best
+effort: a body that broke after the status arrived rejects the cancel, and the
+status that was already read still decides the result, so a `429` stays
+`RATE_LIMITED` instead of becoming an ambiguous `PROVIDER_UNAVAILABLE`.
 
 ## The catalog answers are read leniently
 

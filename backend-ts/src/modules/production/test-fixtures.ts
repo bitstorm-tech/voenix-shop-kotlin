@@ -233,19 +233,26 @@ export function fakeOrders() {
   return { reads, calls, add: (order: ProductionData) => orders.set(order.orderId, order) }
 }
 
-/** Today's catalog as production reads it: the supplier, the partner ids, the variant name. */
+/**
+ * Today's catalog as production reads it: the supplier, the partner ids, the variant name. A lookup
+ * that includes a `break`-marked variant rejects, as a catalog whose database is unreachable does.
+ */
 export function fakeCatalog() {
   const variants = new Map<string, CatalogVariant>()
+  const broken = new Set<string>()
   return {
     find: (references: Iterable<ArticleVariantReference>) =>
-      Promise.resolve(
-        new Map(
-          [...references].flatMap((reference) => {
-            const variant = variants.get(catalogKey(reference))
-            return variant === undefined ? [] : [[catalogKey(reference), variant] as const]
-          }),
-        ),
-      ),
+      [...references].some((reference) => broken.has(catalogKey(reference)))
+        ? Promise.reject(new Error('The article catalog is unreachable'))
+        : Promise.resolve(
+            new Map(
+              [...references].flatMap((reference) => {
+                const variant = variants.get(catalogKey(reference))
+                return variant === undefined ? [] : [[catalogKey(reference), variant] as const]
+              }),
+            ),
+          ),
+    break: (reference: ArticleVariantReference) => broken.add(catalogKey(reference)),
     set: (
       reference: ArticleVariantReference,
       values: { supplierId: number | null; variantName?: string; spodProduct?: SpodProductRef },
@@ -371,9 +378,10 @@ export const SFTP_PASSWORD = 'secret-word'
  * An in-process SFTP server (ssh2's `Server`) holding the uploaded files in memory: password
  * authentication, a freshly generated ed25519 host key whose `SHA256:` fingerprint tests pin (or
  * deliberately mismatch), and a count of password checks that proves whether a credential was
- * ever presented. It answers the five requests an upload makes.
+ * ever presented. It answers the five requests an upload makes; with `silentSessions` it
+ * authenticates and then never answers the session request, a server stuck before the subsystem.
  */
-export async function startSftpServer() {
+export async function startSftpServer({ silentSessions = false } = {}) {
   const keys = utils.generateKeyPairSync('ed25519')
   const parsed = utils.parseKey(keys.private)
   if (parsed instanceof Error) throw parsed
@@ -399,6 +407,7 @@ export async function startSftpServer() {
       })
       .on('ready', () => {
         connection.on('session', (acceptSession) => {
+          if (silentSessions) return
           acceptSession().on('sftp', (acceptSftp) => {
             const sftp = acceptSftp()
             const handles = new Map<string, string>()

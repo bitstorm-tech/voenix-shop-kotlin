@@ -370,7 +370,11 @@ file that imports sharp. It keeps the Kotlin output settings: JPEG quality 85
 on a white background, PNG compression level 6, and lossy WebP quality 85 with
 alpha quality 100, effort 4 (libwebp's method), and sharp YUV
 (`smartSubsample`). Decoding refuses more than 40,000,000 pixels
-(`limitInputPixels`). sharp bundles libvips and libwebp as prebuilt binaries
+(`limitInputPixels`). Both the stored WebP and every derivation are turned
+upright by the image's EXIF orientation first (`autoOrient()`): sharp does not
+rotate the pixels on its own and the encoders drop the tag, so a phone photo
+with orientation 6 would otherwise be stored and served lying on its side.
+sharp bundles libvips and libwebp as prebuilt binaries
 for Linux (glibc and musl) and macOS, so the JVM's native-codec smoke test and
 its runtime restrictions are gone.
 

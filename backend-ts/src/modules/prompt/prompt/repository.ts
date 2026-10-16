@@ -249,8 +249,9 @@ async function publicRows(
  * the prompt's transaction through `priceCatalog`, so the two commit or roll back together.
  *
  * Lock order, the module's deadlock rule: the `PROMPT` anchor (only the writes that decide a
- * position), then the category row, then prompt rows. With the category row held and the price id
- * minted in the same transaction, the one reference a write can still violate is a slot variant:
+ * position), then the category row, then prompt rows. With the category row held, the price id
+ * minted in the same transaction, and the price's VAT entries locked by the price write (which
+ * throws for a missing one), the one reference a write can still violate is a slot variant:
  * a foreign-key violation means an unknown slot variant. A unique violation is mapped only for the
  * reorder, where it is the deferred position rule failing at `COMMIT`.
  */

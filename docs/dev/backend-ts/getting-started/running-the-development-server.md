@@ -120,7 +120,9 @@ default. Never set a variable to an empty string; `DATABASE_PASSWORD=` is a
 real, empty value, and the startup refuses it with
 `Invalid configuration: DATABASE_PASSWORD is required`. A missing required
 variable fails the same way, naming the variable, before anything touches the
-database.
+database. Text values lose surrounding spaces, except `DATABASE_PASSWORD`,
+which is taken as written (in a `.env` file, quote it to keep a trailing
+space).
 
 `.env.development` is complete on its own, so a fresh checkout or worktree
 starts without `.env.local`. Its values are not secret: the password opens the

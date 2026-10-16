@@ -1,5 +1,6 @@
 import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import type { GuestImageResolver } from '@/modules/image'
+import type { PrintImageReads } from '@/modules/order'
 import type { PromotionCodes } from '@/modules/promotion'
 import { read, write, type Tables } from '@/platform/db/database'
 import './schema'
@@ -206,6 +207,29 @@ export function createCartRepository(
       )
       return image?.filename ?? null
     }) satisfies GuestImageResolver,
+  }
+}
+
+/**
+ * The order module's `PrintImageReads`: the file names behind print image ids, without an
+ * ownership rule, for the production read of a placed order. A function of its own rather than a
+ * member of the cart module, because the order module is created before the cart (the cart needs
+ * `orders`); the composition root creates this read first and hands it to `createOrderModule`.
+ */
+export function createPrintImageReads(db: Kysely<Tables>): PrintImageReads {
+  return {
+    filenames: async (imageIds) => {
+      const wanted = [...imageIds]
+      if (wanted.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('print_images')
+          .select(['id', 'filename'])
+          .where('id', 'in', wanted)
+          .execute(),
+      )
+      return new Map(rows.map((row) => [row.id, row.filename]))
+    },
   }
 }
 

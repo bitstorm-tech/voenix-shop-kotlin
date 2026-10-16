@@ -411,9 +411,17 @@ owner passes an `invalid` answer on unchanged. Only `POST
 /api/admin/prices/calculate`, which takes a bare `priceInput`, answers the
 unprefixed field names.
 
-The three writes take the owner's `Transaction<Tables>` and run one statement
-on it. They never open a transaction of their own, so they commit and roll back
-with the owner. Pass them only a value `prepare` produced: they write exactly
+The three writes take the owner's `Transaction<Tables>` and run on it. They
+never open a transaction of their own, so they commit and roll back with the
+owner. The store and the replace first lock the price's two VAT entries
+(`SELECT id FROM value_added_taxes WHERE id IN (…) FOR KEY SHARE`) until the
+owner's transaction ends: a VAT delete that races the write waits for it and
+then fails as in use. An entry that was deleted between `prepare` and the write
+is no longer there to lock; the write then throws a plain error (a `500`),
+never the foreign-key violation `23503`. That keeps the owner's foreign-key
+mapping unambiguous: the prompt maps `23503` around its whole transaction to
+"unknown slot variant", and a price insert failing on a VAT must not reach that
+mapping. Pass them only a value `prepare` produced: they write exactly
 the inputs of the `CalculatedPrice`, through one column mapping (`priceRow`).
 An update rewrites the row in place, so the id an owner stores never changes.
 The owner deletes its own row first, because the referencing foreign key is

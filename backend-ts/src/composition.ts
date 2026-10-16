@@ -4,7 +4,7 @@ import type { Hono } from 'hono'
 import { getConnInfo, serveStatic } from '@hono/bun'
 import { createAccountModule } from '@/modules/account'
 import { createArticleModule } from '@/modules/article'
-import { createCartModule } from '@/modules/cart'
+import { createCartModule, createPrintImageReads } from '@/modules/cart'
 import { createCheckoutModule } from '@/modules/checkout'
 import { createCountryModule } from '@/modules/country'
 import { createEmailModule } from '@/modules/email'
@@ -89,7 +89,8 @@ export async function createApplication(
     })
 
     // Order comes before production, which is created with order's reads; the two admin PDF
-    // routes need production's generator and are mounted once it exists.
+    // routes need production's generator and are mounted once it exists. The print image read is
+    // the cart's, created on its own because the cart module itself comes after order.
     const order = createOrderModule({
       db,
       settings: { mollie: settings.mollie, frontendBaseUrl },
@@ -97,6 +98,7 @@ export async function createApplication(
       promotionCodes: promotion.promotionCodes,
       email,
       images: image,
+      printImages: createPrintImageReads(db),
       guestTokens,
       ...(overrides.mollie === undefined ? {} : { mollie: overrides.mollie }),
     })

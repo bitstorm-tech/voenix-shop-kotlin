@@ -4,7 +4,8 @@ import sharp, { type Metadata, type Sharp } from 'sharp'
  * Everything sharp does for this module: parsing a requested size, deriving a resized file from an
  * original, and normalizing an upload to WebP. The output settings are the Kotlin backend's: JPEG
  * quality 85 on white, PNG compression level 6, lossy WebP quality 85 with alpha quality 100,
- * effort (libwebp's method) 4, and sharp YUV.
+ * effort (libwebp's method) 4, and sharp YUV. Every output is turned upright by the EXIF
+ * orientation first: the encoders drop that tag, so a photo stored sideways would stay sideways.
  */
 
 /** More decoded pixels than this are refused: a 40-megapixel image alone holds about 160 MB. */
@@ -72,11 +73,13 @@ export async function writeDerivative(
   format: ImageFormat,
   target: string,
 ): Promise<void> {
-  const resized = sharp(original, { limitInputPixels: MAX_DECODED_PIXELS }).resize(
-    size.height === null
-      ? { width: size.width }
-      : { width: size.width, height: size.height, fit: 'inside' },
-  )
+  const resized = sharp(original, { limitInputPixels: MAX_DECODED_PIXELS })
+    .autoOrient()
+    .resize(
+      size.height === null
+        ? { width: size.width }
+        : { width: size.width, height: size.height, fit: 'inside' },
+    )
   switch (format) {
     case 'jpeg':
       await resized.flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toFile(target)
@@ -122,7 +125,8 @@ export async function normalizeToWebp(
     return { rejection: 'Declared and decoded image formats differ' }
   }
   try {
-    return { webp: await webp(sharp(bytes, { limitInputPixels: MAX_DECODED_PIXELS })).toBuffer() }
+    const upright = sharp(bytes, { limitInputPixels: MAX_DECODED_PIXELS }).autoOrient()
+    return { webp: await webp(upright).toBuffer() }
   } catch {
     return { rejection: 'Invalid image data' }
   }

@@ -60,10 +60,9 @@ describe('measurePrintFrame', () => {
       kind: 'failed',
       reason: 'NO_RECTANGLE',
     })
-    expect(await measurePrintFrame(new Uint8Array([1, 2, 3]))).toEqual({
-      kind: 'failed',
-      reason: 'UNREADABLE_IMAGE',
-    })
+    for (const bytes of [new Uint8Array([1, 2, 3]), new Uint8Array()]) {
+      expect(await measurePrintFrame(bytes)).toEqual({ kind: 'failed', reason: 'UNREADABLE_IMAGE' })
+    }
   })
 
   test('the calibration design measures to the whole picture', async () => {
