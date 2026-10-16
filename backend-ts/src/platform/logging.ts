@@ -1,8 +1,13 @@
 import pino, { type Logger } from 'pino'
+import pretty from 'pino-pretty'
 
 export type { Logger }
 
-const root = pino()
+/**
+ * Human-readable lines (`[time] LEVEL (name): message`) instead of pino's JSON. pino-pretty runs as
+ * a plain stream in this process, not as a pino transport in a worker thread.
+ */
+const root = pino(pretty({ translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname', sync: true }))
 
 /**
  * A logger for one module or component; `name` appears in every line. Never log the message of a
