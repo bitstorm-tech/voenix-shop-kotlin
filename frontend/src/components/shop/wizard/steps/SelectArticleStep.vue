@@ -14,6 +14,7 @@ import {
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductCard from '@/components/shop/ProductCard.vue'
+import ProductImageGallery from '@/components/shop/ProductImageGallery.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import {
@@ -21,7 +22,7 @@ import {
   isMug,
   isSpodArticle,
   useCatalogStore,
-  variantPhotoFilename,
+  variantPhotoFilenames,
   type MugDto,
   type MugVariantDto,
   type ShopArticle,
@@ -115,14 +116,18 @@ const sizeChartUrl = computed(() => {
   return filename ? sizeChartImageUrl(filename, 1000) : null
 })
 
-/** A mug variant shows its own photo, a SPOD variant the first listing image of its colour. */
-const selectedImageUrl = computed(() => {
+/**
+ * The pictures the compact view leafs through, like the card it enlarges: a mug variant's own photo,
+ * or every listing image of the selected colour.
+ */
+const selectedImageUrls = computed(() => {
   const article = selectedArticle.value
   const variant = selectedVariant.value
-  const filename = article && variant ? variantPhotoFilename(article, variant) : null
-  if (!article || !filename) return null
+  if (!article || !variant) return []
 
-  return variantExampleImageUrl(article.articleType, filename, 400)
+  return variantPhotoFilenames(article, variant).map((filename) =>
+    variantExampleImageUrl(article.articleType, filename, 400),
+  )
 })
 
 function getDisplayVariant(article: ShopArticle): ShopArticleVariant | null {
@@ -203,11 +208,10 @@ onMounted(async () => {
       <!-- Image -->
       <div class="relative aspect-[4/3] bg-muted/30 sm:aspect-auto sm:w-2/5">
         <div class="absolute inset-0 bg-surface-image" />
-        <img
-          v-if="selectedImageUrl"
-          :src="selectedImageUrl"
+        <ProductImageGallery
+          v-if="selectedImageUrls.length > 0"
+          :images="selectedImageUrls"
           :alt="selectedArticle.name"
-          class="relative z-[2] size-full object-contain p-6"
         />
         <div
           v-else-if="selectedMugVariant"

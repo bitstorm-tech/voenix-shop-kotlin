@@ -91,10 +91,11 @@ product photo
 
 **Listing image**:
 Every picture the partner lists for one colour of a SPOD article, in the
-partner's order, as chosen in the backoffice. The storefront, the wizard, the
-cart, and the checkout show these; the storefront listing shows the first one
-of the default colour. A colour is sellable only with its mockup image and at
-least one listing image.
+partner's order, as chosen in the backoffice. The storefront, the wizard, and
+the cart show these. A product card starts with the first listing image of the
+active colour and lets the customer leaf through all of them; the cart and the
+editor show the first one. A colour is sellable
+only with its mockup image and at least one listing image.
 _Avoid_ in prose: example image (for a SPOD colour), mockup (for a listing
 photo) — do not call a SPOD colour's listing image an example image in prose;
 the field `exampleImageFilename` shared with mugs on the admin list and the

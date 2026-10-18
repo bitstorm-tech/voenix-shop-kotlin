@@ -23,8 +23,9 @@ import type { AdminSpodAppearanceDto, AdminSpodVariantDto } from '@/stores/admin
  * variants is thirty near-identical rows. Grouped by colour it is five rows, each showing its sizes
  * as chips: a greyed-out, struck-through chip is a size the partner no longer offers, the
  * highlighted one is the default variant. Every variant stays visible — an operator sees at a
- * glance which sizes of a colour the shop can sell. The colour's name, swatch, and thumbnail (its
- * first listing image) come from the appearance the variants point to.
+ * glance which sizes of a colour the shop can sell. The colour's name, swatch, and thumbnails (every
+ * listing image, in the partner's order; the backoffice owns them, so nothing here changes them)
+ * come from the appearance the variants point to.
  *
  * The partner's identifiers (variant id, SKU, the product/appearance/size triple) are what an
  * operator needs to find the same row again in the Spreadconnect backoffice, and nothing else. They
@@ -123,11 +124,20 @@ function sizeChipTitle(variant: AdminSpodVariantDto) {
         :data-testid="`spod-colour-${group.appearance.colorName}`"
       >
         <div class="flex flex-wrap items-center gap-3">
-          <AdminExampleImageThumbnail
-            :filename="group.appearance.listingImageFilenames[0] ?? null"
-            :title="group.appearance.colorName"
-            :image-url="variantImageUrl"
-          />
+          <div class="flex shrink-0 items-center gap-1.5">
+            <AdminExampleImageThumbnail
+              v-for="(filename, index) in group.appearance.listingImageFilenames"
+              :key="index"
+              :filename="filename"
+              :title="group.appearance.colorName"
+              :image-url="variantImageUrl"
+            />
+            <AdminExampleImageThumbnail
+              v-if="group.appearance.listingImageFilenames.length === 0"
+              :title="group.appearance.colorName"
+              :image-url="variantImageUrl"
+            />
+          </div>
           <span class="flex w-44 shrink-0 items-center gap-2 font-medium text-foreground">
             <span
               class="size-4 shrink-0 rounded-full border border-border"

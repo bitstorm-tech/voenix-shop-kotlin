@@ -702,7 +702,10 @@
     "sizes": "Größen",
     "fewerColors": "Weniger",
     "showAllColors": "Alle {count} Farben anzeigen",
-    "showFewerColors": "Weniger Farben anzeigen"
+    "showFewerColors": "Weniger Farben anzeigen",
+    "previousImage": "Vorheriges Bild",
+    "nextImage": "Nächstes Bild",
+    "imageOf": "Bild {current} von {total}"
   },
   "productOverview": {
     "breadcrumb": {
