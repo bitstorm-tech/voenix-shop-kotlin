@@ -60,12 +60,19 @@ describe('AdminArticleSpodVariantGroups', () => {
     expect(black.get('[data-testid="spod-size-3"]').classes()).toContain('border-primary')
     expect(black.get('[data-testid="spod-size-4"]').classes()).toContain('line-through')
     expect(black.text()).toContain('3 of 4 active')
-    // The thumbnail of a colour is its first listing image.
-    expect(black.get('img').attributes('src')).toContain(
-      'articles/spod/listing-images/black-1.webp',
-    )
+    // A colour shows every listing image as a thumbnail, in the partner's order.
+    const thumbnails = black.findAll('[data-testid="example-image-thumbnail"]')
+    expect(thumbnails.map((thumbnail) => thumbnail.attributes('src'))).toEqual([
+      '/api/images/public/80/articles/spod/listing-images/black-1.webp',
+      '/api/images/public/80/articles/spod/listing-images/black-2.webp',
+    ])
+    expect(black.findAll('[data-testid="example-image-placeholder"]')).toHaveLength(0)
 
-    expect(wrapper.get('[data-testid="spod-colour-White"]').text()).toContain('1 of 1 active')
+    const white = wrapper.get('[data-testid="spod-colour-White"]')
+    expect(white.text()).toContain('1 of 1 active')
+    // A colour without listing images shows one placeholder.
+    expect(white.findAll('[data-testid="example-image-thumbnail"]')).toHaveLength(0)
+    expect(white.findAll('[data-testid="example-image-placeholder"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid^="spod-colour-"]')).toHaveLength(2)
   })
 

@@ -187,9 +187,9 @@ combination with the partner's three product ids, and the size chart of the
 product type. Nothing of that is typed or uploaded here any more — the ids were
 the main source of wrong mappings, and now nobody copies them.
 
-The order of the colours and of the photos is the backoffice's order. The
-storefront shows the first listing image of the default colour on the product
-card, so choose and sort the photos over there.
+The order of the colours and of the photos is the backoffice's order. A
+product card starts with the first listing image of its colour and lets the
+customer leaf through all of them, so choose and sort the photos over there.
 
 Three things to get right over there, because only the backoffice can fix them:
 

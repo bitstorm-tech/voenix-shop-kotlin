@@ -120,7 +120,7 @@ describe('ProductCard', () => {
     expect(swatches.map((swatch) => swatch.attributes('aria-label'))).toEqual(['Black', 'White'])
     expect(swatches[0]!.attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-testid="product-card-sizes"]').text()).toBe('productCard.sizes S – M')
-    // One picture per card: the first listing image of the active colour.
+    // The card starts on the first listing image of the active colour.
     expect(wrapper.get('img').attributes('src')).toBe(
       '/api/images/public/400/articles/spod/listing-images/listing-1-front.webp',
     )
@@ -204,5 +204,97 @@ describe('ProductCard', () => {
     expect(toggle.text()).toBe('productCard.fewerColors')
     // Unfolding the colours is not choosing the card.
     expect(wrapper.emitted('click')).toBeUndefined()
+  })
+
+  describe('image gallery', () => {
+    const LISTING_URL = '/api/images/public/400/articles/spod/listing-images/'
+
+    const tee = createShopTee({
+      id: 30,
+      appearances: [
+        createSpodAppearance({
+          id: 1,
+          colorName: 'Black',
+          listingImageFilenames: ['black-front.webp', 'black-model.webp', 'black-detail.webp'],
+        }),
+        createSpodAppearance({
+          id: 2,
+          colorName: 'White',
+          listingImageFilenames: ['white-front.webp', 'white-model.webp'],
+        }),
+        createSpodAppearance({ id: 3, colorName: 'Red', listingImageFilenames: [] }),
+      ],
+    })
+    const variantOf = (appearanceId: number) =>
+      tee.variants.find((variant) => variant.appearanceId === appearanceId)!
+
+    function mountCard(props: Partial<InstanceType<typeof ProductCard>['$props']> = {}) {
+      return mount(ProductCard, {
+        props: { article: tee, activeVariant: variantOf(1), priceCents: 1990, ...props },
+      })
+    }
+
+    type Card = ReturnType<typeof mountCard>
+    const shownImage = (wrapper: Card) => wrapper.get('img').attributes('src')
+    const dots = (wrapper: Card) => wrapper.findAll('[data-testid="product-image-gallery-dot"]')
+    const next = (wrapper: Card) => wrapper.get('[data-testid="product-image-gallery-next"]')
+
+    it('leafs through every listing image of the active colour', async () => {
+      const wrapper = mountCard()
+
+      expect(shownImage(wrapper)).toBe(`${LISTING_URL}black-front.webp`)
+      expect(dots(wrapper)).toHaveLength(3)
+
+      await next(wrapper).trigger('click')
+      expect(shownImage(wrapper)).toBe(`${LISTING_URL}black-model.webp`)
+    })
+
+    it('starts the new colour at its first image', async () => {
+      const wrapper = mountCard()
+      await next(wrapper).trigger('click')
+
+      await wrapper.setProps({ activeVariant: variantOf(2) })
+
+      expect(shownImage(wrapper)).toBe(`${LISTING_URL}white-front.webp`)
+      expect(dots(wrapper)).toHaveLength(2)
+    })
+
+    it('shows the placeholder for a colour without listing images', () => {
+      const wrapper = mountCard({ activeVariant: variantOf(3) })
+
+      expect(wrapper.find('img').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="product-image-gallery"]').exists()).toBe(false)
+    })
+
+    it('shows a mug photo alone, without arrows or dots', () => {
+      const photoMug = createShopMug({
+        variants: [createMugVariant({ exampleImageFilename: 'mug-white.webp' })],
+      })
+
+      const wrapper = mountCard({ article: photoMug, activeVariant: photoMug.variants[0]! })
+
+      expect(shownImage(wrapper)).toBe(
+        '/api/images/public/400/articles/mugs/variant-example-images/mug-white.webp',
+      )
+      expect(wrapper.find('[data-testid="product-image-gallery-next"]').exists()).toBe(false)
+      expect(dots(wrapper)).toHaveLength(0)
+    })
+
+    it('does not choose a button card when the customer leafs', async () => {
+      const wrapper = mountCard({ as: 'button' })
+
+      await next(wrapper).trigger('click')
+      await wrapper.get('[data-testid="product-image-gallery-previous"]').trigger('click')
+      await dots(wrapper)[2]!.trigger('click')
+      await dots(wrapper)[2]!.trigger('keydown', { key: 'Enter' })
+      await dots(wrapper)[2]!.trigger('keydown', { key: ' ' })
+
+      expect(shownImage(wrapper)).toBe(`${LISTING_URL}black-detail.webp`)
+      expect(wrapper.emitted('click')).toBeUndefined()
+
+      // The picture itself still belongs to the card.
+      await wrapper.get('img').trigger('click')
+      expect(wrapper.emitted('click')).toHaveLength(1)
+    })
   })
 })

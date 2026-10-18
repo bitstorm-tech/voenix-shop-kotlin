@@ -98,9 +98,10 @@ an input `text-xs`, so the three levels of text are told apart at a glance.
 A SPOD article's variants are read-only and many — a few colours times a few
 sizes. [`AdminArticleSpodVariantGroups`](../../../frontend/src/components/admin/article/AdminArticleSpodVariantGroups.vue)
 gets the article's `spodVariants` and `appearances` and shows one row per
-colour (appearance) — its name, its colour swatch, and its first listing image
-as the thumbnail — with the sizes as chips in garment order: a struck-through chip is a
-size the partner no longer offers, the highlighted one is the default variant.
+colour (appearance) — its name, its colour swatch, and all its listing images
+as thumbnails in the partner's order (read-only: the backoffice owns them) —
+with the sizes as chips in garment order: a struck-through chip is a size the
+partner no longer offers, the highlighted one is the default variant.
 The partner's identifiers (variant id, SKU, product/appearance/size) sit behind
 a *Show technical IDs* toggle and then appear under every colour in the same
 columns — they are what an operator needs to find a row again in the

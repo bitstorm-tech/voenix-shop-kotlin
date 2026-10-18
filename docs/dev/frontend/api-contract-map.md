@@ -289,11 +289,11 @@ filename or an id. All of them match the image module's routes
 | `components/shop/HeaderCategoryMenuPanel.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | none |
 | `components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue` | `/api/images/public/400/articles/subcategory-example-images/{filename}` | same | #96 |
 | `lib/variantExampleImage.ts` (`sizeChartImageUrl`) | `/api/images/public/{size}/articles/spod/size-charts/{filename}` | same | #218, #260 |
-| `components/shop/wizard/steps/SelectArticleStep.vue` | the variant photo at 400 (a mug's example image, a SPOD colour's first listing image) and `/api/images/public/1000/articles/spod/size-charts/{filename}` (via the two helpers in `lib/variantExampleImage.ts`) | same | #218, #260 |
+| `components/shop/wizard/steps/SelectArticleStep.vue` | the variant photos at 400 in the compact view of the selected article (a mug's example image, or every listing image of the SPOD colour to leaf through) and `/api/images/public/1000/articles/spod/size-charts/{filename}` (via the two helpers in `lib/variantExampleImage.ts`) | same | #218, #260 |
 | `components/shop/editor/ProductEditor.vue` | `/api/images/public/1000/articles/spod/mockups/{filename}` (the mockup of the selected colour as the backdrop, via `spodMockupImageUrl`) | same | #218, #260 |
 | `components/shop/editor/ProductContextBar.vue` | the variant photo at 200 (via `lib/variantExampleImage.ts`) | same | #217, #260 |
 | `components/shop/CartLineItem.vue` | the variant photo at 400 (via `lib/variantExampleImage.ts`) | `GET /api/images/public/{size}/{filename...}` | #260 |
-| `components/shop/ProductCard.vue` | the variant photo at 400 (the `/products` grid card, one picture per card, via `lib/variantExampleImage.ts`) | same | #217, #260 |
+| `components/shop/ProductCard.vue` | the variant photos at 400 (the `/products` and wizard grid card: a mug's example image, or every listing image of the active SPOD colour to leaf through in `ProductImageGallery.vue`, via `lib/variantExampleImage.ts`) | same | #217, #260 |
 | `components/admin/article/AdminArticleRow.vue` | `/api/images/public/{size}/articles/{type}/variant-example-images/{filename}` (via the same helper) | same | #220 |
 | `components/admin/article/AdminArticleMugVariantDialog.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |

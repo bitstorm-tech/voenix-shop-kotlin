@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   useCatalogStore,
   variantPhotoFilename,
+  variantPhotoFilenames,
   type MugDto,
   type SpodArticleDto,
 } from '@/stores/shop/catalog'
@@ -301,5 +302,40 @@ describe('variantPhotoFilename', () => {
       'listing-201-front.webp',
     )
     expect(variantPhotoFilename(tee, tee.variants.find((v) => v.appearanceId === 202)!)).toBeNull()
+  })
+})
+
+describe('variantPhotoFilenames', () => {
+  it('answers the own photo of a mug variant, or nothing when it has none', () => {
+    const mug = makeMug({
+      variants: [
+        createMugVariant({ id: 1, exampleImageFilename: 'mug-red.webp' }),
+        createMugVariant({ id: 2, exampleImageFilename: null }),
+      ],
+    })
+
+    expect(variantPhotoFilenames(mug, mug.variants[0]!)).toEqual(['mug-red.webp'])
+    expect(variantPhotoFilenames(mug, mug.variants[1]!)).toEqual([])
+  })
+
+  it('answers every listing image of the SPOD variant colour in order, and only those', () => {
+    const tee = makeTee({
+      appearances: [
+        createSpodAppearance({
+          id: 201,
+          listingImageFilenames: ['black-front.webp', 'black-model.webp', 'black-detail.webp'],
+        }),
+        createSpodAppearance({ id: 202, listingImageFilenames: ['white-front.webp'] }),
+      ],
+    })
+
+    expect(variantPhotoFilenames(tee, tee.variants.find((v) => v.appearanceId === 201)!)).toEqual([
+      'black-front.webp',
+      'black-model.webp',
+      'black-detail.webp',
+    ])
+    expect(variantPhotoFilenames(tee, tee.variants.find((v) => v.appearanceId === 202)!)).toEqual([
+      'white-front.webp',
+    ])
   })
 })

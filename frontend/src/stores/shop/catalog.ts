@@ -71,7 +71,8 @@ export interface MugDto extends ShopArticleBase {
  * off the appearance, not off every size of it. `mockupImageFilename` is the plain product photo the
  * editor lays the print frame over - `null` on the wire when SPOD has none, which the editor shows
  * without a backdrop; `listingImageFilenames` are the photos a listing shows, in
- * SPOD's order, and the first of them is the one picture the storefront shows for this colour.
+ * SPOD's order: a product card leafs through all of them, and the places that show one picture
+ * show the first.
  */
 export interface SpodAppearanceDto {
   id: number
@@ -151,17 +152,26 @@ export function appearanceOf(article: SpodArticleDto, variant: SpodVariantDto): 
 }
 
 /**
- * The catalog photo of a variant: a mug variant's own example image, or the first listing image of
- * a SPOD variant's colour. `null` when there is none, so a caller falls back to its placeholder.
+ * The catalog photos of a variant, in order: a mug variant's own example image, or every listing
+ * image of a SPOD variant's colour. Empty when there is none, so a caller falls back to its
+ * placeholder.
  */
+export function variantPhotoFilenames(article: ShopArticle, variant: ShopArticleVariant): string[] {
+  // The variant comes out of this article's own list, so the article's type names it.
+  if (isMug(article)) {
+    const filename = (variant as MugVariantDto).exampleImageFilename
+    return filename ? [filename] : []
+  }
+
+  return appearanceOf(article, variant as SpodVariantDto).listingImageFilenames
+}
+
+/** The one catalog photo of a variant, for the places that show a single picture: the first. */
 export function variantPhotoFilename(
   article: ShopArticle,
   variant: ShopArticleVariant,
 ): string | null {
-  // The variant comes out of this article's own list, so the article's type names it.
-  return isMug(article)
-    ? (variant as MugVariantDto).exampleImageFilename
-    : (appearanceOf(article, variant as SpodVariantDto).listingImageFilenames[0] ?? null)
+  return variantPhotoFilenames(article, variant)[0] ?? null
 }
 
 function compareArticlesByPosition(a: ShopArticle, b: ShopArticle): number {

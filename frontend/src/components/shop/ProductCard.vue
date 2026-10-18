@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Check } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { SwatchButton } from '@/components/ui/swatch-button'
+import ProductImageGallery from '@/components/shop/ProductImageGallery.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { sizeRange } from '@/lib/tshirtSizes'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
@@ -11,7 +12,7 @@ import {
   appearanceOf,
   isMug,
   isSpodArticle,
-  variantPhotoFilename,
+  variantPhotoFilenames,
   type MugVariantDto,
   type ShopArticle,
   type ShopArticleVariant,
@@ -77,13 +78,17 @@ const insideColor = computed(
   () => mugVariant.value?.insideColorCode ?? spodAppearance.value?.colorHex ?? '#ffffff',
 )
 
-/** One picture per card: a mug variant's own photo, or the first listing image of the colour. */
-const exampleImageUrl = computed(() => {
-  const filename = props.activeVariant
-    ? variantPhotoFilename(props.article, props.activeVariant)
-    : null
-  return filename ? variantExampleImageUrl(props.article.articleType, filename, 400) : null
-})
+/**
+ * The pictures of the active variant the card leafs through: a mug variant's own photo, or every
+ * listing image of the colour. A colour switch starts again at its first picture.
+ */
+const imageUrls = computed(() =>
+  props.activeVariant
+    ? variantPhotoFilenames(props.article, props.activeVariant).map((filename) =>
+        variantExampleImageUrl(props.article.articleType, filename, 400),
+      )
+    : [],
+)
 
 interface ColorSwatch {
   variantId: number
@@ -207,12 +212,7 @@ const sizeHint = computed(() => {
       <div
         class="product-card__halo absolute inset-x-10 bottom-5 top-8 z-[1] rounded-full opacity-[0.58] blur-[16px]"
       />
-      <img
-        v-if="exampleImageUrl"
-        :src="exampleImageUrl"
-        :alt="article.name"
-        class="absolute inset-0 z-[2] size-full object-contain p-6 drop-shadow-[0_0.95rem_1.15rem_oklch(0_0_0_/_0.16)] transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none"
-      />
+      <ProductImageGallery v-if="imageUrls.length > 0" :images="imageUrls" :alt="article.name" />
       <div v-else class="absolute inset-0 z-[2] flex size-full items-center justify-center">
         <div
           class="size-[5.4rem] rounded-full shadow-inner transition-transform duration-300 group-hover:scale-110 motion-reduce:transition-none"

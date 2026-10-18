@@ -392,7 +392,7 @@ describe('wizard selection controls', () => {
     expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)
   })
 
-  it('shows the first listing image of the selected colour', async () => {
+  it('leafs through the listing images of the selected colour and resets on a colour switch', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeTee(5, 20)]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
@@ -402,16 +402,16 @@ describe('wizard selection controls', () => {
     const wrapper = mount(SelectArticleStep)
     await flushPromises()
 
-    const image = () => wrapper.get('[data-testid="wizard-selected-article"] img')
-    expect(image().attributes('src')).toBe(
-      '/api/images/public/400/articles/spod/listing-images/listing-1-front.webp',
-    )
+    const panel = () => wrapper.get('[data-testid="wizard-selected-article"]')
+    const image = () => panel().get('img').attributes('src')
+    expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-1-front.webp')
+
+    await panel().get('[data-testid="product-image-gallery-next"]').trigger('click')
+    expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-1-back.webp')
 
     await wrapper.findAllComponents(SwatchButton)[1]!.trigger('click')
 
-    expect(image().attributes('src')).toBe(
-      '/api/images/public/400/articles/spod/listing-images/listing-2-front.webp',
-    )
+    expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-2-front.webp')
   })
 
   it('offers a one-size tote its colours but neither size buttons nor a size chart', async () => {
