@@ -308,7 +308,7 @@ production's one branch for the producer notification *and* the customer's
 shipping notification), and the application composes the late-bound aggregated
 `QueuedEmailSource`.
 See the "Producer notification" section in
-[production-package.md](../dev/backend/packages/production-package.md).
+[production-package.md](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/production-package.md).
 
 ## Operations, delivery feedback, and retention
 

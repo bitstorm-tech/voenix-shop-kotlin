@@ -1,4 +1,3 @@
-.gradle/
 build/
 out/
 output/
@@ -8,20 +7,13 @@ tmp/
 temp/
 *.iml
 .secrets
-application-local.yaml
-application-verify.yaml
-application-test.yaml
-application-production.yaml
 storage/
 migrate-prod-to-local.sh
 .playwright-mcp/
 
-backend/build/
-backend/data/images/
-
 .DS_Store
 
 /node_modules/
-backend-ts/.env.local
-backend-ts/node_modules/
-backend-ts/data/
+backend/.env.local
+backend/node_modules/
+backend/data/

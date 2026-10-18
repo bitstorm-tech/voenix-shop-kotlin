@@ -1,130 +1,130 @@
 # The Checkout package
 
-This guide explains the Kotlin code in
-[`backend/modules/checkout/src/shop/voenix/checkout`](../../../../backend/modules/checkout/src/shop/voenix/checkout).
+This guide explains the TypeScript code in
+[`backend/src/modules/checkout`](../../../../backend/src/modules/checkout).
+It starts from the [Kotlin checkout guide](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/checkout-package.md)
+and keeps its HTTP contract; the decision that changed in the port, one checkout
+in **two transactions** instead of five commits, is recorded below.
 
 ## What this package does
 
 It turns a filled cart into a placed order and sends the customer to pay for it.
 
-This is the module every other customer-facing module was built towards, and it
-is the smallest one in the backend:
+It is the smallest module of the backend and the last consumer in the chain:
 
-- **no table**, no Exposed dependency, and no transaction of its own;
-- **no exported capability**, and its runtime handle is `internal`, because
+- **no table**, no `schema.ts`, no repository;
+- **no exported capability**: `createCheckoutModule` answers `{ routes }` and
   nothing consumes a checkout;
-- **eight production types** and **two HTTP routes**.
+- **two transactions of its own**, opened with the platform's `write(db, …)`,
+  inside which it only ever calls what other modules export.
 
-Everything a checkout *does* is done by another module, through a capability that
-module exports:
+Everything a checkout *does* is done by another module, through a capability
+that module exports:
 
 | It needs | It calls | Owner |
 | --- | --- | --- |
-| the priced cart, and closing it | `CheckoutCarts.activeCart` / `markCheckedOut` | cart |
-| holding the coupon's capacity | `PromotionCodes.reserve` | promotion |
-| placing the order, reading a payable one | `OrderPlacement.place` / `payable` | order |
-| confirming a free order | `OrderPaymentGateway.confirm` | order |
-| starting the payment | `PaymentStarter.start` | payment |
-| may we ship to this country? | `ShippableCountries.isShippable` | country |
-| what are the cart's lines? | `ArticleCatalog.find` | article |
+| the priced cart, the row lock, and closing the cart | `checkoutCarts.activeCart` / `lockForCheckout(trx, …)` / `markCheckedOut(trx, …)` | cart |
+| holding the coupon's capacity, giving it back | `promotionCodes.reserve(trx, …)` / `release(trx, …)` | promotion |
+| placing the order, confirming a free one, reading a payable one, starting its payment | `orders.place(trx, …)` / `confirmFree(trx, …)` / `payable` / `startPayment` | order |
+| may we ship to this country? | `countries.isShippable` | country |
 
-The decided design, every deviation from the .NET original, and the history of
-the decisions live in
-[`checkout-migration.md`](../../../migration/checkout-migration.md); the work
-deliberately left for later, the Vue frontend, lives in
-[`order-post-migration.md`](../../../migration/order-post-migration.md). The
-shipping-country policy that deviation D10 left open was decided and implemented
-as issue #81; see
-[`all-post-migration.md`](../../../migration/all-post-migration.md).
+What the cart's lines *are* (the phone rule below) is answered by the cart
+snapshot itself: every `CheckoutCartLine` carries its current `articleType`, so
+the checkout asks the article catalog nothing.
 
-## The five-minute mental model
+## Decision: one checkout, two transactions
 
-```mermaid
-flowchart TB
-    Customer["the customer's browser<br/>guest cookie or session"]
-    Routes["installCheckoutRoutes<br/>two routes · guest-capable CSRF · no-store"]
-    Operations["CheckoutOperations<br/>internal seam · checkout · startPayment"]
-    Service["CheckoutService<br/>the orchestration"]
-    Carts["CheckoutCarts<br/>cart module"]
-    Promotions["PromotionCodes<br/>promotion module"]
-    Orders["OrderPlacement<br/>order module"]
-    Gateway["OrderPaymentGateway<br/>order module · confirm"]
-    Payments["PaymentStarter<br/>payment module"]
-    Countries["ShippableCountries<br/>country module"]
-    Articles["ArticleCatalog<br/>article module"]
+The Kotlin module committed five times in five modules (cart snapshot,
+promotion reservation, placement, settlement, cart close) and held the sequence
+together with compensations: a `releaseAbandoned` after a refused placement, a
+unique-violation retry path inside the placement for a double-clicked checkout.
+The port (#247) replaces that with two transactions of this module and the
+order module's payment start between them:
 
-    Customer --> Routes --> Operations --> Service
-    Service --> Carts
-    Service --> Countries
-    Service --> Articles
-    Service --> Promotions
-    Service --> Orders
-    Service --> Gateway
-    Service --> Payments
-```
+- **TX1** locks the cart row (`SELECT … FOR UPDATE` through
+  `lockForCheckout`), reserves the coupon, places the order together with its
+  rendered confirmation mail, and, for a **free** order, confirms it and closes
+  the cart. Everything in it commits together or not at all. The lock is what
+  makes a second submission of the same cart wait and then find the live order
+  (`alreadyPlaced`) instead of racing `ux_orders_live_cart`; the one-transaction
+  scope is what makes a refused placement leave no reservation behind without a
+  separate compensation.
+- **The payment start is the order module's own transaction.**
+  `orders.startPayment` opens it, locks the *order* row (`SELECT … FOR
+  UPDATE`), makes the Mollie call inside it (eight seconds at most), and
+  inserts the payment row there. The call runs outside both checkout
+  transactions: neither TX1 nor TX2 stays open across a network call, and the
+  cart lock is released before it. Only the order row is held, and the
+  provider timeout stays below the database's `lock_timeout` (see
+  [the Order package](order-package.md)).
+- **TX2** only closes the cart, once a payment exists. Until then the cart stays
+  `ACTIVE` on purpose: a checkout that dies halfway, and a provider that
+  refuses, both leave the customer a cart to submit again.
 
-Five facts explain almost every line of this module:
+What a refusal does is now the order module's business: when Mollie starts no
+payment, `startPayment` cancels the order and releases the reservation inside
+the very transaction that holds the order lock and answers `null`; the
+checkout only answers `502 PAYMENT_NOT_STARTED`. There is no compensation left
+in this module.
 
-- **There is no transaction here, and there cannot be one.** Five modules commit
-  five times, each inside itself. What holds the sequence together is that every
-  step is safe to repeat and every gap has an owner.
-- **The cart is closed last.** A checkout that dies halfway leaves an `ACTIVE`
-  cart the customer can submit again.
-- **A second submission does not place a second order.** The order module
-  answers with the one that won (`AlreadyPlaced`), and the payment module answers
-  with that order's stored checkout URL without calling the provider. Both
-  submissions therefore receive the *same* body (deviation D15).
-- **Nothing about money comes from the client.** A checkout request is two
-  addresses. The prices, the shipping cost, the discount, and the total are read
-  from the stored cart and the reserved promotion.
-- **The guest token is read, never minted, and never logged** (deviations D8 and
-  D9). A request with neither a session nor a cookie has no cart, which is the
-  same answer as an empty one; the only identifier that reaches a log line here
-  is the order id. Since issue #77 a signed-in customer's cart is found by their
-  user id, so a missing cookie alone is no longer a reason to answer "empty"
-  without looking.
+### A checkout that dies between its two transactions
+
+TX1 and the payment start are committed, TX2 is not: the order is `PENDING`,
+its payment is live, and the cart is still `ACTIVE`. Two paths meet that state,
+and both end it (#262, Codex finding A4):
+
+- **The retry route closes the originating cart** once the payment stands. The
+  `PayableOrder` carries its `cartId` for this; `markCheckedOut` is idempotent,
+  so for the usual retry (the checkout closed the cart long ago) it is one
+  `UPDATE` that changes nothing. Without it a customer who paid through the
+  order page would keep a cart whose live order is paid, and every later
+  `POST /api/checkout`, new lines included, would resolve that order and be
+  answered `502`.
+- **A checkout of a cart whose live order is already paid settles it.**
+  `orders.place` answers `alreadyPaid` for such an order, TX1 closes the cart
+  and answers the order as settled (`201`, `checkoutUrl: null`), the same answer
+  a free order gets. Nothing is placed, Mollie is not called.
+
+A checkout resubmitted before anybody paid needs neither: `alreadyPlaced`,
+then `startPayment` answers the live payment's URL, then TX2 closes the cart.
+
+The lock order stays acyclic: TX1 takes the cart row, then the promotion row
+(inside `reserve`); the free-order confirmation inside TX1 takes the order row
+it just inserted, then the promotion row again (inside `redeem`); the payment
+start takes the order row and, on a refusal, the promotion row. No transaction
+ever takes a cart row after an order row.
 
 ## Production file map
 
-Each file holds one component and the small types that component owns, which is
-the backend-wide rule. See
-[Kotlin source file organization](../conventions/source-file-organization.md).
-
 | File | What it holds |
 | --- | --- |
-| `CheckoutModule.kt` | the internal handle, `createCheckoutModule`, the public `installCheckoutModule`, and `validateCheckoutRequests` |
-| `CheckoutService.kt` | the orchestration below, split into placement and settlement helpers, together with `CheckoutOperations`, the internal seam the routes call with `checkout` and `startPayment`, and `CheckoutResult`, the internal sealed result every ending is expressed as |
-| `CheckoutRoutes.kt` | `installCheckoutRoutes` with the two routes, the one error table, and `CheckoutResponse`: `{orderId, checkoutUrl?}`, the one shape both routes answer |
-| `CheckoutRequest.kt` | the `@Serializable` input, its nested `ShippingAddressInput` and `AddressInput`, their pure `validate()`, and the normalization. The request rules are long enough to be a concern of their own, so they keep a file of their own instead of joining the routes |
+| `index.ts` | `createCheckoutModule(deps)` answering `{ routes }` |
+| `routes.ts` | the two routes, the Zod schema `checkoutInput`, the order id parameter, and the one error table |
+| `service.ts` | `createCheckoutService`: the flow below in two transactions, `CheckoutInput`, and `CheckoutResult`, the union every ending is expressed as |
 
-`CheckoutResult` is a result of its own rather than the shared `OperationResult`
-because a checkout composes several modules and the reason it stopped is the only
-thing that tells a customer what to do next. Two refusals are deliberately absent
-from it. An unexpected database failure is not mapped at all; it surfaces as an
-exception the HTTP runtime answers. A request that breaks its field *shape*
-never reaches an operation. `Invalid` therefore does not mean "the customer sent
-something wrong" but "this module assembled something the order module refused",
-which is a bug and is logged as one. The one customer mistake that *is* in the
-sealed set are `ShippingCountryUnavailable` and `PhoneRequired`, because no
-request-shape rule could have caught either of them.
+`CheckoutResult` is a union of its own rather than the shared `OperationResult`
+because a checkout composes four modules and the reason it stopped is the only
+thing that tells a customer what to do next. Two Kotlin endings are gone:
+`Invalid` (the placement cannot refuse a body the schema accepted) and
+`UnexpectedFailure` (a step that answers something unusable throws, and the
+app's `onError` answers `500`, the platform rule; a free order that cannot be
+confirmed throws inside TX1, which rolls the placement back).
 
 ## HTTP API
 
 | Method | Path | Who calls it | Answers |
 | --- | --- | --- | --- |
-| `POST` | `/api/checkout` | the storefront, signed in or as a guest | `201 {orderId, checkoutUrl\|null}` + `Location` |
+| `POST` | `/api/checkout` | the storefront, signed in or as a guest | `201 {orderId, checkoutUrl\|null}` + `Location: /api/orders/{orderId}` |
 | `POST` | `/api/checkout/orders/{orderId}/payment` | the storefront, for an order that was already placed | `200 {orderId, checkoutUrl}` |
 
-Both hang below one `/api/checkout` node, and that is a decision rather than a
-path style. Ktor merges paths into one route tree, so the guest-capable CSRF
-protection installed on that node must not reach anything but the checkout.
-Owning the second segment also lets this module own its retry path without
-touching `/api/orders`, which belongs to the order module.
-
-Both operation answers carry `Cache-Control: no-store` (the header is set
-inside the handler, so a CSRF rejection or a request-validation failure, whose
-bodies carry nothing private, is answered without it), and neither route hands
-out a guest cookie.
+Both sit on one sub-app under `/api/checkout` with the `guestCapable`
+protection: a guest and a signed-in customer alike need a valid CSRF pair. Both
+answers carry `Cache-Control: no-store`, set inside the handler, so a CSRF
+rejection or a rejected body is answered without it. Neither route hands out a
+guest cookie: the token is read with `guestTokens.tryGet` and never minted. A
+visitor without one has no cart, which the empty-cart answer covers, and no
+order, which the not-found answer covers. A signed-in customer's cart is found
+by their user id, so a missing cookie alone never means "empty".
 
 ### The request
 
@@ -140,286 +140,212 @@ out a guest cookie.
 }
 ```
 
-Three details of that shape are deliberate:
+The schema `checkoutInput` in `routes.ts` is the whole field matrix (see
+[Request validation](../conventions/request-validation.md)): every postal field
+is required and bounded by its column (`Must not be blank`, `Must be at most N
+characters`), the country is a two-letter code and is upper-cased, the email is
+required, at most 255 characters, and has to look like an address. Three
+details are deliberate:
 
-- **The contact fields sit on the shipping address only** (deviation D11). The
-  Vue store serializes `email` and `phone` on the billing address too; those keys
-  are not declared in `AddressInput`, and the serializer ignores them. That is
-  exactly what the legacy checkout did; it only ever read the shipping copies.
-- **`phone: ""` means no phone** (deviation D12). The store always sends the
-  field and sends an empty string when it is blank. A blank optional normalizes
-  to `null` after validation; without that, every phoneless checkout would be
-  rejected by the order module, which refuses a blank phone but accepts an absent
-  one. Since issue #205 a phone number is nevertheless **required for a cart
-  containing a SPOD article**, see below. `orders.phone` stays nullable, and a
-  mug-only cart is still placed without one.
+- **The contact fields sit on the shipping address only.** The Vue store
+  serializes `email` and `phone` on the billing address too. The schema is
+  strict everywhere, so those two keys are *declared* on the billing address
+  as ignored values and never read; every other unknown property is refused.
+- **`phone: ""` means no phone.** The store always sends the field. A blank or
+  absent phone is `null` after parsing; a given one is trimmed and at most 50
+  characters. Nothing else is done to it: the shop does not know what a valid
+  number looks like in every country it ships to.
 - **`billingAddress: null` is not missing data.** It is the customer saying
-  "same address", and the order module resolves it into the stored columns.
+  "same address", and the order module resolves it into the stored columns. A
+  missing key means the same.
 
-The country is checked twice, in two different places, and the split is worth
-understanding because it is the model for every rule of this kind:
+The country is checked twice, in two places: the schema checks the two-letter
+**shape** of both addresses, and the service asks the country module whether the
+shop **ships** to the shipping country. The answer lives in a table an admin
+maintains and can change between two submissions of the same form, so it cannot
+be a rule of the schema. The billing address is never checked against the list;
+an invoice may go anywhere.
 
-- `AddressInput.validate()` checks the two-letter **shape**, for both addresses.
-  That is a property of the request, so it belongs to the request type.
-- `CheckoutService` asks the country module whether the shop **ships** to the
-  shipping address's country. That is not a property of the request at all. The
-  answer lives in a table an admin maintains and can change between two
-  submissions of the same form, so it cannot be a rule of `CheckoutRequest`.
-
-The billing address is deliberately not checked against the country list. It is
-not a delivery destination, and an invoice may go anywhere. See
-[`country-package.md`](country-package.md) for what "shippable" means (today:
-the row exists) and issue #81 for the decision.
-
-The phone number follows exactly the same split, and it is the second rule of
-this kind (issue #205):
-
-- `ShippingAddressInput.validate()` checks the **length** of a given number, and
-  treats a blank one as no number at all. Both are properties of the request.
-- `CheckoutService` asks the article catalog what the stored cart lines **are**,
-  and refuses a checkout without a phone number when one of them is a
-  `SPOD` article, because the print-on-demand partner rejects an order that carries
-  no phone. What is in the cart is not a property of the request either, and it
-  is decided on the **resolved** type of the lines, never on a flag a client
-  sends.
-
-The catalog is only asked when the request carries no number, so an ordinary
-checkout pays for no extra lookup, and a line the catalog no longer resolves is
-not treated as a SPOD article: that checkout is refused a moment later with
-`CART_ITEM_UNAVAILABLE`, which is the answer that actually helps the customer.
-
-What reaches the order, and from there the print-on-demand partner, is the
-**normalized** number: `" +49 89 123456 "` is stored as `"+49 89 123456"`,
-trimmed exactly like every other text field of the request. Nothing else is done
-to it; the shop does not know what a valid phone number looks like in every
-country it ships to, and inventing a format rule would refuse real customers.
+The phone follows the same split: the schema checks the length of a given
+number, and the service refuses a checkout *without* a number when any line of
+the cart snapshot has `articleType === 'SPOD'`, because the print-on-demand
+partner rejects an order that carries no phone. A line the catalog no longer
+resolves has `articleType: null`, is not a SPOD article here, and is refused a
+moment later with `CART_ITEM_UNAVAILABLE`, the answer that actually helps.
 
 ### The answers
 
 | Status | `code` | When |
 | --- | --- | --- |
-| `201` | none | the order exists; `checkoutUrl` is `null` for a free order |
-| `400` | none | the request broke its field rules (the Request Validation plugin, before any operation runs) |
-| `400` | `CART_EMPTY` | no cookie, no cart, or a cart without a line |
-| `400` | none | the shop does not ship to `shippingAddress.country`. This is a **field error**, see below |
-| `400` | none | the cart contains a SPOD article and the request carries no phone. This is a **field error** on `shippingAddress.phone` |
-| `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved. The status and code come from the promotion module's own matrix |
+| `201` | none | the order exists; `checkoutUrl` is `null` for a free order and for a cart whose live order is already paid |
+| `400` | none | the body broke its field rules (`Validation failed` with the field errors) |
+| `400` | `CART_EMPTY` | no identity, no active cart, a cart without a line, or a cart that a concurrent checkout closed between the snapshot and the lock |
+| `400` | none | the shop does not ship to `shippingAddress.country`: a **field error** |
+| `400` | none | the cart contains a SPOD article and the request carries no phone: a **field error** on `shippingAddress.phone` |
+| `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved; status and code come from the promotion module's `toApiError` |
 | `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
-| `409` | `CART_IMAGE_UNAVAILABLE` | a line names a print image that is gone |
-| `409` | `CART_TOTAL_TOO_LARGE` | the cart's amounts do not fit the cents an order stores (deviation D13) |
-| `502` | `PAYMENT_NOT_STARTED` | no payment was started |
-| `500` | none | this module built something the order module refused, or a step answered something unusable |
+| `409` | `CART_TOTAL_TOO_LARGE` | the cart's amounts do not fit the integer cents an order stores |
+| `502` | `PAYMENT_NOT_STARTED` | Mollie started no payment; the order is cancelled and the cart is still active |
+| `500` | none | a step threw; nothing is mapped, the app's `onError` answers |
 
-The retry route answers the same body with `200`, since it creates nothing. It
-adds two refusals of its own: `404` for an unknown **and** for a foreign order id, and
-`409` with `ORDER_ALREADY_PAID` or `ORDER_NOT_PAYABLE` for an order that is paid,
-cancelled, or free.
+The two field errors are answered in the exact shape a rejected body has, so a
+frontend that highlights invalid fields needs no new branch:
 
-The `PROMOTION_*` rows are not translated in this module. The mapping is the
-promotion module's public `PromotionCodeResult.toApiError()`, so a coupon
-rejected while it is entered into the cart and the same coupon rejected while the
-checkout reserves it reach the customer as the very same answer.
+```json
+{ "message": "Validation failed", "errors": { "shippingAddress.country": ["We do not ship to this country"] } }
+```
+
+The retry route answers the same body with `200`, since it creates nothing, and
+adds its own refusals: `404 Order not found` for an unknown, a foreign, and a
+non-numeric order id (one answer, so nobody can probe for somebody else's
+order), `409 ORDER_ALREADY_PAID` for a `PAID` order, and
+`409 ORDER_NOT_PAYABLE` for a `CANCELLED` one. A free order is `PAID` the moment
+it is placed, so its retry is the "already paid" answer too.
 
 ## The flow of a checkout
 
-`CheckoutService.checkout` is five steps, in the one order that leaves no gap a
-designed mechanism does not already cover:
+In five lines:
 
-1. **Read the cart, and check the destination.** No identity at all, no cart, or
-   an empty cart → `400 CART_EMPTY`. A cart whose subtotal plus shipping does not
-   fit `Int` cents → `409`. A shipping country the shop does not ship to → `400`
-   with a field error. A cart containing a SPOD article without a phone number → `400`
-   with a field error on `shippingAddress.phone`. All four run before anything is
-   written, so no coupon is held and no order exists for a checkout that could
-   never succeed, and the cart stays `ACTIVE` for the customer's corrected second
-   attempt.
-2. **Reserve the coupon**, if the cart carries one. `PromotionCodes.reserve`
-   runs in *its own* transaction under a lock on the promotion row and checks the
-   active flag, the activity window, the eligibility, and the usage limits,
-   counting redemptions **and** the reservations of other carts. A refusal ends
-   the checkout with the promotion module's own answer.
-3. **Place the order.** `OrderPlacement.place` opens the order module's
-   transaction. A `23505` on `ux_orders_live_cart` means a concurrent submission
-   won, and the answer is `AlreadyPlaced` carrying *that* order. That is a
-   success, and the reason a double-clicked checkout is harmless. The three refusals
-   (`Invalid`, `UnknownArticleReference`, `UnknownPrintImage`) mean no order
-   exists and none ever will for this cart as it stands, so a coupon reserved in
-   step 2 is given back with `PromotionCodes.releaseAbandoned` before the answer
-   goes out. It runs under `NonCancellable`. A deleted article variant refuses
-   every retry the same way, and the customer who closes the tab on the error is
-   exactly the one who never returns to free the capacity.
-4. **A total of zero is confirmed here and now.** `OrderPaymentGateway.confirm`
-   redeems the promotion, queues production and the confirmation mail, and only
-   then is the cart closed (deviation D6). The answer is `{orderId, null}`,
-   because there is nothing to pay.
-5. **Any other total gets a payment.** `PaymentStarter.start` calls the provider
-   outside any transaction and inserts the row under `ux_payments_live_order`.
-   A URL closes the cart and is answered; a `null` does **not** close the cart
-   and becomes `502`.
+1. **Read and guard**, outside any transaction: `activeCart` (no identity, no
+   cart, no line → `CART_EMPTY`), the integer bound, `isShippable`, the phone
+   rule. A checkout that could never succeed writes nothing.
+2. **TX1**: `lockForCheckout`; `reserve` when the cart carries a coupon;
+   `orders.place`; a free order: `confirmFree` and `markCheckedOut`; a live
+   order already paid: `markCheckedOut`.
+3. **Outside this module's transactions**: `orders.startPayment(order)`, which
+   runs the provider call and stores the payment in its own transaction under
+   the order row lock; `null` answers `502` and ends here.
+4. **TX2**: `markCheckedOut`.
+5. Answer `201` with the order id and the checkout URL.
 
-The lock order stays acyclic: `reserve` locks the promotion row and nothing else,
-while a confirm or a cancel locks the order row and then the promotion row.
+Three details of step 2:
 
-### The `warn` when a cart could not be closed
+- `lockForCheckout` answering `false` means the cart was closed by a concurrent
+  checkout between this one's snapshot read and its lock. The answer is
+  `CART_EMPTY`: the customer's cart is gone, and the order that took it is in
+  their history. Placing from the stale snapshot would create a second order.
+- A placement that answers `unknownArticle` wrote nothing, so the reservation
+  taken a moment earlier is released in the same transaction before the
+  refusal goes out. A deleted article variant refuses every retry the same way,
+  and a reservation has no expiry; without the release the customer who gives
+  up would block the coupon's capacity forever.
+- `alreadyPlaced` is a success: a second submission is answered with the one
+  order that was placed, and `startPayment` answers that order's stored
+  checkout URL without a provider call, because the order row lock serializes
+  the two starts. Both submissions therefore receive the same body.
+  `alreadyPaid` is the same order once it is paid: the cart is closed in TX1
+  and the answer is the settled order (see the decision above).
 
-Steps 4 and 5 both end in `CheckoutCarts.markCheckedOut(cartId)`, which is
-idempotent by design. `false` only means the cart was not `ACTIVE` any more.
-In *this* sequence that is worth a log line all the same, and the service writes
-one at `warn`. This checkout read the cart as `ACTIVE` a moment earlier and has
-settled an order for it since, so a `false` means something else ended that cart
-while the checkout was running. Since issue #110 removed the login claim, a cart
-is only ever closed by a checkout, so that something else is a concurrent
-checkout of the very same cart, from two tabs or a retried submission. Nothing
-is broken for the customer, which is why it is not an `error`. The order is
-placed and the payment exists.
+`markCheckedOut` answering `false` is logged at `warn` with the cart id: this
+checkout read the cart as `ACTIVE` a moment earlier and has settled an order for
+it since, so the only thing that can have closed it is a concurrent checkout of
+the very same cart. Nothing is broken for the customer.
 
-### Why the country and phone refusals are field errors
+### Known limitation: the snapshot is read before the lock
 
-Every other refusal of this module carries a stable `code` a frontend branches
-on. These two do not, and that is deliberate. They are the refusals the
-*customer* can fix, and they are still looking at the form. So they are answered
-in the exact shape the Request Validation plugin produces for a malformed body:
-
-```json
-{
-  "message": "Validation failed",
-  "errors": { "shippingAddress.country": ["We do not ship to this country"] }
-}
-```
-
-```json
-{
-  "message": "Validation failed",
-  "errors": {
-    "shippingAddress.phone": ["Phone is required for orders containing print-on-demand articles"]
-  }
-}
-```
-
-The storefront already knows how to render that shape next to a field. A
-frontend that highlights invalid fields therefore needs no new branch at all.
-
-The frontend does exactly that since issue #92: `createEmptyAddress()` starts
-with an empty country, the shipping field is a dropdown over the administrable
-list from `GET /api/countries`, and this field error is rendered next to it.
-The billing country stays a free-text two-letter field there too, for the same
-reason it is unrestricted here.
-
-### Why `502` says so little
-
-`start` answering `null` covers two different worlds, and this module cannot tell
-them apart (deviation D7):
-
-- the provider refused to create a payment → the payment module has **already**
-  cancelled the order (its deviation D10), and that cancellation released the
-  coupon;
-- the order's live payment slot was contended away twice → the order is
-  untouched and stays `PENDING` (its deviations D9 and D21).
-
-So the message says only that the payment could not be started. It claims no
-cancellation, it does not cancel anything a second time, and it leaves the cart
-`ACTIVE` so the customer's next attempt finds it. Frontend copy has to stay
-equally vague.
+The cart snapshot (`activeCart`, a read-only transaction of the cart module) is
+taken **before** TX1 locks the row, as the Kotlin module did and as #247 lists
+the steps. A line added to the cart between that read and the lock is not in
+the order, and the cart is still closed by TX2. The window is one request's
+worth of milliseconds and the customer would have to add a line from a second
+tab inside it; the orchestrator recorded the gap on #277 and decided not to
+close it in the port. The alternative, when it is ever needed, is an
+`activeCart(trx, …)` that reads the snapshot *inside* TX1 after the lock; the
+cart module's `checkoutCarts` would grow one `trx`-taking read and the guards
+of step 1 would move into TX1.
 
 ## The retry route
 
-`POST /api/checkout/orders/{orderId}/payment` is a journey the legacy shop never
-had (deviation D16). It exists because a payment that ended `FAILED`, `EXPIRED`,
-or `CANCELED` falls out of `ux_payments_live_order`, so a second payment for the
-same order is possible, but nothing offered the customer a way to ask for one.
+`POST /api/checkout/orders/{orderId}/payment` exists because a payment that
+ended `FAILED`, `EXPIRED`, or `CANCELED` falls out of `ux_payments_live_order`,
+so a second payment for the same order is possible, and the storefront offers
+it on the order page.
 
-- It has **no body at all**. Everything the payment needs is what the order
-  stored, read back as a `PayableOrder`.
-- It reads **no cart** and closes none. Whatever cart that order came from was
-  closed when it was placed.
-- Ownership is checked by the order module, with the same rule its own reads
-  use: an order of another visitor answers `404`, exactly like one that does not
-  exist, and no provider call is made.
+- It has **no body**. Everything the payment needs is read back as a
+  `PayableOrder` through `orders.payable`, under the same ownership rule as the
+  order reads.
+- It reads **no cart**, and closes the one the order came from once the
+  payment stands (`PayableOrder.cartId`): a no-op after a normal checkout, the
+  repair after a checkout that died between its two transactions (see the
+  decision above).
 - A live payment answers its stored URL without touching the provider; a
-  terminal one starts a second payment row.
-- The storefront offers it since issue #93: the order confirmation page shows a
-  "pay for this order" action for an order that is placed but neither paid nor
-  cancelled, and renders the two `409` codes as their own messages.
-- It deliberately does **not** reserve the coupon again (deviation D4). The
-  reservation was released when the payment ended, so the retry competes for
-  whatever capacity is left at redemption time. The accepted worst case is that
-  an order becomes `PAID` without a redemption.
+  terminal one starts a second payment row. Two simultaneous retries queue on
+  the order row lock and are sent to the same payment.
+- It does **not** reserve the coupon again. The reservation was released when
+  the payment ended, so the retry competes for whatever capacity is left when
+  the order is paid; a `PAID` order without a redemption is the accepted worst
+  case, and the order module logs it.
 
 ## Composition
 
-The checkout is installed **after** cart, promotion, order, payment, country,
-and article, and before account:
-
-```kotlin
-installCheckoutModule(
-    carts = cart.checkoutCarts,
-    promotions = catalog.promotionCodes,
-    orders = order.placement,
-    orderPayments = order.payments,
-    payments = payments.starter,
-    shippableCountries = catalog.shippableCountries,
-    articles = catalog.articles,
-    guestTokens = guestTokens,
-)
+```ts
+const checkout = createCheckoutModule({
+  db,
+  checkoutCarts: cart.checkoutCarts,
+  promotionCodes: promotion.promotionCodes,   // reserve, release
+  orders: order.orders,                       // place, payable, confirmFree, startPayment
+  countries: country,                         // isShippable
+  guestTokens: auth.guestTokens,
+})
+app.route('/', checkout.routes)
 ```
 
-There is no handle to keep. `order.payments` appears here for the second time,
-after the payment module got it first, but the checkout uses exactly one member
-of it, `confirm`, for the free order that never has a payment.
+Create it after cart, promotion, order, and country; it is the last module
+`createApplication` creates (see
+[Module architecture](../conventions/module-architecture.md#application-composition)).
+The dependencies are typed as `Pick<…>`, so the tests of the composition hand in
+the real modules and nothing else is reachable from here.
 
-`validateCheckoutRequests()` joins the application's single `RequestValidation`
-block, so a body is checked once, in one place, before any handler sees it.
+## Differences from the Kotlin module
+
+- **Two transactions** instead of five commits (see the decision above).
+- **`409 CART_IMAGE_UNAVAILABLE` is gone.** `cart_items.print_image_id` is
+  `ON DELETE RESTRICT` and TX1 places from the locked cart's own lines, so a
+  line whose image vanished cannot exist.
+- **A closed cart under the lock answers `CART_EMPTY`.** Kotlin's second
+  submission in that window was answered with the live order through
+  `AlreadyPlaced`; here the window is before the placement, and the honest
+  answer is that the cart is gone.
+- **A free order's retry answers `ORDER_ALREADY_PAID`**, because the order
+  module checks the status before the amount; Kotlin's `Free` answer is only
+  reachable for a pending order of total zero, which TX1 never leaves behind,
+  and maps to `ORDER_NOT_PAYABLE`.
+- **The phone rule reads the snapshot**, so the `checkout → article` edge of
+  the module graph carries no import today.
+- **The discount** on the order is the cart snapshot's `discountCents`, the
+  number the customer was shown, rather than a recalculation from the reserved
+  promotion; both come from the same promotion row.
 
 ## Tests
 
-Run the module's own suites with
-
 ```sh
-./kotlin test --include-module checkout
+bun test src/modules/checkout
 ```
 
-- `CheckoutRequestValidationTest` covers the validator matrix, as pure unit
-  tests.
-- `CheckoutRouteTest` covers the HTTP surface against a stub operation: the
-  exact request the frontend sends today, the ignored billing contact fields,
-  the explicit `null` URL of a free order, the field-error bodies of an
-  unshippable country and of a phoneless SPOD cart, and every refusal with
-  its status and stable code.
-- `CheckoutServiceTest` covers the orchestration against fakes: what runs, in
-  which order, and above all what does *not* run after a refusal, including
-  that an unshippable country reserves nothing, that a *billing* country is
-  never even asked about, and the SPOD phone rule: refused before anything
-  is written, placed once a number is given, the catalog untouched when one
-  already is, and a mug-only cart still placed without one.
+- `validation.test.ts` is the field-rule matrix of `checkoutInput` through
+  `validationFailed`: the frontend's exact body, the optional and validated
+  billing address with its ignored contact keys, every required field, the
+  lengths, the country shape, the email rules, the phone normalization, and
+  the refused unknown property.
+- `checkout.test.ts` runs the journeys through the **whole composed
+  application** (`createApplication` with a Mollie stub, built by
+  `src/test-fixtures.ts`) on PostgreSQL, because the checkout owns no table and
+  every assertion is about a row another module wrote: a guest and a signed-in
+  checkout with and without a coupon, the free order (paid, redeemed,
+  production requested, no provider call), the refused provider (order
+  cancelled, reservation released, cart active), the empty cart, the
+  unshippable country, the SPOD phone rule, the expired coupon, the
+  unresolvable line that gives its coupon back, the two races (two
+  submissions of one cart end as one order and one payment; two carts racing
+  the last unit of a coupon end as one order and one conflict), and the cart
+  whose live order was paid while it stayed open (settled, not `502`). The retry
+  matrix covers the live payment, the terminal payment that frees the coupon,
+  two simultaneous retries, the retry after a checkout that died before TX2
+  (the cart ends `CHECKED_OUT`), the foreign and malformed ids, and the paid,
+  cancelled, and free orders. The dying checkout is simulated with a trigger
+  that refuses the cart's close, the same technique the order tests use for
+  atomicity.
 
-The journeys that need all the modules at once live in the app module
-(`./kotlin test --include-module app`), against real PostgreSQL and a local
-Mollie stub:
-
-- `CheckoutFlowCompositionIntegrationTest` covers the free order, the refused
-  provider, the payment that was never stored, the promotion window versus the
-  promotion limits, and the country an admin removes: new checkouts to it are
-  refused while the order already placed keeps its country and stays payable;
-- `CheckoutConcurrencyCompositionIntegrationTest` covers two overlapping
-  submissions of one cart, two carts racing the last unit of a coupon, and two
-  simultaneous retries;
-- `CheckoutRetryCompositionIntegrationTest` covers the retry matrix and the
-  reservation lifecycle, including the terminal webhook that frees a coupon
-  while the order stays `PENDING`.
-
-## What is deliberately not here
-
-- **The customer's order reads.** `GET /api/checkout/orders` and
-  `/api/checkout/orders/{id}` were migrated as `/api/orders` by the Order
-  migration; the four legacy read DTOs were not ported.
-- **Any knowledge of Mollie.** The checkout receives a URL or a `null`.
-- **A country list.** The checkout asks one yes-or-no question and never reads
-  the list; the list, its admin routes, and its table belong to the country
-  module.
-- **A foreign key from an order to a country.** An order is a frozen snapshot.
-  `orders.shipping_country` is plain text, so deactivating a country stops new
-  checkouts and leaves every order that already exists valid, readable, and
-  payable.
-- **A transaction, a table, or a repository.** If a change to this module seems
-  to need one, the behavior almost certainly belongs to one of the modules it
-  composes.
+The journey tests build the composition root from inside the module folder.
+Test files and `test-fixtures.ts` may import the composition root by the `test`
+file policy in `backend/eslint.config.ts`.

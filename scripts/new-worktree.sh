@@ -14,7 +14,7 @@ project_directory="$(cd -- "$script_directory/.." && pwd -P)"
 unversioned_files=(
     ".claude/settings.local.json"
     ".secrets"
-    "backend/application-local.yaml"
+    "backend/.env.local"
 )
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then

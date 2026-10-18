@@ -1,20 +1,19 @@
 # Backend persistence error handling
 
-This guide explains how Kotlin repositories turn expected PostgreSQL
-constraint failures into typed module-specific results.
+This guide explains how a repository turns an expected PostgreSQL constraint
+failure into a typed result, and how every repository runs its transactions.
 
 ## The rule
 
-Let PostgreSQL enforce unique business rules. A repository can declare that SQL
-state `23505` returns the module's generic `Conflict` result. It can also
-declare an expected result for a foreign-key violation, which PostgreSQL
-reports as SQL state `23503` or, for a blocked delete, `23001` (see below).
-Rethrow every SQL error that the repository did not declare.
+Let PostgreSQL enforce unique business rules. A repository declares that SQL
+state `23505` (a unique violation) means its generic conflict result, and it
+may declare an expected result for a foreign-key violation, SQL state `23503`
+or, for a delete blocked by `ON DELETE RESTRICT` since PostgreSQL 18, `23001`.
+Every SQL state the repository did not declare is rethrown.
 
-Do not inspect or return a database constraint name, index name, or localized
-error message. Names such as `ux_countries_name_lower` are schema implementation
-details and may change during a migration. They are useful in server logs, but
-they are not part of the service or HTTP interface.
+Never inspect or return a constraint name, an index name, or a localized error
+message. Names such as `ux_countries_name_lower` are schema details that a
+migration may change; they belong in server logs, not in an operation result.
 
 ## The five-minute mental model
 
@@ -23,9 +22,9 @@ flowchart TD
     Repository["Repository write"]
     Database[("PostgreSQL constraints")]
     SqlState{"Declared SQL state?"}
-    Stored["Stored or not-found result"]
-    Expected["Declared module result"]
-    Unexpected["Rethrow original exception"]
+    Stored["Stored value or not-found"]
+    Expected["Declared result value"]
+    Unexpected["Rethrow the original error"]
 
     Repository --> Database
     Database -->|"write succeeds"| Stored
@@ -34,190 +33,117 @@ flowchart TD
     SqlState -->|"no"| Unexpected
 ```
 
-The database remains the concurrency-safe authority. Two requests may both
-reach a write at the same time, but a unique database rule allows only one of
-them to succeed.
+Two requests may reach a write at the same time; a unique index lets only one
+of them succeed, and that is the whole concurrency protection.
 
 ## Shared implementation
 
-[`executePostgresWrite`](../../../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
-contains the shared flow. It is a generic public function in `platform`, so
-module repositories can use it without exposing any module type back to
-`platform`:
+[`executePostgresWrite`](../../../../backend/src/platform/db/postgres-write.ts)
+is the one place the SQL states are read:
 
-```kotlin
-public suspend fun <T : Any> executePostgresWrite(
-    uniqueViolation: T? = null,
-    foreignKeyViolation: T? = null,
-    operation: suspend () -> T,
-): T
+```ts
+export async function executePostgresWrite<T, const V>(
+  violations: { uniqueViolation?: V; foreignKeyViolation?: V },
+  operation: () => Promise<T>,
+): Promise<T | V>
 ```
 
-A repository supplies its own typed result and keeps the write operation as
-Kotlin's trailing lambda:
+A repository names the value it answers for a violation, usually a failure of
+[`OperationResult`](operation-results.md), and passes the write:
 
-```kotlin
-executePostgresWrite(uniqueViolation = CountryWriteResult.Conflict) {
-    // Run the insert or update transaction.
-}
+```ts
+create: (input: CountryInput): Promise<OperationResult<Country>> =>
+  executePostgresWrite({ uniqueViolation: conflict }, async () => {
+    const { id } = await db.insertInto('countries').values({ … }).returning('id').executeTakeFirstOrThrow()
+    return ok({ id, ...country })
+  }),
 ```
 
-`executePostgresWrite` searches the exception chain for the declared PostgreSQL SQL
-states. The platform implementation does not know product-module types, tables,
-or schema object names.
-An omitted result means that the repository does not expect that violation, so
-the original `SQLException` is rethrown. The bound `T : Any` excludes `null`
-from module results, which lets the optional parameters use `null` only to mean
-"not declared".
+The write answers `ok(…)`, the violation answers `conflict`, so the whole call
+is one `OperationResult<Country>` the route answers as it is; no service
+translates it (the reason is in
+[Shared operation results](operation-results.md#the-repository-answers-the-result-itself)).
+A write with one foreign key declares
+`foreignKeyViolation: invalid({ countryId: ['Country not found'] })`. A
+module-specific string (`'superseded'`) is declared the same way where a
+service really branches on it. The foreign-key result is only unambiguous when
+exactly one relationship can fail the write: an insert or update with a single
+reference reports the missing row, a delete that restrict foreign keys protect
+reports that the row is still in use (`conflict`). A write with two references
+must not declare it.
 
-Supplier uses the same shared mechanism for its optional country reference:
+The `pg` driver reports the SQL state as the error's `code`; Kysely rethrows
+the driver error unchanged, so `executePostgresWrite` reads that property and
+nothing else.
 
-```kotlin
-executePostgresWrite(foreignKeyViolation = SupplierWriteResult.CountryNotFound) {
-    // Insert or update the supplier.
-}
+Call `executePostgresWrite` *around* `write(db, …)` when the write is a
+transaction: a constraint that is checked at commit time (the deferred unique
+constraints of the SPOD variants) fails inside `write`'s commit, and only the
+outer call sees it.
+
+## The two transaction helpers
+
+Repositories do not spell out the transaction policy. It lives in
+[`database.ts`](../../../../backend/src/platform/db/database.ts):
+
+```ts
+list: () => read(db, (trx) => trx.selectFrom('countries').select(columns).execute()),
+replace: (id, values) => write(db, async (trx) => { /* several statements */ }),
 ```
 
-A future write with both kinds of expected failure could declare both results
-without nesting helper functions:
+`read` opens a read-only transaction, so PostgreSQL rejects an accidental write
+instead of performing it; every read uses it. `write` opens a writing one and
+wraps several statements that must commit together. A single write statement
+runs on `db` directly, because PostgreSQL already runs one statement atomically
+and a transaction around it adds nothing:
 
-```kotlin
-executePostgresWrite(
-    uniqueViolation = ProductWriteResult.Conflict,
-    foreignKeyViolation = ProductWriteResult.CountryNotFound,
-) {
-    // Run a write that can violate either rule.
-}
+```ts
+delete: (id) => db.deleteFrom('countries').where('id', '=', id).executeTakeFirst(),
 ```
 
-Here SQL state `23503` means that the submitted country no longer exists. This
-mapping is useful only because Supplier currently has exactly one foreign-key
-reference during create and update. The service maps the internal write result
-to an `OperationResult.Invalid` field error, which becomes a normal `400`
-validation response. A future unrelated foreign key must not be silently
-reported as a missing country.
-
-A foreign key fails a write from two sides, and both use the same mapping. The
-example above is the insert side: the referenced row is missing. The other side
-is a delete that child rows still reference. Those foreign keys are
-`ON DELETE RESTRICT`, so PostgreSQL rejects the delete. Since PostgreSQL 18,
-it reports that case with its own SQL state, `23001` (`restrict_violation`);
-older versions used `23503` for both sides. `executePostgresWrite` treats both
-states as a foreign-key violation, so one declared result covers both sides:
-
-```kotlin
-executePostgresWrite(foreignKeyViolation = VatDeleteResult.InUse) {
-    // Delete the VAT entry.
-}
-```
-
-The condition is the same in both cases. Only one relationship can fail this
-write, so the foreign-key SQL state identifies the outcome without inspecting a
-constraint name.
-A delete is usually the easier case, because every child table that restricts
-it produces the same "still in use" answer.
-
-Repositories do not spell out the default transaction policy themselves. It
-lives in one place, the platform file
-[`Transactions.kt`](../../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
-which exports two extension functions on Exposed's `Database`:
-
-```kotlin
-internal suspend fun list(): List<Country> = database.read {
-    Countries.selectAll().map(::toCountry)
-}
-
-internal suspend fun delete(id: Long): Int = database.write {
-    Countries.deleteWhere { Countries.id eq id }
-}
-```
-
-Both helpers wrap the transaction in `withContext(Dispatchers.IO)`, because the
-JDBC driver blocks the thread it runs on while it talks to PostgreSQL, and both
-set `maxAttempts = 1`, so Exposed never silently retries a call. `read`
-additionally asks PostgreSQL for a read-only transaction, which makes the
-database reject an accidental write instead of performing it.
-
-A repository therefore names the transaction it wants and writes the query, and
-nothing else. Choosing the I/O dispatcher is not a repository decision any more;
-`Transactions.kt` owns it.
-
-The exception is a module that needs a *different* policy, not the default
-one. Such a policy stays in the module repository and calls Exposed's
-`suspendTransaction` itself. VAT, for example, has a small
-`serializableTransaction` helper that configures serializable isolation and
-three attempts. This keeps the reason for the stronger policy next to the code
-that moves the default VAT entry.
+Neither helper retries: one repository call has exactly one observable
+result. A capability that must join
+the caller's transaction takes the `Transaction<Tables>` as a parameter and
+runs its statements on it instead of calling either helper.
 
 ## How long a statement may wait
 
-PostgreSQL bounds every statement the application runs. The bounds are set once,
-in the Hikari pool that
-[`DatabaseFactory`](../../../../backend/modules/platform/src/shop/voenix/db/DatabaseFactory.kt)
-creates, and no module overrides them:
+Every pooled connection runs under two PostgreSQL bounds, set once in
+`createDatabase` through the connection's startup options and overridden by no
+module:
 
 | Setting | Value | What it bounds |
 | --- | --- | --- |
 | `lock_timeout` | `10s` | waiting for a row or table lock another transaction holds |
 | `statement_timeout` | `30s` | one statement's own execution |
 
-The pool passes them to the JDBC driver as the connection option
-`-c lock_timeout=10s -c statement_timeout=30s`, so PostgreSQL applies them from
-each connection's first statement on. Without `lock_timeout`, an insert that
-queues behind an uncommitted competitor on a unique index waits exactly as long
-as that competitor's transaction lives, and that is not a duration this
-application controls.
+Without `lock_timeout`, an insert that queues behind an uncommitted competitor
+on a unique index waits exactly as long as that competitor's transaction lives.
+The migration runner is the deliberate exception: it opens a plain `pg.Client`
+without the options, because creating an index on a large table may honestly
+run for minutes.
 
-The migration run is the deliberate exception. Flyway opens its own connections
-from the plain JDBC URL rather than borrowing the pool, because creating an
-index on a large table is a single statement that may honestly run for minutes.
-The advisory lock that serializes concurrent starts uses a plain `DriverManager`
-connection for the same reason.
-
-Both bounds apply per statement, not per request or per background sweep. The
-email worker's outbox scan runs many short statements in a long-lived loop, and
-the payment compensation phase runs one short write inside a `NonCancellable`
-region; neither holds a single statement open for 30 seconds.
-
-When a bound fires, PostgreSQL aborts the statement and the driver raises an
-`SQLException` with SQL state `55P03` for a lock timeout or `57014` for a
-statement timeout. Neither state is one a repository declares, so
-`executePostgresWrite` rethrows it, `Logger.databaseOperation` logs it, and the
-service answers with `OperationResult.UnexpectedFailure`. A timeout therefore needs no handling of
-its own. It is an unexpected persistence failure like any other, and the log
-entry carries the SQL state.
-
-## Why there is no preliminary lookup
-
-This sequence can happen when a lookup is the only protection:
-
-```text
-request A: value does not exist
-request B: value does not exist
-request A: insert succeeds
-request B: insert succeeds
-```
-
-A unique database rule prevents the second insert. A repository therefore does
-not need an extra lookup before or after a failed write just to produce a more
-specific conflict message.
+When a bound fires, the driver raises an error with state `55P03` (lock
+timeout) or `57014` (statement timeout). Neither is declared, so the error is
+rethrown, reaches the app's `onError`, and the client gets the generic `500`.
 
 ## Deliberate trade-off
 
-Every `23505` from a Country write that declares `uniqueViolation` becomes the
-same module conflict. Country does not say whether the name or country code was
-duplicated. A future unique rule also automatically produces that generic
-conflict.
-
-This loses field-specific detail, but it keeps the persistence interface small
-and avoids a second transaction after a failed write. The HTTP response must
-use a generic message such as `Country name or code already exists` and must
-not include the PostgreSQL object name.
+Every `23505` from a write that declares `uniqueViolation` becomes the same
+conflict. Country does not say whether the name or the code was duplicated, and
+a future unique rule produces the same generic conflict. This loses
+field-specific detail but keeps the persistence interface small and avoids a
+second query after a failed write. The HTTP message stays generic
+(`Country name or code already exists`) and never names the index.
 
 ## Tests
 
 For a module with unique writes, test:
 
-1. a normal duplicate create or update returns `Conflict`;
-2. concurrent duplicate writes leave one stored row and one `Conflict`; and
-3. a non-unique SQL error is still rethrown and becomes `UnexpectedFailure`.
+1. a normal duplicate create or update returns the conflict;
+2. concurrent duplicate writes (`Promise.all` of two creates) leave one stored
+   row and one conflict; and
+3. an undeclared SQL error is rethrown.
+
+The platform test `postgres-write.test.ts` pins the mapping itself against the
+real database; a module tests only its own writes.

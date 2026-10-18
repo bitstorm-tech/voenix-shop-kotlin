@@ -9,7 +9,7 @@ export interface AdminSupplierCountryDto {
 }
 
 /**
- * The one Supplier representation of the Kotlin API: list, detail, create, and update all answer
+ * The one Supplier representation of the backend API: list, detail, create, and update all answer
  * this shape (`docs/dev/backend/packages/supplier-package.md`). There is no list-only projection.
  */
 export interface AdminSupplierDto {
@@ -209,7 +209,7 @@ export const useAdminSuppliersStore = defineStore('admin-suppliers', () => {
 })
 
 /**
- * The displayed contact person is a frontend concern: the Kotlin API answers the three name parts
+ * The displayed contact person is a frontend concern: the backend answers the three name parts
  * (`title`, `firstName`, `lastName`) and never a joined string.
  */
 export function formatContactPerson(supplier: AdminSupplierDto) {

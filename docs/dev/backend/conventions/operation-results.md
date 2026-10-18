@@ -1,247 +1,131 @@
 # Shared operation results
 
-The backend uses
-[`OperationResult`](../../../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt)
-as the common return type for Country, VAT, Supplier, and Pricing operations. It lives
-in `shop.voenix.operation` because it describes the outcome of an operation,
-not the details of an HTTP request or database call.
+An operation that can fail answers with
+[`OperationResult<T>`](../../../../backend/src/platform/operation.ts), a
+discriminated union that describes the outcome of an operation without HTTP
+types:
 
-## Result variants
-
-```kotlin
-sealed interface OperationResult<out T> {
-    data class Success<T>(val value: T) : OperationResult<T>
-
-    data object UnexpectedFailure : OperationResult<Nothing>
-    data object NotFound : OperationResult<Nothing>
-    data object Conflict : OperationResult<Nothing>
-    data class Invalid(val errors: ValidationErrors) : OperationResult<Nothing>
-}
+```ts
+export type OperationResult<T> =
+  | { kind: 'ok'; value: T }
+  | { kind: 'notFound' }
+  | { kind: 'conflict' }
+  | { kind: 'invalid'; errors: ValidationErrors }
 ```
 
-[`ValidationErrors`](../../../../backend/modules/platform/src/shop/voenix/validation/Validatable.kt)
-is a shared type alias for `Map<String, List<String>>`, declared next to the
-`Validatable` interface that returns it. The map groups messages by
-lower-camel-case field name, and an empty map means that validation found no
-errors. The alias gives this recurring shape a domain name without adding a
-wrapper object or changing its JSON representation. How a request body is
-checked before a service ever sees it, and how those messages are collected, is
-described in [Request validation](request-validation.md).
+`ValidationErrors` is `Record<string, string[]>`: messages grouped by
+lower-camel-case field name, the same shape the `400 Validation failed` answer
+carries. The constructors `ok(value)`, `notFound`, `conflict`, and
+`invalid(errors)` build the variants, so a repository reads
+`return country === undefined ? notFound : ok(country)`.
 
-The generic type `T` is the success value. For example,
-`OperationResult<Country>` can contain `Success(country)`. A failure uses
-`Nothing` because it has no success value. The `out T` declaration allows the
-same failure object to be returned from operations with different success
-types.
+## There is no unexpected-failure variant
 
-The sealed interface also lets callers use an exhaustive `when`. The compiler
-reports an error when a result variant is not handled.
+The Kotlin backend had `UnexpectedFailure` and wrapped every operation in a
+logging helper that turned an exception into it. The port drops both: an
+exception propagates to the app's `onError` in
+[`app.ts`](../../../../backend/src/platform/http/app.ts), which logs it and
+answers `500 {"message":"Internal server error"}` without describing it. A
+service therefore wraps nothing; a database timeout, a bug, and a lost
+connection all travel the same path and reach the client as the same `500`.
 
 ## Responsibilities
 
-The service returns an `OperationResult` without choosing an HTTP status code.
-The route maps the result to the module-specific HTTP response:
+The operation returns the result without choosing a status code; the route
+maps it:
 
-| Result | Usual HTTP response |
+| Result | HTTP answer |
 | --- | --- |
-| `Success` | The operation-specific success status and body |
-| `Invalid` | `400 Bad Request` with field errors |
-| `NotFound` | `404 Not Found` |
-| `Conflict` | `409 Conflict` |
-| `UnexpectedFailure` | `500 Internal Server Error` without implementation details |
+| `ok` | the route's success status and the value as JSON |
+| `invalid` | `400` with `message: "Validation failed"` and the field errors |
+| `notFound` | `404` with the route's message |
+| `conflict` | `409` with the route's message |
 
-`UnexpectedFailure` deliberately does not name a database. An operation may
-fail because of PostgreSQL today and use a different implementation tomorrow.
-The service logs the actual exception, while its interface exposes only the
-stable operation outcome.
+## The repository answers the result itself
 
-Expected persistence outcomes use module-specific repository results, such as
-`CountryWriteResult`, `VatWriteResult`, or `SupplierWriteResult`. The service
-maps those internal results to `OperationResult`. Simple delete operations may
-return Exposed's affected-row count; the service maps zero rows to `NotFound`
-and a deleted row to `Success`. When deletion has another expected outcome,
-the repository uses a small typed result. For example, VAT uses
-`VatDeleteResult.InUse` for a foreign-key conflict and maps it to `Conflict`.
-SQL states and transaction details remain outside operation interfaces and
-routes.
+A repository whose write or lookup can fail returns `OperationResult<T>`
+directly: `notFound` for a missing row, `conflict` for a unique violation or a
+delete a foreign key restricts, `invalid({ countryId: ['Country not found'] })`
+for a missing reference. `executePostgresWrite` takes those values as the
+answers to the declared SQL states (see
+[Persistence error handling](persistence-error-handling.md)), so SQL states
+never reach a route.
 
-## One shared helper for unexpected failures
+The reason is issue #251: a repository that answered strings (`'conflict'`,
+`'notFound'`, `'inUse'`) made every service translate them 1:1 into the same
+`OperationResult` again, a ladder of `if (stored === 'conflict') return
+conflict` with nothing to decide. Without the translation, a service that only
+forwarded disappears: the route calls the repository, and `index.ts` wires the
+repository into the routes (country, promotion, the VAT entries, the prompt
+slots and categories). A service stays where it has work of its own: a join
+with another module (supplier's countries), a price, an example image that is
+checked before and deleted after the write.
 
-Every service handles an unexpected persistence failure the same way: log the
-exception with its own logger and answer with the operation's failure result
-instead of letting the exception reach the route. Coroutine cancellation is not
-a failure, so a `CancellationException` is always rethrown.
+The one exception is a module-specific union the service really branches on.
+`order/payment/repository.ts` answers `'superseded'` for a status write the
+live-payment index refuses, which the payment service turns into its own
+confirmation outcome instead of a failure; the mug and SPOD article writes and
+the production destinations answer a handful of outcomes (`'priceRequired'`,
+`'channelImmutable'`, …) that the service turns into distinct field errors.
+Such a union exists only because the service branches on its other members; a
+union whose members would all map 1:1 onto `OperationResult` is the result
+itself. It may carry a `'notFound'` member next to the module-specific ones
+(the mug and SPOD article updates do), so the service switches once.
 
-That rule lives once, in
-[`OperationResult.kt`](../../../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt),
-directly below `OperationResult`:
+A read that cannot fail answers the plain value, and its route answers it
+without the result: `admin.get('/', async (c) => c.json(await countries.list()))`.
 
-```kotlin
-public suspend fun <T> Logger.databaseOperation(
-    message: String,
-    fallback: T,
-    operation: suspend () -> T,
-): T
-```
+## One mapping from a result to an HTTP answer
 
-The function is an extension on SLF4J's `Logger`, so the log entry keeps the
-calling service's logger name. A service uses it like this:
+Every route file declares its messages once and passes them to the two
+functions of [`respond.ts`](../../../../backend/src/platform/http/respond.ts):
 
-```kotlin
-override suspend fun list(): OperationResult<List<Vat>> =
-    logger.databaseOperation(
-        "Database error while listing VAT entries",
-        OperationResult.UnexpectedFailure,
-    ) {
-        OperationResult.Success(repository.list())
-    }
-```
+```ts
+const COUNTRY_RESPONSES = { notFound: 'Country not found', conflict: 'Country name or code already exists' }
 
-The type parameter `T` is the *whole result*, not only the success value, and
-the caller passes the fallback. That is what lets the same helper serve
-operations that do not answer with an `OperationResult` at all:
-
-```kotlin
-// Account answers with its own result type.
-logger.databaseOperation("Database error during login", LoginResult.UnexpectedFailure) { … }
-
-// Magic Coins answers a spend attempt with a plain Boolean.
-logger.databaseOperation("Magic Coin spend failed for …", false) { … }
-```
-
-A `fallback` shaped like `OperationResult` would have forced every module with
-its own result type to keep a private copy of the helper. That is exactly the
-duplication this function replaced.
-
-Two rules for using it:
-
-- The message is a normal Kotlin string template (`"… entry $id"`), not an SLF4J
-  `{}` placeholder, because the helper passes it through unchanged together with
-  the exception.
-- Wrap only the work whose failure should become a failure *result*. An
-  operation that must let the exception surface simply does not call the
-  helper. `OrderService` does this for order placement and payment
-  confirmation.
-
-## Missing references are field errors
-
-Supplier accepts an optional `countryId`. PostgreSQL remains the
-concurrency-safe authority for that foreign key. If the submitted country does
-not exist, the repository returns `SupplierWriteResult.CountryNotFound`. The
-service maps it to:
-
-```kotlin
-OperationResult.Invalid(
-    mapOf("countryId" to listOf("Country not found")),
+admin.get('/:id', countryId, async (c) =>
+  respondResult(c, await countries.get(c.req.valid('param').id), COUNTRY_RESPONSES),
 )
 ```
 
-The HTTP response therefore uses the same field-error shape as other validation
-failures. A client can display the message next to the `countryId` field instead
-of interpreting a Supplier-specific result variant.
+`respondResult(c, result, responses)` answers an `ok` with `200` and the value
+and hands every other variant to `respondFailure`. A route that builds the
+success answer itself, a `201` (with a `Location` header, or the stored name of
+an uploaded image) or a `204` delete, calls `respondFailure` directly:
 
-## One shared mapping from a result to an HTTP answer
-
-Most route files used to carry their own private copies of the same recurring
-helpers: a `respondResult` that answered the success value and a
-`respondFailure` with the exhaustive `when` over the failure variants. Some
-files had both, some only `respondFailure`, some only the id parse below. The
-`when` was identical wherever it appeared. Only a handful of message strings
-differed.
-
-Those strings now live in a small configuration object, and the `when` lives
-once in
-[`OperationResultHttpMapping.kt`](../../../../backend/modules/platform/src/shop/voenix/http/OperationResultHttpMapping.kt):
-
-```kotlin
-private val VAT_RESPONSES =
-    OperationResultHttpMapping(
-        notFound = ApiError("VAT not found"),
-        conflict = ConflictHandling.Respond(ApiError("VAT entry already exists")),
-    )
+```ts
+admin.post('/', jsonBody(countryInput), async (c) => {
+  const result = await countries.create(c.req.valid('json'))
+  if (result.kind !== 'ok') return respondFailure(c, result, COUNTRY_RESPONSES)
+  c.header('Location', `/api/admin/countries/${String(result.value.id)}`)
+  return c.json(result.value, 201)
+})
 ```
 
-The route file declares one such `private val` and passes it to every call:
+`conflict: null` states that the operations behind a route file cannot
+conflict. Reaching it is a bug: `respondFailure` throws, and the client sees
+the generic `500` instead of a made-up `409`.
 
-```kotlin
-get { call.respondResult(vats.list(), VAT_RESPONSES) }
-```
+## Reading an id from the path
 
-`respondResult` answers a `Success` and hands every other variant to
-`respondFailure`. A route that builds the success answer itself, such as a
-`201 Created` with a `Location` header or a `204 No Content` delete, calls
-`respondFailure` directly in its `else` branch:
+`integerParam(name, invalidMessage)` validates the path parameter as an
+integer id and answers `400` with the route's message otherwise:
 
-```kotlin
-post {
-    when (val result = vats.create(call.receive<VatInput>())) {
-        is OperationResult.Success -> { /* 201 with a Location header */ }
-        else -> call.respondFailure(result, VAT_RESPONSES)
-    }
-}
-```
+```ts
+const countryId = integerParam('id', 'Invalid country id')
 
-`UnexpectedFailure` is deliberately *not* configurable. It always answers `500`
-with `ApiError("Internal server error")`, for the reason given above: an
-unexpected failure must not describe itself.
-
-### Saying that a variant cannot happen
-
-Not every operation can produce every failure. A route file states that in the
-mapping instead of inventing a message that no client will ever see:
-
-```kotlin
-private val ORDER_RESPONSES =
-    OperationResultHttpMapping(
-        notFound = ApiError("Order not found"),
-        conflict = ConflictHandling.Unreachable("Order reads never conflict"),
-        invalid = InvalidHandling.Unreachable("Order reads carry no input that could be invalid"),
-    )
-```
-
-`Unreachable` means "if this ever arrives, it is a bug". The helper calls
-`error(reason)`, the exception reaches `installHttpRuntime`'s handler, and the
-client sees the generic `500`. The alternative, a made-up `409` message, would
-hide the bug behind a plausible-looking answer. `invalid` defaults to
-`InvalidHandling.RespondValidationErrors`, so only the unusual case is written
-out.
-
-### A different success status
-
-`respondResult` answers `200 OK` by default. A route that answers `201 Created`
-with the value in the body passes the status:
-
-```kotlin
-call.respondResult(
-    subcategories.storeExampleImage(upload.upload),
-    ARTICLE_SUBCATEGORY_RESPONSES,
-    successStatus = HttpStatusCode.Created,
+admin.get('/:id', countryId, async (c) =>
+  respondResult(c, await countries.get(c.req.valid('param').id), COUNTRY_RESPONSES),
 )
 ```
 
-### Reading an id from the path
+`0` and a negative number parse and reach the operation, which answers
+`notFound` for them like for any unknown id. Hono keeps one validated value
+per target, so a route with two ids declares one `zValidator('param', …)` of
+its own with both keys.
 
-The last duplicated helper was the path-id parse. It is now
-`longPathParameterOrRespond`, and each route file keeps a domain-named one-liner
-in front of it so the call sites stay readable:
+## Exhaustive switches
 
-```kotlin
-private suspend fun ApplicationCall.vatIdOrRespond(): Long? =
-    longPathParameterOrRespond("id", HttpStatusCode.BadRequest, ApiError("Invalid VAT id"))
-```
-
-The parse is exactly `toLongOrNull`. A `0` or a negative number is a valid
-`Long`, so it is passed on to the operation, which answers `NotFound` for it
-like for any other unknown id. Only a missing, non-numeric, or out-of-range
-value is rejected, with the status and body the caller configured, because a
-few routes answer a malformed id with `404` rather than `400`.
-
-The `?: return@get` idiom makes the early exit safe. When the helper returns
-`null`, it has already written the answer.
-
-```kotlin
-get {
-    val id = call.vatIdOrRespond() ?: return@get
-    call.respondResult(vats.get(id), VAT_RESPONSES)
-}
-```
+`switch (result.kind)` over the union is exhaustive when every case returns;
+where a `default` is needed, `assertNever(result)` from `operation.ts` makes a
+forgotten variant a compile error.

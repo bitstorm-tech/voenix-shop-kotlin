@@ -12,7 +12,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-/** The shared `ApiError` body of the Kotlin backend (`shop.voenix.http.ApiError`). */
+/** The shared `ApiError` body of the backend (`backend/src/platform/http/respond.ts`). */
 function apiErrorResponse(status: number, message: string, errors: Record<string, string[]> = {}) {
   return new Response(JSON.stringify({ message, errors }), {
     status,

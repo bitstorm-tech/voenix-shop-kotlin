@@ -1,14 +1,14 @@
 # The Promotion package
 
-This guide explains the Kotlin code in
-[`backend/modules/promotion/src/shop/voenix/promotion`](../../../../backend/modules/promotion/src/shop/voenix/promotion).
+This guide explains the TypeScript code in
+[`backend/src/modules/promotion`](../../../../backend/src/modules/promotion).
 
 ## What this package does
 
-The Promotion package provides the authenticated admin lifecycle of
-promotions: coupon codes with a percentage or fixed-amount discount, an
-optional activity window, and optional usage limits. Coupon codes are unique
-regardless of letter case, and PostgreSQL enforces that invariant.
+The Promotion package provides the admin lifecycle of promotions: coupon codes
+with a percentage or fixed-amount discount, an optional activity window, and
+optional usage limits. Coupon codes are unique regardless of letter case, and
+PostgreSQL enforces that invariant.
 
 A coupon is a **cart-level** campaign, and that keeps it apart from the price
 discount an article or a prompt may carry on its Price (see
@@ -17,149 +17,102 @@ types, an activity window, and usage limits, and it is capped when it exceeds
 the cart, while a price discount is simply configured on one price and rejected
 when it is too large. The two stack, deliberately and without any special case:
 a cart line is snapshotted at its already discounted price, so a 20 % coupon
-takes another 20 % off that reduced amount (decision E3 of issue #238). [The
-Cart package](cart-package.md) works the example through.
+takes another 20 % off that reduced amount (decision E3 of issue #238).
 
 A promotion that has been redeemed at least once is *locked*. Its
 configuration can no longer be changed and it can no longer be deleted, so
 that recorded redemptions keep referring to the terms customers actually used.
 An administrator may still activate or deactivate a locked promotion.
 
-Next to the admin surface the package exports the `PromotionCodes`
-capability: `validate` answers what a customer-entered code is worth right
-now, `reserve` holds its capacity while a checkout runs, `release` gives that
-hold back, `redeem` records a redemption atomically, and `find` resolves
-promotion ids a consumer has already stored. The capability has no HTTP
-surface of its own. Cart validates and renders codes, Checkout reserves them,
-and Order redeems them when a payment is confirmed, so that the coupon rules
-exist exactly once in the system.
+Next to the admin routes the module exports the `promotionCodes` capability:
+`validate` answers what a customer-entered code is worth right now, `reserve`
+holds its capacity while a checkout runs, `redeem` records a redemption,
+`release` gives a hold back, and `find` resolves promotion ids a consumer has
+already stored. The capability has no HTTP surface of its own. Cart validates
+and renders codes, Checkout reserves them, and Order redeems them when a
+payment is confirmed, so that the coupon rules exist exactly once in the
+system.
 
 ## The five-minute mental model
 
 ```mermaid
 flowchart TB
     Client["Admin client"]
-    Http["HTTP runtime<br/>JSON · StatusPages · RequestValidation"]
-    Auth["Auth module<br/>session · ADMIN role · CSRF"]
-    Routes["installPromotionRoutes<br/>paths · binding · HTTP results"]
-    Input["PromotionInput<br/>data · validation rules"]
-    Operations["PromotionOperations<br/>internal seam"]
-    Codes["PromotionCodes<br/>exported capability"]
-    Consumer["Cart · Order · Checkout modules"]
-    Service["PromotionService<br/>validation · normalization"]
-    Repository["PromotionRepository<br/>Exposed transactions"]
-    Promotions[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions ·<br/>promotion_reservations")]
+    Consumer["Cart · Checkout · Order"]
 
-    Client --> Http --> Routes
-    Routes -.-> Auth
-    Routes --> Input
-    Routes --> Operations
-    Consumer --> Codes
-    Operations --> Service
-    Codes --> Service
-    Service --> Input
-    Service --> Repository
-    Repository --> Promotions
+    subgraph Platform["Platform"]
+        App["createApp · requireAdmin"]
+        Respond["jsonBody · integerParam · respondResult"]
+    end
+
+    subgraph Promotion["Promotion module"]
+        Routes["routes.ts<br/>promotionInput schema · handlers"]
+        Codes["codes.ts<br/>promotionCodes · rules · toApiError"]
+        Repository["repository.ts<br/>admin operations · OperationResult · statements"]
+        Schema["schema.ts<br/>three tables"]
+    end
+
+    Database[("PostgreSQL<br/>promotions ·<br/>promotion_redemptions ·<br/>promotion_reservations")]
+
+    Client --> App --> Routes
+    Routes -.-> Respond
+    Routes --> Repository
+    Consumer --> Codes --> Repository
+    Repository --> Database
+    Repository -.-> Schema
 ```
 
-The important ownership rules are:
+The boundaries are:
 
-1. [`Application.kt`](../../../../backend/app/src/shop/voenix/Application.kt)
-   installs shared JSON, `StatusPages`, `RequestValidation` (including
-   `validatePromotionRequests()`), authentication, and the product modules
-   once.
-2. `installPromotionRoutes` installs the auth-owned `AdminRouteProtection`
-   around the complete route subtree. Authentication, the `ADMIN` role, and CSRF are
-   checked before a handler parses an ID or request body.
-3. `PromotionInput.validate()` is the single implementation of the field-rule
-   matrix. Ktor's `RequestValidation` calls it at the HTTP boundary, and
-   `PromotionService` calls the same method defensively for direct callers.
-4. `PromotionService` normalizes valid data (trimming) and turns expected
-   outcomes into `OperationResult` values rather than exceptions.
-5. `PromotionRepository` owns the transaction boundaries, the row locks, and
-   the rules that span more than one table; the single-table statements live
-   with the table object they touch. The derived `coupon_code_normalized`
-   column (the uppercased code that carries the unique constraint) is written
-   through `normalizedCouponCode` in `Promotions.kt`, so storing a code and
-   looking one up cannot disagree.
-6. `PromotionService` implements both seams: `PromotionOperations` for the
-   admin routes and `PromotionCodes` for other modules. One class means the
-   coupon rules cannot drift between the two.
+1. **The route file owns the HTTP contract**: paths, the `promotionInput` Zod
+   schema with the field rules, the id parameter, and the three conflict
+   messages.
+2. **`codes.ts` owns the coupon rules**: the activity window, the usage
+   limits, the order in which they are checked, and the HTTP mapping every
+   consumer answers a rejected coupon with.
+3. **The repository owns persistence and the admin answers**: the admin
+   operations answer `OperationResult` directly (there is no service; the
+   routes call the repository), single-statement writes run on `db`, the
+   update runs in its own `write` transaction, and the single statements the coupon
+   capability runs in a transaction it is handed. The derived
+   `coupon_code_normalized` column is written through `normalizedCouponCode`,
+   so storing a code and looking one up cannot disagree.
 
-## Production file map
+## File map
 
 ```text
 promotion/
-|- Promotion.kt
-|- PromotionCodeResult.kt
-|- PromotionCodes.kt
-|- PromotionInput.kt
-|- PromotionModule.kt
-|- PromotionRedemptions.kt
-|- PromotionRepository.kt
-|- PromotionReservations.kt
-|- PromotionRoutes.kt
-|- PromotionService.kt
-`- Promotions.kt
+|- index.ts            createPromotionModule({ db }) → { routes, promotionCodes }; toApiError; the value types
+|- routes.ts           promotionInput schema, the response messages, promotionId, promotionRoutes(repository)
+|- codes.ts            createPromotionCodes(db); PromotionCodeResult, PromotionRejection, ApplicablePromotion, toApiError
+|- repository.ts       createPromotionRepository(db); the statements taking a trx; PromotionInput, Promotion, StoredPromotion, Discount
+|- schema.ts           the three table interfaces, merged into the platform's Tables
+|- routes.test.ts      one happy path per route and the module errors
+|- repository.test.ts  concurrent duplicate codes, the update racing a redemption
+|- codes.test.ts       the capability: every reason, reservations, redemption, release, find, toApiError
+`- validation.test.ts  the schema's field names and messages
 ```
 
-A file groups the declarations that belong to one concern, as described in
-[Kotlin source file organization](../conventions/source-file-organization.md). That is why the
-list is shorter than the list of types. A small value type lives in the file of
-the component that owns it, and a result type lives with the component that
-produces it.
+`codes.ts` is the one file beyond the standard five. The capability is a
+concern of its own, with its own result type and rules, and the admin routes
+do not use it.
 
-- `Promotion` is the single admin representation for list, detail, create, and
-  update responses, including the computed `redemptionCount` and `isLocked`. It
-  is `internal`. Being serialized by a public route does not make a type part of
-  the module interface, and no other module needs it, because the coupon-code
-  seam carries its own fields in `PromotionCodeResult.Applicable`. Its
-  `startsAt` and `endsAt` are `java.time.Instant?`, written to JSON as timestamp
-  strings by the shared
-  [`InstantIso8601Serializer`](../../../../backend/modules/platform/src/shop/voenix/json/InstantIso8601Serializer.kt).
-  The activity window is compared against the clock, so it carries the parsed
-  type rather than a string that every reader parses again.
-- `Discount` is a public sealed interface (`Percentage` / `FixedAmount`) that
-  keeps the rule "a percentage is at most 100, a fixed amount is whole cents"
-  attached to the value instead of scattering it over the code that reads it.
-  It serializes as a two-field object, `discountType`
-  (`PERCENTAGE`/`FIXED_AMOUNT`) plus `discountValue`. See
-  [the body shapes below](#request-and-response-bodies). It shares
-  `Promotion.kt` with the promotion it belongs to, together with the two
-  discriminator constants used by the input rules and the repository mapping.
-- `PromotionInput` is the internal model shared by create and update; it owns
-  the field rules through `validate()` and the configuration comparison
-  `changesOnlyActivationOf()` that the lock semantics need.
-- `PromotionOperations` is the internal seam used by the routes and stubbed in
-  route tests. It lives in `PromotionService.kt`, next to the one class that
-  implements it.
-- `PromotionCodes` is the public seam other modules consume, and
-  `PromotionCodeResult` its typed answer (`Applicable` plus the seven failure
-  reasons). `PromotionCodeResult.kt` also owns the three rules that would
-  otherwise drift apart: `Promotion.usageFailure` (the usage limits, shared by
-  validation, reservation, and redemption), `Promotion.availabilityFailure` (the
-  active flag and the activity window, shared by validation and reservation),
-  and the public `PromotionCodeResult.toApiError()`, the status and the stable
-  `code` every consumer answers a rejected coupon with.
-- `PromotionWriteResult` keeps write outcomes (`Stored`, `NotFound`,
-  `CodeConflict`, `Locked`) and `PromotionDeleteResult` the delete outcomes
-  (`Deleted`, `NotFound`, `InUse`) internal to the repository and service. Both
-  live in `PromotionRepository.kt`, because the repository is what produces
-  them.
-- `Promotions`, `PromotionRedemptions`, and `PromotionReservations` map the
-  three PostgreSQL tables for Exposed, and each file also owns the statements
-  against its own table: reading a promotion row (locked or not), counting and
-  inserting redemptions, and holding, counting, or releasing a reservation.
-  Unlike a module with a single table, they stay out of `PromotionRepository.kt`,
-  because one file for the repository plus three tables would stop being one
-  concern. They are all `…InTransaction` functions. They run in whatever
-  transaction the caller opened, which is why the transaction boundary stays a
-  decision of `PromotionRepository` alone.
+The composition root creates the module once, mounts its routes, and hands the
+capability on:
+
+```ts
+const promotion = createPromotionModule({ db })
+app.route('/', promotion.routes)
+// createCartModule({ …, promotionCodes: promotion.promotionCodes })
+// createCheckoutModule({ …, promotionCodes: promotion.promotionCodes })
+// createOrderModule({ …, promotionCodes: promotion.promotionCodes })
+```
 
 ## HTTP API
 
-Every route requires an authenticated user with the exact `ADMIN` role.
-Mutating methods also require the shared `X-XSRF-TOKEN` header.
+Every route requires an authenticated user with the `ADMIN` role; mutating
+methods also require the `X-XSRF-TOKEN` header. The protection is installed on
+the whole `/api/admin/promotions` subtree.
 
 | Method and path | CSRF | Success response |
 | --- | --- | --- |
@@ -169,31 +122,25 @@ Mutating methods also require the shared `X-XSRF-TOKEN` header.
 | `PUT /api/admin/promotions/{id}` | Yes | `200` with the updated `Promotion` |
 | `DELETE /api/admin/promotions/{id}` | Yes | `204` without a body |
 
-The create response uses a relative location such as
-`/api/admin/promotions/42`. Invalid IDs return `400 Invalid promotion id`
-after security checks and before a promotion operation is called. A coupon
-code that differs only in letter case from an existing one returns
-`409 Coupon code is already in use`.
+| Result or failure | HTTP status | `message` |
+| --- | --- | --- |
+| unknown id | `404` | `Promotion not found` |
+| create with a code another promotion has (any letter case) | `409` | `Coupon code is already in use` |
+| update with a taken code, or a configuration change of a locked promotion | `409` | `Coupon code is already in use or the promotion is locked` |
+| delete of a promotion a redemption, a reservation, or an order references | `409` | `Promotion is still in use and cannot be deleted` |
+| invalid input | `400` | `Validation failed`, with the field-error map |
+| invalid id | `400` | `Invalid promotion id` |
 
-`PUT` replaces every field, so it uses the same request body and the same
-rules as `POST`. Its conflict response is
-`409 Coupon code is already in use or the promotion is locked`. The shared
-`OperationResult.Conflict` carries no reason, so one message covers both
-causes; a client can tell them apart because it already knows `isLocked` from
-the representation.
-
-`DELETE` answers `404` for an unknown id and
-`409 Promotion is still in use and cannot be deleted` for a promotion that a
-redemption or an order still references.
+The create response uses a relative location such as `/api/admin/promotions/42`.
+`PUT` replaces every field, so it uses the same body and rules as `POST`. Its
+conflict carries no reason, so one message covers both causes; a client tells
+them apart because it already knows `isLocked` from the representation.
 
 ### Request and response bodies
 
-A request body is flat. Every field may be omitted, and every field except
-`isActive` may also be `null`; `validate()` then decides whether the resulting
-value is allowed. `isActive` is the one field declared non-nullable
-(`Boolean = false`), so omitting it means `false`, and a promotion you forget
-to switch on stays switched off. Sending an explicit `null` for it is a parse
-error rather than a field error:
+A request body is flat. Every field may be omitted or `null` except
+`isActive`, which defaults to `false` when omitted (a promotion you forget to
+switch on stays off) and must be a boolean when sent:
 
 ```json
 {
@@ -209,15 +156,14 @@ error rather than a field error:
 }
 ```
 
-A response body groups the discount into a nested object, because `Promotion`
-holds the sealed `Discount` value rather than a loose type/value pair:
+A response groups the discount into a nested object:
 
 ```json
 {
   "id": 42,
   "name": "Summer sale",
   "couponCode": "Summer10",
-  "discount": { "discountType": "PERCENTAGE", "discountValue": 10.00 },
+  "discount": { "discountType": "PERCENTAGE", "discountValue": 10 },
   "startsAt": null,
   "endsAt": null,
   "usageLimitTotal": 100,
@@ -228,341 +174,245 @@ holds the sealed `Discount` value rather than a loose type/value pair:
 }
 ```
 
-The two shapes are therefore **not** symmetric: a client sends `discountType`
-and `discountValue` at the top level and reads them back under `discount`.
-That asymmetry is a consequence of two decisions that are each sound on their
-own. The domain type keeps its invariants (so the response follows the type),
-and the validation error keys stay the flat `discountValue` the legacy
-frontend already knows (so the request stays flat). Flattening the response
-too would need a hand-written serializer for `Promotion`, which the migration
-guide's compatibility checkpoint does not allow without approval. The
-frontend adaptation task therefore has to map the discount in one direction
-only; the open decision is recorded in
-[`promotion-migration.md`](../../../migration/promotion-migration.md).
+The two shapes are deliberately **not** symmetric: the validation error keys
+stay the flat `discountValue` the frontend knows, while the response keeps the
+discount as one value. The frontend maps the discount in one direction only.
 
-Three values come back in a different notation than they were sent, all of
-them because the response is read back from the stored row:
+Values come back as they are stored:
 
-- `couponCode` and `name` are trimmed, but `couponCode` keeps its original
-  letter case. Only the internal `coupon_code_normalized` column is
-  uppercased, so `"  Sommer25  "` is stored and returned as `"Sommer25"` while
-  the uniqueness rule sees `SOMMER25`.
-- `discountValue` gains the two decimal places of the `numeric(12,2)` column:
-  `500` comes back as `500.00`.
-- `startsAt` and `endsAt` are normalized to UTC, so
-  `"2026-06-01T00:00:00+02:00"` comes back as `"2026-05-31T22:00:00Z"`.
+- `name` and `couponCode` are trimmed, but `couponCode` keeps its letter case.
+  Only `coupon_code_normalized` is upper-cased, so `"  Sommer25  "` is stored
+  and returned as `"Sommer25"` while the uniqueness rule sees `SOMMER25`.
+- `startsAt` and `endsAt` are UTC: `"2026-06-01T00:00:00+02:00"` comes back
+  as `"2026-05-31T22:00:00.000Z"`.
 
 Because the stored value always equals the accepted value, the input rules
-reject the two cases where the column would silently change it: a percentage
-with more than two decimal places, and a fixed amount above the column's
-capacity.
+reject the two cases where the `numeric(12,2)` column would silently change
+it: a percentage with more than two decimal places, and a fixed amount above
+the column's capacity.
 
-## The exported PromotionCodes capability
+## Validation and normalization
 
-`installPromotionModule(database)` returns a `PromotionCodes` instance. Since
-the Cart migration the composition root **binds** it. Applying a coupon code to
-a cart runs `validate`, and rendering a cart that has one stored runs `find`.
-`redeem` is bound too since the Order migration: `OrderRepository.markPaid`
-calls it while it turns an order into a paid one. `redeem` and `release` must
-run **inside the caller's transaction**, because they belong to the caller's
-decision and commit and roll back with it. Outside of one they fail with
-`IllegalStateException`. `releaseAbandoned` is the same delete for callers that
-own no transaction at all, so it opens its own.
+`promotionInput` in `routes.ts` carries the field rules; the field names and
+messages are the ones of the Kotlin `PromotionInput.validate()`.
 
-```kotlin
-public interface PromotionCodes {
-    public suspend fun validate(
-        code: String,
-        userId: Long? = null,
-        reservationKey: Long? = null,
-    ): PromotionCodeResult
+| Field | Rule | Messages |
+| --- | --- | --- |
+| `name` | required after trimming; at most 255 characters | `Name is required`, `Name must be at most 255 characters` |
+| `couponCode` | required after trimming; at most 64 characters | `CouponCode is required`, `CouponCode must be at most 64 characters` |
+| `discountType` | required; `PERCENTAGE` or `FIXED_AMOUNT` | `DiscountType is required`, `DiscountType must be PERCENTAGE or FIXED_AMOUNT` |
+| `discountValue` | required number; positive. Percentage: at most 100, at most two decimals. Fixed amount: whole cents, at most 9999999999 | `DiscountValue is required`, `DiscountValue must be positive`, `DiscountValue must be at most 100 for percentage promotions`, `DiscountValue must have at most 2 decimal places for percentage promotions`, `DiscountValue must be whole cents for fixed amount promotions`, `DiscountValue must be at most 9999999999 for fixed amount promotions` |
+| `startsAt`, `endsAt` | optional ISO-8601 timestamps with `Z` or an offset; `startsAt` not after `endsAt` | `StartsAt must be an ISO-8601 timestamp` (and `EndsAt …`), `StartsAt must not be after EndsAt` on both fields |
+| `usageLimitTotal`, `usageLimitPerUser` | optional; a positive 32-bit integer | `UsageLimitTotal must be an integer`, `UsageLimitTotal must be positive` (and `UsageLimitPerUser …`) |
+| `isActive` | optional boolean, default `false` | `IsActive must be a boolean` |
 
-    public suspend fun reserve(
-        promotionId: Long,
-        cartId: Long,
-        userId: Long? = null,
-    ): PromotionCodeResult
+The two rules that read two fields (the discount value against the type, the
+window) are `superRefine` steps with a `when` guard: each runs only when the
+fields it reads passed their own rules, so an unknown discount type leaves the
+value unjudged, as before, while an error in an unrelated field does not stop
+it. A body that is not an object at all (`null`, an array, a number) stops
+both: its one root error is the whole `400 Validation failed` answer, as for
+every other schema, instead of a rule reading fields that are not there. Their messages are therefore listed after the single-field messages in the
+`errors` map. The schema trims the text and parses the timestamps to `Date`;
+the repository derives `coupon_code_normalized` with `normalizedCouponCode`.
 
-    public suspend fun release(cartId: Long)
+## The promotionCodes capability
 
-    public suspend fun releaseAbandoned(cartId: Long)
+```ts
+validate(code: string, cartId: number, userId: number | null): Promise<PromotionCodeResult>
+reserve(trx: Transaction<Tables>, promotionId: number, cartId: number, userId: number | null): Promise<PromotionCodeResult>
+redeem(trx: Transaction<Tables>, promotionId: number, orderId: number, cartId: number, userId: number | null): Promise<PromotionCodeResult>
+release(trx: Transaction<Tables>, cartId: number): Promise<void>
+find(ids: Iterable<number>): Promise<Map<number, ApplicablePromotion>>
+```
 
-    public suspend fun redeem(
-        promotionId: Long,
-        orderId: Long,
-        cartId: Long,
-        userId: Long? = null,
-    ): PromotionCodeResult
+`validate`, `reserve`, and `redeem` answer a discriminated union:
 
-    public suspend fun find(
-        promotionIds: Set<Long>
-    ): Map<Long, PromotionCodeResult.Applicable>
+```ts
+type PromotionCodeResult =
+  | { kind: 'applicable'; promotion: ApplicablePromotion } // id, name, couponCode, discount
+  | PromotionRejection
+```
+
+| Rejection `kind` | Meaning | `toApiError` status and `code` |
+| --- | --- | --- |
+| `invalidCode` | No promotion carries this code, or it no longer exists | `400` `PROMOTION_INVALID_CODE` |
+| `inactive` | The promotion is switched off | `400` `PROMOTION_INACTIVE` |
+| `notStarted` | The activity window has not begun | `400` `PROMOTION_NOT_STARTED` |
+| `expired` | The activity window has ended | `400` `PROMOTION_EXPIRED` |
+| `loginRequired` | The promotion limits usage per user, and the caller is a guest | `403` `PROMOTION_LOGIN_REQUIRED` |
+| `totalExhausted` | The total usage limit is used up | `409` `PROMOTION_TOTAL_EXHAUSTED` |
+| `perUserExhausted` | This customer has used up their personal allowance | `409` `PROMOTION_PER_USER_EXHAUSTED` |
+
+`toApiError(rejection)` returns `{ status, body }`, the body an `ApiError`
+with the message (for a human) and the stable `code` (for the client). It lives
+here because the cart, when the code is entered, and the checkout, when it is
+reserved, must answer the same reason with the same status and code:
+
+```ts
+if (result.kind !== 'applicable') {
+  const { status, body } = toApiError(result)
+  return c.json(body, status)
 }
 ```
 
-`validate`, `reserve`, and `redeem` answer with a `PromotionCodeResult`: either
-`Applicable(id, name, couponCode, discount)` or one of seven reasons.
-
-| Reason | Meaning |
-| --- | --- |
-| `InvalidCode` | No promotion carries this code, or the promotion no longer exists |
-| `Inactive` | The promotion is switched off |
-| `NotStarted` | The activity window has not begun |
-| `Expired` | The activity window has ended |
-| `LoginRequired` | The promotion limits usage per user, and the caller is a guest |
-| `TotalExhausted` | The total usage limit is used up |
-| `PerUserExhausted` | This customer has used up their personal allowance |
-
 `validate` is the advisory answer for the moment a customer enters a code. It
-trims the input and matches case-insensitively, so `"  sommer25 "` finds
-`SOMMER25`. It then applies two rule groups in this order: availability
-(`Inactive`, `NotStarted`, `Expired`) and usage limits (`LoginRequired`,
-`TotalExhausted`, `PerUserExhausted`). Both window boundaries belong to the
-window, and the clock behind it is the `java.time.Clock` passed to
-`installPromotionModule`, so tests can place "now" exactly on a boundary.
+trims the input and matches case-insensitively, then applies two rule groups
+in this order: availability (`inactive`, `notStarted`, `expired`) and usage
+limits (`loginRequired`, `totalExhausted`, `perUserExhausted`). Both window
+boundaries belong to the window, and "now" is `new Date()`.
 
-The order inside the second group is behavior, not style. A guest entering a
+The order inside the second group is behaviour, not style. A guest entering a
 per-user-limited code is told that a login is required *even when the total
-limit is already exhausted*, because logging in may still let them use the
-code. That precedence was extracted from the legacy tests and is covered by
-its own test.
+limit is already exhausted*, because logging in may still let them use it.
 
 `redeem` is the authority **over the usage limits**, and only over those. It
-re-checks them under a lock and records the redemption in one transaction, so
-a promotion with `usage_limit_total = N` can never be redeemed more than N
-times. A guest (`userId = null`) may redeem a promotion that only carries a
-total limit; that is why `promotion_redemptions.user_id` is nullable.
-
-`redeem` deliberately does *not* re-check the active flag or the activity
-window. `reserve` does, when the checkout starts. The split is a decision, not
-an omission. A promotion that expires between the checkout and the payment must
-still be redeemed, because the customer has already been charged by then. Were
-the window checked here, the result would be a *paid* order without a
-redemption, which the order module has a name for
-(`PaidOrderResult.PromotionRefused`).
+re-checks them under the promotion row lock and records the redemption, so a
+promotion with `usage_limit_total = N` can never be redeemed more than N
+times. A guest (`userId = null`) may redeem a promotion that carries only a
+total limit. `redeem` deliberately does *not* re-check the active flag or the
+window: a promotion that expires between the checkout and the payment must
+still be redeemed, because the customer has already been charged. The unique
+`order_id` makes the database the authority for "one order redeems at most
+once": a second redemption of the same order fails with SQL state `23505`,
+which aborts the caller's transaction.
 
 ### The reservation lifecycle
 
 A usage limit is only honest if it also counts the checkouts that are running
-right now. `reserve` is what makes them countable. It writes one row into
-`promotion_reservations`, keyed on the **cart**, and every limit check counts
-those rows next to the recorded redemptions.
+right now. `reserve` writes one row into `promotion_reservations`, keyed on the
+**cart**, and every limit check counts those rows next to the redemptions.
 
 ```text
-validate ──▶ reserve ──▶ redeem              the payment succeeded
+validate ──▶ reserve ──▶ redeem      the payment succeeded
   (cart)     (checkout)  │
-                         ├─▶ release          the order was cancelled, or its
-                         │                    payment ended terminally
-                         └─▶ releaseAbandoned the placement refused, or the
-                                              customer removed the code
+                         └─▶ release  the order was cancelled, its payment ended
+                                      terminally, or the customer removed the code
 ```
 
-- `reserve` runs in its own transaction, under the same `FOR UPDATE` lock on
-  the promotion row that `redeem` takes, and re-checks everything: the active
-  flag, the window, the customer eligibility, and the limits. Two carts racing
-  the last unit therefore produce exactly one holder.
-- The cart is the identity, so `cart_id` is unique. A cart reserving again,
-  that is a repeated checkout, overwrites its own row, and every count excludes
-  the caller's own cart. Nobody can lose the capacity they are holding.
-- `redeem` inserts the redemption and deletes the reservation of the same cart
-  in the caller's transaction, so the capacity moves from in-flight to recorded
-  without being counted twice or being free in between.
-- `release` is the other ending: one idempotent `DELETE`, also inside the
-  caller's transaction.
-- `releaseAbandoned` is that same `DELETE` in a transaction of its own, for the
-  two callers that have none to join: the checkout module, which owns no
-  database, when the placement refuses the order it had already reserved for,
-  and the cart when the customer removes the coupon. Both are checkout attempts
-  that gave the coupon up, and neither leaves behind anything that could ever
-  release the hold otherwise. No lock on the promotion row is taken, because
-  giving capacity back cannot overshoot a limit.
-- `validate` takes the cart as its `reservationKey` and counts the reservations
-  of every other cart, which is why an exhausted promotion is refused at the
-  moment the code is entered rather than only at checkout.
+- `reserve` joins the caller's transaction, checkout TX1, which also places the
+  order. It takes the same `FOR UPDATE` lock on the promotion row that
+  `redeem` takes and re-checks everything: the active flag, the window, the
+  customer eligibility, and the limits. Two carts racing the last unit
+  therefore produce exactly one holder, and the hold commits or rolls back
+  with the order it was taken for.
+- The cart is the identity, so `cart_id` is unique. A repeated checkout of the
+  same cart overwrites its own row, and every count excludes the caller's own
+  cart. Nobody can lose the capacity they are holding.
+- `redeem` joins the caller's transaction, the paid transition of the order,
+  inserts the redemption, and deletes the reservation of the same cart, so the
+  capacity moves from in-flight to recorded without being counted twice or
+  being free in between.
+- `release` is one idempotent `DELETE` in the caller's transaction, so an
+  order's cancel or payment-ended write and the release commit together; a cart
+  that removes its own coupon wraps it in a transaction of its own. No lock on
+  the promotion row is taken, because giving capacity back cannot overshoot a
+  limit.
+- `validate` counts the reservations of every cart except the given one, which
+  is why an exhausted promotion is refused when the code is entered rather
+  than only at checkout.
 
-A reservation has **no expiry** (checkout migration deviation D2). It ends
-through `redeem`, `release`, or `releaseAbandoned` and through nothing else,
-which is deliberate and has an accepted cost: a crash between the reservation
-and its order, or a terminal payment webhook that is never delivered at all,
-leaves a row that holds capacity until an administrator removes it.
+A reservation has **no expiry**. It ends through `redeem` or `release` and
+through nothing else; the accepted cost is that a crash between the
+reservation and its order, or a terminal payment webhook that never arrives,
+leaves a row that holds capacity until an administrator removes it. Deleting
+the cart removes it too (`ON DELETE CASCADE`).
 
-`find` is the reader half of the capability, in the shape every reader in this
-backend has: set in, map out. A cart that has stored a `promotion_id` resolves
-it, together with every other id of the same page, in one call, and gets the
-name, the code, and the discount as they are configured **now**. It has no
-expected failure at all. An id that names no promotion is simply absent from
-the map instead of mapping to `null`, and an empty set is answered without
-touching the database. No availability rule is applied here, because "may this
-still be used?" is what `validate` and, decisively, `redeem` answer.
+`find` is the reader half, set in, map out: the current name, code, and
+discount of every known id, unknown ids absent, no availability rule applied.
+An empty list answers without touching the database.
 
-Unlike the admin operations, the capability does not map unexpected database
-failures to a result value. They surface as exceptions, so the consuming
-module answers them with its own error policy instead of receiving a
-business-looking failure reason for an infrastructure problem.
-
-## Validation and normalization
-
-`PromotionInput.validate()` implements the field rules and returns lower
-camel case field names for the shared `ApiError.errors` map.
-
-| Field | Rule |
-| --- | --- |
-| `name` | Required after trimming; at most 255 characters |
-| `couponCode` | Required after trimming; at most 64 characters |
-| `discountType` | Required; `PERCENTAGE` or `FIXED_AMOUNT` |
-| `discountValue` | Required; positive. Percentage: at most 100 with at most two decimal places. Fixed amount: whole cents, at most 9999999999 (the `numeric(12,2)` column capacity) |
-| `startsAt`, `endsAt` | Optional ISO-8601 timestamps; `startsAt` must not be after `endsAt` |
-| `usageLimitTotal`, `usageLimitPerUser` | Optional; positive when set |
-
-After validation the service trims `name` and `couponCode`. The repository
-derives `coupon_code_normalized` by uppercasing the trimmed code and converts
-the timestamps to UTC, so `2026-06-01T00:00:00+02:00` is stored and returned
-as `2026-05-31T22:00:00Z`.
-
-The HTTP boundary rejects invalid input before `PromotionOperations` is
-called. The service calls the same pure input method for direct callers, so
-bypassing Ktor cannot send invalid or non-normalized values to persistence.
+Database failures are exceptions throughout the capability; the consuming
+module answers them with its own error policy.
 
 ## Persistence and concurrency
 
-Flyway migration
-[`V12__create_promotions.sql`](../../../../backend/modules/platform/resources/db/migration/V12__create_promotions.sql)
-creates the first two tables with check constraints for the discount and the
-usage limits, the unique constraint `ux_promotions_coupon_code_normalized`, and
-the redemption foreign key with `ON DELETE RESTRICT`.
+`schema.ts` maps
+[`V12__create_promotions.sql`](../../../../backend/migrations/V12__create_promotions.sql)
+(`promotions`, `promotion_redemptions` with its `ON DELETE RESTRICT` foreign
+key), the `order_id` column V16 adds (unique, `RESTRICT`), and
+[`V18__create_promotion_reservations.sql`](../../../../backend/migrations/V18__create_promotion_reservations.sql),
+whose three foreign keys each answer a deletion differently: the promotion is
+`RESTRICT`, the cart `CASCADE`, the user `SET NULL`. `discount_value` is
+`numeric(12,2)`; `pg` reads it as a string, and the repository parses it to a
+number once, in `toStoredPromotion`.
 
-[`V18__create_promotion_reservations.sql`](../../../../backend/modules/platform/resources/db/migration/V18__create_promotion_reservations.sql)
-adds `promotion_reservations`, whose three foreign keys each answer a deletion
-differently: the promotion is `RESTRICT` (a promotion somebody is checking out
-with must not vanish), the cart is `CASCADE` (the reservation is a property of
-that cart), and the user is `SET NULL` (the capacity stays held after the
-account is deleted). `cart_id` is unique, which is what makes a repeated
-reservation an update instead of a second unit.
+PostgreSQL is the authority for code uniqueness. Create runs no preliminary
+existence query; of two racing creates with a case-variant code exactly one
+insert succeeds, and the other's `23505` becomes the `conflict` value through
+`executePostgresWrite`. Delete needs no lock: the restricting foreign keys
+reject it with `23503`/`23001`, mapped to `conflict` as well; the route answers
+it with its own delete message. The answer is generic on
+purpose, because the SQL state cannot say which reference held the promotion
+back (see
+[Persistence error handling](../conventions/persistence-error-handling.md)).
 
-PostgreSQL is the concurrency-safe authority for code uniqueness. Create does
-not run a preliminary existence query. When two requests race with the same
-(or a case-variant) code, exactly one insert succeeds; the other fails with
-SQL state `23505`, which `executePostgresWrite` maps to
-`PromotionWriteResult.CodeConflict` and the route maps to `409`. Constraint
-names and provider messages are never inspected or exposed (see
-[`persistence-error-handling.md`](../conventions/persistence-error-handling.md)).
+### All three writers lock the promotion row
 
-Unexpected database failures are logged internally and become the generic
-`500 Internal server error` API response. Coroutine cancellation is always
-rethrown.
-
-### Both writers lock the promotion row
-
-Three operations write against the usage state of a promotion: the admin update
-(which must reject a configuration change once a redemption exists), `reserve`,
-and `redeem` (neither of which must hand out capacity twice). All three start
-their transaction the same way:
+The admin update (which must reject a configuration change once a redemption
+exists), `reserve`, and `redeem` (neither of which may hand out capacity twice)
+all start with `lockPromotion`:
 
 ```sql
-SELECT * FROM promotions WHERE id = ? FOR UPDATE
+SELECT … FROM promotions WHERE id = $1 FOR UPDATE
 ```
 
-The lock is what serializes them. Whichever transaction arrives second waits,
-and only *then* issues its counting query. Under the default `READ COMMITTED`
-isolation every statement takes a fresh snapshot, so that count already
-contains everything the first transaction committed while the second one was
-waiting.
+The lock serializes them. Whichever transaction arrives second waits, and only
+*then* issues its counting query. Under `READ COMMITTED` every statement takes
+a fresh snapshot, so that count already contains what the first one committed.
+That is why the counts are separate statements after the lock and never a
+subquery of the locking `SELECT`, whose snapshot predates the wait.
 
 The admin update then decides in one place:
 
-1. No row: `PromotionWriteResult.NotFound`.
+1. No row: `notFound`.
 2. No redemptions: the full update runs.
-3. Redemptions exist, but the submitted input matches the stored configuration
-   and only `isActive` differs (`PromotionInput.changesOnlyActivationOf`):
-   a statement writes just that column.
-4. Otherwise `PromotionWriteResult.Locked`, which the route maps to `409`.
+3. Redemptions exist, and the input matches the stored configuration except
+   for `isActive` (`changesOnlyActivation`, comparing timestamps as instants
+   and the discount as a number): only `is_active` is written.
+4. Otherwise `conflict`, which the route answers with its update message.
 
-The configuration comparison is deliberately tolerant about notation rather
-than about meaning: timestamps are compared as instants and the discount as a
-number, so `2026-01-01T01:00:00+01:00` and `10` count as unchanged against the
-stored `2026-01-01T00:00:00Z` and `10.00`.
+A guard inside the writing statement (`UPDATE … WHERE NOT EXISTS (SELECT …
+FROM promotion_redemptions …)`) is not enough: it evaluates against its own
+snapshot and is not re-checked when a redemption commits concurrently. The
+repository test races exactly that case.
 
-`redeem` uses the same lock to re-read the usage counts, applies
-`Promotion.usageFailure`, and inserts the redemption. A promotion with
-`usage_limit_total = 1` can therefore never be redeemed twice, because the
-second transaction only gets to count after the first one has committed its
-redemption. `reserve` works exactly the same way one step earlier, which is why
-two carts racing the last unit end with one reservation and one
-`TotalExhausted`.
+## Differences to the Kotlin backend
 
-#### Why a guard inside the writing statement is not enough
-
-An earlier version let the writing statement decide, with a subquery guard:
-
-```sql
-UPDATE promotions SET ... WHERE id = ? AND NOT EXISTS (
-    SELECT id FROM promotion_redemptions WHERE promotion_id = ?
-)
-```
-
-That guard is not a constraint, and it does not survive a concurrent
-redemption. Under `READ COMMITTED` the statement evaluates `NOT EXISTS`
-against its own snapshot. If a redemption commits afterwards, PostgreSQL does
-not re-evaluate the subquery: the concurrent transaction only *locked* the
-promotion row rather than updating it, so there is no re-check at all, and
-even when there is one it is the locked row that gets re-read, not other
-tables. The update would then reconfigure a promotion that has just been
-redeemed. `PromotionCodesIntegrationTest` contains that exact race and fails
-against the old implementation.
-
-Delete needs no lock of its own. `promotion_redemptions` references
-`promotions` with `ON DELETE RESTRICT`, so PostgreSQL rejects the delete with
-SQL state `23001`, which `executePostgresWrite` maps to
-`PromotionDeleteResult.InUse`. A delete racing a redemption blocks on the
-same row lock and then hits the foreign key, because the constraint is real.
-The result is deliberately generic. Since the Order migration, `orders`
-restricts the delete too, and the SQL state cannot say which of the two
-references held the promotion back without reading a constraint name.
+- **Validation types.** Values the Kotlin JSON parser refused before
+  `validate()` ran now get a field error: a non-number `discountValue` reports
+  `DiscountValue is required`, a non-string timestamp the timestamp message, a
+  non-integer or out-of-range limit `… must be an integer`, and an explicit
+  `null` for `isActive` `IsActive must be a boolean`.
+- **Response notation.** `discountValue` is a JSON number without trailing
+  zeros (`10`, not `10.00`), and timestamps carry milliseconds
+  (`2026-05-31T22:00:00.000Z`, not `2026-05-31T22:00:00Z`). Both parse to the
+  same value.
+- **`reserve` and one `release(trx, cartId)` join the caller's transaction**
+  (checkout TX1, #247); Kotlin's `releaseAbandoned` in its own transaction is
+  gone, and a caller without a transaction opens one with `write`.
+- **`validate` requires the cart.** Kotlin's `reservationKey` was optional;
+  every caller has a cart, so `cartId` is a required parameter.
+- **No injected `Clock`.** The activity-window clock is `new Date()`; tests set
+  it with Bun's `setSystemTime`.
 
 ## Tests
 
-- `PromotionInputValidationTest` covers the complete field-rule matrix once.
-- `PromotionRouteSecurityAndValidationTest` covers route-subtree protection,
-  CSRF ordering, binding, validation-before-operation, `201` + `Location`,
-  `204` delete, and HTTP result mapping against stubbed operations.
-- `PromotionAdminCrudIntegrationTest` runs the authenticated and
-  CSRF-protected flows through real Ktor routes and PostgreSQL: list
-  ordering and redemption counts, create with trimming and code
-  normalization, the case-insensitive duplicate conflict on create and on
-  update, two concurrent creates, the full update of an unredeemed promotion,
-  the rejected configuration change and the accepted activation change on a
-  redeemed one, delete with its `204`, `404`, and `409` outcomes, and
-  defensive service validation.
-- `PromotionCodesIntegrationTest` covers the exported capability: the
-  resolved code with trimming and case-insensitive matching, every failure
-  reason, the login hint taking precedence over an exhausted total limit, both
-  window boundaries, the recorded redemption including a guest redemption,
-  limit re-checks in `redeem`, two concurrent redeems against a total limit of
-  one, and an admin update racing a redemption. Two tests cover `find`: a
-  batch of stored ids resolves to the current master data with the unknown id
-  absent, and the statement-counting data source proves that an empty id set
-  runs no SQL.
-- `PromotionReservationsIntegrationTest` covers the reservation lifecycle: what
-  a reservation holds, that re-reserving the same cart never counts twice, the
-  window and eligibility checks of `reserve`, two concurrent reserves of the
-  last unit, the per-user count, `redeem` consuming the reservation of its own
-  cart (and leaving it in place when the caller rolls back), `redeem` counting
-  other carts while ignoring the window, `release`, which outside a transaction
-  is an `IllegalStateException` and inside one is idempotent, and
-  `releaseAbandoned`, which needs no transaction, is idempotent, and frees the
-  last unit for another cart.
-- `PromotionSchemaIntegrationTest` proves the Flyway schema: the restricting
-  foreign key, the case-insensitive unique index, the check constraints, and
-  the reservation table with its three differently-answering foreign keys.
-  Each one is asserted through the write it rejects and the SQL state that
-  comes back, never through its constraint name. A name is an implementation
-  detail that renaming should be free to change, and no test may pin one.
-  Indexes are the exception, because they change no observable behavior. Their
-  names are all a test can assert.
-
-Run the final backend gate from [`backend/`](../../../../backend):
+Run from `backend/`:
 
 ```sh
-./kotlin do ktfmt
-./kotlin check
+bun test src/modules/promotion    # this module only
+bun run check                     # the full gate
 ```
+
+| Test | What it states |
+| --- | --- |
+| [`routes.test.ts`](../../../../backend/src/modules/promotion/routes.test.ts) | One happy path per route (ordering, redemption counts, trimming, UTC, `201` + `Location`, `204`), `404`, `400 Invalid promotion id`, the three `409` answers, and the accepted activation change of a redeemed promotion |
+| [`repository.test.ts`](../../../../backend/src/modules/promotion/repository.test.ts) | Concurrent case-variant creates and updates leave one code and one conflict; an admin update racing a redemption waits for the row lock and conflicts |
+| [`codes.test.ts`](../../../../backend/src/modules/promotion/codes.test.ts) | `validate` with trimming, every reason, the login hint, both window boundaries, reservations of other carts; `reserve` idempotency, refusals, per-user counts, two concurrent reserves of the last unit, rollback; `redeem` recording, limit re-checks, window ignored, consuming the reservation, rollback, once per order, two concurrent redeems of the last unit; `release`; `find`; `toApiError` |
+| [`validation.test.ts`](../../../../backend/src/modules/promotion/validation.test.ts) | Every message of `promotionInput`, the defaults, and the cross-field guards |
+
+The tests insert the minimal `users`, `carts`, and `orders` rows the foreign
+keys need with Kysely's `sql` instead of importing those modules. The platform
+cases (`401`/`403`, CSRF, malformed bodies, the body limit) are pinned once in
+`src/platform/**/*.test.ts`.

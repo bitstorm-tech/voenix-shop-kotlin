@@ -46,7 +46,7 @@ export interface AdminPromptFieldErrors {
 /** The backend's title limit; the editor refuses a longer title before it sends one. */
 export const PROMPT_TITLE_MAX_LENGTH = 255
 
-/** The same cap applies to the model name (`PromptInput.kt` checks `llm` against 255). */
+/** The same cap applies to the model name (`backend/src/modules/prompt/prompt/routes.ts` checks `llm` against 255). */
 export const PROMPT_LLM_MAX_LENGTH = 255
 
 const PROMPT_FIELD_ERROR_KEYS = [

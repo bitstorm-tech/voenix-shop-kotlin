@@ -1,9 +1,0 @@
-product: jvm/amper-plugin
-
-pluginInfo:
-  settingsClass: shop.voenix.ktlint.KtlintSettings
-
-dependencies:
-  - $libs.ktlint.rule.engine
-  - $libs.ktlint.ruleset.standard
-  - $libs.slf4j.plugin

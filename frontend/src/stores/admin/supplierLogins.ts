@@ -3,8 +3,8 @@ import { defineStore } from 'pinia'
 import { ApiError, fetchJson } from '@/lib/api'
 
 /**
- * One login that may sign in for a supplier, as `SupplierLoginView` sends it
- * (`backend/modules/account/src/shop/voenix/account/SupplierLoginView.kt`).
+ * One login that may sign in for a supplier, as the backend's `SupplierLogin` sends it
+ * (`backend/src/modules/account/repository.ts`).
  *
  * It carries no credential or lockout state on purpose: an administrator manages *who* may sign in
  * for a supplier, not how that login is doing.

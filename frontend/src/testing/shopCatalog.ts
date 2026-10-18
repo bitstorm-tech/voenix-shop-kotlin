@@ -10,7 +10,7 @@ import type {
 import type { PromptDto } from '@/stores/shop/prompts'
 
 /**
- * Fixtures of the storefront catalog contracts, shaped exactly like the bare arrays the Kotlin
+ * Fixtures of the storefront catalog contracts, shaped exactly like the bare arrays the
  * backend answers with (`docs/dev/backend/packages/article-package.md`, `prompt-package.md`). Every optional
  * wire field is present and explicitly `null`, because the backend serializes it that way.
  */

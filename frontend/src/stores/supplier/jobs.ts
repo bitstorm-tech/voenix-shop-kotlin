@@ -13,7 +13,7 @@ import {
 
 /**
  * One production job of the signed-in supplier, mirroring the backend's `SupplierJobView` field by
- * field (`backend/modules/production/src/shop/voenix/production/fulfillment/SupplierJobView.kt`).
+ * field (`backend/src/modules/production/fulfillment/service.ts`).
  *
  * `orderDate` is the ISO `yyyy-MM-dd` Berlin order date the PDF prints. `pdfAvailable` is `false`
  * while the document is still being generated — the job is listed anyway, because a job that cannot

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Copies the catalog data of a legacy backend into the Kotlin backend's
+# Copies the catalog data of a legacy backend into the backend's
 # database. Two source schemas are recognized automatically:
 #
 #   v1     — the Go backend (app.voenix.shop), the version that is live.
 #   dotnet — the .NET backend (voenix-shop) with all of its migrations applied.
 #
-# Target is a database that Flyway has already migrated (schema `voenix`).
+# Target is a database the backend has already migrated (schema `voenix`).
 #
 # What is copied: VAT entries, suppliers, prices, article categories and
 # subcategories, mugs with details and variants, prompt categories and
@@ -17,7 +17,7 @@
 # every table that references them, so carts, orders, and payments in the
 # target database are wiped as well.
 #
-# See docs/dev/getting-started/importing-legacy-catalog-data.md for the full story.
+# See docs/dev/backend/getting-started/importing-legacy-catalog-data.md for the full story.
 set -euo pipefail
 
 SOURCE=""
@@ -49,7 +49,7 @@ psql_source() {
 }
 psql_target() { psql -X -v ON_ERROR_STOP=1 "$TARGET" "$@"; }
 
-echo "=== Data Migration: legacy voenix → Kotlin voenix ==="
+echo "=== Data Migration: legacy voenix → voenix ==="
 echo ""
 
 # Pre-flight checks
@@ -113,7 +113,7 @@ echo ""
 
 if [[ "$(column_exists "$TARGET" article_identities article_type)" != "t" ]]; then
   echo "ERROR: The target database has no article_identities table."
-  echo "       Start the Kotlin backend once so Flyway creates the schema."
+  echo "       Start the backend once so its migrations create the schema."
   exit 1
 fi
 
@@ -335,7 +335,7 @@ build_target_country_values_sql() {
   )
 
   if [[ -z "$values" ]]; then
-    echo "ERROR: target countries table contains no rows; did Flyway run?"
+    echo "ERROR: target countries table contains no rows; did the migrations run?"
     exit 1
   fi
 
@@ -353,15 +353,15 @@ check_source_has_no_rows \
    WHERE tc.id IS NULL;"
 
 # The target knows only MUG articles. v1 additionally holds the internal
-# CREDIT article for Magic Coins; the Kotlin backend has its own Magic Coins
-# module, so that article, its variants, and its price are skipped.
+# CREDIT article for Magic Coins; the backend models Magic Coins without
+# a catalog article, so that article, its variants, and its price are skipped.
 if [[ "$SOURCE_SCHEMA" == "v1" ]]; then
   SKIPPED_ARTICLES=$(psql_source -t -A -c "
     SELECT id || ': ' || name || ' (' || article_type || ')'
     FROM voenix.articles WHERE article_type <> 'MUG';
   ")
   if [[ -n "$SKIPPED_ARTICLES" ]]; then
-    echo "NOTICE: These articles are not mugs and are skipped (the Kotlin"
+    echo "NOTICE: These articles are not mugs and are skipped (the"
     echo "        backend models Magic Coins without a catalog article):"
     echo "$SKIPPED_ARTICLES"
     echo ""

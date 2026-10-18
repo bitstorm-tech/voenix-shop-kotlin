@@ -9,9 +9,15 @@ The port is a **big bang into a new folder**: `backend-ts/` serves the same
 HTTP API on the same PostgreSQL schema, the Vue frontend was not changed, and
 the Kotlin backend in `backend/` stays in the repository, untouched, until Joe
 removes it. The reasons for the stack are in
-[the technology-stack guide](../dev/backend-ts/conventions/technology-stack.md);
+[the technology-stack guide](../dev/backend/conventions/technology-stack.md);
 this file records what was ported, what changed on the way, what was dropped,
 what the smoke run observed, and what is still open.
+
+> **Update 2026-10-18:** the Kotlin backend has been removed and `backend-ts/`
+> renamed to `backend/` (with its guides, `docs/dev/backend-ts/` became
+> `docs/dev/backend/`). The last state with the Kotlin backend is the Git tag
+> `kotlin-backend`. This record keeps the paths of its time: read `backend-ts/`
+> as today's `backend/`, and a Kotlin path as one inside the tag.
 
 ## What was ported, ticket by ticket
 
@@ -47,11 +53,11 @@ list.
 
 | Issue | Decision before | Decision now | Guide |
 | --- | --- | --- | --- |
-| #247 | Checkout as five commits in five modules with compensations and a unique-violation retry | One checkout in **two transactions**: TX1 locks the cart row, reserves the coupon, places the order with its mail, confirms a free order; then `orders.startPayment` runs its own transaction, locks the order row (`SELECT … FOR UPDATE`), makes the Mollie call inside it, and inserts the payment row there, so the call runs outside both checkout transactions and holds only the order lock; TX2 only closes the cart. A provider refusal cancels the order and releases the reservation inside `startPayment` | [checkout](../dev/backend-ts/packages/checkout-package.md#decision-one-checkout-two-transactions) |
-| #248 | Reference-only email outbox with resolvers; `payment` as its own module; late-bound order sources for production | The outbox stores the **rendered** mail at enqueue time inside the caller's transaction, so `email` is a leaf; `payment` is a subfolder of `order`; `production` declares its order read contracts as types and the composition root injects `order.orders`, so there is no `production → order` import and no late binding | [email](../dev/backend-ts/packages/email-package.md), [order](../dev/backend-ts/packages/order-package.md), [production](../dev/backend-ts/packages/production-package.md#the-one-way-edge-to-the-order-module) |
-| #251 | `*Operations` interfaces, repository result types, `UnexpectedFailure`, `validate()` on inputs, the price CRUD routes | Validation once at the route with Zod; no interface with a single implementation; exceptions propagate to `onError` (`500`); the standalone price routes are gone; `respondResult`/`respondFailure`, the one `ApiError` shape, and the SQLSTATE mapping stay | [operation results](../dev/backend-ts/conventions/operation-results.md), [request validation](../dev/backend-ts/conventions/request-validation.md) |
-| #252 | `vat` and `magic-coins` as modules | `vat` is part of `pricing`, `magic-coins` part of `generator`; the routes are unchanged | [pricing](../dev/backend-ts/packages/pricing-package.md), [generator](../dev/backend-ts/packages/generator-package.md) |
-| #258 | Tests per module repeat the platform cases | Platform behaviour is tested once in platform; a module keeps one happy path per route, its own error cases, its service and repository behaviour, and every unique-conflict concurrency test; schemas are unit-tested once | [code quality](../dev/backend-ts/conventions/code-quality.md), every package guide's "Tests" |
+| #247 | Checkout as five commits in five modules with compensations and a unique-violation retry | One checkout in **two transactions**: TX1 locks the cart row, reserves the coupon, places the order with its mail, confirms a free order; then `orders.startPayment` runs its own transaction, locks the order row (`SELECT … FOR UPDATE`), makes the Mollie call inside it, and inserts the payment row there, so the call runs outside both checkout transactions and holds only the order lock; TX2 only closes the cart. A provider refusal cancels the order and releases the reservation inside `startPayment` | [checkout](../dev/backend/packages/checkout-package.md#decision-one-checkout-two-transactions) |
+| #248 | Reference-only email outbox with resolvers; `payment` as its own module; late-bound order sources for production | The outbox stores the **rendered** mail at enqueue time inside the caller's transaction, so `email` is a leaf; `payment` is a subfolder of `order`; `production` declares its order read contracts as types and the composition root injects `order.orders`, so there is no `production → order` import and no late binding | [email](../dev/backend/packages/email-package.md), [order](../dev/backend/packages/order-package.md), [production](../dev/backend/packages/production-package.md#the-one-way-edge-to-the-order-module) |
+| #251 | `*Operations` interfaces, repository result types, `UnexpectedFailure`, `validate()` on inputs, the price CRUD routes | Validation once at the route with Zod; no interface with a single implementation; exceptions propagate to `onError` (`500`); the standalone price routes are gone; `respondResult`/`respondFailure`, the one `ApiError` shape, and the SQLSTATE mapping stay | [operation results](../dev/backend/conventions/operation-results.md), [request validation](../dev/backend/conventions/request-validation.md) |
+| #252 | `vat` and `magic-coins` as modules | `vat` is part of `pricing`, `magic-coins` part of `generator`; the routes are unchanged | [pricing](../dev/backend/packages/pricing-package.md), [generator](../dev/backend/packages/generator-package.md) |
+| #258 | Tests per module repeat the platform cases | Platform behaviour is tested once in platform; a module keeps one happy path per route, its own error cases, its service and repository behaviour, and every unique-conflict concurrency test; schemas are unit-tested once | [code quality](../dev/backend/conventions/code-quality.md), every package guide's "Tests" |
 
 Decisions taken during the run (recorded on #262 and the tickets):
 
@@ -297,9 +303,9 @@ their handlers read the whole body (`parseBody()`, `text()`); both providers
 send small bodies with a `Content-Length`; and a per-route limit is more code
 than a 30,000,000-byte buffer per unauthenticated request is worth today. The
 caveat is written into
-[request size limits](../dev/backend-ts/conventions/request-size-limits.md#the-two-webhooks),
-[the order guide](../dev/backend-ts/packages/order-package.md#the-webhook), and
-[SPOD fulfillment](../dev/backend-ts/packages/spod-fulfillment.md#the-webhook-how-a-shipment-comes-back).
+[request size limits](../dev/backend/conventions/request-size-limits.md#the-two-webhooks),
+[the order guide](../dev/backend/packages/order-package.md#the-webhook), and
+[SPOD fulfillment](../dev/backend/packages/spod-fulfillment.md#the-webhook-how-a-shipment-comes-back).
 
 ### How Joe runs oracle 4 (Mollie through ngrok)
 

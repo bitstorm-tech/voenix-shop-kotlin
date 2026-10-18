@@ -70,7 +70,7 @@ try {
 ## What gets thrown: `ApiError`
 
 Every refusal arrives as one class,
-[`ApiError`](../../../frontend/src/lib/api.ts). The Kotlin backend answers a
+[`ApiError`](../../../frontend/src/lib/api.ts). The backend answers a
 single error body everywhere, `{ "message": …, "code": …, "errors": … }`, and
 `ApiError` is that body plus the parts of the HTTP response that carry meaning:
 
@@ -87,7 +87,7 @@ single error body everywhere, `{ "message": …, "code": …, "errors": … }`, 
 
 This is the convention that surprises people coming from the legacy .NET
 backend, which answered a `{ success, message, code }` envelope with a code for
-everything. The Kotlin backend does not. A code exists only where the *same*
+everything. The backend does not. A code exists only where the *same*
 status on the *same* route can mean two different things.
 
 So the route you called plus the status you got back is the discriminator,
@@ -148,7 +148,7 @@ it, and sends it as the `X-XSRF-TOKEN` header. You do not write any of that.
 The exception is the anonymous `/api/auth` routes: login, register, confirm
 e-mail, resend confirmation, forgot password, reset password, confirm e-mail
 change. They are installed outside the protected subtree
-(`installAnonymousRoutes` in `AccountRoutes.kt`), because a visitor who has no
+(`accountRoutes` in [`routes.ts`](../../../backend/src/modules/account/routes.ts) installs `requireAuthenticated` only on the signed-in routes), because a visitor who has no
 session yet cannot be asked for a session-bound token. Calling
 `GET /api/antiforgery/token` for them would be a pointless extra round trip on
 the slowest path there is, so those calls pass `skipAntiforgery: true`:

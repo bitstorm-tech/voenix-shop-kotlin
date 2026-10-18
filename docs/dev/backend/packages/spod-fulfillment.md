@@ -1,25 +1,23 @@
 # SPOD fulfillment: the print-on-demand channel
 
-This page explains how the job of a SPOD article — a t-shirt, a tote bag, any
-product the print-on-demand partner makes — is produced. It belongs to the
-[Production package guide](production-package.md), which describes everything
-the two fulfillment channels share; here we look only at the second one, the
-print-on-demand partner **Spreadconnect (SPOD)**.
+This page explains how the job of a SPOD article (a t-shirt, a tote bag, any
+product the print-on-demand partner makes) is produced by the TypeScript code in
+[`backend/src/modules/production/spod`](../../../../backend/src/modules/production/spod)
+and [`fulfillment`](../../../../backend/src/modules/production/fulfillment).
+It belongs to the [Production package guide](production-package.md), which
+describes everything the two channels share; here we look only at the second
+one, the partner **Spreadconnect (SPOD)**.
 
-This page is the implementation guide: what the code does, in which order, and
-why the order is the interesting part. The eight decisions the channel was
-built on — and the alternatives they beat — are listed at the end, in
-[The design decisions](#the-design-decisions); the code refers to them by
-number ("SPOD fulfillment decision 7").
+The eight decisions the channel was built on, and the alternatives they beat,
+are listed at the end in [The design decisions](#the-design-decisions); the
+code refers to them by number ("SPOD fulfillment decision 7").
 
 ## Two channels, one worker
 
-A mug reaches its producer as a PDF pushed over SFTP. A SPOD article reaches its
-producer as a conversation with a REST API. The split worker decides which of
-the two a job belongs to when it creates the job, from the supplier's enabled
+A mug reaches its producer as a PDF pushed over SFTP. A SPOD article reaches
+its producer as a conversation with a REST API. The split decides which of the
+two a job belongs to when it creates the job, from the supplier's enabled
 destinations, and freezes that decision in `production_jobs.fulfillment_channel`.
-
-From there the two lifecycles have nothing in common except their last column:
 
 | | SFTP job | SPOD job |
 | --- | --- | --- |
@@ -27,27 +25,24 @@ From there the two lifecycles have nothing in common except their last column:
 | Delivery rows | one per enabled destination | none at all |
 | Remote state | none | `production_spod_orders` + `production_spod_designs` |
 | Ready to ship | `prepared_at` set when the PDF exists | `prepared_at` set when the remote order is confirmed |
-| Shipment reported by | a human on the fulfillment page | a webhook (and a human as fallback) |
+| Shipment reported by | a person on the fulfillment page | the webhook (and a person as fallback) |
 
 `prepared_at` is the shared column, and it is what the guarded ship update
-reads. Everything else on the SPOD side is new.
+reads.
 
 ## The one fact that shapes the whole design
 
-The partner's API has **no idempotency mechanism**. Concretely:
+The partner's API has **no idempotency mechanism**:
 
 - `POST /orders` accepts no idempotency key. Sending it twice creates two
   orders.
-- There is no endpoint that lists orders.
-- There is no endpoint that finds an order by *our* `externalOrderReference`.
+- There is no endpoint that lists orders, and none that finds one by *our*
+  `externalOrderReference`.
 - The only way to read an order back is `GET /orders/{id}` with the id the
   creation answered with.
 
-Put those together and one sentence follows: **if the order id is lost, the
-order is lost.** Nothing can find it again — not a retry, not a support ticket
-of ours, only a human reading the partner's backoffice.
-
-Two properties of the API make that survivable:
+So: **if the order id is lost, the order is lost.** Two properties of the API
+make that survivable:
 
 - An order can be created in state `NEW`, and a `NEW` order **produces nothing
   and charges nothing** until `POST /orders/{id}/confirm`. An orphaned `NEW`
@@ -59,214 +54,173 @@ Everything below is built out of exactly those two properties.
 
 ## The submission stage, step by step
 
-`delivery/spod/SpodOrderSubmitter.kt` is the fourth stage of the production
-worker. Each scan takes the SPOD jobs whose `prepared_at` is still `NULL`, in
-ascending id order, and makes **one** attempt per job. Nothing retries inside
-the attempt; a failure records a bounded code and the job waits for the next
-scan, exactly like every other production stage.
+[`submitter.ts`](../../../../backend/src/modules/production/spod/submitter.ts)
+is the fourth stage of the production worker. Each scan takes the SPOD jobs
+whose `prepared_at` is still `NULL`, oldest first, and makes **one** attempt
+per job. Nothing retries inside the attempt; a failure records a bounded code
+and the job waits for the next scan.
 
-Two of those jobs are left out of the scan on purpose: one quarantined as
-`create_state = 'OUTCOME_UNKNOWN'` (no automatic call may be made until a human
-has looked) and one whose `remote_state` is `'CANCELLED'` (the order is finished
-remotely and will never leave that state, so re-reading it would record
-`ORDER_STATE_UNEXPECTED` once a minute forever). `NEEDS_ACTION` stays in the
-scan: somebody resolves it in the backoffice, and the next scan simply
-continues.
+Two kinds of job are left out of the scan on purpose: one quarantined as
+`create_state = 'OUTCOME_UNKNOWN'` (no automatic call until a person has
+looked) and one whose `remote_state` is `'CANCELLED'` (finished remotely; re-
+reading it would record `ORDER_STATE_UNEXPECTED` once a minute forever).
+`NEEDS_ACTION` stays in the scan: somebody resolves it in the backoffice, and
+the next scan continues.
 
 ### One worker, and why that matters more here
 
-The whole protocol assumes a single application instance with a single
-production worker, like every other stage. On the SFTP side a second worker
-would at worst render a PDF twice. Here it would create a **second paid order**:
-the partner offers no idempotency key, the guarded writes of this shop protect
-its own rows but not a call already in flight, and the id of the second order
-would be the one nobody stores. Do not run two instances against one database
-without giving this stage a lock first.
+The protocol assumes a single process with a single production worker. On the
+SFTP side a second worker would at worst render a PDF twice. Here it would
+create a **second paid order**: the guarded writes protect this shop's rows,
+not a call already in flight, and the id of the second order would be the one
+nobody stores. Do not run two instances against one database without giving
+this stage a lock first.
 
 ### 1. Resolve the order and check the lines
 
-The order comes through the shared `ProductionSource` with the shared
-`resolveOrder` codes (`SOURCE_NOT_FOUND`, `SOURCE_INVALID`,
-`SOURCE_UNAVAILABLE`). Then the lines of the job are checked:
+The order comes through the `productionData` read with the shared codes
+(`SOURCE_NOT_FOUND`, `SOURCE_INVALID`, `SOURCE_UNAVAILABLE`), and production
+resolves each line against today's catalog. The supplier's SPOD destination
+must exist (`DESTINATION_MISSING`) and be enabled (`DESTINATION_DISABLED`).
+Then the lines of the job are checked, in this order:
 
 - The live lines of this supplier must be **exactly** the snapshotted set: same
-  count, every snapshotted position present, and never empty. Different →
+  count, every snapshotted position present, never empty. Different →
   `ITEM_SET_CHANGED`.
-- It must carry `spodProduct`, the partner's three ids (product type,
-  appearance, size). Missing → `ITEM_WITHOUT_SPOD_PRODUCT`.
-- Its **current** composed variant name must equal the name the split
-  snapshotted in `production_job_items`. Different → `SPOD_MAPPING_CHANGED`.
-- It must carry `spodHotspot`, the partner's placement the order line
-  snapshotted at placement (for example `MEDIUM_FRONT`). Missing →
-  `PLACEMENT_UNAVAILABLE`.
+- Each must carry `spodProduct`, the partner's three ids (product type,
+  appearance, size) from **today's** catalog. Missing →
+  `ITEM_WITHOUT_SPOD_PRODUCT`.
+- Its **current** composed variant name (today's catalog) must equal the name
+  the split snapshotted in `production_job_items`. Different →
+  `SPOD_MAPPING_CHANGED`.
+- It must carry `spodHotspot`, the placement the order line snapshotted at
+  placement (for example `MEDIUM_FRONT`). Missing → `PLACEMENT_UNAVAILABLE`.
 
 The first check is the one a per-line check cannot do, because it is about a
-line that is *gone*. Reassigning an article to another supplier after the split
-shortens this supplier's share of the order, and the lines that disappear are
-silently the trailing ones — so without it a fully paid order would be ordered
-from the partner as a partial one, or, when the supplier lost every line, as an
-order with nothing in it.
+line that is *gone*. Reassigning an article to another supplier after the
+split shortens this supplier's share of the order; without the check a fully
+paid order would be ordered as a partial one, or as an order with nothing in
+it.
 
-The second check is the safety net of SPOD fulfillment decision 8, and it is worth
-understanding. The three partner ids are read from *today's* master data on
-every load, deliberately: a mapping an admin fixes today heals every order
-still waiting to be submitted. But the same liveness would let a corrected
-mapping silently turn a paid "Schwarz / M" into a different product. The
-snapshotted name is the tripwire — production refuses rather than guesses.
-
-Since the catalog is synced, the partner can trip that wire too: a colour
-renamed in the backoffice reaches this shop on the next sync run and refuses
-the jobs of that colour that were already waiting. That case is a false alarm
-with a fixed resolution, and it has its own runbook section:
+The second and third checks are the safety net of decision 8. The three ids
+are read from today's master data on every load, deliberately: a mapping an
+admin fixes today heals every order still waiting. But the same liveness would
+let a corrected mapping silently turn a paid "Black / M" into another product,
+so the snapshotted name is the tripwire: production refuses rather than
+guesses. Since the catalog is synced, the partner can trip it too; see
 [`SPOD_MAPPING_CHANGED` after a rename in the backoffice](#spod_mapping_changed-after-a-rename-in-the-backoffice).
 
-The hotspot check is different from the other two, because the hotspot is
-**not** live. The sync measures one hotspot per product type, and the live
-editor shows the customer exactly that frame. So `order_items.spod_hotspot`
-stores the hotspot when the order is placed, and production prints with that
-one — never with today's catalog value (issue #260, decisions 8 and 14). A SPOD
-line without one has no placement this stage could honestly print it with, so
-the job waits for a person before a single partner call is made. In practice
-it does not happen: an article without a hotspot is inactive and cannot be
-bought.
+The hotspot check is different, because the hotspot is **not** live. The sync
+measures one hotspot per product type, and the editor shows the customer
+exactly that frame. So `order_items.spod_hotspot` (`V31`) stores it when the
+order is placed, the `productionData` read answers it per line, and production
+prints with that one, **never with today's catalog value and never with a
+fallback** (#260, decisions 8 and 14). A line without one has no placement this
+stage could honestly print, so the job waits for a person before a single
+partner call. In practice it does not happen: an article without a hotspot is
+inactive and cannot be bought.
 
 ### 2. Convert and upload the designs
 
-Print images are stored as WebP; the partner's `POST /designs/upload` takes
-PNG of at most 10 MB. `delivery/spod/PrintImagePng.kt` does the conversion
-inside production, through `ImageIO` — the same path the PDF renderer uses, so
-the registered `webp-imageio` reader claims the RIFF container.
-
-Two budgets apply:
+Print images are stored as WebP; the partner's `POST /designs/upload` takes PNG
+of at most 10 MB.
+[`printImagePng`](../../../../backend/src/modules/production/spod/print-image.ts)
+converts with sharp, under two budgets:
 
 - the longest edge is scaled down to at most **4096 px**;
-- the PNG must stay under **9.5 MiB**, and PNG being lossless, the only way to
-  make it smaller is to make the image smaller — so it is halved and
-  re-encoded, at most **three** times.
+- the PNG must stay under **9.5 MiB**. PNG is lossless, so the only way to make
+  it smaller is to make the image smaller: it is halved and re-encoded, at most
+  **three** times. The bound keeps a pathological image from looping forever.
 
-The bounded loop is the point: an unbounded one would spin forever on a
-pathological image. The three failure codes are `PRINT_IMAGE_MISSING`,
+Transparency is kept. The three codes are `PRINT_IMAGE_MISSING`,
 `PRINT_IMAGE_UNREADABLE`, and `PRINT_IMAGE_TOO_LARGE`.
 
-Uploads are grouped **per distinct print image**, and the resulting design id
-is written to `production_spod_designs` **per item position**. That row is what
-makes a re-scan skip an upload it already did — and what makes two lines that
-print the same image share one design.
+Uploads are grouped **per distinct print image**; the design id is written to
+`production_spod_designs` **per item position**. That row is what makes a
+re-scan skip an upload it already did, and what lets two lines that print the
+same image share one design. Whatever was uploaded is recorded even when a later
+upload of the same attempt fails.
 
-### 3. Create the order — always `NEW`
+### 3. Create the order, always `NEW`
 
-The request is built in one place (`SpodJobContext.request`) and carries:
+The request is built in one place (`request` in `submitter.ts`) and carries:
 
-- `state: "NEW"` — never `CONFIRMED`, even though the API would allow it;
-- `shipping.preferredType: "STANDARD"` (the customer never chooses);
+- `state: "NEW"`, never `CONFIRMED`, and `shipping.preferredType: "STANDARD"`
+  (both added by the `spod` module's client);
 - the customer's `email` and `phone`, both required by the partner. Checkout
-  already requires a phone whenever the cart holds a SPOD article, so a missing one is
-  a defensive `PHONE_MISSING` — checked *before* a design is uploaded;
+  requires a phone whenever the cart holds a SPOD article, so a missing one is
+  a defensive `PHONE_MISSING`, checked *before* a design is uploaded;
 - `externalOrderReference = "ORD-{orderId}-JOB-{jobId}"`, deterministic so the
-  webhook can find the job and a human can read the same string on both
-  screens;
+  webhook can find the job and a person reads the same string on both screens;
 - `oneTimeItems`, grouped the partner's way: one entry per (product type,
-  design, hotspot), with a `quantityItems` line per size and colour, and one
-  `configurations` entry placing the design at `view: FRONT` with the
-  **hotspot the order line snapshotted**. Two lines that were previewed with
-  different hotspots cannot share an entry, because an entry has exactly one
-  placement.
+  design, hotspot, unit price), a `quantityItems` line per size and colour, and
+  one `configurations` entry placing the design at `view: FRONT` with the
+  **hotspot the order line snapshotted**. Two lines previewed with different
+  hotspots cannot share an entry;
+- on every entry `customerPricePerItem`, the line's `unitPriceCents` (variant
+  price plus prompt price, before an order discount) in euros. The partner
+  requires it and answers a bare `400` without it (see
+  [the order request](spod-package.md#the-order-request)); two lines of one
+  product at different prices are two entries, because the price belongs to
+  the entry.
 
 If the partner *refuses* the creation with a `4xx`, it has stated that it
 created nothing, and the job fails with `ORDER_CREATE_REJECTED`, which alerts
-an operator (see [The ops alert](#the-ops-alert)). There is **no** second
-attempt with another placement. An earlier version asked the partner for the
-hotspots it offers and retried with the first front one — but that one could
-be smaller than what the customer saw in the editor. Print what was previewed,
-or nothing (issue #260, decision 8). The runbook says what to do:
+an operator. There is **no** second attempt with another placement: print what
+was previewed, or nothing (#260, decision 8). See
 [`ORDER_CREATE_REJECTED` after a hotspot change](#order_create_rejected-after-a-hotspot-change).
 
-### 4. Persist the id — in its own transaction, before anything else
+### 4. Persist the id, in its own transaction, before anything else
 
-`SpodOrderRepository.recordCreatedOrder` writes `external_reference` and flips
-`create_state` to `CREATED` in a transaction of its own, *before* the confirm
-call is even attempted. A crash between creation and confirmation then costs
-one confirm call on the next scan instead of an untraceable order.
+`recordCreatedOrder` in
+[`repository.ts`](../../../../backend/src/modules/production/spod/repository.ts)
+writes `external_reference` and flips `create_state` to `CREATED` in a
+transaction of its own, guarded by `create_state = 'PENDING'`, *before* the
+confirmation is attempted. A crash between creation and confirmation then costs
+one confirm call on the next scan instead of an untraceable order. A refused
+write (the row moved underneath the attempt) is `ORDER_ID_NOT_STORED`.
 
-An **ambiguous** outcome is the interesting one: a timeout, a reset
-connection, an unreadable answer, or a `5xx` after the request went out. The
-order may exist and may not, and nothing can tell.
+An **ambiguous** outcome (a timeout, a reset connection, an unreadable answer,
+a `5xx`) may or may not have created an order:
 
-- The first ambiguity increments `create_ambiguous_count`, leaves
-  `create_state = 'PENDING'`, and the next scan simply creates again. Worst
-  case: one inert `NEW` orphan.
-- The second sets `create_state = 'OUTCOME_UNKNOWN'`. The job is quarantined —
-  the scan stops handing it out — and the same transaction enqueues the ops
-  alert that asks a human to read the partner's backoffice. "Reconciling a
-  quarantined job" below is that human's checklist.
+- The first ambiguity increments `create_ambiguous_count`, leaves the state
+  `PENDING`, and the next scan creates again. Worst case: one inert `NEW`
+  orphan.
+- The second sets `create_state = 'OUTCOME_UNKNOWN'` in the same statement, and
+  the same transaction enqueues the ops alert. The job is quarantined until an
+  admin releases it from the Logistics page;
+  [Reconciling a quarantined job](#reconciling-a-quarantined-job-outcome_unknown)
+  is the operator's checklist.
 
-This is why `SpodResult.Failed` carries `ambiguous` next to the error code: a
-stated `4xx` refusal is *known* and costs no ambiguity, everything else is
-assumed to have taken effect.
+This is why a failed `SpodResult` carries `ambiguous` next to the error: a
+stated `4xx` costs no ambiguity, everything else is assumed to have taken
+effect.
 
-### 5. Confirm — but read the state first
+### 5. Confirm, but read the state first
 
-The confirmation reads `GET /orders/{id}` and only confirms while the state is
-`NEW`. A state of `CONFIRMED` is not a failure but the second crash-recovery
-case: the confirm went through and this backend never learned it, so the job
-is closed without confirming twice. Any other state is `ORDER_STATE_UNEXPECTED`
-— the webhook owns what happens to an order the partner cancelled or flagged.
-
-Success writes `confirmed_at`, `remote_state = 'CONFIRMED'`, and the job's
-`prepared_at` in **one** transaction. That commit is this channel's
-counterpart of "the PDF exists": the moment the job becomes shippable.
+The confirmation reads `GET /orders/{id}` and confirms only while the state is
+`NEW`. `CONFIRMED` is the second crash-recovery case: the confirm went through
+and this process never learned it, so the job is closed without confirming
+twice. Any other state is `ORDER_STATE_UNEXPECTED`; a refused confirmation is
+`ORDER_CONFIRM_FAILED`. Success writes `confirmed_at`, `remote_state =
+'CONFIRMED'`, and the job's `prepared_at` in **one** transaction: this channel's
+counterpart of "the PDF exists".
 
 ## The client
 
-The client does not live in this module any more. Since the catalog sync it is the
-leaf module `spod` (`modules/spod/src/shop/voenix/spod/SpodClient.kt`), because
-a second module needs it: the SPOD catalog is synced from the same partner's
-API by the article module. The whole client is described in
-[The SPOD package](spod-package.md); this section keeps what a reader of the
-submission stage has to know about it.
-
-It is hand-written for the same reason `MolliePaymentClient` is: an SDK logs
-wherever it pleases, and nothing this partner writes may ever reach a log line.
-It follows the same two-constructor pattern — a no-argument constructor
-building a CIO client for a deployment, and one taking an `HttpClientEngine` so
-a test can drive a `MockEngine` through the *same* configuration.
-
-Four rules:
-
-- **Nothing secret or foreign is logged.** Not the response body, not a
-  decoder message (which quotes the input it failed on), not the access token,
-  not the request URL. Only this adapter's own words plus, at most, the HTTP
-  status number.
-- **It never retries.** Retries belong to the database-backed worker.
-- **It paces itself.** The partner allows 60 requests per minute, so the
-  client keeps at least **1050 ms** between any two requests it makes,
-  measured on a monotonic clock (`System.nanoTime`) behind a mutex. The wait
-  is deliberately counted for the *whole client*, not per destination: there is
-  one `SpodClient` per application — created in `Application.kt` and shared
-  with the article module's catalog sync — so two suppliers, or an order
-  submission and a sync running at once, cannot together exceed the budget. A
-  `429` that happens anyway is the retryable code `RATE_LIMITED`.
-- **Where and how to authenticate travels with the call.** Each supplier has
-  its own destination row — environment, token, timeout — so every call takes
-  a `SpodAccess` read off that row and takes all three from it. The base
-  URL comes from the `SpodEnvironment` enum, never from a column: no admin
-  input can point fulfillment at an arbitrary host.
-
-The pacer's clock and its sleeping function are constructor parameters, which
-is how `SpodClientTest` observes the exact waiting arithmetic without a test
-that takes seconds.
-
-Its `Json` is lenient, exactly like the webhook's and for the same reason: the
-partner answers ids as numbers in some fields and as strings in others, so
-`{"id": 12345}` has to read into the same `String` a quoted id does. Without
-that, a creation this shop really performed would fail to decode, count as
-ambiguous, and quarantine the job after a second orphan — on every order.
+The client lives in the [`spod` module](spod-package.md), shared with the
+article module's catalog sync; this stage takes its four calls (`uploadDesign`,
+`createOrder`, `getOrder`, `confirmOrder`). What matters here: nothing the
+partner writes reaches a log line, the client never retries (retries belong to
+this worker), it paces itself to 60 requests per minute for the whole
+application, and every call takes the destination's `SpodAccess` (environment,
+token, timeout); the base URL comes from the environment, never from a column.
 
 ## The tables
 
 `V24__production_spod_orders.sql` adds two.
 
-`production_spod_orders`, one row per job:
+`production_spod_orders`, one row per job, created on the job's first attempt:
 
 | Column | Meaning |
 | --- | --- |
@@ -274,216 +228,189 @@ ambiguous, and quarantine the job after a second orphan — on every order.
 | `external_reference` | the partner's order id; `NULL` until created, unique once set |
 | `create_state` | `PENDING` \| `CREATED` \| `OUTCOME_UNKNOWN` |
 | `create_ambiguous_count` | how many creations left the outcome undecided |
-| `attempt_count`, `last_error_code` | the usual retry bookkeeping, bounded codes only |
+| `attempt_count`, `last_error_code` | the retry bookkeeping, bounded codes only |
 | `confirmed_at`, `remote_state` | `CONFIRMED` here; the webhook writes `NEEDS_ACTION` / `CANCELLED` |
 
-Two check constraints keep the state honest: a `CREATED` row must have an
-`external_reference`, and so must a confirmed one.
+Two checks keep the state honest: a `CREATED` row and a confirmed one must have
+an `external_reference`.
 
 `production_spod_designs`, one row per item position: `(production_job_id,
-position)` and the `design_id`, cascading with the order row above.
+position)` and the `design_id`, cascading with the order row.
 
 ## The webhook: how a shipment comes back
 
-The partner produces and ships; nobody in this shop presses a button for a
-SPOD article. `POST /api/production/webhooks/spod/{secret}` is where that comes
-back, and it follows the Mollie webhook of the payment module exactly
-(SPOD fulfillment decision 5):
+`POST /api/production/webhooks/spod/{secret}` follows the Mollie webhook of the
+payment module (decision 5). It exists only in a deployment with SPOD settings.
 
-- **No auth subtree at all.** The partner has no session and sends no CSRF
-  token, so the secret in the path takes their place. It is compared with
-  `MessageDigest.isEqual` — constant time — **before the body is read**, so a
-  wrong secret costs a string comparison and nothing else. A route test counts
-  the bodies the application reads and pins that the count stays zero.
-- **The answer is always `202` with the body `[accepted]`.** The partner
-  demands exactly that within eight seconds and redelivers anything else, so
-  every no-op answers it too: an unknown reference, a job that shipped hours
-  ago, an event type this shop does not act on, a body that is not JSON. Only a
-  database failure becomes a `500`, because that is the one thing a redelivery
-  fixes.
-- **The handler is synchronous**: two lookups and one guarded transaction. No
-  call back to the partner, nothing handed to a background scan.
+- **No auth subtree.** The partner has no session and sends no CSRF token, so
+  the secret in the path takes their place. It is compared in constant time
+  (`timingSafeEqual`) **before the body is read**; a wrong one answers
+  `403 {"message":"Forbidden"}`. A route test counts the reads of the body
+  stream and pins zero. One caveat lives in the platform: a request with
+  `Transfer-Encoding: chunked` and no `Content-Length` is buffered by the
+  application-wide body limit before any route runs, so for such a request the
+  guarantee is "the body is held in memory up to 30,000,000 bytes, but not
+  parsed, before the secret is checked". The port left it that way on purpose
+  (recorded in `docs/migration/typescript-port.md`): exempting the webhook
+  paths from the limit would remove the only transfer bound these routes have,
+  the partner sends its small JSON event with a `Content-Length`, and a
+  per-route limit is more code than the caveat warrants.
+- **The answer is always `202` with the body `[accepted]`.** The partner demands
+  exactly that within eight seconds and redelivers anything else, so every
+  no-op answers it too: an unknown reference, a job that shipped hours ago, an
+  event type this shop does not act on, a body that is not JSON. Only a
+  database failure becomes a `500` (the handler throws), because that is the one
+  thing a redelivery fixes.
+- **The handler is synchronous**: two lookups and one guarded transaction.
 
-Three event types are acted on:
+Three events are acted on:
 
 | Event | What happens |
 | --- | --- |
-| `Shipment.sent` | the job goes through the **same guarded ship transaction** a human ship uses — `shipped_by_channel = 'SPOD'`, `shipped_by_user_id` NULL, one customer mail |
-| `Order.cancelled` | `remote_state = 'CANCELLED'` and one ops alert mail |
-| `Order.needs-action` | `remote_state = 'NEEDS_ACTION'` and one ops alert mail |
+| `Shipment.sent` | the job goes through the **same guarded ship transaction** a person uses: `shipped_by_channel = 'SPOD'`, `shipped_by_user_id` `NULL`, one customer mail |
+| `Order.cancelled` | `remote_state = 'CANCELLED'` and an ops alert, if the state changed |
+| `Order.needs-action` | `remote_state = 'NEEDS_ACTION'` and an ops alert, if the state changed |
 
-There is exactly one difference between that ship and a human's, and it is the
-`prepared_at` guard. A human ship keeps it: pressing the button on a job whose
-document does not exist yet is a mistake, and the answer is `NOT_READY`. A
-channel ship drops it, because the shipment *is* the proof that the remote order
-exists and was confirmed — the partner does not ship what it never produced —
-and because the `202` means nothing will ever redeliver the event. Refusing it
-would lose the shipment for good and leave the customer untold. The one case is
-real: a job quarantined as `OUTCOME_UNKNOWN` whose order an operator adopted in
-the backoffice by hand. So the same statement sets
-`prepared_at = COALESCE(prepared_at, now())`, which is both what the
-shipping-consistency CHECK requires and the truth about the job.
+There is one difference between that ship and a person's: the `prepared_at`
+guard. A person's ship keeps it (`NOT_READY`). A channel ship drops it, because
+the shipment proves the remote order exists and was confirmed, and because the
+`202` means nothing will ever redeliver the event. The one real case is a job
+quarantined as `OUTCOME_UNKNOWN` whose order an admin adopted with a release. So
+the statement sets `prepared_at = COALESCE(prepared_at, now())`.
 
-The job is found by the partner's own order id
-(`production_spod_orders.external_reference`) and, when that is not stored —
-the case an ambiguous creation leaves behind — by this shop's deterministic
-`ORD-{orderId}-JOB-{jobId}` reference, whose two ids are then checked against
-the job they claim.
+[`webhook.ts`](../../../../backend/src/modules/production/fulfillment/webhook.ts)
+reduces the untrusted body to bounded values. Ids may arrive as numbers or
+strings and are read as text; a field of any other shape counts as absent;
+unknown fields are ignored. The job is found by the partner's order id
+(`production_spod_orders.external_reference`) first and, when none is stored
+(the case an ambiguous creation leaves behind), by this shop's
+`ORD-{orderId}-JOB-{jobId}`, whose two ids are then checked against a SPOD job
+of that order. References are trimmed and at most 128 characters; the tracking
+number at most 128 and free of control characters. The carrier name is mapped
+case- and separator-insensitively onto the bounded list (`Deutsche Post`,
+`deutsche_post`, and `DEUTSCHE POST` are one carrier), anything else is
+`OTHER`, and the raw name is kept in `shipping_carrier_reported`. The partner's
+**tracking URL is not even a field** of the payload: the shop builds every link
+from its own carrier list (decision J2 of issue #119). A parse failure is
+logged by its class, never by its message, which would quote the body.
 
-The carrier name the partner sends is mapped case- and separator-insensitively
-onto the bounded `ShippingCarrier` list (`Deutsche Post`, `deutsche_post`, and
-`DEUTSCHE POST` are the same carrier); anything else becomes `OTHER`. The raw
-name is stored in `production_jobs.shipping_carrier_reported` for
-administrators. The partner's **tracking URL is discarded** — it is not even a
-field of the payload type — because the shop builds every link in every mail
-from its own carrier list (decision J2 of issue #119).
+### At-least-once delivery
 
-At-least-once delivery is handled by not needing to handle it: the ship
-transaction is guarded on "not shipped yet", the remote-state write is
-idempotent, and both mails go through the outbox, whose unique
-`(email_kind, source_id)` rule makes "one mail per job" true no matter how
-often an event arrives. A cancellation followed by a needs-action event
-therefore still produces exactly one alert.
+The partner delivers every event at least once, and the payload outbox (#248)
+no longer has a unique `(kind, source_id)` that could deduplicate a mail. So
+"once" lives in the guarded writes:
+
+- the ship transaction is guarded on `shipped_at IS NULL`: a redelivered
+  `Shipment.sent` touches no row and enqueues no second mail;
+- the remote-state write is `UPDATE … WHERE remote_state IS DISTINCT FROM $1`,
+  and the alert is enqueued **only when that update changed a row**.
+
+The result is one alert per distinct state transition: a redelivered
+cancellation sends nothing, while a cancellation followed by a needs-action
+event sends two alerts. That is the decision recorded on #274, and it is more
+informative than the Kotlin behaviour, where the second reason was swallowed.
 
 ## The ops alert
 
-Four situations end on a human's desk, and all of them enqueue the same mail
-kind, `SPOD_OPS_ALERT`, keyed by the production job:
+Four situations end on a person's desk, and all of them enqueue the same mail
+kind, `SPOD_OPS_ALERT`, rendered by `renderSpodOpsAlert` inside the
+transaction that records the situation:
 
-- the partner cancelled the order,
-- the partner flagged it as needing action,
-- the submission stage quarantined the job as `OUTCOME_UNKNOWN`,
-- the submission recorded a failure that no further scan can heal.
+| Situation | Reason in the mail |
+| --- | --- |
+| the partner cancelled the order | `CANCELLED` |
+| the partner flagged it as needing action | `NEEDS_ACTION` |
+| the submission quarantined the job (second ambiguity) | `OUTCOME_UNKNOWN` |
+| the submission recorded a code no scan can heal | `SUBMISSION_BLOCKED` |
 
-The last one is the set below — the codes that wait for a *person* rather than
-for the partner, the network, or the next rate-limit window:
-
+The last row is the set of codes that wait for a *person*:
 `ORDER_CREATE_REJECTED`, `PLACEMENT_UNAVAILABLE`, `PHONE_MISSING`,
-`ITEM_WITHOUT_SPOD_PRODUCT`, `SPOD_MAPPING_CHANGED`, `ITEM_SET_CHANGED`.
+`ITEM_WITHOUT_SPOD_PRODUCT`, `SPOD_MAPPING_CHANGED`, `ITEM_SET_CHANGED`. The
+failure write is guarded like the remote state: `last_error_code IS DISTINCT
+FROM $1`, so a code every scan records again sends no second mail, while the
+same code recorded after a different one in between (a transient error, say)
+sends a new alert. Every other code stays silent: it heals by itself.
 
-The alert is enqueued in the same transaction that records the code, so a job
-nobody can produce is never a job nobody was told about. Every other code stays
-silent: it describes something that comes back on its own, and a mail per scan
-would be noise.
-
-The mail goes to `production.spod.alertEmail` and contains the job number, the
-order number, the partner's order id, and one sentence per reason — no customer
-data, because an alert lands in a shared mailbox. The reason travels as an enum,
-so nothing the partner wrote can reach a mail. What to *do* with such a mail is
-[Handling an alert](#handling-an-alert) in the runbook below.
+The mail goes to `OPERATIONS_ALERT_EMAIL`, the address the operations alert
+uses too (see [The alert](operations-package.md#the-alert)), and names the job number, the
+order number, and the partner's order id, with one sentence per reason. It
+carries no customer data, because an alert lands in a shared mailbox, and the
+reason travels as an enum, so nothing the partner wrote reaches a mail.
 
 ## The ops runbook
 
-Everything below is operations work: it happens in the admin UI, in the
-application configuration, or in the partner's backoffice — never in code.
+Everything below happens in the admin UI, the deployment's environment, or the
+partner's backoffice, never in code.
 
 ### The two credentials, and why they live apart
-
-The channel needs two secrets, and they deliberately live in different places:
 
 | Credential | Where it lives | Who sets it |
 | --- | --- | --- |
 | The partner's **access token** | `production_destination_spod.access_token`, one row per supplier destination | an admin, in the admin UI |
-| The **webhook secret** | `production.spod.webhookSecret` in the application configuration | whoever deploys |
+| The **webhook secret** | `PRODUCTION_SPOD_WEBHOOK_SECRET` | whoever deploys |
 
 The token is per supplier and changes as often as a supplier does, so it is
-master data an admin can edit. The secret is one per deployment, is the last
-path segment of the callback URL, and must survive a database restore
-independently of it — so it is configuration.
-
-The token is **write-only** everywhere: it is stored as entered (never
-trimmed, because a token may legitimately look odd), no read endpoint ever
-returns it, `SpodDestinationInput.toString()` prints `accessToken=[redacted]`,
-and leaving the field empty on an update keeps the stored one. A screen that
-never shows a secret cannot leak it into a screenshot or a log.
+master data. The secret is one per deployment, the last path segment of the
+callback URL, and must survive a database restore independently, so it is
+configuration. The token is write-only everywhere: stored as entered, answered
+by no read, and kept when an update leaves it empty.
 
 ### Configuration
 
-```yaml
-production:
-  spod:
-    webhookSecret: ""   # PRODUCTION_SPOD_WEBHOOK_SECRET, at least 32 characters
-    alertEmail: ""      # PRODUCTION_SPOD_ALERT_EMAIL
+```sh
+PRODUCTION_SPOD_WEBHOOK_SECRET=   # at least 32 characters
+OPERATIONS_ALERT_EMAIL=           # required once the secret is set
 ```
 
-Both values are blank in a deployment without a print-on-demand supplier. A
-deployment that has one must set **both**, and the application enforces exactly
-that at startup:
+The secret is blank in a deployment without a print-on-demand supplier. A
+deployment that has one must set the secret **and** the operations alert
+address, and the application enforces it:
 
-- one of the two set and the other blank → the startup fails
-  (`SPOD webhook secret must be at least 32 characters`, or
-  `SPOD alert e-mail address is required`);
-- both blank while a `production_destinations` row with `channel = 'SPOD'`
-  exists → the startup fails with
-  `A print-on-demand destination exists, so production.spod.webhookSecret and
-  production.spod.alertEmail are required`.
+- a secret without the address, or a secret under 32 characters →
+  `loadSettings` fails (`PRODUCTION_SPOD_WEBHOOK_SECRET must be at least 32 characters`,
+  `OPERATIONS_ALERT_EMAIL is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set`);
+  the address alone is fine, the operations alert uses it without SPOD;
+- no secret while a `channel = 'SPOD'` destination exists → the production
+  module refuses to start with
+  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmail are required`,
+  before its worker exists;
+- the write side: `POST`/`PUT /api/admin/production/destinations` refuses a SPOD
+  destination with a `channel` field error while the block is missing, enabled
+  or not.
 
-A channel whose shipments arrive by webhook cannot report a single one without
-the secret that authorizes the callback, and a channel that quarantines jobs
-cannot tell anybody without an address — so neither is optional. The opposite
-case is allowed: a configured block without any SPOD destination simply does
-nothing.
-
-The check runs while the production module is installed, **before** the
-background worker starts — otherwise a worker could submit a paid order during
-the seconds of a startup that was about to fail. The same rule is closed from
-the write side: `POST`/`PUT /api/admin/production/destinations` refuses a SPOD
-destination with a `channel` field error while the block is missing (*This
-deployment has no production.spod configuration …*), enabled or not, so nobody
-can store the row that would break the next restart.
-
-`ProductionSpodSettings.toString()` prints `webhookSecret=[REDACTED]`, so a
-settings dump at startup cannot spill it.
+A configured block without any SPOD destination is allowed: that is how a
+deployment is set up.
 
 ### Setting a supplier up, staging first
 
-The step-by-step operator manual for this, from the configuration block to the
-first test order, is [Configuring a SPOD article](../../guides/configuring-spod-articles.md);
-this section keeps the reasons.
-
-The partner runs two installations, and this shop picks between them with the
-`environment` column alone — the base URL is derived from the enum in code, so
-no admin input can point fulfillment at a host of its own:
+The step-by-step manual is
+[Configuring a SPOD article](../../guides/configuring-spod-articles.md); this
+section keeps the reasons. The `environment` column alone picks the
+installation:
 
 | `environment` | Base URL |
 | --- | --- |
 | `STAGING` | `https://rest.spod-staging.com` |
 | `PRODUCTION` | `https://rest.spod.com` |
 
-The two installations have **separate tokens and separate data**; a token of the
-one installation is refused by the other, which reaches this shop as the bounded
-`REFUSED`. Setting a supplier up therefore has a fixed order:
+The installations have **separate tokens and data**; a token of one is refused
+by the other as `REFUSED`. The order:
 
-1. Create the supplier and its SPOD destination with
-   `POST /api/admin/production/destinations` (admin UI:
-   `/admin/logistics/destinations`): `channel: "SPOD"`, a label, `enabled`, the
-   notification
-   address, and the `spod` block — `environment`, `accessToken`,
-   `timeoutSeconds` (1…3600; 30 is a sane start).
-2. Create the article in the **Spreadconnect backoffice** — the product type,
-   its colours, and its sizes — and press *Sync from Spreadconnect* on the
-   destination row. The sync writes the partner's three product ids onto every
-   variant and measures the hotspot and the print frame; nobody types them any
-   more (SPOD sync decisions 1 and 7). Without a synced article there
-   is nothing to sell, and a variant without the ids could not exist at all —
-   submission would stop at `ITEM_WITHOUT_SPOD_PRODUCT` before a single call
-   goes out.
+1. Create the supplier and its SPOD destination (`channel: "SPOD"`, a label,
+   `enabled`, the notification address, the `spod` block).
+2. Create the article in the Spreadconnect backoffice and press *Sync from
+   Spreadconnect*: the sync writes the three product ids and measures the
+   hotspot and the print frame (SPOD sync decisions 1 and 7).
 3. Register the webhook subscriptions (next section) against the **same**
    installation.
-4. Order one article end to end and watch the job on the *Logistics* page: it must
-   reach `prepared_at`, then arrive as a shipment through the webhook.
+4. Order one article end to end and watch the job: it must reach `prepared_at`,
+   then arrive as a shipment through the webhook.
 
-Only one **enabled** SPOD destination per supplier is allowed (a partial unique
-index enforces it), so switching a supplier from staging to production means
-disabling the staging row first — or editing it, which is usually what you
-want, because the job history stays attached to the destination it used.
+Only one **enabled** SPOD destination per supplier is allowed, so switching
+from staging to production means disabling the staging row first, or editing
+it, which keeps the job history attached.
 
 ### Registering the webhook subscriptions
-
-Subscribing is an operations step, not code: this shop never calls the
-subscription API. Register one subscription per event type, each pointing at
-the secret-bearing URL, against the base URL of the installation you are
-setting up:
 
 ```sh
 SPOD_BASE=https://rest.spod-staging.com   # or https://rest.spod.com
@@ -495,32 +422,18 @@ for event in Shipment.sent Order.cancelled Order.needs-action; do
 done
 ```
 
-Two checks that are worth the minute they cost:
-
-- `curl -i https://<shop-host>/api/production/webhooks/spod/wrong-secret` must
-  answer `403`, and the same URL with the real secret must answer `202` with
-  the body `[accepted]` for any body at all.
-- The URL must be reachable from the public internet. A shop behind a VPN gets
-  no shipments and no error — the partner retries into the void, and the first
-  symptom is a customer asking where the parcel is.
-
-Rotating the secret means deploying the new value and re-registering the
-subscriptions with the new URL. The old URL answers `403` from the moment the
-new configuration is live, so do it in that order and expect the partner to
-redeliver whatever fell into the gap once the new subscription exists.
+Two checks: `curl -i -X POST https://<shop-host>/api/production/webhooks/spod/wrong-secret`
+must answer `403`, and the real secret `202` with `[accepted]` for any body.
+The URL must be reachable from the public internet; a shop behind a VPN gets
+no shipments and no error. Rotating the secret means deploying the new value
+and re-registering; the old URL answers `403` from then on.
 
 ### Reading a job's state
 
-The admin page *Logistics* (`/admin/logistics`,
-`GET /api/admin/production/jobs?status=OPEN|SHIPPED`) shows
-per job the `fulfillmentChannel`, the partner's order id (`externalReference`),
-the `remoteState`, and who reported the shipment (`shippedByChannel` = `SPOD`,
-or a user id for a human). SPOD jobs never offer a PDF — the column is empty and
-the PDF endpoint answers `404`.
-
-What the admin surface does **not** show is the submission's `attempt_count` and
-`last_error_code`. A job that sits open without ever reaching `prepared_at` is
-therefore read in the database:
+The admin page *Logistics* (`GET /api/admin/production/jobs`) shows per job
+the `fulfillmentChannel`, the `externalReference`, the `remoteState`, the `createState`, and who
+reported the shipment. SPOD jobs never offer a PDF. The submission's
+`attempt_count` and `last_error_code` are read in the database:
 
 ```sql
 SELECT j.id, j.fulfillment_channel, j.prepared_at,
@@ -532,135 +445,117 @@ WHERE j.fulfillment_channel = 'SPOD' AND j.prepared_at IS NULL
 ORDER BY j.id;
 ```
 
-`last_error_code` is one of the bounded codes below and says what to fix. Most
-of them heal by themselves once the cause is gone — the worker retries every
-job on every scan (once a minute) — with exactly one exception, the quarantine.
+Every job is retried on every scan (once a minute), with exactly one exception,
+the quarantine.
 
 ### Reconciling a quarantined job (`OUTCOME_UNKNOWN`)
 
-This is the one state the automation will never leave on its own: `openJobs()`
-excludes `create_state = 'OUTCOME_UNKNOWN'`, and no endpoint releases a job.
-That is deliberate. The shop does not know whether the partner holds zero, one,
-or two orders for this job, and only a human looking at the partner's backoffice
-can tell.
+The scan excludes `create_state = 'OUTCOME_UNKNOWN'`: only a person looking at
+the partner's backoffice can tell whether it holds zero, one, or two orders for
+this job. The Logistics page shows a **Release** button on exactly these jobs
+(the admin job view carries `createState`).
 
-1. Take the job and order number from the alert mail.
-2. Search the partner's backoffice for the reference
-   `ORD-{orderId}-JOB-{jobId}`. It is deterministic and appears on every order
-   this job ever created, which is what makes the search possible at all.
-3. Decide from what you find:
+1. Take the job and order number from the alert mail (or from the operations
+   page, where the job is listed as `SPOD_QUARANTINED`).
+2. Search the backoffice for `ORD-{orderId}-JOB-{jobId}`.
+3. Decide:
 
 | What the backoffice shows | What it means | What to do |
 | --- | --- | --- |
-| No order with that reference | Both attempts really failed | Release the job (below); the next scan creates cleanly. |
-| Exactly one order, state `NEW` | The order exists, inert, unconfirmed | Write its id into the job (below) and release it; the next scan confirms it. |
-| Exactly one order, already confirmed | The confirmation went through, this shop never learned it | Write its id in and release; the next scan reads the state, sees `CONFIRMED`, and only sets `prepared_at`. |
+| No order with that reference | Both attempts really failed | Release with *No order with this reference*; the next scan creates cleanly. |
+| Exactly one order, state `NEW` | The order exists, unconfirmed | Release with *Exactly one order* and its id; the next scan confirms it. |
+| Exactly one order, already confirmed | The confirmation went through | Release with *Exactly one order* and its id; the next scan sees `CONFIRMED` and only sets `prepared_at`. |
 | Two orders with the same reference | The first ambiguity created an orphan | Cancel the extra `NEW` order at the partner, then treat it as the single-order case. |
 
-Releasing is a manual `UPDATE`, in this early development phase deliberately
-not an endpoint — it is rare, it is irreversible in the sense that it starts a
-paid production, and it must not be one click away:
+The dialog sends
+`POST /api/admin/production/jobs/{jobId}/spod/release` (operations module,
+admin only, with the CSRF pair) with
+`{ "decision": "NOT_CREATED", "confirmation": "ORD-42-JOB-7" }` or
+`{ "decision": "CREATED", "externalReference": "<the partner's order id>", "confirmation": "ORD-42-JOB-7" }`.
+`releaseSpodJob` in the production module performs the two writes this runbook
+used to have the operator type by hand, and nothing else:
 
 ```sql
--- Case "no order at all": start over.
+-- NOT_CREATED: start over.
 UPDATE production_spod_orders
 SET create_state = 'PENDING', create_ambiguous_count = 0, last_error_code = NULL
-WHERE production_job_id = <jobId>;
+WHERE production_job_id = <jobId> AND create_state = 'OUTCOME_UNKNOWN';
 
--- Case "the order exists": adopt it, then let the worker confirm it.
+-- CREATED: adopt the order, then let the worker confirm it.
 UPDATE production_spod_orders
 SET external_reference = '<the partner''s order id>',
     create_state = 'CREATED', create_ambiguous_count = 0, last_error_code = NULL
-WHERE production_job_id = <jobId>;
+WHERE production_job_id = <jobId> AND create_state = 'OUTCOME_UNKNOWN';
 ```
 
-Never invent an `external_reference`. A wrong id confirms somebody else's
-order; `create_state = 'CREATED'` without one is refused by a check constraint,
-which is the safety net for a typo, not for a guess.
+Releasing starts a paid production, so the endpoint keeps three guards:
 
-If the order cannot be produced at all — the partner cancelled it, the delivery
-country is not supported — the job stays where it is and the customer is
-refunded manually (SPOD fulfillment decision 7). There is no automatic refund path.
+1. **The typed confirmation.** The admin types the job's reference
+   `ORD-{orderId}-JOB-{jobId}`, the string just searched in the backoffice;
+   the dialog's submit stays disabled until it matches, and the backend
+   compares it again (`400 Validation failed` on `confirmation` otherwise).
+2. **The explicit decision.** There is no default: the admin chooses what the
+   backoffice shows, and `CREATED` needs the partner's order id (1–128
+   characters, no control characters).
+3. **The event naming the admin.** The same commit writes `SPOD_JOB_RELEASED`
+   into the order's history with the admin's user id and the decision, so the
+   timeline answers who released the job and why.
 
-How an operator learns of it is the alert mail: an unsupported delivery country
-is not a state of its own but a refusal of `POST /orders`, so it reaches this
-shop as `ORDER_CREATE_REJECTED`, and recording that code enqueues the
-`SPOD_OPS_ALERT` in the same transaction. Nobody has to watch the job list for
-it.
+The answers: `200` with the job's admin view, `404` for an unknown job, `409`
+for a job that is not (any more) in `OUTCOME_UNKNOWN` (a second click, a second
+admin, an SFTP job) and for an order id another job already holds. The second
+`409` comes from the partial unique index on `external_reference` (SQL state
+`23505` mapped through `executePostgresWrite`), never from a lookup, so two
+admins adopting the same id at once end as one release and one conflict.
+
+Never invent an `external_reference`: a wrong id confirms somebody else's
+order. If the order cannot be produced at all, the job stays and the customer
+is refunded manually (decision 7).
+
+**Why this is an endpoint now.** Until issue #282 this section said:
+"Releasing is a manual `UPDATE`, deliberately not an endpoint: it starts a paid
+production and must not be one click away." That decision changed, because a
+SQL statement typed under pressure into the production database is the riskier
+path: nothing checks the job id, nothing stops an `UPDATE` without its `WHERE`,
+and nothing records who did it. The intent of the old decision is kept by the
+three guards above: the release is still deliberate (typed reference, explicit
+decision), and it is now also attributable.
 
 ### Handling an alert
 
-One mail kind, `SPOD_OPS_ALERT`, keyed by the production job, reaches
-`production.spod.alertEmail` in three situations. The mail is German, names the
-job and order number and the partner's order id, and carries no customer data —
-an alert lands in a shared mailbox.
-
 | Reason in the mail | What happened | The first move |
 | --- | --- | --- |
-| *SPOD hat den Auftrag storniert* | `Order.cancelled` arrived; `remote_state = 'CANCELLED'` | Check the backoffice for the reason, then refund the order or place it again. |
-| *SPOD meldet, dass der Auftrag eine Rückmeldung braucht* | `Order.needs-action` arrived; `remote_state = 'NEEDS_ACTION'` | Answer whatever is open in the backoffice; the partner continues on its own. |
-| *Zweimal in Folge blieb offen …* | The submission quarantined the job | Follow "Reconciling a quarantined job" above. |
-| *Der Auftrag kann bei SPOD nicht angelegt werden …* | The submission recorded a failure that heals only by hand | Read the job's `last_error_code` (SQL above): a mapping or a phone number is fixed in the admin surface, an `ORDER_CREATE_REJECTED` is usually an order the partner will not accept at all — refund it manually (below). |
+| *SPOD hat den Auftrag storniert* | `Order.cancelled`; `remote_state = 'CANCELLED'` | Check the backoffice for the reason, then refund or place again. |
+| *SPOD meldet, dass der Auftrag eine Rückmeldung braucht* | `Order.needs-action`; `remote_state = 'NEEDS_ACTION'` | Answer what is open in the backoffice; the partner continues. |
+| *Zweimal in Folge blieb offen …* | the submission quarantined the job | Follow "Reconciling a quarantined job". |
+| *Der Auftrag kann bei SPOD nicht angelegt werden …* | the submission recorded a code that heals only by hand | Read `last_error_code` (SQL above): fix a mapping or a phone in the admin surface; an `ORDER_CREATE_REJECTED` is usually an order to refund. |
 
-Because the mail is keyed by `(kind, source_id)`, a job produces **one** alert
-however many events arrive — a cancellation after a needs-action does not
-produce a second mail, and a quarantine that was already reported does not
-either. The consequence to know: if an alert was already sent and a *different*
-reason appears later, the outbox has nothing new to send, and the job's state
-is read from the admin surface, not from the mailbox. The mail is a nudge, the
-job is the truth.
-
-An alert that cannot be resolved into a reason any more — the job was released,
-the state was cleared — resolves to nothing and the mail is retried
-(`SOURCE_NOT_FOUND`) rather than sent, which is the outbox's normal behaviour
-for a reference whose subject has moved on.
+Each state transition sends its own alert, and a redelivered event sends none.
+The mail is a nudge; the job is the truth.
 
 ### `SPOD_MAPPING_CHANGED` after a rename in the backoffice
 
-Since the SPOD catalog is synced (SPOD sync decision 1), the partner is a second author
-of a variant's name: renaming a colour in the Spreadconnect backoffice and
-pressing *Sync from Spreadconnect* rewrites the colour's `color_name` in
-`article_spod_appearances`, and with it the composed name of every variant of
-that colour. The name tripwire of step 1 then compares today's composed name
-with the one the split snapshotted and refuses every job of that colour that
-was already waiting, with `SPOD_MAPPING_CHANGED`.
+Renaming a colour in the backoffice and syncing rewrites `color_name`, and with
+it today's composed name of every variant of that colour. The tripwire then
+refuses every waiting job of that colour. **That is a false alarm, accepted on
+purpose** (SPOD sync decision 8; Joe's decision D1 on issue #224): the three ids
+are untouched.
 
-**That is a false alarm, and it is accepted on purpose** (SPOD sync decision 8;
-Joe's decision D1 on issue #224). The check exists to catch a *mapping* that
-changed under a paid order, and a rename changes no mapping at all — the three
-ids the order is placed with are untouched.
+1. Compare the **three SPOD ids** of today's variant (`spod_product_type_id`,
+   `spod_size_id`, and its colour's `spod_appearance_id`) with the order.
+2. Unchanged ids, changed name: update `production_job_items.variant_name` to
+   today's composed name (`"<colour> / <size>"`); the next scan submits.
+3. **Changed ids** are the real alarm. Do not touch the snapshot; look at the
+   order before anything is printed.
 
-How to resolve one:
-
-1. Read the job's items and today's variant with the SQL of
-   [Reading a job's state](#reading-a-jobs-state), and compare the **three SPOD
-   ids** (`spod_product_type_id` and `spod_size_id` of the variant,
-   `spod_appearance_id` of its colour row) with what `production_job_items`
-   snapshotted. Unchanged ids plus a changed name means a rename, and the
-   product in the parcel is the one the customer bought.
-2. Unchanged ids, changed name → resolve it by hand: update
-   `production_job_items.variant_name` to today's composed name
-   (`"<colour> / <size>"`), and the next scan submits the job normally.
-3. **Changed ids** are the real alarm this check was built for. Do not touch
-   the snapshot: something re-pointed the variant at a different product, and
-   the order must be looked at before anything is printed.
-
-Issue #225 is the follow-up that removes the false alarm for good, by
-snapshotting the three ids on `production_job_items` and comparing ids instead
-of names. Until it lands, expect one of these per backoffice rename of a colour
-that has jobs in flight.
+Issue #225 removes the false alarm by snapshotting the three ids.
 
 ### `ORDER_CREATE_REJECTED` after a hotspot change
 
-The order line stores the hotspot the customer previewed (step 1). If the
-article was synced again after the order was placed and the run picked a
-**different** hotspot — or the partner stopped offering the old one — the
-partner may refuse the creation. The job then fails with
-`ORDER_CREATE_REJECTED` and the alert mail arrives. Nothing is retried with
-another placement, on purpose: a different hotspot can print the motif smaller
-or somewhere else than the customer saw it.
-
-How to resolve one:
+The order line stores the hotspot the customer previewed. If the article was
+synced again with a **different** hotspot, or the partner stopped offering the
+old one, the partner may refuse the creation. Nothing is retried with another
+placement.
 
 1. Compare the line's snapshot with today's article:
 
@@ -672,232 +567,170 @@ How to resolve one:
    WHERE oi.order_id = <order id>;
    ```
 
-2. **Re-sync** the destination when the partner should accept the ordered
-   hotspot again (for example after a temporary change in the backoffice). A
-   re-sync does not touch the order line — the next scan still sends the
-   snapshotted hotspot, and if the partner accepts it, the job goes through on
-   its own.
-3. Otherwise **order the job by hand**: create the order in the Spreadconnect
-   backoffice in state `NEW`, with the ordered hotspot and the reference
-   `ORD-{orderId}-JOB-{jobId}`, and adopt it exactly like the "the order
-   exists" case of
-   [Reconciling a quarantined job](#reconciling-a-quarantined-job-outcome_unknown):
-   write its id into `external_reference`, set `create_state = 'CREATED'`, and
-   clear `last_error_code`. The next scan confirms it.
-4. If the partner accepts no placement that matches the preview, refund the
-   order manually (SPOD fulfillment decision 7).
+2. **Re-sync** when the partner should accept the ordered hotspot again; the
+   next scan still sends the snapshot.
+3. Otherwise **order the job by hand** in the backoffice in state `NEW`, with
+   the ordered hotspot and the reference `ORD-{orderId}-JOB-{jobId}`, and adopt
+   it like the "the order exists" case above.
+4. If no placement matches the preview, refund manually (decision 7).
 
 ## The bounded error codes
 
-Everything the stage can persist in `last_error_code`. All of them are
-retryable — the job keeps its place in the queue — but "retryable" is not
-"heals by itself": most of them wait for an admin.
+Everything the stage persists in `last_error_code`. All are retryable, but
+most wait for an admin.
 
 | Code | Meaning |
 | --- | --- |
 | `SOURCE_NOT_FOUND` / `SOURCE_INVALID` / `SOURCE_UNAVAILABLE` | the shared order-resolution codes |
-| `DESTINATION_MISSING` / `DESTINATION_DISABLED` | the supplier has no usable print-on-demand destination |
-| `ITEM_WITHOUT_SPOD_PRODUCT` | a variant carries no partner mapping |
-| `ITEM_SET_CHANGED` | the live lines are no longer the snapshotted set — a line was added, removed, or moved |
-| `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one — usually a rename in the backoffice, see [the runbook section](#spod_mapping_changed-after-a-rename-in-the-backoffice) |
-| `PHONE_MISSING` | the order has no phone, which the partner requires |
-| `PRINT_IMAGE_MISSING` / `PRINT_IMAGE_UNREADABLE` / `PRINT_IMAGE_TOO_LARGE` | the conversion could not produce a PNG |
+| `DESTINATION_MISSING` / `DESTINATION_DISABLED` | the supplier has no usable SPOD destination |
+| `ITEM_WITHOUT_SPOD_PRODUCT` | a variant carries no partner mapping today |
+| `ITEM_SET_CHANGED` | the live lines are no longer the snapshotted set |
+| `SPOD_MAPPING_CHANGED` | today's variant name is not the snapshotted one |
+| `PHONE_MISSING` | the order has no phone |
+| `PRINT_IMAGE_MISSING` / `PRINT_IMAGE_UNREADABLE` / `PRINT_IMAGE_TOO_LARGE` | the conversion produced no PNG |
 | `RATE_LIMITED` | the partner answered `429` |
 | `PROVIDER_UNAVAILABLE` | unreachable, timed out, or `5xx` |
-| `PROVIDER_ANSWER_UNREADABLE` | an answer arrived that could not be read |
-| `REFUSED` | the partner refused a call with a `4xx` |
-| `ORDER_CREATE_REJECTED` | the partner refused the creation with a `4xx` — for example a hotspot it no longer accepts; never retried with another placement, see [the runbook section](#order_create_rejected-after-a-hotspot-change) |
-| `PLACEMENT_UNAVAILABLE` | a line carries no snapshotted hotspot, so there is no placement to print it with |
+| `PROVIDER_ANSWER_UNREADABLE` | an answer that could not be read |
+| `REFUSED` | the partner refused a call with a `4xx` (an upload or a state read) |
+| `ORDER_CREATE_REJECTED` | the partner refused the creation; never retried with another placement |
+| `PLACEMENT_UNAVAILABLE` | a line carries no snapshotted hotspot |
 | `ORDER_ID_NOT_STORED` | the created order's id could not be written down |
 | `ORDER_CONFIRM_FAILED` | the partner refused to confirm a `NEW` order |
 | `ORDER_STATE_UNEXPECTED` | the partner reports a state this stage will not act on |
-| `SUBMISSION_FAILED` | the attempt failed in a way that is this backend's bug |
+| `SUBMISSION_FAILED` | the attempt threw: this backend's bug |
 
-None of them is derived from anything the partner wrote. A provider body, a
-token, and a URL can never reach a persisted column or a log line by
-construction, because the only thing that travels out of the client is an
-enum entry.
+None is derived from anything the partner wrote.
 
 ## The design decisions
 
-These eight decisions were made together when the first SPOD article — the
-t-shirt — arrived (issue #205), by the council with the contested points
-decided by Joe; issue #260 made them hold for every SPOD article and amended
-decision 4. They are numbered because the code cites them by number. Before them, the production module knew
-exactly one way to reach a producer: render an immutable PDF per job and push
-it over SFTP. Every mechanism assumed that shape — the artifact generation was
-the exactly-once anchor of the `production_job_items` snapshot, the delivery
-seam took PDF bytes, the ship guard was `generated_at IS NOT NULL`, and a human
-reported "Shipped".
+These eight decisions were made when the first SPOD article arrived (issue
+#205); issue #260 made them hold for every SPOD article and amended decision 4.
+The port keeps all eight; decision 5's "one alert per job" became "one alert
+per state transition" with the payload outbox (#248, recorded on #274).
 
-Besides the missing idempotency of
-[the one fact that shapes the whole design](#the-one-fact-that-shapes-the-whole-design),
-these facts of the [official API docs](https://api.spreadconnect.app/docs/)
-shaped them: a non-blank phone **and** email are required on every order; a
-webhook must be acknowledged with **202 and the body `[accepted]`** within
-8 seconds and is delivered at least once; `Shipment.sent` carries carrier,
-tracking code, tracking URL, and our `externalOrderReference`; shipping can be
-preset with `shipping.preferredType: "STANDARD"`; and placement is a `view`
-plus a `hotspot` (e.g. `FRONT` / `MEDIUM_FRONT`), with an endpoint listing the
-available hotspots per product type and design.
+The facts of the [partner's API](https://api.spreadconnect.app/docs/) behind
+them: no idempotency; a non-blank phone **and** e-mail on every order; a webhook
+acknowledged with **202 and `[accepted]`** within 8 seconds, delivered at least
+once; `Shipment.sent` carries carrier, tracking code, tracking URL, and our
+reference; shipping can be preset `STANDARD`; placement is a `view` plus a
+`hotspot`.
 
-### Decision 1 — The channel is a property of the job, decided at split time
+### Decision 1: The channel is a property of the job, decided at split time
 
-`production_jobs.fulfillment_channel` (`SFTP` | `SPOD`) is derived from the
-supplier's enabled destination when the split worker creates the job, and each
-channel owns its own lifecycle from there. Routing stays live master data, but
-the job's channel is frozen the moment the job exists.
+`production_jobs.fulfillment_channel` is derived from the supplier's enabled
+destinations when the split creates the job, and frozen. Routing stays live
+master data; a job in flight never changes its lifecycle.
 
-### Decision 2 — A PDF is not a universal job artifact
+### Decision 2: A PDF is not a universal job artifact
 
-SFTP jobs keep their lifecycle: generate the immutable PDF exactly once, create
-`production_deliveries` rows, push the bytes, a human reports the shipment. SPOD
-jobs create **no PDF and no `production_deliveries` rows**; their remote
-lifecycle lives in `production_spod_orders` and `production_spod_designs`.
+SFTP jobs keep their lifecycle. SPOD jobs create **no PDF and no deliveries**;
+their remote lifecycle lives in two tables of their own. Joe decided this
+against a 2:1 council majority, and the majority's price was accepted:
+`production_job_items` is written in the split transaction for both channels
+(a rename between split and generation can make page and PDF of an SFTP job
+disagree about a name, for minutes), and the ship guard became the
+channel-neutral `prepared_at`.
 
-Joe decided this against a 2:1 council majority, and the majority's price was
-accepted with it:
+### Decision 3: Destinations get per-channel detail tables
 
-- `production_job_items` is written in the **split transaction** for both
-  channels. The snapshot describes the job as split, no longer provably the
-  PDF's bytes: a catalog rename between split and generation can make the
-  supplier page and the PDF of an SFTP job disagree. Accepted, because the
-  window is minutes and the PDF is rendered from the same immutable order
-  snapshot.
-- The ship guard `generated_at IS NOT NULL` became the channel-neutral
-  `prepared_at` on `production_jobs`: SFTP sets it when the PDF is generated,
-  SPOD when the remote order is confirmed.
+The base row keeps identity, supplier, channel, label, `enabled`, and the
+notification fields; each channel's columns are `NOT NULL` in a table of their
+own, linked by the composite key `(id, channel)`. The SPOD row carries
+`environment` and a write-only token; the base URL is derived in code. A
+supplier has at most one **enabled** SPOD destination.
 
-### Decision 3 — Destinations get per-channel detail tables
+### Decision 4: The submission protocol and its idempotency
 
-`production_destinations` keeps identity, supplier, channel, label, `enabled`,
-and the notification fields; the SFTP columns live in
-`production_destination_sftp`, the SPOD configuration in
-`production_destination_spod` — every column `NOT NULL` in its own table,
-composite foreign keys on `(id, channel)`, the same one-table-per-shape pattern
-the article schema uses. The SPOD row carries `environment`
-(`STAGING` | `PRODUCTION`) and a write-only token; the base URL is derived from
-the environment in code, so no admin input can point fulfillment at an
-arbitrary host. A supplier has at most one **enabled** SPOD destination
-(partial unique index).
+Upload the designs → `POST /orders` always `NEW` with `STANDARD` shipping, the
+customer's phone and e-mail, and `ORD-{orderId}-JOB-{jobId}` → **persist the id
+before anything else** → confirm → `prepared_at`. Placement is `view: FRONT`
+with the hotspot snapshotted on the order line; no fallback: a refusal holds
+the job with an alert (`ORDER_CREATE_REJECTED`), a line without a hotspot is
+`PLACEMENT_UNAVAILABLE` (#260, decisions 8 and 14). This replaced a default
+`MEDIUM_FRONT` with a fallback to the available-hotspots endpoint, which could
+print something smaller than the preview. One ambiguous creation is re-created;
+a second quarantines the job with an alert. A confirmation retry reads the
+state first. The client paces itself; the worker retries.
 
-### Decision 4 — The submission protocol and its idempotency
+### Decision 5: The inbound webhook follows the Mollie pattern
 
-Upload the designs → `POST /orders`, always in state `NEW`, with
-`shipping.preferredType: "STANDARD"`, the customer's phone and email, and the
-deterministic `externalOrderReference = ORD-{orderId}-JOB-{jobId}` → **persist
-the returned order id before anything else** → confirm → set `prepared_at`. The
-confirmed state could be set at creation; that is deliberately never used.
-Placement is `view: FRONT` with the hotspot snapshotted on the order line at
-placement; no fallback — a refusal holds the job with an ops alert
-(`ORDER_CREATE_REJECTED`), and a line without a hotspot is
-`PLACEMENT_UNAVAILABLE` (issue #260, decisions 8 and 14). This replaces the
-original rule of a default `MEDIUM_FRONT` with a fallback to the
-available-hotspots endpoint: that fallback could print something smaller than
-the customer previewed.
+No session; the secret from configuration (at least 32 characters) compared in
+constant time before the body is read; a synchronous handler; every outcome
+answers `202 [accepted]`. `Shipment.sent` reuses the guarded ship transaction
+with the channel as the reporter, the carrier mapped onto the bounded list,
+and the partner's tracking URL discarded. `Order.cancelled`,
+`Order.needs-action`, and the quarantine set the state and alert the operator,
+once per transition. A person's ship stays allowed as the fallback for a lost
+webhook.
 
-An ambiguous creation outcome (timeout, reset, `5xx` after sending) permits
-**one** automatic re-create, because an orphaned `NEW` order is inert; a second
-ambiguity quarantines the job as `OUTCOME_UNKNOWN` with an ops alert. A
-confirmation retry reads `GET /orders/{id}` first and confirms only while the
-state is `NEW`. The 60 requests per minute are kept by a client-side pacer plus
-the retryable `RATE_LIMITED` on `429`; the client never retries — retries
-belong to the database-backed worker, as everywhere in production.
+### Decision 6: The order carries the customer's contact data
 
-### Decision 5 — The inbound webhook follows the Mollie pattern
+The partner gets the **customer's** phone and e-mail (Joe). Checkout requires a
+phone whenever the cart contains a SPOD line; the `productionData` read carries
+both, the supplier's `fulfillmentOrders` read carries neither.
 
-`POST /api/production/webhooks/spod/{secret}` has no session auth; the secret
-is app configuration (`production.spod.webhookSecret`, at least 32 characters,
-redacted) and is compared in constant time before the body is read. The handler
-is synchronous — two lookups and one guarded transaction — and every outcome,
-the no-ops included (unknown reference, already shipped, unknown event),
-answers **202 `[accepted]`**, so the partner stops redelivering.
+### Decision 7: No checkout country gate
 
-`Shipment.sent` reuses the guarded ship transaction: `shipped_by_user_id` stays
-`NULL`, `shipped_by_channel` records the reporter, the carrier name maps
-case-insensitively onto `ShippingCarrier` (else `OTHER`) with the raw name kept
-admin-visible, and **the partner's tracking URL is discarded** — the shop builds
-tracking links from its own bounded list (decision J2 of issue #119).
-`Order.cancelled`, `Order.needs-action`, and `OUTCOME_UNKNOWN` set the remote
-state and enqueue **one** ops alert per job. A human ship on a SPOD job stays
-allowed as the fallback for a lost webhook.
+A delivery country the partner does not support fails the submission
+(`ORDER_CREATE_REJECTED`) with an alert, and the operator refunds by hand. No
+`checkout → production` dependency.
 
-### Decision 6 — The order carries the customer's contact data
+### Decision 8: What reaches production stays live
 
-The partner gets the **customer's** phone and email (Joe). Checkout therefore
-requires a phone whenever the cart contains a SPOD article line; `orders.phone`
-stays nullable for mug-only orders. `ProductionData` — the production view, not
-the supplier's `FulfillmentOrder`, whose data minimization is untouched —
-carries both.
+The three partner ids are resolved at submission time from today's catalog,
+like the supplier: a mapping fix heals every pending order. The safety net:
+today's composed variant name must equal the snapshotted one, so a paid
+"Black / M" never silently becomes another product. The hotspot is the
+exception, a snapshot (decision 4). A backoffice rename trips the check as a
+false alarm, accepted until issue #225 compares ids. Orders stay
+`oneTimeItems` and never use the synced articles' SKUs (SPOD sync decision 3).
 
-### Decision 7 — No checkout country gate
-
-A delivery country the partner does not support fails the submission with a
-bounded retryable error and an ops alert, and the operator refunds by hand
-(Joe). No `checkout → production` dependency was added for it.
-
-### Decision 8 — What reaches production stays live
-
-The three partner ids (`productTypeId`, `appearanceId`, `sizeId`) are resolved
-at submission time through `CatalogVariant`, like supplier routing — a mapping
-fix heals every pending order. The safety net: the stage compares today's
-composed variant name with the order line's snapshotted `variant_name` and
-refuses on a mismatch with a retryable code, so a paid "Black / M" can never
-silently become a different product.
-
-The hotspot is the exception: it is a snapshot, not a live value (decision 4).
-It decides *where and how big* the motif is printed, and that has to stay what
-the customer previewed.
-
-Since the SPOD catalog is synced, the partner writes that name too, so a
-backoffice rename trips this check as a false alarm. That is accepted
-([SPOD sync decision 8](article-package.md#decision-8--the-name-tripwire-keeps-firing-on-partner-renames))
-until issue #225 compares ids instead of names. Orders stay `oneTimeItems` and
-never use the synced articles' SKUs
-([SPOD sync decision 3](article-package.md#decision-3--orders-stay-onetimeitems)).
-
-## Production file map
-
-The client itself is **not** in this module any more; the first two rows point
-into the `spod` module it moved to.
+## File map
 
 | File | Contents |
 | --- | --- |
-| [`spod/SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives in code. |
-| [`spod/SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls (five of them this stage's), the pacer, the request and response shapes, `SpodResult`, `SpodError`. |
-| [`delivery/spod/SpodOrderSubmitter.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderSubmitter.kt) | The worker stage, its creation and confirmation halves, and `SpodSubmissionError`. |
-| [`delivery/spod/SpodOrderRepository.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOrderRepository.kt) | The two tables, the scan, and the guarded writes. |
-| [`delivery/spod/PrintImagePng.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/PrintImagePng.kt) | WebP → PNG with both budgets, and `PrintImageError`. |
-| [`delivery/spod/SpodOpsAlertResolver.kt`](../../../../backend/modules/production/src/shop/voenix/production/delivery/spod/SpodOpsAlertResolver.kt) | The ops alert mail of one job, and the reason it is derived from. |
-| [`fulfillment/SpodWebhookRoutes.kt`](../../../../backend/modules/production/src/shop/voenix/production/fulfillment/SpodWebhookRoutes.kt) | The inbound route, the secret comparison, and the payload reduced to bounded values. |
+| [`spod/submitter.ts`](../../../../backend/src/modules/production/spod/submitter.ts) | the stage (line checks, uploads, creation, confirmation), the order request, `spodOrderReference` and its parser |
+| [`spod/repository.ts`](../../../../backend/src/modules/production/spod/repository.ts) | the two tables, the scan, the guarded writes with their alerts, the admin's `release`, the destination read, `PERMANENT_FAILURES` |
+| [`spod/print-image.ts`](../../../../backend/src/modules/production/spod/print-image.ts) | WebP → PNG with both budgets |
+| [`fulfillment/webhook.ts`](../../../../backend/src/modules/production/fulfillment/webhook.ts) | the payload reduced to bounded values, the secret comparison |
+| [`fulfillment/routes.ts`](../../../../backend/src/modules/production/fulfillment/routes.ts) | the webhook route next to the two job surfaces |
+| [`fulfillment/service.ts`](../../../../backend/src/modules/production/fulfillment/service.ts) | `handleWebhook`: finding the job, the channel ship, the remote state; `releaseSpodJob`: the confirmation check and the released job's view |
+| `spod` module: [`client.ts`](../../../../backend/src/modules/spod/client.ts) | `SpodAccess`, the environments, the calls, the pacer, `SpodResult`, `SpodError` |
+
+## Differences to the Kotlin code
+
+- **Alerts are rendered and guarded, not deduplicated.** See
+  [At-least-once delivery](#at-least-once-delivery) and
+  [The ops alert](#the-ops-alert); the reason is fixed when the alert is
+  enqueued instead of being derived from the row at send time.
+- **The name tripwire compares today's catalog name.** The Kotlin
+  `ProductionItem.variantName` was the order line's snapshot, the same value the
+  split had written, so the comparison could never fire; the port compares
+  today's composed name from `articleCatalog`, which is what the guide and the
+  runbook always described.
+- **sharp instead of ImageIO** for the PNG conversion, with the same budgets.
 
 ## Tests
 
-- `PrintImagePngTest` — a WebP original in, PNG out; the pixel cap; the byte
-  budget and the bounded shrink; the three failure codes.
-- `SpodClientTest` — in the `spod` module since the catalog sync: the exact request of
-  every call including the `X-SPOD-ACCESS-TOKEN` header, the pacer's waiting
-  arithmetic on a fake clock, `429` → `RATE_LIMITED`, `4xx` known versus `5xx`
-  ambiguous, and that neither the token nor a provider body ever reaches a log
-  line (see [The SPOD package](spod-package.md#tests)).
-- `SpodOrderSubmissionIntegrationTest` — the full protocol against a stubbed
-  partner that records every request: the happy path, the crash after the id
-  was persisted (no second order, no second upload), the first ambiguity
-  re-creating and the second quarantining, and the bounded codes for a missing
-  phone, a renamed variant, a withdrawn mapping, a missing hotspot, and a
-  missing print image; the snapshotted hotspot on the created order (while the
-  stub would offer another one), two hotspots becoming two order entries —
-  plus the ops alert the quarantine enqueues exactly once, the refused line set
-  of a supplier reassignment, the alert a rejected creation enqueues once (one `POST /orders`, no hotspot
-  lookup), and
-  the cancelled order the scan drops while a needs-action one stays.
-- `SpodWebhookRouteTest` — the wrong secret refused before the body is read
-  (counted in the receive pipeline), the exact `202 [accepted]` ack, the payload
-  reduced to bounded values, and every no-op answering like a processed event.
-- `SpodWebhookIntegrationTest` — against real PostgreSQL: a shipment reported
-  twice ending as one shipment and one customer mail, a shipment for an
-  unprepared job shipping it and setting `prepared_at` while a human ship of the
-  same job is still refused, the `OTHER` fallback with
-  the raw name kept and the partner's link stored nowhere, the fallback
-  resolution by this shop's own reference, and a cancellation plus a
-  needs-action event producing exactly one alert.
+- `spod/submission.test.ts`, against a recording stub of the client: the happy
+  path with the exact order request (snapshotted hotspot, reference, address,
+  grouping) and no call on a re-scan; one design for two lines and two entries
+  for two hotspots; `PLACEMENT_UNAVAILABLE` before any partner call with one
+  alert over two scans; the crash after the id was persisted (no second order);
+  the first ambiguity re-creating and the second quarantining with one alert;
+  a refused creation sent once per scan with the same hotspot, one alert; the
+  master-data codes before any upload and which of them alert; the renamed and
+  the reassigned line; the cancelled job left out of the scan while the
+  needs-action one stays; the release both ways with the next scan creating or
+  confirming, the wrong confirmation, the unknown job, the second release, and
+  two jobs claiming one partner order id at once.
+- `pdf/pdf.test.ts`: the PNG conversion, the pixel cap, the bounded shrink, the
+  three codes.
+- `fulfillment/fulfillment.test.ts`: the wrong secret refused with zero reads of
+  the body; a shipment reported twice ending as one shipment by channel and one
+  mail, carrier mapped and the partner's link stored nowhere; the shop-reference
+  fallback with a mismatching order as a no-op, shipping an unprepared job while
+  a person's ship is refused; a redelivered cancellation alerting once and a
+  needs-action alerting again; every no-op answering `202 [accepted]`; no route
+  without SPOD settings.
+- The client itself is tested in the [`spod` module](spod-package.md#tests).

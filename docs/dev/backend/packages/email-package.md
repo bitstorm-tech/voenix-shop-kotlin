@@ -1,243 +1,256 @@
 # The Email package
 
+This guide explains the TypeScript code in
+[`backend/src/modules/email`](../../../../backend/src/modules/email).
+
 ## What this package does
 
-The Email module renders and delivers the shop's transactional emails. It has
-two deliberately different entry points:
+The Email module renders and delivers the shop's transactional mails. It is a
+**leaf**: it imports no other module and never asks one for data. It offers
 
-- `UserEmailSender` sends an email directly for an interactive user action;
-- `EmailOutbox` stores a durable business reference for unattended delivery.
+- one `render…` function per mail, which turns plain values into a complete
+  `RenderedEmail` (subject, HTML, and plain text);
+- `userEmails.send(email)`, which sends a mail of an interactive user action
+  directly;
+- `outbox.enqueue(trx, email, { orderId })`, which stores a mail inside the
+  caller's transaction for unattended delivery, attributed to the order it is
+  about when the caller passes one;
+- `outbox.findings(now)` and `outbox.ofOrder(orderId)`, two reads of the
+  stored mails for the [operations module](operations-package.md); and
+- the background worker that delivers the stored mails through Sweego.
 
-Keeping these entry points separate prevents a confirmation or password-reset
-link from accidentally entering the database, and prevents an Order or SFTP
-notification from bypassing durable retries.
-
-The Kotlin code lives in
-[`backend/modules/email`](../../../../backend/modules/email). The Flyway-owned
-queue table is created by
-[`V5__create_email_jobs.sql`](../../../../backend/modules/platform/resources/db/migration/V5__create_email_jobs.sql).
+There is no HTTP route and no table besides `email_jobs`.
 
 ## The five-minute mental model
 
 ```mermaid
 flowchart TB
-    Auth["Interactive Auth operation"]
-    Producer["Order or SFTP transaction"]
-    Direct["UserEmailSender<br/>complete UserEmail"]
-    Outbox["EmailOutbox<br/>typed reference"]
-    Jobs[("PostgreSQL<br/>email_jobs")]
-    Worker["EmailWorker<br/>scan + retry"]
-    Source["QueuedEmailSource<br/>current business values"]
-    Renderer["EmailRenderer<br/>HTML + plain text"]
+    Account["Account operation"]
+    Owner["Order or production transaction"]
+    Render["render… functions<br/>HTML + plain text"]
+    Direct["userEmails.send"]
+    Outbox["outbox.enqueue(trx, …)"]
+    Jobs[("PostgreSQL<br/>email_jobs.payload")]
+    Worker["worker<br/>scan + retry"]
     Delivery["EmailDelivery<br/>Sweego adapter"]
     Sweego["Sweego API"]
 
-    Auth --> Direct --> Renderer
-    Producer --> Outbox --> Jobs
-    Jobs --> Worker
-    Worker --> Source --> Worker
-    Worker --> Renderer
-    Renderer --> Delivery --> Sweego
+    Account --> Render
+    Owner --> Render
+    Account --> Direct --> Delivery
+    Owner --> Outbox --> Jobs --> Worker --> Delivery --> Sweego
 ```
 
-The two paths deliberately meet only at rendering and delivery:
+The owning module always renders. What it does with the result decides the
+path:
 
-- the direct path carries a complete email, may contain a secret action URL,
-  and never writes that email to the database;
-- the queued path commits only a durable business reference with the producer's
-  transaction. The worker resolves the current message values later.
+- the **direct path** carries a mail that may contain a secret action link (a
+  confirmation or reset token). It is sent at once and never written to the
+  database;
+- the **queued path** commits the rendered mail with the owner's business
+  change. The worker sends it later, exactly as stored.
 
-`UserEmailSender` and `EmailOutbox` are the public capabilities. Rendering,
-provider integration, job storage, and worker coordination remain internal to
-the Email module.
+The two entry points are typed apart: `send` accepts only the six user-mail
+kinds, `enqueue` only the four queued kinds. A reset link therefore cannot
+reach the database by mistake, and an order mail cannot skip the retries.
 
-## Sub-packages
+## File map
 
-The root package `shop.voenix.email` contains the public module interface:
-message values, producer capabilities, settings, and runtime composition. A
-caller therefore does not need to know how rendering, Sweego delivery, or the
-durable worker are implemented.
-
-The internal implementation is grouped by responsibility:
-
-| Package | Responsibility |
-| --- | --- |
-| `shop.voenix.email.rendering` | Selects a template and turns typed email values into a provider-neutral message. |
-| `shop.voenix.email.template` | Keeps one Kotlin template file per email type, including its subject, HTML, and plain text. |
-| `shop.voenix.email.delivery` | Defines the internal delivery seam and implements its Sweego adapter. |
-| `shop.voenix.email.outbox` | Persists, retries, and completes durable email jobs. |
-
-These packages organize the implementation; they are not separate Kotlin
-modules. The `email` compilation module remains the actual visibility boundary,
-so its `internal` declarations can collaborate across all four packages but
-cannot be imported by Auth, Order, SFTP, or the application module.
-
-## Production file map
-
-Inside those packages the declarations are grouped by meaning, following
-[Kotlin source file organization](../conventions/source-file-organization.md). A file holds one
-complete concern, so a small value or result type lives next to the component
-that owns it instead of in a file of its own:
-
-| File | Contents |
-| --- | --- |
-| `UserEmailSender.kt` | The direct-send capability, the six `UserEmail` variants it accepts, and the `EmailDeliveryException` it may throw. |
-| `EmailOutbox.kt` | The queue capability, the `QueuedEmailReference` variants a producer enqueues, and the `QueuedEmailSource` seam the owning modules implement. |
-| `QueuedEmail.kt` | The resolved queued messages with their addresses and items. It keeps a file of its own because its validation makes it large enough to be a concern by itself. |
-| `EmailRecipient.kt` | The validated address value type, used by every other file. |
-| `EmailActionUrl.kt` | The validated, self-redacting link value type, used by every other file. |
-| `EmailSettings.kt` | Reading and validating the module's configuration. |
-| `EmailService.kt` | The one implementation behind both public capabilities. |
-| `EmailModule.kt` | The runtime handle plus `createEmailModule` and `installEmailModule`. |
-| `rendering/EmailRenderer.kt` | The renderer, the `UserEmailRenderer` and `QueuedEmailRenderer` seams it implements, and the `RenderedEmail` result they return. |
-| `delivery/EmailDelivery.kt` | The internal delivery seam and its `EmailDeliveryResult`. |
-| `delivery/SweegoEmailDelivery.kt` | The Sweego adapter, its file-private client configuration `configureSweegoClient()`, and the `SweegoSendRequest` JSON body it sends. |
-| `outbox/EmailJobRepository.kt` | The job repository, the `email_jobs` table object, and the internal `EmailJob` row type. |
-| `outbox/EmailWorker.kt` | The scanning, retry, and completion loop. |
-| `template/*.kt` | One file per email type, plus the shared `HtmlEmailLayout` and `TextEmailLayout`. |
-| `template/EmailTemplateFormatting.kt` | The German presentation formatting: the `dd.MM.yyyy` date, money in cents as `12,34 €`, free shipping as `Kostenlos`, and a discount with its leading minus. |
-| `template/EmailTemplateCopy.kt` | Sentences that more than one email says, currently the durable-link hint shared by the order confirmation and the shipping notification. |
-
-## Direct user emails
-
-The six `UserEmail` variants are account confirmation, change-email
-confirmation, password reset, the supplier invitation, the password-changed
-notification, and the warning sent to the old address during an email change.
-
-`SupplierInvitation` is the mail an administrator triggers when creating a
-supplier login. It carries a set-password link, never a password, and it is a
-variant of its own on purpose: it links to the same page as `PasswordReset`,
-but the reset copy says "you requested this", which is wrong for someone who
-was invited. One link, two different texts, so two templates.
-
-A future Auth operation creates a validated `EmailRecipient`, builds a complete
-`EmailActionUrl`, and calls the capability:
-
-```kotlin
-userEmails.send(
-    UserEmail.AccountConfirmation(
-        recipient = EmailRecipient("customer@example.com"),
-        confirmationUrl = EmailActionUrl(completeEncodedUrl),
-    )
-)
+```text
+email/
+|- index.ts                 createEmailModule({ db, settings, fetch }) → { userEmails, outbox, worker };
+|                           the render functions, EmailDeliveryError, and the types
+|- schema.ts                EmailJobsTable, merged into the platform's Tables
+|- outbox.ts                enqueue(trx, email, { orderId }): the insert in the caller's transaction;
+|                           stalledEmails(db, now) and emailsOfOrder(db, orderId), the two reads
+|- user-emails.ts           createUserEmails(settings, delivery) → { send }; EmailDeliveryError
+|- worker.ts                createEmailWorker({ db, settings, delivery }) → { runOnce, start, stop }
+|- delivery/sweego.ts       the EmailDelivery interface, DeliveryResult, createSweegoDelivery (its `fetch` is
+|                           typed by the platform's `Fetch` from `@/platform/fetch`)
+|- templates/layout.ts      RenderedEmail and the kinds, the escaping markup tag, the HTML and
+|                           text layouts, German date and money formatting, the shared link sentence
+|- templates/<mail>.ts      one file per mail: its data, subject, HTML, and text
+|- outbox.test.ts           outbox, worker, and userEmails against the real database
+|- delivery/sweego.test.ts  the request Sweego receives, against a stubbed fetch
+`- templates/templates.test.ts  one test per mail kind, escaping, money and dates
 ```
 
-`EmailActionUrl.toString()` is redacted, so accidentally logging the value does
-not reveal a confirmation or reset token. Email renders the URL, but never logs
-or persists it.
+The composition root creates the module, hands `userEmails` to account and
+`outbox` to order, production, and operations, and runs the worker:
 
-When Email is disabled, a direct send is a no-op. When enabled, it makes exactly
-one Sweego request. A successful call means that Sweego accepted the request;
-it does not prove mailbox delivery. A provider or timeout failure becomes the
-secret-free `EmailDeliveryException`. The owning Auth operation decides whether
-that email is required or best effort.
-
-`EmailDeliveryException` is the *only* failure a caller may treat as "the email
-provider let us down". It is the module's public promise, which is why its
-constructor is public too. A test fake of `UserEmailSender` has to be able to
-signal exactly this. Everything else that can escape a send, such as a rendering
-failure or a malformed `EmailActionUrl`, is a bug, not an external dependency,
-and callers must let it travel on to their own internal-failure path instead of
-folding it into the same result. The account module does exactly that: it
-catches `EmailDeliveryException` for its required mails and answers `502`,
-while any other exception ends as a plain `500` (see
-[`account-package.md`](account-package.md)).
-
-## Durable queued emails
-
-Four mails use `EmailOutbox`: the order confirmation, the producer PDF
-notification, the shipping notification the customer receives when a package
-leaves a supplier (issue #119), and, since the print-on-demand channel
-(issue #205), the operations alert that asks a human to look at one production
-job. The producer supplies one stable typed reference. That is the Order ID for
-a confirmation, the production delivery ID for a producer PDF notification, and
-the production **job** ID for a shipping notification and for an ops alert:
-
-```kotlin
-outbox.enqueue(QueuedEmailReference.OrderConfirmation(orderId))
-outbox.enqueue(QueuedEmailReference.ProducerPdfNotification(deliveryId))
-outbox.enqueue(QueuedEmailReference.ShippingNotification(jobId))
-outbox.enqueue(QueuedEmailReference.SpodOpsAlert(jobId))
+```ts
+const email = createEmailModule({ db, settings: settings.email, fetch })
+email.worker.start()
+// at shutdown
+await email.worker.stop()
 ```
 
-The ops alert is the one mail this shop sends to itself, to the configured
-`production.spod.alertEmail`. Three situations enqueue it: the partner
-cancelled the order, the partner flagged it as needing action, or the
-submission stage quarantined the job as `OUTCOME_UNKNOWN`. Because all three
-share the kind and the job id, an operator gets **one** mail per job however
-many of them arrive. Its reason travels as a bounded enum
-(`QueuedEmail.SpodOpsAlert.Reason`), so nothing a provider wrote can reach a
-rendered mail.
+## The mails
 
-The shipping notification is keyed by the job and not by the order on purpose.
-An order can be split across suppliers, each split ships its own package, and
-each package is its own mail. The unique `(kind, source_id)` rule therefore
-means "one shipping mail per shipped job", which is exactly the business rule
-the ship write needs.
+| Kind | Render function | Path | Recipient name |
+| --- | --- | --- | --- |
+| `ACCOUNT_CONFIRMATION` | `renderAccountConfirmation({ recipient, confirmationUrl })` | direct | — |
+| `CHANGE_EMAIL_CONFIRMATION` | `renderChangeEmailConfirmation({ recipient, confirmationUrl })` | direct | — |
+| `PASSWORD_RESET` | `renderPasswordReset({ recipient, resetUrl })` | direct | — |
+| `SUPPLIER_INVITATION` | `renderSupplierInvitation({ recipient, invitationUrl })` | direct | — |
+| `PASSWORD_CHANGED` | `renderPasswordChanged({ recipient })` | direct | — |
+| `CHANGE_EMAIL_NOTIFICATION` | `renderChangeEmailNotification({ recipient, newEmail })` | direct | — |
+| `ORDER_CONFIRMATION` | `renderOrderConfirmation(OrderConfirmationData)` | queued | shipping first and last name |
+| `PRODUCER_PDF_NOTIFICATION` | `renderProducerPdfNotification({ …, producerName })` | queued | producer name, else the destination label |
+| `SHIPPING_NOTIFICATION` | `renderShippingNotification(ShippingNotificationData)` | queued | customer first name |
+| `SPOD_OPS_ALERT` | `renderSpodOpsAlert({ …, reason, externalReference })` | queued | — (an operations mailbox is not a person) |
+| `OPERATIONS_ALERT` | `renderOperationsAlert({ recipient, frontendBaseUrl, findings })` | queued | — (an operations mailbox is not a person) |
 
-This call must run inside the producer's existing Exposed transaction. Email
-joins that transaction and never opens or commits an independent transaction.
-If the business change rolls back, its Email job rolls back too.
+Every function returns a `RenderedEmail`:
 
-Which business change that is, is the producer's decision. The shipping
-notification belongs to the transaction that sets `production_jobs.shipped_at`
-(see the [Production package](production-package.md)). Since issue #110 the
-order confirmation is enqueued by the **placement** transaction, not by the
-payment. The mail carries the customer's permanent link to their order
-(`{frontend.baseUrl}/order/{token}`), and they need it whatever the payment then
-does. A failed payment is exactly the case where they want to look. The
-producer PDF notification is unchanged and belongs to its delivery. Details in
-the [Order package](order-package.md).
+```ts
+interface RenderedEmail<K extends EmailKind = EmailKind> {
+  kind: K
+  recipient: string
+  recipientName: string | null
+  subject: string
+  html: string
+  text: string
+}
+```
 
-The mail of an order carries its permanent link as an `EmailActionUrl` field on
-`QueuedEmail.OrderConfirmation`, never as a `String`. The queued mail is a data
-class, so its generated `toString` prints every field, and the value type is
-what keeps a bearer link out of a log line. The HTML variant renders it as the
-action button ("Bestellung ansehen") plus the copyable link, and the text
-variant appends it; both carry the same sentence explaining that the mail is
-worth keeping, that the link does not expire, and that whoever holds it can read
-that one order. The wording is payment-neutral throughout, because the mail goes
-out before anything is known about the payment.
+Some decisions live in the copy and stay as the Kotlin backend made them:
 
-The database stores the email kind and positive source ID as the job's business
-identity. A unique database rule on this pair makes repeated enqueue calls
-return the existing job ID. It does not store recipients, names, subjects,
-template values, HTML, plain text, or Auth URLs.
+- `SUPPLIER_INVITATION` links to the same set-password page as the reset, but
+  has its own text: the reset says "you requested this", which is wrong for
+  someone who was invited.
+- The order confirmation is sent when the order is **placed**, so every
+  sentence is payment-neutral. It and the shipping notification carry the
+  permanent order link and the same `DURABLE_LINK_HINT` sentence, owned once in
+  `layout.ts`.
+- The shipping notification reports one package: it names no price, never
+  says the order is complete, and shows a tracking button only when the shop
+  built a tracking link from its own carrier list.
+- The SPOD ops alert names the job, the order, and the partner's order id
+  (`noch keine` while none is known). Its `reason` is a bounded union, so no
+  provider text reaches a mail.
+- The operations alert lists the new findings of one operations scan, one
+  block per finding with the German name of its kind (a bounded union with a
+  table of cases), the subject, the order number, since when, the attempts and
+  error code, and the link to the admin timeline of the order; the subject
+  names the count. It carries no customer data (see
+  [The alert](operations-package.md#the-alert)).
 
-A check constraint bounds the kind column to the kinds the application knows.
-It lists four: `ORDER_CONFIRMATION`, `PRODUCER_PDF_NOTIFICATION`,
-`SHIPPING_NOTIFICATION` (issue #119), and `SPOD_OPS_ALERT` (issue #205, added
-by `V25__production_channel_reported_shipping.sql`, which replaces the
-constraint `V5` created). Adding a kind therefore always means a migration that
-rewrites that constraint.
+### Links
 
-On the Kotlin side those four names live in exactly one place: next to
-`QueuedEmailReference` in `EmailOutbox.kt`, as the `kind` property (reference to
-stored name) and `String.toQueuedEmailReference` (stored name back to
-reference). The forward `when` is exhaustive over the sealed reference type, so
-a new reference variant fails to compile until it has a stored name; the
-reverse direction reads an arbitrary string and cannot be compile-checked, so
-the kind round-trip test pins that every variant survives both directions, and
-an unknown stored name fails loudly instead of being silently skipped.
+The email module builds no link. The owning module knows its frontend route,
+builds the complete URL from `settings.frontend.baseUrl` (already normalized
+without a trailing slash), percent-encodes its query parameters, and passes the
+URL in: account builds `/confirm-email?userId=…&token=…`, order builds
+`/order/{token}`. A frontend route is knowledge of the module that sends
+somebody there, which is why `createEmailModule` does not take the base URL.
+
+### HTML escaping
+
+Templates build HTML with the `markup` tagged template of `layout.ts`. Every
+interpolated string or number is escaped (`&`, `<`, `>`, `"`, `'`), so a name,
+an address, or a link cannot break out of its element or its `href`; an `Html`
+value from another `markup` call, or a list of them, is inserted unchanged, and
+`null` inserts nothing. Keep every dynamic value on this path and never build
+HTML by string concatenation. The tag is deliberately not called `html`:
+Prettier would reformat a template tagged `html` and change the whitespace of
+the mail.
+
+Dates arrive as ISO calendar dates (`2026-12-31`) and print as `31.12.2026`;
+the owning module decides the time zone. Money arrives in cents and prints as
+`1.234,50 €`; free shipping prints `Kostenlos`, and a zero discount prints no
+line at all.
+
+## Direct user mails
+
+```ts
+await userEmails.send(renderPasswordReset({ recipient: email, resetUrl }))
+```
+
+When `EMAIL_ENABLED=false`, `send` does nothing. When enabled, it makes
+exactly one Sweego request without a campaign id. Success means Sweego
+accepted the request, not that a mailbox received it. A refusal, a timeout,
+or an unreachable provider throws `EmailDeliveryError`, whose message is fixed
+and carries no recipient, token, or provider text.
+
+`EmailDeliveryError` is the **only** failure a caller may treat as "the
+provider let us down". Anything else that escapes `send` is a bug and must
+travel on to the caller's `500` path. Account catches `EmailDeliveryError` for
+its required mails (answering `502`) and everything for its best-effort
+notifications.
+
+## Durable queued mails
+
+```ts
+await write(db, async (trx) => {
+  const orderId = await insertOrder(trx, …)
+  await email.outbox.enqueue(trx, renderOrderConfirmation({ …, orderId, orderUrl }))
+})
+```
+
+`enqueue` inserts one `email_jobs` row inside the caller's transaction and
+returns its id. If the business change rolls back, the mail rolls back with
+it. Email never opens or commits a transaction of its own here.
+
+The optional third argument `{ orderId }` stores the order the mail is about
+in `email_jobs.order_id`. The three order mails pass it: the order
+confirmation (order module, at placement), the producer notification
+(production, when a delivery closes), and the shipping notification
+(production, in the ship transaction). The SPOD ops alert and the operations
+alert pass none. The
+column has no foreign key on purpose: email stays a leaf that knows no order
+table, and deleting an order must never fail on an unrelated mail.
+
+### The two reads for operations
+
+The [operations module](operations-package.md) reads the outbox through two
+capabilities on `outbox`, both plain read transactions over `email_jobs`:
+
+- `findings(now)` reports every **stalled** mail as an `EmailFinding` of kind
+  `EMAIL_STALLED`: `sent_at IS NULL` and either `created_at` more than an hour
+  before `now` or `attempt_count >= 3`. The subject is the job (`EMAIL`, its
+  id), `since` its `created_at`, and the finding carries the mail's own kind
+  (`emailKind`, read from `payload->>'kind'`), so the operations module can
+  tell a stalled order mail from a stalled alert. In a deployment with
+  `EMAIL_ENABLED=false` (the development default) every enqueued mail becomes
+  a finding after an hour, because the email worker sends nothing.
+- `ofOrder(orderId)` lists the mails attributed to one order, oldest first,
+  as `{ emailJobId, kind, recipient, attemptCount, lastErrorCode, createdAt,
+  sentAt }`, without the subject, the HTML, or the text.
+
+### Decision: the outbox stores the rendered mail
+
+The owner renders at enqueue time and the row stores the complete mail as
+`payload jsonb`. The worker sends that payload as it is.
+
+The reason is the module graph. A reference-only outbox needs the worker to
+ask the owning modules for the current values on every attempt, which makes
+email depend on order and production at runtime while they depend on email at
+compile time: a cycle, bridged with late-bound sources and an aggregating
+resolver in the composition root. Storing the payload removes the cycle and
+the bridge, and email becomes a leaf. A mail is also exactly what was true when
+the business event happened, and the worker cannot fail to find its data.
+
+What this gives up:
+
+- **A corrected address or changed copy is not picked up between retries.**
+  The retry sends the stored mail again. A customer who fixes a typo in their
+  address after the order receives the confirmation at the old one.
+- **The database holds personal data and the order link.** The payload
+  contains the recipient, the names and addresses in the mail, and the
+  permanent order link, which is a bearer credential. Treat `email_jobs` like
+  the order tables it copies from. Direct mails, which carry short-lived
+  account tokens, never reach the table.
+- **Email no longer deduplicates.** There is no `(kind, source_id)` key: two
+  `enqueue` calls are two mails. "One confirmation per order", "one shipping
+  mail per shipped job", and "one ops alert per job however often the partner
+  redelivers the webhook" are guarded by the owner, by enqueuing in the same
+  transaction as the state change that happens only once.
 
 ## Worker lifecycle
 
-`QueuedEmailSource` is implemented by the owning modules. Production resolves
-`ProducerPdfNotification`, `ShippingNotification`, **and** `SpodOpsAlert`
-references through one combined source (see the
-[Production package](production-package.md)), and Order resolves
-`OrderConfirmation` references (see the [Order package](order-package.md)). For
-every processing attempt it resolves the current recipient and current business
-values. The worker then renders a fresh message and delivers it.
-Changing an address before a retry, or deploying changed message copy, therefore
-changes the next attempt without rewriting persisted message data.
-
-The worker derives the only two job states from `sent_at`:
-
-| State | Meaning |
-| --- | --- |
-| Open | `sent_at` is `NULL`; the next scan tries the job again. |
-| Sent | `sent_at` is set after Sweego accepts the request. Mailbox delivery is not proven. |
+A job is **open** while `sent_at` is `NULL` and **sent** once Sweego accepted
+it.
 
 ```mermaid
 flowchart LR
@@ -245,141 +258,137 @@ flowchart LR
     Attempt["Attempt<br/>attempt_count + 1"]
     Sent["Sent<br/>sent_at is set"]
 
-    Open -->|"next five-minute scan"| Attempt
-    Attempt -->|"source, rendering, or delivery failure<br/>store safe error code"| Open
+    Open -->|"next scan"| Attempt
+    Attempt -->|"delivery failure<br/>store safe error code"| Open
     Attempt -->|"Sweego accepted"| Sent
 ```
 
-One active Email worker scans all open jobs at the configured interval, five
-minutes by default. It launches on `ApplicationStarted`, after the composition
-root has installed every module and bound both branches of the aggregated
-source, so the first scan never observes a partially wired
-`QueuedEmailSource`. Application shutdown cancels the worker and closes the
-Sweego client. Each attempted job increments `attempt_count`. A failure
-leaves `sent_at` empty and stores only a bounded safe error code, so the next
-scan retries it. There is no retry maximum or terminal failed state. When Email
-is disabled, the worker does not scan and open jobs remain untouched.
+`worker.start()` scans at once and then every `EMAIL_POLL_INTERVAL_MINUTES`
+(5 by default). A scan reads every open job oldest first and, per job:
 
-This deliberately supports one active Email worker, not multiple application
-instances processing jobs concurrently. Add claim coordination only when the
-deployment actually needs more than one worker.
+1. increments `attempt_count` in SQL, only while the job is still open;
+2. delivers the payload with the campaign id `voenix-email-<job id>`;
+3. on acceptance sets `sent_at = now()` and clears `last_error_code`; on a
+   failure stores the bounded code (`PROVIDER_HTTP_503`, `REQUEST_TIMEOUT`,
+   `PROVIDER_UNAVAILABLE`, …) and leaves the job open.
 
-The queue guarantees at-least-once delivery, not exactly-once delivery. The
-unique reference prevents duplicate jobs, but the worker cannot close the crash
-window between Sweego acceptance and the `sent_at` update. A restart may
-therefore send that job again. The stable `campaign-id` is correlation metadata,
-not a claimed provider idempotency guarantee.
+There is no retry maximum and no terminal failed state. An exception during a
+scan (the database is gone) is logged with its class only and the next scan
+tries again. With `EMAIL_ENABLED=false` a scan returns at once and every job
+stays untouched; `start()` then logs one warning, because nothing else in the
+log tells you that no mail goes out.
 
-## Rendering and provider boundary
+`worker.stop()` aborts the `AbortController`: the sleep between scans ends
+immediately, a running scan stops before its next job, and the returned
+promise resolves when the loop has ended. A second `start()` throws.
 
-`EmailRenderer` selects a typed template and maps the typed email onto that
-template's `Content`. The templates live in `shop.voenix.email.template`: each
-email type has one `*EmailTemplate.kt` file containing its subject, HTML, and
-plain text. For example, the complete password-reset email lives in
-`PasswordResetEmailTemplate.kt`.
+One active worker is supported, not several processes sharing the table. The
+queue guarantees at-least-once delivery: a crash between Sweego's acceptance
+and the `sent_at` update sends that mail again. The campaign id is correlation
+metadata, not a provider idempotency key.
 
-How dates and money read in German is owned by the template package, not by
-the renderer. `EmailTemplateFormatting` turns dates and cent amounts into the
-strings the templates print (`14.08.2026`, `12,34 €`, `Kostenlos` for free
-shipping), and `EmailTemplateCopy` holds a sentence that two mails say the same
-way, so the second copy cannot drift from the first. The renderer keeps the
-arithmetic, such as multiplying a unit price by its quantity, and still
-assembles the producer greeting from the optional producer name.
+## The Sweego adapter
 
-HTML uses `kotlinx.html` directly, while plain text uses `buildString` through a
-small shared text layout. The common branded HTML layout and its smaller
-sections live beside the templates as ordinary Kotlin functions, not classpath
-template resources.
+`createSweegoDelivery(settings, fetch)` posts to `https://api.sweego.io/send`
+with the `Api-Key` header and this body:
 
-Normal `kotlinx.html` text and attribute writes escape dynamic values. Keep
-dynamic content on those normal DSL paths and do not introduce `unsafe` HTML.
-The existing renderer tests cover escaping, complete action links, every email
-variant, and the important German date and money formats. Subjects and both
-bodies remain provider-neutral until the internal Sweego adapter builds its
-JSON request.
+```json
+{
+  "channel": "email",
+  "provider": "sweego",
+  "recipients": [{ "email": "kunde@example.com", "name": "Max Mustermann" }],
+  "from": { "email": "<EMAIL_FROM_EMAIL>", "name": "<EMAIL_FROM_NAME>" },
+  "subject": "…",
+  "message-html": "…",
+  "message-txt": "…",
+  "campaign-type": "transac",
+  "campaign-id": "voenix-email-42"
+}
+```
 
-The adapter targets `https://api.sweego.io/send` (the fixed default of
-`EmailSettings.sendUrl`) and sends both HTML and text with
-`campaign-type: transac`. It drains but does not parse, persist, or log
-provider response bodies.
+`campaign-id` is omitted for a direct mail, and the recipient name is `""`
+when the mail has none. Any `2xx` is acceptance. The response body is drained
+but never parsed, stored, or logged. Redirects are not followed
+(`redirect: 'manual'`): walking one would replay the message and the API key
+against a URL the adapter never chose, so a `302` becomes `PROVIDER_HTTP_302`
+like any refusal. The request times out after 30 seconds
+(`REQUEST_TIMEOUT`); any other thrown error is `PROVIDER_UNAVAILABLE`.
 
-The client's own settings live in the file-private `configureSweegoClient()`,
-which holds everything about the client that is a decision rather than an
-engine: no automatic success check, the JSON encoding rules,
-`followRedirects = false`, and request/connect/socket timeouts of 30/10/30
-seconds. The adapter builds its own client from it through two constructors.
-One takes just the settings and uses the CIO engine a deployment runs on; the
-other takes an `HttpClientEngine` a caller supplies, such as a test's
-`MockEngine`, and applies the same configuration around it. Who owns the engine follows from which one was
-used: an engine that came from a *factory* is Ktor's, so `close()` closes it
-along with the client, while an engine *instance* stays the property of
-whoever created it and `close()` leaves it alone. Because a test never rebuilds
-the configuration, every test request runs the deployment's own: one test reads
-the timeouts back off a request the adapter itself made (Ktor attaches them as
-`HttpTimeoutCapability`), and another answers with a `302` and a `Location`
-header and asserts that this becomes `PROVIDER_HTTP_302` after exactly one
-request. Walking that redirect would replay the whole message, the API key
-header included, against a URL the adapter never chose. That test pins the
-reported outcome, not the flag. Ktor never walks a
-redirect on a `POST` whatever `followRedirects` says, so for this adapter the
-flag is a second lock, set because the reason is the adapter's own.
+`EmailDelivery` is an interface because it has two implementations: the
+Sweego adapter, and the recording delivery of `outbox.test.ts`, which records
+every mail and answers from a script. The adapter takes `fetch` as a
+parameter, so the composition root passes the global one and a test passes a
+stub; nothing mocks a global.
 
 ## Configuration
 
-The safe committed defaults keep delivery disabled:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EMAIL_ENABLED` | `false` | `false`: `send` is a no-op and the worker never sends |
+| `EMAIL_POLL_INTERVAL_MINUTES` | `5` | between 1 and 1440 |
+| `EMAIL_API_KEY` | — | the Sweego key; required when enabled |
+| `EMAIL_FROM_EMAIL` | — | the sender address; required when enabled |
+| `EMAIL_FROM_NAME` | `Voenix Shop` | the sender name |
 
-```yaml
-email:
-  enabled: false
-  pollIntervalMinutes: 5
-  apiKey: ""
-  fromEmail: ""
-  fromName: "Voenix Shop"
+The platform's `loadSettings` validates them before anything touches the
+database. Real keys belong in `backend/.env.local`.
+
+## Persistence
+
+`schema.ts` maps `email_jobs` as
+[`V5__create_email_jobs.sql`](../../../../backend/migrations/V5__create_email_jobs.sql)
+created it and
+[`V32__email_jobs_payload.sql`](../../../../backend/migrations/V32__email_jobs_payload.sql)
+reshaped it: `id`, `payload jsonb`, `attempt_count`, `last_error_code`,
+`created_at`, `sent_at`. V32 drops `email_kind`, `source_id`, the unique
+reference, and the kind and source-id checks.
+[`V33__operations_findings.sql`](../../../../backend/migrations/V33__operations_findings.sql)
+adds the nullable `order_id bigint` without a foreign key, with the index
+`ix_email_jobs_order_id` for `ofOrder`. `payload` is typed as
+`JSONColumnType<RenderedEmail>`: it is written as a JSON string and read back
+as the object.
+
+## Tests
+
+Run from `backend/`:
+
+```sh
+bun test src/modules/email
 ```
 
-The development launcher reads these environment variables:
+| Test | What it states |
+| --- | --- |
+| [`outbox.test.ts`](../../../../backend/src/modules/email/outbox.test.ts) | The payload is stored in the caller's transaction, with the order id when one is passed, and a failing transaction leaves no job; `findings` reports an unsent mail older than an hour or failed three times, and nothing at the thresholds or once sent; `ofOrder` lists one order's mails; a disabled worker sends nothing; an enabled one sends and marks every job with its campaign id; a failure keeps the job open with its code and the next scan resends the stored mail, without an attempt maximum; `start` scans at once and `stop` ends the loop without waiting for the interval; `userEmails.send` sends once, stores nothing, is a no-op when disabled, and throws `EmailDeliveryError` on a refusal |
+| [`delivery/sweego.test.ts`](../../../../backend/src/modules/email/delivery/sweego.test.ts) | The exact request (URL, method, headers, body, `redirect: 'manual'`, timeout signal); an omitted campaign id; a `503` and a `302` as status codes without the body; timeout and unreachable provider |
+| [`templates/templates.test.ts`](../../../../backend/src/modules/email/templates/templates.test.ts) | One test per kind with its subject and, where the mail has one, the link built from the base URL as `href` and as text; exact plain texts; escaping; German money with thousands, discount, and free shipping; the producer greeting fallback; the shipping mail without prices or tracking; every ops-alert reason reads differently |
 
-```dotenv
-EMAIL_ENABLED=false
-EMAIL_POLL_INTERVAL_MINUTES=5
-SWEEGO_API_KEY=
-EMAIL_FROM_ADDRESS=
-EMAIL_FROM_NAME='Voenix Shop'
-```
+## Differences to the Kotlin backend
 
-API key and sender address are required only when `EMAIL_ENABLED=true`.
-Configuration errors and `EmailSettings.toString()` never include the API key.
-The polling interval must be between 1 and 1,440 minutes.
+- The outbox stores the rendered mail, so the worker can only fail at
+  delivery; `UserEmail` and `QueuedEmail` are replaced by the render functions,
+  and the two entry points keep their separation through the kind types.
+- The display-value checks of `EmailRecipient` and `EmailActionUrl` (non-blank,
+  at most 255 characters, no control characters) are not ported: the values
+  come from modules that validated them at their own route. Nothing here
+  prints an object into a log line, so the redacting `toString` has no
+  counterpart either.
+- The order confirmation no longer checks that the total equals subtotal plus
+  shipping minus discount; the order module computes those amounts.
+- `EmailSettings.sendUrl` is gone: tests pass a stub `fetch`. Sweego's
+  separate connect and socket timeouts are one 30-second request timeout.
 
-The application installs and operates the Email module: `Application.kt` loads
-`EmailSettings` before Flyway runs (an invalid enabled configuration fails the
-startup cleanly), calls `installEmailModule` exactly once with the app-owned
-`AggregatedQueuedEmailSource`, and hands only the exported `UserEmailSender`
-and `EmailOutbox` capabilities to consuming modules. That aggregate has two
-branches, one per owning module rather than one per kind: Production's combined
-source (all three of its kinds) and, since the Order migration, the order
-module's confirmation resolver. A branch that is not bound yet fails retryably
-(`SOURCE_UNAVAILABLE`), which now only covers the startup moment between the
-two installs. The remaining consumer work
-is recorded in
-[`email-post-migration.md`](../../../migration/email-post-migration.md).
+## Safe change recipes
 
-`EmailSettings` also has a `sendUrl` constructor parameter that is deliberately
-never read from the application configuration. Deployments always target the
-Sweego default, while the application-composition test points the real adapter
-at a local stub server so the quality gate never sends real email.
+### Add a mail
 
-## Operations and manual cleanup
+1. Add its kind to `UserEmailKind` or `QueuedEmailKind` in `layout.ts`.
+2. Add `templates/<mail>.ts` with one `render…` function built from the layout
+   helpers, every dynamic value through `markup`.
+3. Export the function from `index.ts`.
+4. Add a test with the subject, the link, and the plain text.
+5. Render and send or enqueue it from the owning module.
 
-There is intentionally no public Email HTTP route, automatic cleanup worker,
-or generic job framework. Operational logs use job ID, kind, attempt count,
-outcome, and safe error code only.
+### Change the copy of a mail
 
-Manual deletion has product consequences:
-
-- deleting an open row cancels its future delivery;
-- deleting a sent tombstone removes duplicate protection if the
-  business event is replayed.
-
-An authenticated operations UI, retry/cancel commands, alerts, and delivery
-webhooks should be added only with a concrete support workflow.
+Change the template file and its test. Jobs already in the outbox keep the
+copy they were rendered with.

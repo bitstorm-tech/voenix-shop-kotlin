@@ -23,6 +23,6 @@ Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/
 
 Substantial tasks are planned with Joe in a normal conversation until the issue set meets the planning bar in `docs/agents/issue-tracker.md` (`ready-for-agent`). Implementation and verification then run autonomously with the repo-local `council` skill (`.claude/skills/council/SKILL.md`): Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
 
-## Backend Rules (TypeScript, `backend-ts/`, the active backend)
+## Backend
 
-The backend is `backend-ts/`: TypeScript on Bun with Hono, Zod, and Kysely (`docs/dev/backend-ts/conventions/technology-stack.md`). The Kotlin backend in `backend/` is not developed any more; the rules for it are kept below only until it is removed.
+The backend is `backend/`: TypeScript on Bun with Hono, Zod, and Kysely (`docs/dev/backend/conventions/technology-stack.md`). The former Kotlin backend was removed; its last state is the Git tag `kotlin-backend`.

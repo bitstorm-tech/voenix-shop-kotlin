@@ -1,8 +1,10 @@
 # The Prompt package
 
-`shop.voenix.prompt` is the Kotlin module behind the generation prompts: the
-texts the image generator builds its request from, the category structure that
-orders them for the storefront, and the **slots** a prompt is composed of.
+This guide explains the TypeScript code in
+[`backend/src/modules/prompt`](../../../../backend/src/modules/prompt):
+the generation prompts, that is the texts the image generator builds its request
+from, the category structure that orders them for the storefront, and the
+**slots** a prompt is composed of.
 
 ## What this package does
 
@@ -12,127 +14,150 @@ categories and subcategories, and the prompts themselves together with the
 price each prompt owns, its example image, and its position in the display
 order. `GET /api/prompts` lists the visible prompts anonymously and never
 carries the prompt text. To other modules it exports one capability,
-`PromptCatalog`, which answers the composed generation text and the effective
+`promptCatalog`, which answers the composed generation text and the effective
 gross sales price of a prompt.
 
-The module was migrated from the legacy .NET feature in three slices, the last
-of which was split further. Everything below exists; the table records which
-slice brought which part, because the migration record refers to them.
-
-| Slice | Content | State |
-| --- | --- | --- |
-| 1 | slots and slot variants | migrated |
-| 2 | prompt categories and subcategories | migrated |
-| 3a | the prompts themselves: admin CRUD and the price they own | migrated |
-| 3b | the example image: pre-upload, validation, and file lifecycle | migrated |
-| 3c | the prompt reorder and its concurrency rules | migrated |
-| 3d | the anonymous storefront list | migrated |
-| 3e | the exported `PromptCatalog` capability | migrated |
-
-The whole database schema is already there:
-[`V14__create_prompts.sql`](../../../../backend/modules/platform/resources/db/migration/V14__create_prompts.sql)
-creates all seven tables in one migration. That is deliberate. The slot answers
-already contain "how many variants does this slot have" and "how many prompts
-use this variant", and a count whose table does not exist yet would be a lie
-until the last slice landed.
+All seven tables come from one migration,
+[`V14__create_prompts.sql`](../../../../backend/migrations/V14__create_prompts.sql).
 
 ## The five-minute mental model
 
-- A prompt is a base text plus one chosen variant per slot. The composed
-  generation text is the prompt's own text followed by the text of every mapped
-  variant, ordered by the database and trimmed on read, while the stored prompt
-  text keeps its whitespace verbatim.
-- Five admin route groups sit behind the shared, fail-closed admin protection;
-  `GET /api/prompts` is the one anonymous route and never carries `promptText`.
+- A prompt is a base text plus chosen slot variants. The composed generation
+  text is the prompt's own text followed by the text of every mapped variant,
+  ordered by the database and trimmed on read, while the stored prompt text
+  keeps its whitespace verbatim.
+- Five admin route groups sit behind one admin protection; `GET /api/prompts`
+  is the one anonymous route and never carries `promptText`.
 - A prompt owns exactly one price row of the pricing module: `prepare` runs
   before the transaction, the write inside it, so a rejected price never creates
   a prompt and a failed prompt never leaves a price row behind.
 - Positions are decided under a lock on an anchor row in `prompt_ordering`:
   slots only append, categories and prompts also reorder with a dense rewrite,
   subcategory positions count per category with the category row as anchor.
-- A failed write is recognized by its SQL state, never by a constraint name:
-  `23505` inside a statement is the name, `23503` is mapped only where exactly
-  one relationship can fail.
+- A failed write is recognized by its SQL state, never by a constraint name.
 - Prompts are never deleted, only archived, and the reorder is the one prompt
   write that can answer `409`.
-- `PromptCatalog` ignores the category `active` flags, so a prompt in a
+- `promptCatalog` ignores the category `active` flags, so a prompt in a
   deactivated category disappears from the storefront while staying generatable
   and buyable by id.
 
-## Production file map
+```mermaid
+flowchart TB
+    Admin["Admin client"]
+    Shop["Storefront"]
+    Consumers["Generator · Cart"]
 
-```text
-modules/prompt/src/shop/voenix/prompt/
-|- PromptModule.kt              runtime handle, factory, installation, validation
-|- ReorderInput.kt              the one {sourceId, targetId} body of every reorder route
-|- Prompt.kt                    the prompt on the wire: the full representation, the
-|                               overview row, its small price projection, the shared
-|                               create/update input, and the pre-upload answer
-|- PromptService.kt             the admin lifecycle: operation interface and service
-|- PromptRoutes.kt              /api/admin/prompts
-|- PublicPrompt.kt              storefront representation (no promptText, ever) and the
-|                               nested {id, name, position} of both category levels
-|- PublicPromptService.kt       the storefront read: operation interface and service
-|- PublicPromptRoutes.kt        /api/prompts (anonymous)
-|- PromptCatalog.kt             the one public type: the exported capability
-|- PromptCatalogService.kt      composed text and gross price behind it
-|- category/
-|  |- PromptCategory.kt         admin representation (id, name, position, active) plus
-|  |                            the shared create/update input
-|  |- PromptCategoryService.kt  operation interface and service
-|  |- PromptCategoryRoutes.kt   /api/admin/prompts/categories
-|  |- PromptSubcategory.kt      adds categoryId and description, plus its own input
-|  |- PromptSubcategoryService.kt  operation interface, service, and the two field
-|  |                               errors on categoryId
-|  `- PromptSubcategoryRoutes.kt   /api/admin/prompts/subcategories
-|- slot/
-|  |- PromptSlot.kt             admin representation (id, name, position, variantCount)
-|  |                            plus the shared create/update input
-|  |- PromptSlotService.kt      operation interface, validation, normalization, mapping
-|  |- PromptSlotRoutes.kt       /api/admin/prompts/slots
-|  |- PromptSlotVariant.kt      admin representation, the create input (carries slotId),
-|  |                            and the update input (no slotId) that owns the field rules
-|  |- PromptSlotVariantService.kt  operation interface and service
-|  `- PromptSlotVariantRoutes.kt   /api/admin/prompts/slot-variants
-`- persistence/
-   |- PromptOrdering.kt         every lock a position sequence needs, that is the three
-   |                            global anchors and the category rows, plus the three
-   |                            ordering helpers every repository shares: isDenseBy, the dense
-   |                            rewrite of a reorder, and the last taken position
-   |- StoredPrompt.kt           a read row plus the id of the price it points at
-   |- PromptCategoryRepository.kt     the Exposed mapping of prompt_categories, the
-   |                                  repository, and its write/delete/order results
-   |- PromptSubcategoryRepository.kt  the same three parts for prompt_subcategories
-   |- PromptSlotRepository.kt         prompt_slots, plus write and delete results
-   |- PromptSlotVariantRepository.kt  prompt_slot_variants, plus the same two results
-   |- PromptRepository.kt             prompts and the prompt-to-variant mapping table,
-   |                                  plus the write and order results
-   |- PublicPromptRepository.kt       the one storefront read, prompt_text never selected
-   `- PromptCatalogRepository.kt      the two capability reads, no category join at all,
-                                      and the StoredComposition they answer with
+    subgraph Prompt["Prompt module"]
+        Index["index.ts<br/>createPromptModule · admin protection · mount order"]
+        Slot["slot/<br/>slots · slot variants"]
+        Category["category/<br/>categories · subcategories"]
+        Prompts["prompt/<br/>prompts · storefront · promptCatalog"]
+        Ordering["ordering.ts · fields.ts"]
+    end
+
+    Pricing["pricing<br/>priceCatalog"]
+    Image["image<br/>exampleImages"]
+    Database[("PostgreSQL<br/>seven prompt tables")]
+
+    Admin --> Index
+    Shop --> Index
+    Index --> Slot
+    Index --> Category
+    Index --> Prompts
+    Consumers --> Prompts
+    Slot -.-> Ordering
+    Category -.-> Ordering
+    Prompts -.-> Ordering
+    Prompts --> Pricing
+    Prompts --> Image
+    Slot --> Database
+    Category --> Database
+    Prompts --> Database
 ```
 
-Declarations share a file when they belong to the same concern: a representation
-together with the input a client writes it with, a service together with the
-operation interface it implements, a repository together with its Exposed table
-and the results it returns. That grouping follows
-[Kotlin source file organization](../conventions/source-file-organization.md), and it changes
-nothing a caller sees. What other code addresses is the package a declaration
-lives in, never the file.
+## File map
 
-The sub-packages organize files; they are not visibility boundaries. The
-compilation module is the real boundary, so `internal` declarations keep
-collaborating across `slot` and `persistence` while staying invisible to every
-other module.
+```text
+prompt/
+|- index.ts              createPromptModule({ db, priceCatalog, exampleImages }) → { routes, promptCatalog };
+|                        the admin sub-app with requireAdmin and the mount order; the example-image folder
+|- schema.ts             the seven table interfaces, merged into the platform's Tables
+|- fields.ts             Zod fragments every request schema shares: requiredName, optionalText, reorderInput
+|- ordering.ts           lockSequence (the three anchors), lockCategories (ascending ids), moved (find,
+|                        density check, move), rewritePositions (the dense single-phase rewrite)
+|- slot/
+|  |- routes.ts          slotInput, slotVariantInput, slotVariantUpdate; slotRoutes, slotVariantRoutes
+|  `- repository.ts      createPromptSlotRepository; PromptSlot, PromptSlotVariant, SlotVariantInput;
+|                        the slotId field error
+|- category/
+|  |- routes.ts          categoryInput, subcategoryInput; categoryRoutes, subcategoryRoutes
+|  `- repository.ts      createPromptCategoryRepository; PromptCategory, PromptSubcategory; the two
+|                        categoryId field errors; the retry when a subcategory moved between its
+|                        read and its lock
+|- prompt/
+|  |- routes.ts          promptInput; promptAdminRoutes (incl. the example-image pre-upload), publicPromptRoutes
+|  |- service.ts         createPromptService (admin lifecycle, storefront read), createPromptCatalog;
+|  |                     PromptInput, Prompt, PromptListItem, PromptPrice, PublicPrompt
+|  `- repository.ts      createPromptRepository(db, priceCatalog): the writes with their price, the reorder,
+|                        the storefront read (prompt_text never selected), the two catalog reads
+|- validation.test.ts    every request schema
+|- slot.test.ts          the slot and slot-variant routes
+|- category.test.ts      the category and subcategory routes and their ordering rules
+|- prompt.test.ts        the prompt admin routes, price atomicity, reorder, example images
+`- storefront.test.ts    GET /api/prompts and promptCatalog
+```
+
+The three sub-folders group the files by concern; each keeps the module shape
+of [Source file organization](../conventions/source-file-organization.md).
+Only `prompt/` has a `service.ts`, because only the prompts join other
+modules (the price and the example images); the slot and category routes take
+their repository, which answers `OperationResult` itself. The three files at the top are
+shared by more than one sub-folder. Nothing but `index.ts` is importable from
+another module.
+
+## Composition
+
+```ts
+const pricing = createPricingModule({ db })
+const images = createImageModule({ settings: settings.image, guestTokens: auth.guestTokens })
+const prompts = createPromptModule({
+  db,
+  priceCatalog: pricing.priceCatalog,
+  exampleImages: images.exampleImages,
+})
+app.route('/', prompts.routes)
+// later: createGeneratorModule({ …, composedText: prompts.promptCatalog.composedText })
+//        createCartModule({ …, promptPrices: prompts.promptCatalog.findSalesGrossPriceCents })
+```
+
+`exampleImages` is the image module's factory `(folder, logger) => ExampleImages`.
+The prompt module calls it once with its own folder, `prompt-example-images`,
+and its own logger (`prompt`), so the folder name stays in this module and a
+failed cleanup is logged under its name.
+
+The exported surface of `index.ts`:
+
+| Export | What it is |
+| --- | --- |
+| `createPromptModule({ db, priceCatalog, exampleImages })` | the factory |
+| `.routes` | `GET /api/prompts` and the admin tree under `/api/admin/prompts` |
+| `.promptCatalog.composedText(promptId)` | `Promise<string \| null>` |
+| `.promptCatalog.findSalesGrossPriceCents(promptIds)` | `Promise<Map<number, number>>`, takes any `Iterable<number>` |
+| types | `PromptModule`, `PromptCatalog` |
+
+`index.ts` installs `requireAdmin` once on the admin sub-app and mounts the four
+sub-path groups (`/slots`, `/slot-variants`, `/categories`, `/subcategories`)
+**before** the prompts themselves: Hono runs matching handlers in registration
+order, and `GET /:id` of the prompts would otherwise answer
+`/api/admin/prompts/categories` with `400 Invalid prompt id`. For the same
+reason every `PUT /order` is registered before its group's `PUT /:id`.
 
 ## HTTP API
 
-The five admin route groups sit behind the shared, fail-closed admin protection
-and answer with bare JSON arrays and `201 Created` plus a `Location` header;
-the four groups that have a delete answer it with `204 No Content`. The prompts
-themselves have no delete route at all; see
-[The prompt routes](#the-prompt-routes). The sixth route,
-`GET /api/prompts`, is the storefront one and takes no session at all.
+The five admin route groups answer with bare JSON arrays and `201 Created` plus
+a relative `Location` header; the four groups that have a delete answer it with
+`204 No Content`. The prompts themselves have no delete route at all; see
+[The prompt routes](#the-prompt-routes).
 
 | Route | Operations | Answer |
 | --- | --- | --- |
@@ -147,28 +172,81 @@ All three reorder routes take the same body, `{"sourceId": 42, "targetId": 8}`,
 and answer with the complete new order. The categories and the prompts answer
 with all of them, the subcategories with the affected category's list, because
 their positions count per category and no other category can have moved. An id
-the stored order does not contain is a `404`; the legacy backend answered a
-`409` for the categories, which said nothing about what went wrong.
+the stored order does not contain is a `404`.
 
 The subcategory relationship is flat on both sides: the request carries
-`categoryId` and so does the answer. The legacy backend accepted a flat id and
-answered with a nested category object, which made request and response
-disagree about the shape of one relationship.
+`categoryId` and so does the answer.
+
+| Route group | `404` | `400` for a malformed id |
+| --- | --- | --- |
+| slots | `Prompt slot not found` | `Invalid prompt slot id` |
+| slot variants | `Prompt slot variant not found` | `Invalid prompt slot variant id` |
+| categories | `Prompt category not found` | `Invalid prompt category id` |
+| subcategories | `Prompt subcategory not found` | `Invalid prompt subcategory id` |
+| prompts | `Prompt not found` | `Invalid prompt id` |
 
 Each route can be rejected with `409` for exactly one reason, so the message is
 stable per route instead of an error code inside the body:
 
-- writing a name that already exists (in any case) → "… name already exists";
-- deleting a slot that still has variants, or a variant a prompt still uses →
-  "… cannot be deleted";
-- losing the race for a position on a reorder → "… order changed concurrently,
-  please retry".
+| Route | `409` message |
+| --- | --- |
+| slot create, update | `Prompt slot name already exists` |
+| slot delete | `Prompt slot is used by slot variants and cannot be deleted` |
+| variant create, update | `Prompt slot variant name already exists` |
+| variant delete | `Prompt slot variant is used by prompts and cannot be deleted` |
+| category create, update | `Prompt category name already exists` |
+| category delete | `Prompt category is used by subcategories or prompts and cannot be deleted` |
+| category reorder | `Prompt category order changed concurrently, please retry` |
+| subcategory create, update | `Prompt subcategory name already exists in this prompt category` |
+| subcategory delete | `Prompt subcategory is used by prompts and cannot be deleted` |
+| subcategory reorder | `Prompt subcategory order changed concurrently, please retry` |
+| prompt reorder | `Prompt order changed concurrently, please retry` |
 
-A create that names a slot which does not exist is **not** a conflict: it is a
-field error on `slotId` and therefore a `400` with the same shape as any other
-broken field. The same holds for the two subcategory rejections that talk about
-its category, an unknown category and a category change while prompts use the
-subcategory. Both are field errors on `categoryId`.
+A reference the body names that does not exist is **not** a conflict but a
+field error, `400 Validation failed`:
+
+| Write | Field | Message |
+| --- | --- | --- |
+| variant create | `slotId` | `Prompt slot does not exist` |
+| subcategory create, update | `categoryId` | `Prompt category does not exist` |
+| subcategory update that moves a subcategory prompts use | `categoryId` | `Prompt subcategory is used by prompts and cannot be moved to another category` |
+| prompt create, update | `categoryId` | `Prompt category does not exist` |
+| prompt create, update | `subcategoryId` | `Prompt subcategory does not exist in this prompt category` |
+| prompt create, update | `slotVariantIds` | `One or more prompt slot variants do not exist` |
+| prompt create, update | `price.<field>` | the pricing module's message, e.g. `price.salesVatId: Sales VAT not found` |
+| prompt create, update | `exampleImageFilename` | `Example image filename must be the name of an uploaded image`, `Example image does not exist` |
+
+## The request bodies
+
+Every schema is a `z.strictObject` in the `routes.ts` of its sub-folder, so an
+unknown property answers `Unknown property` under its name. The messages are
+those of the Kotlin `validate()` methods.
+
+| Schema | Fields |
+| --- | --- |
+| `slotInput` | `name`: required, at most 255 characters, trimmed |
+| `slotVariantInput` | `slotId`: required, positive; plus the fields of `slotVariantUpdate` |
+| `slotVariantUpdate` | `name` (255) and `prompt` (10,000): required, trimmed; `description` (1000) and `llm` (255): optional, blank means `null`. No `slotId` |
+| `categoryInput` | `name`: required, at most 200 characters; `active`: default `true` |
+| `subcategoryInput` | `categoryId`: required, positive; `name` (200); `description` (1000), optional; `active`: default `true` |
+| `reorderInput` | `sourceId`, `targetId`: required, positive, different (`TargetId must be different from SourceId`) |
+| `promptInput` | see below |
+
+`promptInput`:
+
+| Field | Rule | Normalization |
+| --- | --- | --- |
+| `title` | required, at most 255 characters | trimmed |
+| `promptText` | required: not blank | **none**: stored verbatim |
+| `categoryId` | required, positive | |
+| `subcategoryId` | optional, positive | missing means `null` |
+| `slotVariantIds` | required, may be empty, every id positive | duplicates removed |
+| `exampleImageFilename`, `llm` | optional, at most 255 characters | trimmed, blank means `null` |
+| `active`, `archived` | optional booleans | default `false` |
+| `price` | required (`Price is required`), then the pricing module's `priceInput` | its errors are reported as `price.<field>` |
+
+The shared fragments (`requiredName`, `optionalText`, `reorderInput`) live in
+[`fields.ts`](../../../../backend/src/modules/prompt/fields.ts).
 
 ## What a slot is
 
@@ -181,35 +259,34 @@ prompt "Watercolor portrait"
 ```
 
 A **slot** is the question ("which background?"), a **slot variant** is one
-possible answer together with the text it contributes. The legacy application
-called the slot a `PromptSlotType`; the Kotlin module dropped the `Type`,
-because the thing is a slot and not a kind of slot.
+possible answer together with the text it contributes. Two rules of that model
+are unusual:
 
-Two rules of that model are worth remembering, because they are unusual:
-
-- **A variant never changes its slot.** "Watercolor" is an answer to "which
-  style?" and cannot become an answer to "which background?". This is why the
-  create input and the update input of a variant are two different types: the
-  update has no `slotId` field, so no request body can express the move.
+- **A variant never changes its slot.** This is why the create body and the
+  update body of a variant are two schemas: `slotVariantUpdate` has no
+  `slotId`, so a body that carries one is rejected as an unknown property.
 - **Variant names are unique across *all* slots**, not per slot, and
   case-insensitively. A variant should exist exactly once, whatever slot it
   fills.
 
+The mapping table's key is only `(prompt_id, slot_variant_id)`, so one prompt
+may use more than one variant of the same slot.
+
 ## The prompt routes
 
-`/api/admin/prompts` has two properties the other four route groups do not, and
-both are the contract rather than an omission:
+`/api/admin/prompts` has two properties the other four route groups do not,
+and both are the contract rather than an omission:
 
 - **there is no delete route.** A prompt is retired by setting `archived`,
   because carts, orders, and generated images keep referring to it;
 - **no prompt write but `PUT /order` answers `409`.** A prompt has no unique
   name, its position is decided under a lock, and every reference a client can
-  get wrong is reported as a field error of the field that named it. What is left
-  is the one race a client can lose without doing anything wrong, two admins
-  moving prompts at the same time, and only the reorder can lose it.
+  get wrong is reported as a field error of the field that named it. What is
+  left is the one race a client can lose without doing anything wrong, two
+  admins moving prompts at the same time.
 
-A create body and the answer to it differ in four places, and each difference is
-deliberate:
+A create body and the answer to it differ in four places, and each difference
+is deliberate:
 
 ```jsonc
 // POST /api/admin/prompts
@@ -222,9 +299,9 @@ deliberate:
 // 201 Created, Location: /api/admin/prompts/42
 { "id": 42, "position": 8, "title": "Watercolor portrait",
   "promptText": "Paint it.\n", "categoryId": 3, "subcategoryId": 7,
-  "slotVariantIds": [9, 12], "exampleImageFilename": "6f1c….webp",
-  "llm": "gpt-image-1", "active": true,
-  "archived": false, "price": { "id": 77, "…": "the complete calculated price" } }
+  "exampleImageFilename": "6f1c….webp", "llm": "gpt-image-1", "active": true,
+  "archived": false, "slotVariantIds": [9, 12],
+  "price": { "id": 77, "…": "the complete calculated price" } }
 ```
 
 1. `price` is a flat input going in and the complete calculated price coming
@@ -232,34 +309,31 @@ deliberate:
 2. `slotVariantIds` comes back deduplicated and sorted. Repeating an id asks for
    the same thing twice, which is not a mistake to reject;
 3. `title` and `llm` are stored trimmed, while `promptText` keeps its whitespace
-   **verbatim**: the composed generation text trims when it reads, so the stored
-   text stays what the author typed;
-4. `position` is response-only, and no body may carry one.
+   **verbatim**: the composed generation text trims when it reads, so the
+   stored text stays what the author typed;
+4. `position` is response-only.
 
-There is no `priceId` field anywhere in the contract. That is what makes a price
-belong to exactly one prompt by construction: ids are only minted while a prompt
-is written, so a body that sends one is ignored.
+There is no `priceId` field anywhere in the contract, and a body that sends
+`position` or `priceId` is rejected. That is what makes a price belong to
+exactly one prompt by construction: ids are only minted while a prompt is
+written.
 
 The list is the second representation. It carries the display names a table
 needs (`categoryName`, `subcategoryName`) and only the small price projection
 `{salesTotalNet, salesTotalGross, salesTotalTax, regularSalesTotalGross,
-salesVatRatePercent}` instead of the twenty fields of a calculated price. Both
-reads resolve their prices in **one** batched `PriceCatalog.find`, never one
-lookup per row.
+salesVatRatePercent}` instead of the twenty fields of a calculated price. Every
+read resolves its prices in **one** batched `priceCatalog.find`, and a page
+without a single price asks the pricing module nothing.
 
 The three `salesTotal*` amounts are the **effective** ones: a price may carry a
-discount, and they are already reduced by it. That is why nothing that charges
-for a prompt had to change for the feature — the cart reads the same gross total
-it always read and snapshots the reduced amount by itself.
-`regularSalesTotalGross` holds the gross total *before* the discount and is
-non-`null` exactly when there is one; [the pricing
-guide](pricing-package.md#the-storefront-fields) explains the field and its
-`null`.
+discount, and they are already reduced by it. `regularSalesTotalGross` holds
+the gross total *before* the discount and is non-`null` exactly when there is
+one; [the pricing guide](pricing-package.md#the-storefront-fields) explains
+the field.
 
 ### The reorder
 
-`PUT /api/admin/prompts/order` moves one prompt to the place another one holds,
-with the same body every reorder route of this module takes:
+`PUT /api/admin/prompts/order` moves one prompt to the place another one holds:
 
 ```jsonc
 // PUT /api/admin/prompts/order
@@ -269,84 +343,67 @@ with the same body every reorder route of this module takes:
 [ { "id": 42, "position": 8, "title": "Watercolor portrait", "…": "…" } ]
 ```
 
-Three properties of that exchange are worth naming:
-
-- **the answer is the complete new order**, not the moved prompt. A client that
-  moved one row does not have to work out which of the others moved with it;
+- **the answer is the complete new order**, not the moved prompt;
 - **the rows are the list rows**, including the small price projection, so the
   admin table can replace what it shows with what it received;
-- **an unknown `sourceId` or `targetId` is `404`**, not a conflict. The legacy
-  backend answered `409` for the categories and `404` here; every reorder route
-  of this module now answers `404`, because "this id does not exist" is not a
-  race.
+- **an unknown `sourceId` or `targetId` is `404`**, because "this id does not
+  exist" is not a race.
 
-A lost race answers `409` with the stable message
-`Prompt order changed concurrently, please retry`. It is retryable and nothing
-was written; how that is decided is the next section.
+A lost race answers `409` with `Prompt order changed concurrently, please
+retry`. It is retryable and nothing was written; how that is decided is
+[How the position is decided](#how-the-position-is-decided).
 
 ### The example image
 
 Uploading and saving are two requests. `POST /api/admin/prompts/example-images`
-takes a multipart body with a `file` part, converts it to WebP through the image
-module's `PublicImageStorage`, stores it in the folder `prompt-example-images`,
-and answers with the name:
+takes a multipart body with a `file` part (anything else answers `415`
+through the platform's `formBody`), stores it as WebP in the public folder
+`prompt-example-images` through the image module, and answers with the name:
 
 ```jsonc
 // 201 Created
 { "filename": "6f1b0f34-6f0a-4a2f-9c1a-2b7f0c9d1e55.webp" }
 ```
 
-The create or update that follows carries that name in
-`exampleImageFilename`, which keeps both write routes plain JSON. A body without
-a `file` part and a body larger than 10 MiB are both `400 Validation failed`
-with the message on the `file` field. The oversized one is refused while it is
-still arriving, because the shared reader stops taking bytes at the limit.
-Everything the image storage itself rejects (an unsupported type, a broken file)
-comes back as a field error on `file` as well. The part name is the only key
-these errors ever use (`FILE_PART_NAME` in `UploadedImage.kt`).
+The create or update that follows carries that name in `exampleImageFilename`,
+which keeps both write routes plain JSON. A body without a `file` part
+(`An example image file part is required`) and a part larger than 10 MiB
+(`Example image must not exceed 10 MiB`) are both `400 Validation failed` with
+the message on the `file` field, and so is everything the image storage itself
+rejects. See [the image guide](image-package.md#upload-limits).
 
-The rule below is not written in this module. It lives once in the image
-module's `ExampleImages`, which this service holds one of, for the
-`prompt-example-images` folder and under its own logger (see
-[`image-package.md`](image-package.md#the-example-image-rule)).
-
-A submitted name is checked twice before the prompt is written, and a rejection
-is a field error on `exampleImageFilename`:
+The rule that follows is not written in this module. It is the image module's
+`ExampleImages` (see
+[the example-image rule](image-package.md#the-example-image-rule)). A submitted
+name is checked before the prompt is written, and a rejection is a field error
+on `exampleImageFilename`:
 
 1. it must have the shape the storage mints, a UUID with dashes and `.webp`;
 2. the file must exist.
 
-Both checks also run for a name the prompt already stores. There is no exemption
-for "the value that is already there", which the legacy validation had: a file
-is only removed once no prompt names it, so a stored name whose file is gone
-means another writer replaced it and deleted the file in between. Writing
-that name back would point the row at a picture that does not exist.
+Both checks also run for a name the prompt already stores. A file is only
+removed once no prompt names it, so a stored name whose file is gone means
+another writer replaced it and deleted the file in between; writing that name
+back would point the row at a picture that does not exist.
 
 After a successful write, the file the prompt stopped naming is deleted, but
-only when no other prompt row named it at the moment the write committed:
+only when no prompt row named it at the moment the write committed:
 
 ```text
 prompt A: image X            update A to no image  → X still used by B → kept
 prompt B: image X            update B to no image  → nobody uses X     → deleted
 ```
 
-Nothing makes a name exclusive. The pre-upload hands a client one name, and it
-may put that name on two prompts, so the "is anybody still using it?" question is
-asked inside the write's own transaction, after its statement ran. That is the
-only moment where the answer is the state the commit will publish.
-
-Two failures are deliberately not the client's problem: a delete that fails is
-logged and the write still answers `200`, and a file that was uploaded but never
-named by any prompt stays behind as an accepted orphan. Sweeping those orphans is
-a separate feature, the same one the article module waits for.
+Nothing makes a name exclusive, so the "is anybody still using it?" question is
+asked inside the write's own transaction, after its statements ran. A delete
+that fails is only logged and the write still answers `200`; a file that was
+uploaded but never named stays behind as an accepted orphan.
 
 ## The storefront list
 
-`GET /api/prompts` is the one route of this module a customer's browser calls,
-and it is registered *outside* the `authenticate` block. Anonymous access is not
-a rule the handler applies but the absence of the admin subtree around it. The
-path is `/api/prompts`, so the two trees cannot be confused by a reader or by
-Ktor.
+`GET /api/prompts` is the one route of this module a customer's browser calls.
+It sits outside the admin sub-app, so anonymous access is not a rule the
+handler applies but the absence of `requireAdmin` around it.
 
 ```jsonc
 // GET /api/prompts?categoryId=1  →  200 OK, a bare array
@@ -361,60 +418,42 @@ Ktor.
 ```
 
 **There is no `promptText` here, and there never is.** The composed generation
-text is what this shop sells; an anonymous client that receives it does not have
-to buy anything. The rule is not a filter over a shared representation but the
-shape of `PublicPrompt` plus a query that does not select the column, and
-`PublicPromptIntegrationTest` compares the whole document to keep it that way.
-`active`, `archived`, and `priceId` are absent for the smaller reason that only
-visible prompts are in the list at all.
+text is what this shop sells. The rule is not a filter over a shared
+representation but the shape of `PublicPrompt` plus a query that does not
+select the column; the storefront test compares the whole document.
 
 The two category levels are **nested objects** here while the admin contract is
-flat. That is not an inconsistency: the admin client loads both category lists
-itself and can label anything from them, while this list is the storefront's only
-source for either. A name it does not get here it cannot get at all.
+flat: the admin client loads both category lists itself, while this list is the
+storefront's only source for either.
 
 Four rules decide what the answer contains:
 
 1. **Visibility.** A prompt is listed while it is `active`, not `archived`, its
-   category is active, and it either has no subcategory or an active one. The
-   generation and cart lookups of `PromptCatalog` deliberately check *only*
-   `active && !archived`, so a prompt in a deactivated category stays generatable
-   and buyable by id while disappearing from the storefront. That divergence is
-   preserved on purpose, not an oversight.
+   category is active, and it either has no subcategory or an active one.
 2. **Order.** `(position, id)`, always, with and without the filter. The module
    has one global prompt order, and a filtered view of it is still that order.
-   The legacy backend sorted the filtered list by subcategory and title instead,
-   which meant the order an admin arranged stopped applying the moment a customer
-   picked a category (approved deviation).
-3. **`categoryId`.** A value that is not a number is `400 Invalid prompt category
-   id`, decided before the operation runs. A number that names no category is
-   `[]`. "There is no such category" is an answer, not an error, and a customer
-   following a stale link should see an empty list. An absent, empty, or blank
-   parameter means no filter: a value that is only whitespace is treated exactly
-   like a missing one.
-4. **`price`.** The same small projection the admin list carries, resolved in
-   **one** batched `PriceCatalog.find` per response and recalculated from the
-   current VAT entries on every read. A page without a single price asks the
-   pricing module nothing. A prompt whose nullable `price_id` is empty answers
-   `"price": null`, never `0`, which is a price a shop may legitimately charge.
+3. **`categoryId`.** A value that is not an integer is `400 Invalid prompt
+   category id`. A number that names no category is `[]`. An absent, empty, or
+   blank parameter means no filter.
+4. **`price`.** The small projection, resolved in one batched
+   `priceCatalog.find` and recalculated from the current VAT entries on every
+   read. A prompt whose `price_id` is empty answers `"price": null`, never `0`,
+   which is a price a shop may legitimately charge.
 
 ## The exported capability
 
-`PromptCatalog` is the only public type of this module besides the two
-composition functions. It answers the two questions another module will ask
-about a prompt it stores a reference to, and nothing else:
+`promptCatalog` answers the two questions another module asks about a prompt it
+stores a reference to, and nothing else:
 
-```kotlin
-public interface PromptCatalog {
-    public suspend fun composedText(promptId: Long): String?
-    public suspend fun findSalesGrossPriceCents(promptIds: Set<Long>): Map<Long, Int>
-}
+```ts
+composedText: (promptId: number) => Promise<string | null>
+findSalesGrossPriceCents: (promptIds: Iterable<number>) => Promise<Map<number, number>>
 ```
 
-`composedText` is what the Generator sends to the image model. It is the
-prompt's own text followed by the text of every slot variant the prompt is
-mapped to, ordered `(slot.position, slot.id, variant.name, variant.id)` and
-joined by a **blank line**:
+`composedText` is what the generator sends to the image model: the prompt's own
+text followed by the text of every slot variant the prompt is mapped to,
+ordered `(slot.position, slot.id, variant.name, variant.id)` and joined by a
+**blank line**:
 
 ```text
 Turn the photo into art.
@@ -424,347 +463,208 @@ on a beach
 in watercolor
 ```
 
-The database does the ordering and the read does the trimming. Every part is
-trimmed, blank variant texts drop out instead of producing an empty paragraph,
-and the answer is `null` when the prompt is unknown, inactive, archived, or has
-a blank text. That is one absent case rather than four, because a caller can do
-exactly one thing about any of them. Trimming *here* is the counterpart of
-storing the prompt text verbatim: the author keeps the whitespace, the model
-does not get it.
+The database does the ordering (one query with outer joins) and the read does
+the trimming. Every part is trimmed, blank variant texts drop out, and the
+answer is `null` when the prompt is unknown, inactive, archived, or has a blank
+text: one absent case rather than four, because a caller can do exactly one
+thing about any of them.
 
-`findSalesGrossPriceCents` is what the Cart asks before it snapshots a
-line. A prompt is in the answer while it is active, not archived, and linked to
-a price row; every other id is **absent**. That is the whole rule, and the one
-thing it must never do is answer `0`: a shop may legitimately charge nothing for
-a prompt, so a `0` meaning "not for sale" could not be told apart from a free
-one. Whatever the batch holds, the prices are resolved in one
-`PriceCatalog.find` and recalculated from the current VAT, and an empty set is
-answered without touching the database.
+`findSalesGrossPriceCents` is what the cart asks before it snapshots a line. A
+prompt is in the answer while it is active, not archived, and linked to a price
+row; every other id is **absent**, never `0`. The value is the effective gross
+(`salesTotal.gross`, a discount already subtracted). The prices of the whole
+batch are resolved in one `priceCatalog.find`, and an empty input is answered
+without touching the database.
 
 Both lookups deliberately **ignore the category and subcategory `active`
-flags**, unlike the storefront list of the previous section. A prompt in a
-deactivated category disappears from the shop while staying generatable and
-buyable by id. Deactivating a category hides a group from browsing; it does not
-break the carts and generator jobs that already name a prompt inside it. The
-divergence is the legacy behavior, kept on purpose (deviation D12 of the
-migration record), and `PromptCatalogIntegrationTest` asserts it rather than the
-absence of a filter being left to chance.
+flags**, unlike the storefront list: a prompt in a deactivated category
+disappears from the shop while staying generatable and buyable by id.
+Deactivating a category hides a group from browsing; it does not break the
+carts and generator jobs that already name a prompt inside it (deviation D12 of
+the migration record). The queries do not join the category tables at all.
 
-Nothing of the module's own representations crosses this boundary: `Prompt`,
-`PublicPrompt`, `PromptListItem`, and `PromptPrice` stay `internal`, so a
-consumer receives a text and an amount instead of a shape it could grow
-opinions about.
+Both answers let a database error propagate: `null` would tell a generator that
+a prompt has no text, and an empty map would tell a cart that its prompts cannot
+be bought.
 
 ## How a prompt and its price stay one write
 
-The price is a row of the pricing module, and a prompt owns exactly one:
-
-```kotlin
-val price = prices.prepare(input.price)   // validate, resolve VAT, calculate, no database
-repository.insert(normalized, price)      // and only then open a transaction
+```ts
+const price = await priceCatalog.prepare(priceInput)   // VAT lookup and calculation, no write
+// …and only then the transaction:
+const priceId = await priceCatalog.storeInTransaction(trx, price.value)
 ```
 
 `prepare` never touches the `prices` table, so it runs *before* the transaction
-and a price that does not calculate is answered without any lock being held. The
-writing half, `storeInTransaction` on create and `replaceInTransaction` on
-update, runs inside the prompt's own transaction. That is what makes the two
-failure directions symmetric: a rejected price never creates a prompt, and a
-prompt that fails to be written never leaves a price row behind. Both
-directions are proven in `PromptAdminIntegrationTest`, not assumed.
+and a price that does not calculate is answered without any lock being held.
+The writing half, `storeInTransaction` on create and `replaceInTransaction` on
+update, takes the prompt's `trx`. That is what makes the two failure directions
+symmetric: a rejected price never creates a prompt, and a prompt that fails to
+be written (an unknown slot variant, found after the price row was inserted)
+never leaves a price row behind. `prompt.test.ts` asserts both directions by
+counting the rows.
 
-An update writes over the same price row, so the id never churns. One special
-case is worth knowing: the `price_id` column is nullable, so a prompt without a
-linked price can exist. A valid update **creates and links** a price there
-instead of failing on it, while an update that submits no price at all stays a
-`400`, because a prompt is something the shop sells.
-
-The field errors of the price keep the path the client sent them at:
-`salesVatId` becomes `price.salesVatId`, so nobody has to guess which of the two
-objects in the body a rejected field belongs to.
+An update writes over the same price row, so the id never churns. The
+`price_id` column is nullable, so a prompt without a linked price can exist; a
+valid update **creates and links** a price there, while an update without a
+price stays a `400`, because a prompt is something the shop sells.
 
 ## How the position is decided
 
 Slot positions decide the display order and nothing else. A create appends
-behind the last one:
+behind the highest one:
 
-```kotlin
-lockSlotOrderingInTransaction()          // queue on the SLOT anchor row
-val nextPosition = PromptSlots.maxPositionInTransaction(PromptSlots.position) + 1
+```ts
+await lockSequence(trx, 'SLOT')          // queue on the SLOT anchor row
+// … then read coalesce(max(position), 0) and insert at max + 1
 ```
 
 Reading the maximum without the lock would race: under PostgreSQL's default
-`READ COMMITTED` isolation two creates would read the same maximum and write it
-twice. Both writers therefore lock the same row in `prompt_ordering` first, and
-only the statements *after* the lock see what the other writer committed. The
-legacy service instead caught the resulting conflict and retried once; with the
-anchor, the conflict it retried cannot happen, so the retry is gone.
-
-Two things slots deliberately do **not** do, unlike the article categories:
-
-- **no reorder route**, and
-- **no compaction after a delete**.
-
-A deleted slot leaves its position empty, and the next create appends behind the
-highest position rather than filling the gap. Nothing reads the number, only the
-order it produces, so closing the gap would move rows for no reason.
+`READ COMMITTED` isolation two creates would read the same maximum. Both
+writers therefore lock the same row in `prompt_ordering` first, and only the
+statements *after* the lock see what the other writer committed. Slots have no
+reorder route and no compaction: a deleted slot leaves its position empty.
 
 Category positions do all three: a create appends, a delete closes the gap it
-leaves, and `PUT /order` rewrites the whole sequence. They stay `1..n` without a
-gap, and that is a promise the code checks before it writes:
+leaves, and `PUT /order` rewrites the whole sequence. They stay `1..n`, and the
+reorder checks it before it writes:
 
-```kotlin
-lockCategoryOrderingInTransaction()            // queue on the CATEGORY anchor row
-val stored = orderedCategoriesInTransaction()  // ... and only then read
-if (!stored.isDenseBy(PromptCategory::position)) return PositionConflict
+```ts
+await lockSequence(trx, 'CATEGORY')
+const stored = await orderedCategories(trx)
+const order = moved(stored, sourceId, targetId)   // notFound, conflict for a gap, or the new order
 ```
 
 Refusing a gapped sequence instead of repairing it matters, because a rewrite
 would move *every* row a client can see although it asked to move one. The gap
-can only come from a writer that ignored the anchor, a manual database fix for
-instance, so the answer is a retryable `409` that leaves the evidence in place.
+can only come from a writer that ignored the anchor, so the answer is a
+retryable `409` that leaves the evidence in place.
 
-The rewrite itself is single-phase: it writes each row's final position directly.
-Two rows briefly share a position while it runs, and PostgreSQL allows that
-because the unique rule on `position` is `DEFERRABLE INITIALLY DEFERRED` and is
-therefore only checked at `COMMIT`. The legacy backend needed a two-phase rewrite
-into temporary positions instead.
+`rewritePositions` is single-phase: it writes each row's final position
+directly. Two rows briefly share a position while it runs, and PostgreSQL
+allows that because the unique rule on `position` is `DEFERRABLE INITIALLY
+DEFERRED` and therefore only checked at `COMMIT`.
 
-Prompt positions work exactly like the category positions, on their own `PROMPT`
-anchor, with one difference: prompts are **never deleted**, so there is no
-compaction. A create appends, and `PUT /order` rewrites the sequence.
+Prompt positions work like the category positions on their own `PROMPT` anchor,
+except that prompts are never deleted, so there is no compaction. The reorder
+locks the prompt rows ascending by id **after** it read the order: what the
+transaction decides from is the order it read, and a position another writer
+committed in the meantime is what the deferred unique rule catches at
+`COMMIT`. An update decides no position and takes no anchor.
 
-```kotlin
-lockPromptOrderingInTransaction()              // queue on the PROMPT anchor row
-val stored = listInTransaction()               // ... and only then read
-if (!stored.isDenseBy { row -> row.prompt.position }) return PositionConflict
-lockPromptsInTransaction(stored.map { it.prompt.id })   // rows, ascending by id
-```
+Subcategory positions count **per category**: the category row *is* the anchor
+of its sequence. A move to another category appends in the target and compacts
+the source, so both rows are locked. A subcategory write has to read the row
+before it knows which category to lock, and the row can move in between; the
+attempt then answers `'retry'` and the next one starts over in a new
+transaction (at most three), because taking one more lock would break the lock
+order below.
 
-The row locks are taken **after** the read on purpose: what the transaction
-decides from is the order it read, and a position another writer changed in the
-meantime is exactly what the deferred unique rule catches at `COMMIT`. The
-reorder locks no category row at all, because it is the one prompt write that
-changes no reference, only positions. The anchor is taken by the writes that
-*decide* a position: the create takes it first and the category row after it,
-and the reorder takes it alone. An update decides no position, since it keeps
-the one the prompt has, so it takes no anchor at all and locks the category row
-and then its own prompt row.
+Three kinds of writers lock category rows: the category writers, which hold the
+`CATEGORY` anchor first; the subcategory writers, which never take an anchor;
+and the prompt writes, which lock the category the prompt is written into (the
+create while it holds the `PROMPT` anchor). Two rules keep them from waiting on
+each other:
 
-Subcategory positions count **per category**, so there is no global anchor for
-them: the category row *is* the anchor of its own sequence. A move to another
-category is a position change in two sequences at once: it appends in the target
-and compacts the source. That is why both rows are locked before anything is
-written.
-
-That leaves three kinds of writers locking category rows: the category writers,
-which queue on the `CATEGORY` anchor first; the subcategory writers, which never
-take that anchor at all; and the two prompt writes that name a category, the
-create, which holds the `PROMPT` anchor while it does, and the update, which
-holds no anchor. Two rules keep them from waiting on each other:
-
-- **the global anchor is taken before any category row**, and
-- **category rows are locked distinct, ascending by id, one statement each**,
-  never in the display order a rewrite happens to need.
-
-A violation of the second rule is a deadlock, which nothing maps and which would
-surface as a failed request. `PromptCategoryLockOrderConcurrencyIntegrationTest`
-is what keeps the rule honest.
+- **a global anchor is taken before any category row**, and
+- **category rows are locked distinct, ascending by id, one statement each**
+  (`lockCategories`), never in the display order a rewrite happens to need.
 
 ## How a failed write is recognized
 
-Never by the name of a constraint. Only by the SQL state PostgreSQL reports,
-and by *where* the mapping sits. The unique rule on `position` is
-`DEFERRABLE INITIALLY DEFERRED`, which means PostgreSQL checks it at `COMMIT`,
-while the unique index on `LOWER(name)` is checked while the statement runs:
+Never by the name of a constraint, only by the SQL state, through
+`executePostgresWrite` around the `write` transaction (see
+[Persistence error handling](../conventions/persistence-error-handling.md)):
 
-```kotlin
-executePostgresWrite(uniqueViolation = PromptSlotWriteResult.NameConflict) {
-    // one statement: a 23505 raised here can only be the name
-}
-```
-
-Because the wrapper sits inside the transaction, it cannot see a position
-conflict at all. That is the point: a position conflict is impossible under the
-anchor, so if one ever happened it would be a broken invariant and should
-surface as an unexpected failure, not as a mislabelled "name already exists".
-
-The foreign-key state `23503` is mapped only where exactly one relationship can
-fail the statement:
-
-| Statement | Only possible cause | Result |
+| Write | SQL state | Result |
 | --- | --- | --- |
-| insert a variant | the slot does not exist | field error `slotId` |
-| delete a slot | variants still reference it | `409` still in use |
-| delete a variant | prompts still reference it | `409` still in use |
-| delete a category | subcategories or prompts reference it | `409` still in use |
-| delete a subcategory | prompts reference it | `409` still in use |
-| update a subcategory | prompts hold it in its current category | field error `categoryId` |
-| write a prompt row | the composite `(subcategory_id, category_id)` key | field error `subcategoryId` |
-| insert a slot-variant mapping | the slot variant does not exist | field error `slotVariantIds` |
+| slot, variant, category, subcategory create or update | `23505` | `409` name already exists |
+| insert a variant | `23503` | field error `slotId` |
+| delete a slot | `23503`/`23001` | `409` still in use (variants) |
+| delete a variant | `23503`/`23001` | `409` still in use (prompts) |
+| delete a category | `23503`/`23001` | `409` still in use (subcategories or prompts) |
+| delete a subcategory | `23503`/`23001` | `409` still in use (prompts) |
+| update a subcategory | `23503` | field error `categoryId`: prompts hold it in its category |
+| prompt create or update | `23503` | field error `slotVariantIds` |
+| any reorder | `23505` at `COMMIT` | `409` order changed concurrently |
 
-The variant *update* declares no foreign-key mapping, because it never writes
-the slot column and therefore has no reference that could fail.
+Each foreign-key mapping is unambiguous because every other reference of the
+write is ruled out first:
 
-The last two rows are why a prompt write maps `23503` **per statement** and
-never once for the whole write. A prompt has four references, and each is ruled
-out or isolated in turn: the category row is locked first (a missing category is
-a lock that found no row, not a SQL state), the price id is minted inside the
-same transaction and cannot fail, which leaves the composite subcategory key as
-the only thing the `prompts` statement can violate. The mapping insert
-references nothing but slot variants. A single mapping around the whole write
-could not tell the three apart, and the client would be told which field to fix
-by guesswork.
+- a subcategory write locks its category rows, so they cannot disappear, and
+  the one reference left is the composite key `prompts(subcategory_id,
+  category_id)`. A missing category is a lock that found no row;
+- a prompt write locks its category row and then asks whether the subcategory
+  belongs to that category. The answer holds until the transaction ends,
+  because every writer that deletes a subcategory or moves one in or out of a
+  category locks that category row first. The price id is minted in the same
+  transaction, and the price write locks its VAT entries and throws instead of
+  failing on a deleted one (see the pricing guide). What is left is the slot
+  variants of the mapping insert.
 
-The one prompt write that maps `23505` is the reorder, and it maps it around the
-whole transaction rather than around a statement, because a deferred rule is
-only checked at `COMMIT`, so nothing inside the transaction could see it.
-Prompts have no unique name, so a `23505` from a create or an update stays the
-broken invariant it is: under the anchor the position rule is unreachable there.
+A create or update maps `23505` to the name conflict although the wrapper also
+sees the `COMMIT`: the position it writes is decided under the anchor, so a
+deferred position violation there cannot happen. Prompts have no unique name and
+map no `23505` outside the reorder.
 
-The last row is the one that needs the lock to be unambiguous. A subcategory
-write has two references that could fail: its category, and the composite key
-`prompts(subcategory_id, category_id)` that holds it there. The write locks the
-category row first, so while it runs that category cannot disappear and only one
-relationship is left to fail. A missing category is not a SQL state at all then:
-it is a lock that found no row.
+## Differences from the Kotlin module
 
-That composite key is also why moving a used subcategory needs no preliminary
-read. A prompt references its subcategory *together with* the category, so the
-database refuses the move by itself. The legacy `ValidateSelectedSubcategory`
-check is gone, not reimplemented.
-
-## Composition
-
-```kotlin
-public fun Application.installPromptModule(
-    database: Database,
-    images: PublicImageStorage,
-    prices: PriceCatalog,
-): PromptCatalog
-public fun RequestValidationConfig.validatePromptRequests()
-```
-
-Everything else is `internal`: the handle `PromptModule`, the factory
-`createPromptModule`, the operation interfaces, the services, the repositories,
-the Exposed tables, and `PromptPrice`. `Application.kt` installs the module
-after Article and registers the seven request types in the one Request
-Validation plugin.
-
-One installation call registers both trees: the five admin route groups inside
-the `authenticate` block, and the storefront route outside it. A storefront that
-could be installed without its admin half, or the other way round, would be a
-seam nobody needs.
-
-The composition root **binds** the returned `PromptCatalog` to two modules, one
-per half of the capability. The cart module has bound
-`findSalesGrossPriceCents` since the Cart migration: an add-to-cart request that
-names a prompt snapshots its current effective gross sales price — a price
-discount already subtracted — and a prompt that is
-unknown, inactive, or archived makes the add fail. The generator module has
-bound `composedText` since the Generator migration of 2026-07-30: it sends that
-text to the image model and turns the `null` answer into its own `404`, which is
-why this module never had to know which status code an unusable prompt deserves
-(see the [Generator package guide](generator-package.md)).
-
-The installation signature grew with the slices: it took `PriceCatalog` with the
-prompt slice, Image's `PublicImageStorage` with the example-image slice, and the
-`PromptCatalog` return value with the catalog slice. Each parameter arrived with
-the slice that used it, because a parameter no caller can use would be worse than
-a signature that changes once per slice.
+- **Unknown properties are rejected.** A prompt body with `position` or
+  `priceId`, or a variant update with `slotId`, is `400 Unknown property`; the
+  Kotlin decoder ignored them. A wrong type gets a field message (`Active must
+  be a boolean`) instead of a parse failure.
+- **One `400` for the prompt and its price.** The Zod schema embeds
+  `priceInput`, so a body with a broken title and a broken price field reports
+  both at once (`title`, `price.salesVatId`); Kotlin reported the price fields
+  only after the prompt fields passed.
+- **The subcategory of a prompt is checked by a read under the category lock**
+  instead of mapping `23503` around the `prompts` statement alone: in Kysely a
+  failed statement aborts the transaction, so the port keeps one mapping
+  around `write` (name conflicts included) and rules the subcategory out
+  before the statement runs.
+- **The oversized upload** is refused after the body arrived (the image module's
+  reader), within the application-wide body limit.
 
 ## Tests
 
-The module test source set mirrors the categories the article module
-established:
+Run from `backend/`:
 
-- `PromptSlotInputValidationTest` and `PromptSlotVariantInputValidationTest`:
-  the pure field-rule matrix, including the create/update asymmetry;
-- `PromptSlotRouteSecurityAndValidationTest` and its variant counterpart:
-  the admin subtree rejects anonymous, customer, and CSRF-less requests
-  *before* an operation runs, and every result maps to the documented status;
-- `PromptSlotAdminIntegrationTest` and `PromptSlotVariantAdminIntegrationTest`:
-  the real module on real PostgreSQL: case-insensitive duplicates, the global
-  cross-slot variant duplicate, the in-use conflicts, and the counts;
-- `PromptSlotConcurrencyIntegrationTest`: two creates that start at the same
-  time append `1` and `2` without a retry, and a delete's gap is not reused;
-- `PromptSlotSchemaIntegrationTest`: Flyway on an empty database, followed by
-  the seeded anchor rows, the `LOWER(name)` rules, the restricting foreign keys,
-  and the position rule that is accepted by the statement and rejected by the
-  `COMMIT`.
+```sh
+bun test src/modules/prompt    # this module only
+bun run check                  # the full gate
+```
 
-The category slice adds the same categories plus two the slots do not need,
-because slots have no reorder and no per-sequence anchor:
+Every test file builds the real module with the real pricing module and a real
+image module on a temporary directory, and calls `testApp(module.routes)`.
 
-- `ReorderInputValidationTest`, `PromptCategoryInputValidationTest`, and
-  `PromptSubcategoryInputValidationTest`: the field rules;
-- `PromptCategoryRouteSecurityAndValidationTest` and its subcategory
-  counterpart: including the reorder route and the `404` for an unknown id;
-- `PromptCategoryAdminIntegrationTest` and
-  `PromptSubcategoryAdminIntegrationTest`: dense append, compaction after a
-  delete, the reorder answer, the cross-category move that appends in the target
-  and compacts the source, and the used subcategory that cannot move;
-- `PromptCategoryConcurrencyIntegrationTest` and its subcategory counterpart:
-  two reorders serialize, a gapped sequence is refused without writing anything,
-  and a position written outside the lock makes the reorder fail at `COMMIT`;
-- `PromptCategoryLockOrderConcurrencyIntegrationTest`: the ascending-id rule,
-  built deterministically: a raw connection holds one category row until both
-  writers are visibly waiting;
-- `PromptCategorySchemaIntegrationTest`: the per-category `LOWER(name)` rule,
-  the restricting foreign keys, the composite subcategory key, and both position
-  rules asserted at the `COMMIT` that rejects them.
+| Test | What it states |
+| --- | --- |
+| [`validation.test.ts`](../../../../backend/src/modules/prompt/validation.test.ts) | Every request schema: messages, defaults, trimming, the verbatim prompt text, deduplication, `price.<field>` paths, the rejected `position`/`priceId`/`slotId` |
+| [`slot.test.ts`](../../../../backend/src/modules/prompt/slot.test.ts) | One happy path per slot and variant route, the gapped append, case-insensitive and cross-slot duplicates, the unknown slot field error, both in-use deletes, concurrent creates appending `1..n`, and concurrent case-variant creates leaving one row and one `409` |
+| [`category.test.ts`](../../../../backend/src/modules/prompt/category.test.ts) | One happy path per category and subcategory route, compaction, the reorder answers, the cross-category move, the two `categoryId` field errors, the in-use deletes, concurrent creates and case-variant races, two serialized reorders, the refused gap, a rotation committed outside the anchor that makes the reorder lose at `COMMIT`, and a category reorder next to a subcategory move |
+| [`prompt.test.ts`](../../../../backend/src/modules/prompt/prompt.test.ts) | Create, list, get, update, and the absent delete; both price-atomicity directions; the three reference field errors; the price linked on update; the reorder answer, `404`, the refused gap, the lost `COMMIT`, and creates next to reorders; the pre-upload's three answers; the malformed, unknown, and vanished names; the shared file kept and the last reference deleted |
+| [`storefront.test.ts`](../../../../backend/src/modules/prompt/storefront.test.ts) | The whole storefront document without `promptText`, the visibility matrix, the order with and without the filter, blank and invalid `categoryId`, `price: null`, a VAT change; `composedText` ordering (slot ids against positions), trimming, joining, the four `null` cases, the deactivated category; `findSalesGrossPriceCents` with a discount, a `0` price, the ineligible ids, and an empty input |
 
-The prompt slice adds the same categories once more, plus one that no single
-module can cover:
+The platform cases (`401`/`403` on the admin tree, CSRF, malformed bodies, the
+body limit) are pinned once in `src/platform/**/*.test.ts`.
 
-- `PromptInputValidationTest`: the field rules, and the two fields the contract
-  must **not** have: a body carrying `position` or `priceId` is decoded without
-  them;
-- `PromptRouteSecurityAndValidationTest`: the admin subtree including the
-  pre-upload route, the shapes of both representations, the absent delete route,
-  the reorder with the one `409` of this route group, the three upload answers
-  (stored, no `file` part, oversized), and the storefront route that answers
-  without any session while rejecting only an unparsable `categoryId`;
-- `PublicPromptIntegrationTest`: the storefront read against the real module,
-  covering the visibility matrix written through the admin routes and read
-  anonymously including all three reactivations, the order proven by swapping two positions
-  with and without the filter, the whole-document comparison that names
-  `promptText` as forbidden, one batched price lookup for one prompt and for
-  three, the empty answer that asks the pricing module nothing, the VAT change
-  recalculated into the projection, the missing price row that stays `null`, and
-  the discounted prompt whose `salesTotalGross` is the effective amount next to
-  the regular one in `regularSalesTotalGross`;
-- `PromptExampleImageIntegrationTest`: the file lifecycle against the real
-  module. It covers the pre-upload answer, a malformed name, an unknown file, a
-  stored name whose file vanished, a shared file that survives the prompt dropping it, the
-  last reference that takes the file with it, the orphan a rejected write leaves
-  behind, and the failing cleanup that does not fail the request;
-- `PromptAdminIntegrationTest`: the real module plus the real pricing module on
-  real PostgreSQL. It proves both price-atomicity directions, the three
-  reference field errors told apart, the replaced mapping set, `[12, 9, 12]` in and `[9, 12]`
-  out, the untrimmed prompt text round trip, and the repair of a prompt whose
-  price was never linked;
-- `PromptConcurrencyIntegrationTest`: the ordering rules against the real
-  routes. Concurrent creates append `1..n` instead of reading the same maximum,
-  two reorders serialize and each answers a dense order, a create running next to
-  a reorder cannot corrupt the sequence, a manually gapped sequence is refused
-  before anything is written, and a rotation committed outside the anchor makes
-  the reorder lose the deferred unique check at `COMMIT`;
-- `PromptSchemaIntegrationTest`: the seeded `PROMPT` anchor, the `NOT NULL`
-  prompt text, the bounded title, `UNIQUE (price_id)`, the restricting price
-  reference, the mapping key, and the position rule that the statement accepts
-  and the `COMMIT` rejects;
-- `PromptPricingRelationshipIntegrationTest`: the cross-module half. A price a
-  prompt minted is a normal price to the pricing routes, an edit made there is
-  what the prompt answers with afterwards, and the row cannot be deleted away
-  from the prompt that holds it;
-- `PromptCatalogIntegrationTest`: the exported capability against the real
-  module. It asserts the composition order proved with slots whose ids run
-  against their positions, the blank-line join, the stored text that stays untrimmed while the
-  composed one is trimmed, the four cases that answer `null`, the prompt in a
-  deactivated category that still resolves while an archived one does not, the
-  prompt priced at `0` that is present with the value `0` next to the ineligible
-  ids that are absent, one batched price lookup per call with none at all for an
-  empty set, and a VAT change recalculated into the gross cents.
+## Safe change recipes
 
-Every schema rule is asserted through the SQL state a rejected write produces,
-never through a constraint name, so renaming a constraint stays a free change.
+### Add a prompt field
+
+1. If it is persisted, add a migration and the column to `PromptsTable` in
+   `schema.ts`.
+2. Add it to `promptColumns` and `promptRow` in `prompt/repository.ts`, to the
+   list query if the table shows it, and to `publicRows` only if a customer may
+   see it.
+3. Add it to `PromptInput` and `promptInput`.
+4. Extend `validation.test.ts`, the route tests, and this guide.
+
+### Add a route group
+
+1. Create the sub-folder with `routes.ts` and `repository.ts`, and a
+   `service.ts` only if its use cases join another module.
+2. Mount it in `index.ts` **before** `promptAdminRoutes`, so the prompts'
+   `/:id` cannot answer its path.
+3. A writer of category rows locks them through `lockCategories`, after any
+   global anchor.

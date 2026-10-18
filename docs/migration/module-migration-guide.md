@@ -44,7 +44,7 @@ existing type or a standard Kotlin type.
 Country, VAT, and Supplier use thin routes, coordinating services, Exposed
 repositories, and PostgreSQL-enforced invariants. The operation boundary
 returns the shared
-[`OperationResult<T>`](../dev/backend/conventions/operation-results.md). Routes do not leak
+[`OperationResult<T>`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/operation-results.md). Routes do not leak
 into services, and SQL details do not leak out of repositories.
 
 The cleanup history shows why this is a calibration example rather than a
@@ -107,7 +107,7 @@ Sub-packages organize one compilation module. They are not new visibility
 boundaries: the compilation module is still the real boundary, so `internal`
 declarations keep collaborating across the sub-packages while staying hidden
 from other modules. Account's package documentation shows the concrete split
-and this reasoning ([`account-package.md`](../dev/backend/packages/account-package.md)).
+and this reasoning ([`account-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/account-package.md)).
 
 Do not create a sub-package per layer by default, and never split for symmetry
 with another module. Size and navigation are the justification; a small module
@@ -296,7 +296,7 @@ with `null` or preserves stored values.
 ## Use the shared operation result
 
 Module operation interfaces return the shared
-[`OperationResult<T>`](../../backend/modules/platform/src/shop/voenix/operation/OperationResult.kt).
+[`OperationResult<T>`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/backend/modules/platform/src/shop/voenix/operation/OperationResult.kt).
 Its common variants are `Success`, `Invalid`, `NotFound`, `Conflict`, and
 `UnexpectedFailure`.
 
@@ -368,7 +368,7 @@ the `Map<String, List<String>>` field-error shape without introducing a wrapper
 or changing JSON serialization. Field errors are collected with the platform's
 `buildValidationErrors { add(field, message) }` builder, never with a raw map,
 so a second rule on the same field adds a message instead of replacing it — see
-[Request validation](../dev/backend/conventions/request-validation.md).
+[Request validation](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/request-validation.md).
 
 The normal flow is:
 
@@ -484,7 +484,7 @@ Promotion's admin update and its `redeem` operation share that lock; a real
 foreign key protects its delete, so that one needs no lock of its own. The
 worked example, with the failing test that produced this rule, is the
 "Both writers lock the promotion row" section of
-[`promotion-package.md`](../dev/backend/packages/promotion-package.md).
+[`promotion-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/promotion-package.md).
 
 Prove the serialization with a test that runs the two writers concurrently.
 When the second writer is only migrated in a later step there is nothing to
@@ -495,7 +495,7 @@ later showed the guard let an administrator reconfigure a promotion that had
 just been redeemed.
 
 Repositories use the shared
-[`executePostgresWrite`](../../backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
+[`executePostgresWrite`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/backend/modules/platform/src/shop/voenix/db/PostgresWrite.kt)
 helper to map expected PostgreSQL SQL states to typed write outcomes:
 
 ```kotlin
@@ -541,7 +541,7 @@ JDBC is blocking even when Exposed exposes a suspending transaction API, so the
 blocking section belongs on `Dispatchers.IO`. That wrap, `maxAttempts = 1`, and
 `readOnly` for reads are the default transaction policy of this backend, and
 they live in one place: the platform file
-[`Transactions.kt`](../../backend/modules/platform/src/shop/voenix/db/Transactions.kt).
+[`Transactions.kt`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/backend/modules/platform/src/shop/voenix/db/Transactions.kt).
 A migrated repository calls those two helpers instead of `suspendTransaction`:
 
 ```kotlin
@@ -648,9 +648,9 @@ type even in a small package.
 - Assemble the object graph in `createXModule` and install it through
   `Application.installXModule` at the existing composition seam.
 - Group declarations into files following
-  [`source-file-organization.md`](../dev/backend/conventions/source-file-organization.md):
+  [`source-file-organization.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/source-file-organization.md):
   closely related types share the file of the component that owns them.
-- Read [`kotlin-code-quality.md`](../dev/backend/conventions/kotlin-code-quality.md) before
+- Read [`kotlin-code-quality.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/kotlin-code-quality.md) before
   fighting the quality gate. It answers the two failures every migration so far
   has run into: a `private companion object` in a `@Serializable` request type
   hides the generated serializer (Article T3), and Detekt's per-class and
@@ -711,7 +711,7 @@ Do this before calling the migration complete:
   deferred heading leaves the structure contradicting its own text (Order
   left three such bullets in `production-migration.md`, found in phase 3).
 - Add the new compilation module to
-  [`module-architecture.md`](../dev/backend/conventions/module-architecture.md): the module
+  [`module-architecture.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/module-architecture.md): the module
   graph, the dependency table, the physical layout, any exported capability,
   and the application composition steps. A package guide alone is not enough —
   Promotion had one from its first issue and was still missing from all five
@@ -959,14 +959,14 @@ The main post-migration changes are visible in Git:
 
 The current implementation and detailed explanations are in:
 
-- [`operation-results.md`](../dev/backend/conventions/operation-results.md);
-- [`persistence-error-handling.md`](../dev/backend/conventions/persistence-error-handling.md);
-- [`country-package.md`](../dev/backend/packages/country-package.md);
-- [`vat-package.md`](../dev/backend/packages/vat-package.md);
-- [`supplier-package.md`](../dev/backend/packages/supplier-package.md);
-- [`promotion-package.md`](../dev/backend/packages/promotion-package.md);
-- [`module-architecture.md`](../dev/backend/conventions/module-architecture.md); and
-- [`authentication-and-authorization.md`](../dev/backend/conventions/authentication-and-authorization.md).
+- [`operation-results.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/operation-results.md);
+- [`persistence-error-handling.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/persistence-error-handling.md);
+- [`country-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/country-package.md);
+- [`vat-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/vat-package.md);
+- [`supplier-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/supplier-package.md);
+- [`promotion-package.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/promotion-package.md);
+- [`module-architecture.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/module-architecture.md); and
+- [`authentication-and-authorization.md`](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/conventions/authentication-and-authorization.md).
 
 The historical Codex tasks used to identify recurring review themes include
 Country migration and simplification (`019f4b92-2afa-7771-922f-3c3ebf95e7fa`,

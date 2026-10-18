@@ -13,7 +13,7 @@ import {
 
 /**
  * One production job as an administrator sees it, mirroring the backend's `AdminJobView`
- * (`backend/modules/production/src/shop/voenix/production/fulfillment/AdminJobView.kt`).
+ * (`backend/src/modules/production/fulfillment/service.ts`).
  *
  * It is the supplier's view of a job plus the two things only an operator needs: whose job it is,
  * and how the document generation is doing. `generationAttemptCount` and `lastGenerationErrorCode`

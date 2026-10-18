@@ -143,7 +143,7 @@ export const useAdminVatStore = defineStore('admin-vat', () => {
  * Which call produced the refusal. A `409` means something different per operation and the
  * message cannot be trusted to tell them apart: a create or update conflicts on the unique name
  * ("VAT entry already exists"), while a delete is refused because the entry is still referenced
- * ("VAT is in use") — see `VatRoutes.kt`. So the operation is the discriminator, never the
+ * ("VAT is in use") — see `backend/src/modules/pricing/vat-routes.ts`. So the operation is the discriminator, never the
  * message text.
  */
 type VatOperation = 'read' | 'create' | 'update' | 'delete'

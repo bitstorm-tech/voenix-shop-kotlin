@@ -4,7 +4,7 @@ import { ApiError, fetchForm, fetchJson } from '@/lib/api'
 import type { ShopArticleType } from '@/stores/shop/catalog'
 
 /**
- * One line of the rendered cart, exactly as the Kotlin `CartLine` serializes it
+ * One line of the rendered cart, exactly as the backend's `CartLine` serializes it
  * (`docs/dev/backend/packages/cart-package.md`).
  *
  * `price` and `promptPrice` are the snapshots the line was quoted at; the names and the two color
@@ -189,7 +189,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   /**
-   * Adds a line, in the two steps the Kotlin cart takes: the optional image is minted first, and
+   * Adds a line, in the two steps the backend's cart takes: the optional image is minted first, and
    * only a minted id is submitted with the JSON line. Both failures are reported as a
    * [CartAddError] that names the step, so the caller can tell the customer which half went wrong.
    */

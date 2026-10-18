@@ -1,8 +1,8 @@
 # The whole application as one image: the TypeScript backend serving the built
 # Vue frontend. Build context is the repository root. This is the image a
-# production deployment (for example Render.com) runs; backend-ts/Dockerfile
+# production deployment (for example Render.com) runs; backend/Dockerfile
 # builds the backend-only image.
-# See docs/dev/backend-ts/getting-started/full-stack-image.md.
+# See docs/dev/backend/getting-started/full-stack-image.md.
 
 # Frontend build stage: `bun run build` type-checks with vue-tsc and bundles
 # with Vite into dist/.
@@ -15,13 +15,13 @@ RUN bun install --frozen-lockfile
 COPY frontend/ ./
 RUN bun run build
 
-# Backend dependency stage, identical to the one in backend-ts/Dockerfile: only
+# Backend dependency stage, identical to the one in backend/Dockerfile: only
 # the lockfile-pinned production dependencies. Debian-based, not Alpine: sharp
 # ships glibc-linked libvips binaries, and the runtime stage is the same base.
 FROM oven/bun:1 AS backend-deps
 
 WORKDIR /app
-COPY backend-ts/package.json backend-ts/bun.lock ./
+COPY backend/package.json backend/bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # Runtime stage: Bun runs the TypeScript sources directly, next to the built
@@ -40,9 +40,9 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=backend-deps --chown=app:app /app/node_modules node_modules
-COPY --chown=app:app backend-ts/package.json backend-ts/tsconfig.json ./
-COPY --chown=app:app backend-ts/migrations migrations
-COPY --chown=app:app backend-ts/src src
+COPY --chown=app:app backend/package.json backend/tsconfig.json ./
+COPY --chown=app:app backend/migrations migrations
+COPY --chown=app:app backend/src src
 # The layer that makes this the full-stack image: the built frontend, and the
 # variable that points the backend at it.
 COPY --from=frontend-build --chown=app:app /src/dist frontend/dist

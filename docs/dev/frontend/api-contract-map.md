@@ -6,13 +6,13 @@ frontend migration (issue #84): if a literal exists in the code and not in this
 table, something was added without checking it against the backend.
 
 The table was written against the Kotlin backend and is served unchanged by
-the TypeScript backend in `backend-ts/`: the port (issue #262) kept every
+the TypeScript backend in `backend/`: the port (issue #262) kept every
 route, method, status code, body, cookie, and header of this map, and the
 frontend was not changed for it. "Backend route" therefore means the route of
-`backend-ts`, documented in `docs/dev/backend-ts/packages/<module>-package.md`;
-the Kotlin guides it was derived from stay readable in `docs/dev/backend/`.
-The smoke run of the port exercised every row of this file against
-`backend-ts` ([the port record](../../migration/typescript-port.md)).
+the backend, documented in `docs/dev/backend/packages/<module>-package.md`;
+the Kotlin guides it was derived from are in the Git tag `kotlin-backend`.
+The smoke run of the port exercised every row of this file against the
+TypeScript backend ([the port record](../../migration/typescript-port.md)).
 
 The map was written before the migration to list the disagreements between the
 Vue frontend and the Kotlin backend. The migration is done, so it now lists the
@@ -26,7 +26,7 @@ call already agreed and nothing had to change.
 | --- | --- |
 | Frontend file | Where the literal lives. Line numbers are omitted on purpose, because they rot; the path and the method are enough to find it. |
 | Call | The method and path the frontend sends today. |
-| Backend route | The route the backend serves, from the HTTP table of `docs/dev/backend-ts/packages/<module>-package.md` (originally derived from the Kotlin guides). `same` means the path is identical to the call. |
+| Backend route | The route the backend serves, from the HTTP table of `docs/dev/backend/packages/<module>-package.md` (originally derived from the Kotlin guides). `same` means the path is identical to the call. |
 | Closed by | The sub-ticket of issue #84 that migrated the call. `none` means the call needed no change. |
 
 Every row of every table below is a match: same method, same path, same body and
@@ -38,7 +38,7 @@ Two backend-wide facts are stated once here instead of in every row, because
 they shaped almost every store:
 
 - **Lists are bare JSON arrays.** The legacy backend wrapped collections in
-  `{ "items": [...] }`. The Kotlin backend does not, anywhere. No store unwraps
+  `{ "items": [...] }`. The backend does not, anywhere. No store unwraps
   a `data.items` any more.
 - **Reorder bodies are `{ "sourceId", "targetId" }`.** The shared
   `ReorderRequest` in `frontend/src/stores/admin/reorder.ts` is the only body any
@@ -51,7 +51,7 @@ they shaped almost every store:
    directories. Test files only repeat the literals of the code they test, so
    they add no rows.
 2. Every hit is matched against the HTTP table of the owning backend package
-   guide in `docs/dev/backend-ts/packages/`, and, where a guide leaves a body shape open,
+   guide in `docs/dev/backend/packages/`, and, where a guide leaves a body shape open,
    against the module's `routes.ts` itself.
 3. Hits inside comments and doc blocks are not rows. They name a route that is
    already a row somewhere in this file (`stores/shop/countries.ts` explaining
@@ -88,7 +88,7 @@ that client and the conventions the stores follow.
 
 The categories route was the clearest rename of the migration: the legacy answer
 was a map from article type to category list, so the store did
-`allCategories['MUG']`. The Kotlin route answers a bare array of categories with
+`allCategories['MUG']`. The route answers a bare array of categories with
 their subcategories nested, and the article type never appears
 (`docs/dev/backend/packages/article-package.md`, "The storefront"). With the
 second article type (the t-shirt, #205) the path lost its type as well: `GET /api/articles/mugs/categories` is gone and
@@ -136,7 +136,7 @@ effective price only and receive no regular amount at all
 | `stores/shop/cart.ts` | `POST /api/cart/promotion` | same | #91 |
 | `stores/shop/cart.ts` | `DELETE /api/cart/promotion` | same | #91 |
 
-Adding a line is two requests, not one. The Kotlin cart mints the print image
+Adding a line is two requests, not one. The backend cart mints the print image
 first (`POST /api/cart/images` → `201 {"id": 42}`) and only then accepts a JSON
 line that names `imageId` (`docs/dev/backend/packages/cart-package.md`). The legacy
 frontend sent both halves in a single multipart request.
@@ -227,7 +227,7 @@ records `errorStatus`, `errorRetryAfterSeconds`, and `errorFieldErrors` next to
 them.
 
 The `400` matters because it is the *common* size refusal: the generator caps a
-single image at 10 MiB (`GenerationUpload.kt`) while the `413` only fires at the
+single image at 10 MiB ([`upload.ts`](../../../backend/src/modules/generator/upload.ts)) while the `413` only fires at the
 application-wide 30 MB, so every image between the two arrives as a `400`. Its two
 causes, too large and wrong type, differ only in the English text of the field
 error, so the client maps both onto one message rather than matching on that text.
@@ -446,7 +446,7 @@ uploading them.
 
 The store holds `AdminPromptSubcategoryDto` with a flat `categoryId` and resolves
 the display name through `categoryName(id)` from the category list it already
-holds, because the Kotlin representation carries no nested category object. The
+holds, because the backend representation carries no nested category object. The
 subcategory reorder answer covers only the affected category, so the store merges
 it per category and leaves the other categories untouched.
 
@@ -465,7 +465,7 @@ it per category and leaves the other categories untouched.
 | `stores/admin/promptSlots.ts` | `PUT /api/admin/prompts/slot-variants/{id}` | same | #98 |
 | `stores/admin/promptSlots.ts` | `DELETE /api/admin/prompts/slot-variants/{id}` | same | #98 |
 
-"Slot type" was legacy vocabulary. The Kotlin module calls the thing a **slot**
+"Slot type" was legacy vocabulary. The backend module calls the thing a **slot**
 and the route segment follows the name (`docs/dev/backend/packages/prompt-package.md`), so
 the store renamed every identifier with the entity. A slot variant carries flat
 `slotId` and `slotName`, and its update body carries no `slotId` at all, so a
@@ -508,7 +508,7 @@ The Orders page (`/admin/orders`) lists the 50 newest orders; the e-mail filter
 sends the trimmed address as `email` and the backend compares it exactly, in any
 case. A row opens the timeline page `/admin/orders/{orderId}` (route
 `admin-order`), which renders every section of the timeline document of
-[the Operations package](../backend-ts/packages/operations-package.md) (order,
+[the Operations package](../backend/packages/operations-package.md) (order,
 payments, production, mails, history, open findings) and the order's production
 documents. An unknown order answers `404` and the store turns it into
 `OrderNotFoundError`. The router reuses the page between orders, so it loads
@@ -541,7 +541,7 @@ listed a moment ago can still fail with one of the `409` data codes on download.
 
 The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
 placeholder. The list is a bare array of findings
-([the Operations package](../backend-ts/packages/operations-package.md)); the
+([the Operations package](../backend/packages/operations-package.md)); the
 toggle "Resolved in the last 7 days" sends `resolved=true` and gets the same
 shape plus `resolvedAt`. The order id of a finding links to the timeline page of
 that order. Above the list the page shows when the last scan was
@@ -590,7 +590,7 @@ disabled until a decision is chosen, the partner's order id is filled in for
 and answers the released job. A `409` (the job was released meanwhile, or the
 order id belongs to another job) closes the dialog with a notice and reloads
 the tab; any other refusal stays in the dialog. The runbook behind the dialog
-is in [SPOD fulfillment](../backend-ts/packages/spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown).
+is in [SPOD fulfillment](../backend/packages/spod-fulfillment.md#reconciling-a-quarantined-job-outcome_unknown).
 
 The five CRUD destination routes were dispositioned as "no admin UI" until
 the t-shirt work needed one (#205): a SPOD destination is how an order of a

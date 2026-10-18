@@ -29,11 +29,8 @@ gate — that run is the orchestrator's acceptance check; running it here
 would execute it twice per ticket and flood your context with test output.
 Repository rules that demand the full gate "before reporting work complete"
 are satisfied by the orchestrator's run: you report to the orchestrator,
-not completion. For TypeScript backend tickets that means, from
-`backend-ts/`: `bun run format`, `bun run typecheck`, and
-`bun test src/modules/<name>` (one path per changed module), NOT
-`bun run check`. For Kotlin backend tickets, from `backend/`:
-`./kotlin do ktfmt` and `./kotlin test --include-module <module>` (one flag
-per changed module), NOT `./kotlin check`. The module tests of both backends
+not completion. For backend tickets that means, from `backend/`:
+`bun run format`, `bun run typecheck`, and `bun test src/modules/<name>`
+(one path per changed module), NOT `bun run check`. The module tests
 need Docker (Testcontainers), so run them outside a write-restricted shell
 sandbox.

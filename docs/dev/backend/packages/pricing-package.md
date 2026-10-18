@@ -1,207 +1,290 @@
 # The Pricing package
 
-This guide explains the Kotlin code in
-[`backend/modules/pricing/src/shop/voenix/pricing`](../../../../backend/modules/pricing/src/shop/voenix/pricing).
+This guide explains the TypeScript code in
+[`backend/src/modules/pricing`](../../../../backend/src/modules/pricing).
+The module has two halves: **prices**, calculated from integer cents,
+percentages, and two VAT entries, and the **VAT entries** themselves, which an
+admin maintains. In the Kotlin backend they were two modules, `pricing` and
+`vat`; the port merged them (see [What the port changed](#what-the-port-changed)).
 
 ## What this package does
 
-Pricing calculates purchase and sales amounts from integer cents, percentage
-inputs, and two VAT entries. It can calculate without saving, build a default
-input, create a Price, read a Price, and update a Price.
+- calculates a Price without saving it, and builds a default Price for a new
+  form;
+- owns the `prices` table for every module that owns a Price (Article and
+  Prompt), through the `priceCatalog` capability: prepare, store, replace,
+  delete, and a batched read;
+- carries an optional **discount** on a Price (see [The discount](#the-discount));
+- admin endpoints for listing, creating, reading, updating, and deleting VAT
+  entries; and
+- validation of both request bodies with Zod.
 
-A Price can also carry a **discount**: a percentage or a fixed number of cents
-that reduces the sales total. See
-[The discount](#the-discount).
-
-Only calculation inputs and VAT IDs are stored. Net, tax, gross, and calculated
-percentages are derived every time a Price is read. A later VAT name or percent
-change therefore changes the next Pricing response. Prices are not historical
+Only calculation inputs and VAT ids are stored. Net, tax, gross, and the
+calculated percentages are derived every time a Price is read, so a later VAT
+name or percent change changes the next answer. Prices are not historical
 snapshots.
 
-Pricing also owns the prices of other modules. It exports the `PriceCatalog`
-capability so a module such as Article can write itself and its Price in one
-transaction; see [The PriceCatalog capability](#the-pricecatalog-capability).
-
-The standalone module deliberately has no list or delete endpoint. Article
-already owns its prices through `PriceCatalog`; the Prompt and Cart
-relationships are added only when those modules are migrated.
+Application-wide authentication, the error answers, and the database startup
+stay in the platform.
 
 ## The five-minute mental model
 
-- Money is integer cents; percentages are `BigDecimal` and never pass through
-  `Double`.
-- Only the calculation inputs and the two VAT IDs are stored. Net, tax, gross,
-  and calculated percentages are derived every time a Price is read, so a later
-  VAT change changes the next response.
-- `PriceCalculator` is pure: purchase price, then purchase cost, then the
-  purchase total, then sales, then the discount, with `HALF_UP` rounding and
-  `0` for a zero base.
+```mermaid
+flowchart TB
+    Client["HTTP client"]
+    Owner["Owning module<br/>Article · Prompt"]
+
+    subgraph Pricing["Pricing module"]
+        Routes["routes.ts<br/>priceInput schema · price handlers"]
+        VatRoutes["vat-routes.ts<br/>vatInput schema · VAT handlers"]
+        Service["service.ts<br/>prepare · find · defaultPrice"]
+        Calculation["calculation.ts<br/>calculatePrice (pure)"]
+        Repository["repository.ts<br/>prices and VAT queries · VAT OperationResult"]
+        Schema["schema.ts<br/>prices · value_added_taxes"]
+    end
+
+    Database[("PostgreSQL<br/>prices · value_added_taxes")]
+
+    Client --> Routes & VatRoutes
+    Owner -->|"priceCatalog"| Service
+    Owner -->|"priceCatalog writes, with its trx"| Repository
+    Routes --> Service
+    VatRoutes --> Repository
+    Service --> Calculation
+    Service --> Repository
+    Repository --> Database
+    Repository -.-> Schema
+```
+
+- Money is integer cents in a plain `number`; percentages are `number`s with at
+  most two decimals. The arithmetic scales to integers before it divides, so it
+  rounds exactly like the Kotlin `BigDecimal … HALF_UP` code did (see
+  [Money without a decimal library](#money-without-a-decimal-library)).
+- `calculatePrice` is pure: purchase price, then purchase cost, then the
+  purchase total, then sales, then the discount, with half-up rounding and `0`
+  for a zero base.
 - On the sales side an unqualified name is the **effective** value, what the
   customer pays, and a `regular*` name is the value **before** the discount.
   `salesTotal` is therefore always the amount to charge.
-- `PriceInput.validate()` owns the field rules. Inactive fields are replaced
-  with zero after validation, and HTTP and direct service calls share the same
-  rules.
-- `PriceService` implements both the internal `PriceOperations` seam for the
-  admin routes and the public `PriceCatalog` capability, so an admin request
-  and an owning module run the same rules.
-- `PriceCatalog` splits the suspending `prepare` from the non-suspending
-  `...InTransaction` writes that run in the caller's transaction, so an Article
-  and its Price commit or roll back together.
-- `PriceRepository` is the only component that touches the `prices` table. VAT
-  entries are read through the VAT module's `VatReader`, never its tables.
+- The Zod schema `priceInput` owns the field rules, once. `prepare` owns the
+  rules that need the database or the calculation: the VAT entries must exist,
+  the regular total must not be negative, and a discount must fit the price.
+- `priceCatalog` splits `prepare` (no transaction, no write) from the three
+  writes, which take the caller's Kysely transaction as their first parameter,
+  so an Article and its Price commit or roll back together.
+- Only this module touches `prices` and `value_added_taxes`. The VAT lookup a
+  calculation needs is an internal repository function, not a capability.
 
-## Production file map
+## File map
 
 ```text
 pricing/
-|- CalculatedPrice.kt
-|- PriceCalculator.kt
-|- PriceCatalog.kt
-|- PriceInput.kt
-|- PricePercentagePolicy.kt
-|- PriceRepository.kt
-|- PriceRoutes.kt
-|- PriceService.kt
-`- PricingModule.kt
+|- index.ts             createPricingModule({ db }) → { routes, priceCatalog }; priceInput; the value types
+|- calculation.ts       calculatePrice; PriceInput, CalculatedPrice, PriceAmount, PriceDiscount, the enums
+|- routes.ts            priceInput schema, PRICE_RESPONSES, priceRoutes(prices)
+|- vat-routes.ts        vatInput schema, VAT_RESPONSES, VAT_DELETE_RESPONSES, vatRoutes(vats)
+|- service.ts           createPriceService(repository): prepare, find, defaultPrice
+|- repository.ts        createPricingRepository(db); Vat, VatInput
+|- schema.ts            PricesTable, ValueAddedTaxesTable, merged into the platform's Tables
+|- calculation.test.ts  the calculation table: the oracle ported from PriceCalculatorTest
+|- routes.test.ts       one happy path per route and the module-specific errors
+|- service.test.ts      prepare, find, the default, the transaction proof, VAT conflicts and concurrency
+`- validation.test.ts   both schemas' field names and messages
 ```
 
-- `CalculatedPrice.kt` is the HTTP response together with `PriceAmount`, the
-  discount types `PriceDiscount` and `PriceDiscountType`, and the three enums
-  `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow`.
-- `PriceInput.kt` is the request with its `validate()` field rules and
-  `CalculatedPrice.toPriceInput()`.
-- `PriceCalculator.kt` is the pure calculation.
-- `PricePercentagePolicy.kt` is the shared precision, scale, range, and
-  normalization policy for percentages.
-- `PriceService.kt` holds the service and the internal `PriceOperations` seam
-  it implements for the routes.
-- `PriceCatalog.kt` is the public capability other modules look up by name.
-- `PriceRepository.kt` holds the repository and the `Prices` table object.
-- `PriceRoutes.kt` holds `installPriceRoutes` and the private helpers that
-  turn an `OperationResult` into a response.
-- `PricingModule.kt` is wiring only: the internal runtime handle,
-  `createPricingModule`, the public `installPricingModule`, and
-  `validatePricingRequests`.
+`calculation.ts` is a concern of its own, named after the concept, because the
+calculation is the largest piece of the module and the only one that is pure.
+It owns the price value types, because it produces `CalculatedPrice` and
+consumes `PriceInput`. `Vat` lives in `repository.ts`, because the repository
+produces it. The VAT entries have no service: `vatRoutes` takes the
+repository and calls `listVats`, `getVat`, `createVat`, `updateVat`, and
+`deleteVat`, which answer `OperationResult` themselves.
+
+The composition root creates the module once, mounts its routes, and hands the
+capability to the price owners:
+
+```ts
+const pricing = createPricingModule({ db })
+app.route('/', pricing.routes)
+// later: createArticleModule({ db, …, prices: pricing.priceCatalog })
+//        createPromptModule({ db, …, prices: pricing.priceCatalog })
+```
 
 ## HTTP API
 
-Every route requires an authenticated admin. Both POST routes and PUT also
-require the shared `X-XSRF-TOKEN` header.
+Every route requires an authenticated admin. `POST`, `PUT`, and `DELETE` also
+require the `X-XSRF-TOKEN` header. The admin protection is installed on the
+whole `/api/admin/prices` and `/api/admin/vat` subtrees.
+
+### Prices
 
 | Method and path | Success | Persistence |
 | --- | --- | --- |
-| `POST /api/admin/prices/calculate` | `200` with `id: null` | none |
-| `POST /api/admin/prices` | `201`, body, and `Location` header | inserts one Price |
-| `GET /api/admin/prices/default` | `200` with `id: null` | none |
-| `GET /api/admin/prices/{id}` | `200` with a recomputed Price | read only |
-| `PUT /api/admin/prices/{id}` | `200` with the updated Price | replaces all inputs |
+| `POST /api/admin/prices/calculate` | `200` with a `CalculatedPrice`, `id: null` | none |
+| `GET /api/admin/prices/default` | `200` with a `CalculatedPrice`, `id: null` | none |
 
-The create endpoint is an approved development-phase addition. The original
-.NET application creates Price rows only inside Article workflows. Keeping the
-endpoint now lets us develop and test Pricing independently. Article reuses the
-same application operation through the `PriceCatalog` capability described
-below.
+| Result or failure | HTTP status | `message` |
+| --- | --- | --- |
+| invalid price input, unknown VAT, a negative total, a discount that does not fit | `400` | `Validation failed`, with the field-error map |
+| no VAT entry exists (default only) | `400` | `No VAT is configured`, with `errors: {}` |
 
 The default endpoint prefers the VAT marked as default. If none is marked, it
-uses the VAT with the smallest ID. If no VAT exists, it returns
-`400 No VAT is configured`. Missing Prices return `404 Price not found`.
+uses the VAT with the smallest id. Every other input is zero, the modes are
+`NET` for purchase and `GROSS` for sales, the active rows `COST` and `TOTAL`,
+and there is no discount.
 
-## The important types
+### VAT entries
 
-The package contains nine production files. A file groups the declarations that
-belong to one concern, as described in
-[Kotlin source file organization](../conventions/source-file-organization.md), so a small value
-type lives in the file of the component that owns it. The files fall into four
-groups:
+| Method and path | Success |
+| --- | --- |
+| `GET /api/admin/vat` | `200` with a direct array, ordered by name, then id |
+| `GET /api/admin/vat/{id}` | `200` with one `Vat` |
+| `POST /api/admin/vat` | `201` with the `Vat` and `Location: /api/admin/vat/{id}` |
+| `PUT /api/admin/vat/{id}` | `200` with the updated `Vat` |
+| `DELETE /api/admin/vat/{id}` | `204` with no body |
 
-- [`CalculatedPrice.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/CalculatedPrice.kt)
-  and [`PriceInput.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceInput.kt)
-  define the HTTP response and request. They are public, because a module that
-  owns prices submits and receives exactly these values through `PriceCatalog`.
-  `CalculatedPrice.kt` also holds the small value types a price is made of:
-  `PriceAmount`, the monetary amount with `net`, `tax`, and `gross`,
-  `PriceDiscount` with its `PriceDiscountType`, and the three enums
-  `PriceCalculationMode`, `PurchaseActiveRow`, and `SalesActiveRow` that
-  select which inputs drive a calculation. Pricing uses the complete
-  [`Vat`](../../../../backend/modules/vat/src/shop/voenix/vat/Vat.kt) type from the VAT package
-  instead of defining a second VAT representation. `PriceInput.kt` also holds
-  `CalculatedPrice.toPriceInput()`, the narrowing that keeps one column mapping
-  for every write.
-- [`PriceCalculator.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCalculator.kt)
-  is the pure calculation code, while `PriceInput.validate()` owns the
-  field rules.
-  [`PricePercentagePolicy.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PricePercentagePolicy.kt)
-  keeps the shared precision, scale, range, and normalization policy in one
-  place. It keeps a file of its own because the input rules, the calculator, and
-  the table column all read the same policy, so no single one of them owns it.
-- [`PriceService.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceService.kt)
-  and [`PriceRoutes.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRoutes.kt)
-  form the internal application and HTTP seams. `PriceService.kt` holds the
-  service together with `PriceOperations`, the internal seam it implements for
-  the routes, and `PriceRoutes.kt` holds `installPriceRoutes` together with the
-  private helpers that turn an `OperationResult` into a response. The internal
-  `PricingModule` is the runtime handle that owns this implementation;
-  `installPricingModule` installs the routes and returns the `PriceCatalog` for
-  `app`.
-  [`PriceCatalog.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceCatalog.kt)
-  is the one public capability and keeps a file of its own, because other modules
-  look it up by name. `PriceService` implements both interfaces, so an admin
-  request and an owning module run the same rules.
-- [`PriceRepository.kt`](../../../../backend/modules/pricing/src/shop/voenix/pricing/PriceRepository.kt)
-  owns Price persistence together with the `Prices` table object, which no other
-  component touches. VAT persistence remains in the VAT package.
-  The shared
-  [`BigDecimalJsonNumberSerializer.kt`](../../../../backend/modules/platform/src/shop/voenix/json/BigDecimalJsonNumberSerializer.kt)
-  in `platform` keeps decimal percentages compatible with JSON numbers.
+| Result or failure | HTTP status | `message` |
+| --- | --- | --- |
+| `notFound` | `404` | `VAT not found` |
+| `conflict` on create or update (a duplicate name, a concurrent second default) | `409` | `VAT entry already exists` |
+| `conflict` on delete (a price references the entry) | `409` | `VAT is in use` |
+| invalid VAT input | `400` | `Validation failed`, with the field-error map |
+| invalid VAT id | `400` | `Invalid VAT id` |
+
+The `Vat` JSON is:
+
+```json
+{ "id": 1, "name": "Standard", "percent": 19, "description": "German standard rate", "isDefault": true }
+```
+
+## The two request bodies
+
+### `priceInput`
+
+The schema lives in `routes.ts` and is exported from `index.ts`, because a
+module that owns a Price embeds it in its own request (`price: priceInput`).
+Zod then reports a nested field under its path, `price.purchaseVatId`, which is
+what the Kotlin article code built by hand.
+
+| Field | Default | Rule (checked only while the row is active) | Message |
+| --- | --- | --- | --- |
+| `purchaseVatId`, `salesVatId` | — | a positive integer; missing, `null`, or not an integer counts as missing | `Purchase VAT id is required`, `Sales VAT id is required` |
+| `purchaseCalculationMode`, `salesCalculationMode` | `NET`, `GROSS` | `NET` or `GROSS` | Zod's option message |
+| `purchaseActiveRow` | `COST` | `COST` or `COST_PERCENT` | Zod's option message |
+| `salesActiveRow` | `TOTAL` | `MARGIN`, `MARGIN_PERCENT`, or `TOTAL` | Zod's option message |
+| `purchasePriceInputCents` | `0` | not negative (always active) | `Purchase price input must not be negative` |
+| `purchaseCostInputCents` | `0` | not negative | `Purchase cost input must not be negative` |
+| `purchaseCostPercent` | `0` | not negative; two decimals; at most `9999.99` | `… must not be negative`, `… must have at most two decimal places`, `… must not exceed 9999.99` |
+| `salesMarginPercent` | `0` | two decimals; from `-9999.99` to `9999.99` | `… must have at most two decimal places`, `… must be between -9999.99 and 9999.99` |
+| `salesTotalInputCents` | `0` | not negative | `Sales total input must not be negative` |
+| `salesMarginInputCents` | `0` | none: a negative margin is valid | — |
+
+Every cent field is a 32-bit integer, the range of the `*_cents integer`
+columns. A value such as `12.340` is accepted, because JSON parses it to the
+same number as `12.34`.
+
+The discount pair has its own rules:
+
+| Input | Field | Message |
+| --- | --- | --- |
+| both fields absent or `null` | – | no error, no discount |
+| type without value | `discountValue` | `Discount value is required` |
+| value without type | `discountType` | `Discount type is required` |
+| unknown type | `discountType` | `Discount type must be PERCENTAGE or FIXED_AMOUNT` |
+| value `<= 0` | `discountValue` | `Discount value must be positive` |
+| percentage `> 100` | `discountValue` | `Discount value must be at most 100 for a percentage discount` |
+| percentage with three decimals | `discountValue` | `Discount value must have at most two decimal places` |
+| fixed amount with a fractional part | `discountValue` | `Discount value must be whole cents for a fixed amount discount` |
+
+`discountType` is parsed as a plain string and narrowed to the union only after
+the rules have run, so an unknown value is a field error with its own message,
+not Zod's option message. The field rules live in one `superRefine`, which
+runs once every field has the right JSON type; it reports all the rule
+failures of a body at once, in the order of the table.
+
+### `vatInput`
+
+| Field | Rule | Message | Normalization |
+| --- | --- | --- | --- |
+| `name` | required after trimming | `Name is required` | trimmed |
+| `name` | at most 255 characters | `Name must be at most 255 characters` | |
+| `percent` | required, an integer | `Percent is required` | |
+| `percent` | from 0 through 100 | `Percent must be between 0 and 100` | |
+| `description` | optional, may be `null` | | trimmed; blank becomes `null` |
+| `isDefault` | optional | | defaults to `false` |
+
+An unknown property answers `Unknown property` under its name; see
+[Request validation](../conventions/request-validation.md).
 
 ## How a calculation works
 
-Money uses integer cents. `PriceAmount` contains `net`, `tax`, and `gross`.
-`PriceCalculationMode.NET` means the submitted value is net; `GROSS` means it
-already includes VAT.
-
-The calculator works in this order:
+`PriceAmount` contains `net`, `tax`, and `gross`, and `net + tax == gross`
+always holds. `NET` means a submitted value excludes VAT; `GROSS` means it
+includes it. `calculatePrice(id, input, purchaseVat, salesVat)` works in this
+order:
 
 1. calculate the purchase price with the purchase VAT;
-2. calculate purchase cost from either a fixed amount (`COST`) or a percentage
-   of the purchase price (`COST_PERCENT`);
-3. add the net, tax, and gross components separately to form the purchase total;
-4. calculate sales from a fixed margin (`MARGIN`), percentage margin
-   (`MARGIN_PERCENT`), or final total (`TOTAL`);
+2. calculate the purchase cost from a fixed amount (`COST`) or a percentage of
+   the purchase price (`COST_PERCENT`);
+3. add the net, tax, and gross components separately to form the purchase
+   total;
+4. calculate sales from a fixed margin (`MARGIN`), a percentage margin
+   (`MARGIN_PERCENT`), or the final total (`TOTAL`), against the purchase total
+   in the sales mode;
 5. apply the discount, if the price has one; and
-6. return all normalized inputs and calculated values.
+6. return every input and every derived value.
 
-`CalculatedPrice` contains the complete current `Vat` values for purchase and
-sales. Its JSON therefore includes each VAT's `description` and `isDefault`
-fields in addition to its ID, name, and percentage.
+`CalculatedPrice` carries the complete current `Vat` for purchase and sales,
+so its JSON includes each VAT's `description` and `isDefault`. Calculated
+percentages have two decimals; a zero base answers `0` instead of dividing by
+zero. A negative margin is allowed while the regular sales total stays
+non-negative.
 
-Cent values and calculated percentages use `RoundingMode.HALF_UP`, which rounds
-midpoints away from zero. Calculated percentages have two decimal places. A
-zero base produces `0` instead of dividing by zero.
+Inactive inputs are not validated. `prepare` replaces them with zero before it
+calculates, so selecting `COST_PERCENT` stores `purchaseCostInputCents` as `0`,
+and the same price always produces the same row.
 
-Negative margins are allowed when the resulting sales total is still
-non-negative. Integer operations are checked, so an overflow never silently
-wraps into a different price.
+### Money without a decimal library
+
+The Kotlin calculator used `BigDecimal` with `RoundingMode.HALF_UP`. The port
+uses the two helpers of [`money.ts`](../../../../backend/src/platform/money.ts)
+and scales to integers before every division, so a quotient that is exactly
+half a cent is exact in floating point and rounds away from zero:
+
+| Step | Formula |
+| --- | --- |
+| tax of a net amount, a percentage of an amount, the percentage saving | `percentOfCents(cents, percent)`: `roundHalfUp(cents × percent·100 / 10 000)` |
+| net of a gross amount | `roundHalfUp(gross × 100 / (100 + vat))` |
+| a calculated percentage | `roundHalfUp(amount × 10 000 / base) / 100` |
+
+The ported table tests in `calculation.test.ts` are the oracle: they assert the
+Kotlin results cent for cent, the midpoint cases included.
+
+Every cent value is checked against the 32-bit range of the `*_cents` columns
+where the Kotlin code used `Math.addExact` and `intValueExact`. A result
+outside it throws a `RangeError`, which reaches the app's `onError` as a `500`,
+as the Kotlin `ArithmeticException` did.
+
+`numeric` columns (`purchase_cost_percent`, `sales_margin_percent`,
+`discount_value`) arrive from `pg` as strings; `findPrices` parses them with
+`Number` once. The JSON answers plain numbers, so a stored `20.00` answers `20`
+where Kotlin wrote `20.00`; a JSON client reads both as the same number.
 
 ## The discount
 
 A shop owner discounts a single article or prompt by giving its Price a
-discount. A discount is the pair of `discountType` (`PERCENTAGE` or
-`FIXED_AMOUNT`) and a positive `discountValue`. Both fields absent means "no
-discount"; `0` is not a discount, it is an invalid value.
+discount: the pair `discountType` (`PERCENTAGE` or `FIXED_AMOUNT`) and a
+positive `discountValue`. Both absent means "no discount"; `0` is not a
+discount, it is an invalid value.
 
-A discount is **not** a coupon. A coupon (see [the Promotion
-package](promotion-package.md)) is a cart-level campaign with a code, a time
-window, and usage limits, and it is capped when it exceeds the cart. A price
-discount has none of that: it is switched on by setting the pair and off by
-clearing it, and a fixed amount larger than the price it reduces is *rejected*
-on write. Pricing therefore owns its own `PriceDiscountType`; it does not
-import the Promotion module's type.
+A discount is **not** a coupon. A coupon (the Promotion module) is a
+cart-level campaign with a code, a time window, and usage limits, and it is
+capped when it exceeds the cart. A price discount has none of that: it is
+switched on by setting the pair and off by clearing it, and a fixed amount
+larger than the price is *rejected* on write. Pricing therefore owns its own
+`PriceDiscountType`.
 
 ### The naming rule
-
-The discount changes what the existing names mean:
 
 | Field | Meaning |
 | --- | --- |
@@ -211,53 +294,59 @@ The discount changes what the existing names mean:
 | `regularSalesMargin`, `calculatedRegularSalesMarginPercent` | margin before the discount |
 | `salesMargin`, `calculatedSalesMarginPercent` | margin after the discount |
 
-So: an unqualified name is the effective value, a `regular*` name is the value
-before the discount. Without a discount both are equal, `discount` is `null`,
-and `salesDiscount` is `{ "net": 0, "tax": 0, "gross": 0 }`.
-
-This is deliberate: every consumer that charges money already reads
-`salesTotal`, so it charges the discounted price without any change. Only a
-caller that wants to *show* the crossed-out price has to learn the new
-`regular*` fields. A forgotten caller can undercharge, never overcharge.
+Without a discount both are equal, `discount` is `null`, and `salesDiscount` is
+`{ "net": 0, "tax": 0, "gross": 0 }`. Every consumer that charges money reads
+`salesTotal`, so it charges the discounted price without any change. A
+forgotten caller can undercharge, never overcharge.
 
 ### How the saving is calculated
 
-The discount applies to the **gross** amount:
-
-1. `saving` is `regularSalesTotal.gross × percent / 100`, rounded to whole
-   cents with `HALF_UP`, or the fixed number of cents, **capped at
-   `regularSalesTotal.gross`**;
-2. the effective gross is `regularSalesTotal.gross − saving`, and its net and
-   tax come from the same gross-mode arithmetic every other amount uses, so
-   `net + tax == gross` still holds exactly;
+1. `saving` is `regularSalesTotal.gross × percent / 100`, rounded half up, or
+   the fixed number of cents, **capped at `regularSalesTotal.gross`**;
+2. the effective gross is `regularSalesTotal.gross − saving`; its net and tax
+   come from the same gross-mode arithmetic every other amount uses;
 3. `salesDiscount` is the component-wise difference of the two totals, so
-   `salesDiscount + salesTotal == regularSalesTotal` holds for net, tax, and
-   gross; and
+   `salesDiscount + salesTotal == regularSalesTotal` for net, tax, and gross;
+   and
 4. the effective margin is derived from the effective total against the
-   purchase total, exactly as the `TOTAL` row derives the regular margin.
+   purchase total, exactly as the `TOTAL` row derives the regular one.
 
-A discount of `100` is allowed. The effective price is then `0`, which is a
-legitimate price: the checkout confirms such an order without a payment.
+A discount of `100` is allowed; the price is then `0`, which the checkout
+confirms without a payment. The cap in step 1 only ever bites on a fixed
+amount: `prepare` rejects one larger than the price on write, but a price is
+recalculated on every read, and a later VAT change can shrink the regular gross
+below it. The article then sells for `0` until the operator adjusts the
+discount. The shop never charges a negative amount.
 
-The cap in step 1 is what guarantees that the effective price is never
-negative. A percentage is at most `100` and can never exceed the price, so the
-cap only ever bites on a fixed amount. `PriceService` rejects a fixed amount
-larger than the price when it is written — but a price is *recalculated* on
-every read, and a later VAT change can shrink the regular gross below an amount
-that was valid when it was stored (in `NET` mode the gross follows the sales
-VAT, and the margin rows follow the purchase VAT through the purchase total).
-The article then sells for `0` until the operator adjusts the discount. The
-shop never charges a negative amount.
+### The write rules after the calculation
+
+Two discount rules depend on the sales VAT and the active sales row, so
+`prepare` checks them on the calculated price and reports them on
+`discountValue`:
+
+- a fixed amount larger than the regular gross:
+  `Discount must not exceed the sales total` (the *submitted* amount is
+  compared, because the calculator caps the saving; this also keeps an amount
+  beyond the cent range a field error); and
+- a saving that rounds to `0` cents, for example `0.01 %` of `4.99 €`:
+  `Discount must reduce the sales total`.
+
+A separate guard rejects a negative `regularSalesTotal` with
+`Sales total must not be negative`, reported on the active sales input
+(`salesMarginInputCents`, `salesMarginPercent`, or `salesTotalInputCents`). It
+watches the regular total, because a discount may legitimately take the
+effective total to `0`.
+
+These are *write* rules. `find` recalculates but never re-validates: a stored
+price a later VAT change put out of their reach still answers what it costs
+today.
 
 ### The storefront fields
 
 `PublicMug.regularPrice`, `PublicSpodArticle.regularPrice`, and
 `PromptPrice.regularSalesTotalGross` are `null` unless the price has a
-discount. The key is nevertheless always present in the JSON, because the
-application serializes with `explicitNulls = true`: a null field is written as
-`"regularPrice": null` instead of being dropped. A client can therefore read
-the field without checking whether it exists, and `regularPrice === null` is
-the reliable test for "not discounted".
+discount, and the key is always present in the JSON. `regularPrice === null`
+is the reliable test for "not discounted".
 
 ### The reference price is the operator's responsibility
 
@@ -265,251 +354,184 @@ The crossed-out price the shop shows is the configured regular price. The
 backend does not track the lowest price of the previous 30 days and therefore
 does not enforce the German Preisangabenverordnung (§ 11 PAngV). The operator
 decides which regular price is lawful to advertise, and the admin discount card
-says so. An automated price history is a follow-up (issue #239), not part of
-this feature.
+says so. An automated price history is a follow-up (issue #239).
 
-Why it was decided that way (issue #238, the council with Joe deciding): § 11
-PAngV requires a shop that announces a price reduction to state the **lowest
-price applied within the previous 30 days**, and this shop cannot know it. A
-`prices` row holds the current inputs and an update overwrites them, so nothing
-records what an article cost three weeks ago. Worse, net, tax, and gross are
-derived from the referenced VAT entries on every read, so a VAT change silently
-changes what an older price "was" — a history rebuilt from today's rows would
-be a reconstruction, not a record. Half a history, one that starts today or one
-rebuilt from rows VAT changes already moved, would be worse than none, because
-a wrong reference price is the exact failure the rule is about. So no column,
-API field, or admin view claims to know a 30-day low.
+Why (issue #238, decided by Joe): § 11 PAngV requires a shop that announces a
+price reduction to state the **lowest price applied within the previous 30
+days**, and this shop cannot know it. A `prices` row holds the current inputs
+and an update overwrites them, and net, tax, and gross are derived from the VAT
+entries on every read, so a history rebuilt from today's rows would be a
+reconstruction, not a record. A wrong reference price is the exact failure the
+rule is about, so no column, field, or view claims to know a 30-day low.
 
 Two alternatives were rejected. **Building the price history now** needs a
 write on every price change, a rule for what a VAT change means for a
-historical amount, a backfill, and an admin view that explains the number — a
-feature of its own that would have delayed a discount one operator can use
-lawfully today. **Calculating the discount but never highlighting it** avoids
-the rule, but a silent price cut is what editing the sales price already did;
-the crossed-out amount and the saving badge *are* the requirement.
+historical amount, a backfill, and an admin view: a feature of its own.
+**Calculating the discount but never highlighting it** avoids the rule, but the
+crossed-out amount and the saving badge *are* the requirement.
 
-The consequence is accepted on purpose: neither validation nor the admin UI
-stops a discount configured right after a price increase. That is fine while
-one owner sets the prices personally and knows the rule. It stops being fine as
-soon as discounts are used on many articles or by more than one operator, which
-makes issue #239 a **prerequisite** for that step, not a nice-to-have. Nothing
-blocks it: a history table is written next to `prices`, and the storefront
-already has exactly one field for the crossed-out amount (`regularPrice`,
-`regularSalesTotalGross`), so only the producer of that number changes.
+The consequence is accepted on purpose while one owner sets the prices
+personally. It stops being fine as soon as discounts are used on many articles
+or by more than one operator, which makes #239 a **prerequisite** for that
+step.
 
-## Validation and normalization
+## The `priceCatalog` capability
 
-Both `purchaseVatId` and `salesVatId` must be positive and must reference an
-existing VAT entry. The purchase price must not be negative. The active
-purchase-cost input and an active sales total must also be non-negative.
+Most prices belong to an Article or a Prompt, which must create, change, and
+delete itself and its Price together: a failed Article write must not leave a
+stray price row. `createPricingModule` returns the capability as
+`priceCatalog`:
 
-Active percentage inputs may have at most two relevant decimal places and must
-fit into four integer digits. Purchase cost percentages range from `0` through
-`9999.99`; sales margin percentages range from `-9999.99` through `9999.99`
-because a negative margin can be valid. A value such as `12.340` is accepted
-because its trailing zero does not add precision.
-
-The discount has its own rules. `PriceInput` carries `discountType` as a
-`String`, not as the enum, so an unknown value becomes a field error instead of
-a deserialization failure; `PromotionInput` uses the same trick.
-
-| Input | Field | Message |
-| --- | --- | --- |
-| both fields absent | – | no error, no discount |
-| type without value | `discountValue` | `Discount value is required` |
-| value without type | `discountType` | `Discount type is required` |
-| unknown type | `discountType` | `Discount type must be PERCENTAGE or FIXED_AMOUNT` |
-| value `<= 0` | `discountValue` | `Discount value must be positive` |
-| percentage `> 100` | `discountValue` | `Discount value must be at most 100 for a percentage discount` |
-| percentage with three decimals | `discountValue` | `Discount value must have at most two decimal places` |
-| fixed amount with a fractional part | `discountValue` | `Discount value must be whole cents for a fixed amount discount` |
-
-Two more discount rules cannot be checked on the input alone, because they
-depend on the sales VAT and on the active sales row. `PriceService` checks them
-*after* the calculation and reports them on `discountValue` just like the rules
-above:
-
-- a fixed amount larger than the calculated regular gross total:
-  `Discount must not exceed the sales total`; and
-- a saving that rounds down to `0` cents — for example `0.01 %` of `4.99 €`, or
-  any discount on a price of `0` — which would be a discount that discounts
-  nothing: `Discount must reduce the sales total`.
-
-The first rule compares the *submitted* fixed amount with the regular gross,
-not the calculated effective total, because the calculator caps the saving and
-therefore never produces a negative total to detect. Comparing the submitted
-value also keeps an amount beyond the cent range (anything above
-`2147483647`) a field error instead of an arithmetic overflow.
-
-Both rules are *write* rules on a submitted input. Reading a price recalculates
-it but never re-validates it: `get` and `find` answer the recalculated price
-even when a VAT change has meanwhile put the stored discount out of the rules'
-reach, because the shop still has to know what the article costs today.
-
-The separate guard against a negative sales total watches `regularSalesTotal`,
-because a discount can legitimately take the effective total down to `0`.
-
-Inactive fields do not participate in validation. After validation, the
-service replaces them with zero before calculation and persistence. For
-example, selecting `COST_PERCENT` stores `purchaseCostInputCents` as `0`. An
-accepted `discountValue` is normalized to scale two, so a response is identical
-before and after a database round trip.
-
-HTTP validation and direct service calls use the same
-`PriceInput.validate()` interface, which implements the field rules
-directly. Field errors use the shared shape:
-
-```json
-{
-  "message": "Validation failed",
-  "errors": {
-    "purchaseVatId": ["Purchase VAT not found"]
-  }
-}
+```ts
+prepare: (input: PriceInput) => Promise<OperationResult<CalculatedPrice>>
+storeInTransaction: (trx: Transaction<Tables>, price: CalculatedPrice) => Promise<number>
+replaceInTransaction: (trx: Transaction<Tables>, id: number, price: CalculatedPrice) => Promise<boolean>
+deleteInTransaction: (trx: Transaction<Tables>, id: number) => Promise<boolean>
+find: (ids: Iterable<number>) => Promise<Map<number, CalculatedPrice>>
 ```
 
-## Decimal percentages and JSON
-
-Percentages use `BigDecimal`; they never pass through `Double`. This avoids
-binary floating-point surprises in price calculations.
-
-The frontend contract still uses JSON numbers such as `12.5`, not strings such
-as `"12.5"`. `BigDecimalJsonNumberSerializer` reads and writes numeric JSON
-tokens while preserving the exact plain decimal representation. PostgreSQL
-stores percentage inputs as `numeric(6, 2)`, and Exposed maps them with its
-standard `decimal(6, 2)` column type. Validation rejects excessive precision
-or magnitude before persistence. The service then normalizes accepted values to
-scale two without rounding, so responses stay identical before and after a
-database round trip.
-
-## The PriceCatalog capability
-
-Most prices do not belong to the price admin UI. They belong to an Article. An
-Article and its Price must be created, changed, and deleted together, so a
-failed Article write must not leave a stray price row behind. `PriceCatalog` is
-the seam that makes that possible. `installPricingModule(database, vats)`
-returns it, and the composition root passes it straight into the Article
-module: `installArticleModule(database, images, prices, suppliers)` in
-[`Application.kt`](../../../../backend/app/src/shop/voenix/Application.kt).
-
-The capability is split in an unusual way, and the split is the point:
-
-| Operation | Suspending | Transaction |
-| --- | --- | --- |
-| `prepare(input)` | yes | none; it never touches `prices` |
-| `storeInTransaction(price)` | no | the caller's open transaction |
-| `replaceInTransaction(id, price)` | no | the caller's open transaction |
-| `deleteInTransaction(id)` | no | the caller's open transaction |
-| `find(ids)` | yes | its own short read-only transaction |
-
-`prepare` does the slow part: it validates the input, resolves both VAT entries
-through `VatReader`, and calculates every derived amount. It returns the shared
-`OperationResult`, so an invalid input or an unknown VAT reaches the caller as
-field errors instead of an exception. Because it stores nothing, the caller can
-run it *before* opening its own transaction and keep that transaction as short
-as the writes.
-
-The three write operations are deliberately not `suspend`. A suspending
-function would invite an inner `database.write { … }` and a second, independent
-database transaction; a plain function can only run statements in the
-transaction the caller has already opened. They therefore commit and roll back
-with the caller. Called without a transaction they fail with an
-`IllegalStateException` rather than writing on their own. The Email and
-Production outboxes use the same guard.
-
-`find(ids)` is the read side for list projections. It runs one query for the
-prices and one batched `VatReader.find` for every referenced VAT; unknown ids
-are simply missing from the returned map. Both reader capabilities in this
-backend already use this shape.
-
-Price ownership needs no `owner_kind` column. A price id only exists after
-`storeInTransaction` handed it to its owner, no Article contract accepts a
-price id from a client, and an update rewrites the same row in place so the id
-never churns (decision K2 in
-[`article-migration.md`](../../../migration/article-migration.md)).
-
-## Persistence and transaction composition
-
-[`V4__create_prices.sql`](../../../../backend/modules/platform/resources/db/migration/V4__create_prices.sql)
-creates the `prices` table. It contains only input fields and required purchase
-and sales VAT IDs. PostgreSQL adds:
-
-- restricted foreign keys and an index for each VAT relationship;
-- checks for all persisted enum strings; and
-- checks for the four non-negative persisted inputs.
-
-[`V28__price_discounts.sql`](../../../../backend/modules/platform/resources/db/migration/V28__price_discounts.sql)
-adds the two nullable discount columns, `discount_type text` and
-`discount_value numeric(12, 2)` — the same vocabulary and precision the
-`promotions` table uses — with five named checks that repeat the input rules the
-database can express on its own:
-
-| Constraint | Rule |
+| Operation | Transaction |
 | --- | --- |
-| `ck_prices_discount_pair` | both columns are set or both are null |
-| `ck_prices_discount_type` | `PERCENTAGE` or `FIXED_AMOUNT` |
-| `ck_prices_discount_value_positive` | the value is greater than `0` |
-| `ck_prices_discount_percentage_max` | a percentage is at most `100` |
-| `ck_prices_discount_fixed_whole_cents` | a fixed amount has no fractional part |
+| `prepare` | none; it never touches `prices` |
+| `storeInTransaction` | the caller's; answers the new id |
+| `replaceInTransaction` | the caller's; whether the price existed |
+| `deleteInTransaction` | the caller's; whether the price existed |
+| `find` | two short read-only transactions of its own |
 
-`PriceRepository` accesses only the `prices` table. `PriceService` asks the
-public `VatReader` capability for both referenced VAT entries in one batch and
-then performs the calculation with the returned `Vat` values. The default
-selection rule is also application logic in `PriceService`. It chooses the
-configured default or, if none exists, the VAT with the smallest ID.
+`prepare` does the slow part: it resolves both VAT entries in one lookup,
+zeroes the inactive inputs, calculates, and applies the write rules. It answers
+`invalid` with `purchaseVatId: ["Purchase VAT not found"]`,
+`salesVatId: ["Sales VAT not found"]`, or one of the rules above. It does not
+repeat the field rules: the owner's request schema embeds `priceInput`, so the
+value is already valid. Because `prepare` stores nothing, the owner runs it
+*before* opening its transaction and keeps that transaction as short as the
+writes. `priceCatalog.prepare` reports its field errors under `price.`
+(`price.salesVatId`), the path at which every owner embeds `priceInput`, so an
+owner passes an `invalid` answer on unchanged. Only `POST
+/api/admin/prices/calculate`, which takes a bare `priceInput`, answers the
+unprefixed field names.
 
-`VatRepository` and `ValueAddedTaxes` are internal to the VAT compilation
-module. The compiler therefore prevents Pricing from querying VAT persistence
-directly. `Prices`, `PriceRepository`, `PriceService`, `installPriceRoutes`, and
-`PricingModule` stay internal; only `PriceCatalog` and the four value types it
-exchanges are public. The Pricing manifest exports its VAT dependency because
-the public `installPricingModule` accepts a `VatReader` and `CalculatedPrice`
-carries both `Vat` values.
+The three writes take the owner's `Transaction<Tables>` and run on it. They
+never open a transaction of their own, so they commit and roll back with the
+owner. The store and the replace first lock the price's two VAT entries
+(`SELECT id FROM value_added_taxes WHERE id IN (…) FOR KEY SHARE`) until the
+owner's transaction ends: a VAT delete that races the write waits for it and
+then fails as in use. An entry that was deleted between `prepare` and the write
+is no longer there to lock; the write then throws a plain error (a `500`),
+never the foreign-key violation `23503`. That keeps the owner's foreign-key
+mapping unambiguous: the prompt maps `23503` around its whole transaction to
+"unknown slot variant", and a price insert failing on a VAT must not reach that
+mapping. Pass them only a value `prepare` produced: they write exactly
+the inputs of the `CalculatedPrice`, through one column mapping (`priceRow`).
+An update rewrites the row in place, so the id an owner stores never changes.
+The owner deletes its own row first, because the referencing foreign key is
+restricted.
 
-`PriceRepository` has two write paths that share one column mapping. The
-standalone admin operations open their own transaction with the shared
-`database.write { … }` helper from
-[`Transactions.kt`](../../../../backend/modules/platform/src/shop/voenix/db/Transactions.kt),
-which moves the blocking JDBC call to `Dispatchers.IO` and disables retries. The
-`...InCurrentTransaction` functions contain only the statement and first assert
-that a transaction is open. Since the admin path delegates to them, a price row
-written through the REST API and a price row written by an owning module go
-through exactly the same code.
+`find(ids)` is the read side for list pages: one query for the prices and one
+for every VAT they reference; unknown ids are absent from the map.
 
-`PriceCatalogIntegrationTest` proves the composition against real PostgreSQL: a
-caller opens a transaction, stores a price, and throws; afterwards `prices` is
-empty. The same test rolls back a `deleteInTransaction` and finds the row still
-there. Without that proof a silently nested second transaction would look
-correct in every unit test and lose atomicity in production.
+Price ownership needs no `owner_kind` column: an id only exists after
+`storeInTransaction` handed it to its owner, and no owner contract accepts a
+price id from a client.
 
-Deleting a VAT that is referenced by a Price is rejected by PostgreSQL. The VAT
-API exposes this expected domain outcome as `409 VAT is in use`.
+## VAT entries and the single default
+
+At most one entry is the default; having none is valid. Updating the default
+with `isDefault: false` or deleting it does not choose another one.
+
+A create or update with `isDefault: true` clears the current default and writes
+the row in one `write` transaction. The partial unique index
+`ux_value_added_taxes_single_default` is the concurrency-safe guarantee: two
+concurrent default writes leave exactly one default: the second waits for the
+first to commit and then fails with `23505`, answered as the generic `409`. An update
+first locks its row (`SELECT … FOR UPDATE`) and answers `notFound` before it
+demotes anything, so an unknown id never clears the default.
+
+PostgreSQL decides every conflict, as
+[Persistence error handling](../conventions/persistence-error-handling.md)
+describes. `createVat` and `updateVat` declare `uniqueViolation: conflict`:
+the case-sensitive `ux_value_added_taxes_name` and the single-default index
+both become the same conflict, without asking which one fired. `deleteVat`
+declares `foreignKeyViolation: conflict` and runs its single `DELETE` on `db`: both foreign keys from `prices` are
+`ON DELETE RESTRICT`, and either one means the same thing, "a price still uses
+this entry", so the result is unambiguous. The route answers it as
+`409 VAT is in use`.
+
+## Persistence
+
+`schema.ts` maps two tables and merges them into the platform's `Tables`:
+
+- `value_added_taxes` from
+  [`V2__create_value_added_taxes.sql`](../../../../backend/migrations/V2__create_value_added_taxes.sql):
+  `percent` checked from 0 to 100, the unique name, and the partial unique
+  default index.
+- `prices` from
+  [`V4__create_prices.sql`](../../../../backend/migrations/V4__create_prices.sql)
+  and [`V28__price_discounts.sql`](../../../../backend/migrations/V28__price_discounts.sql):
+  the inputs, two restricted foreign keys to `value_added_taxes` with an index
+  each, checks for every enum string and the four non-negative inputs, and the
+  discount pair with five checks (`ck_prices_discount_pair`,
+  `ck_prices_discount_type`, `ck_prices_discount_value_positive`,
+  `ck_prices_discount_percentage_max`, `ck_prices_discount_fixed_whole_cents`)
+  that repeat the input rules the database can express.
+
+The text columns are typed as the unions their check constraints allow, so a
+row read back is already a `PriceInput` apart from the parsed `numeric`s.
+Other modules reference `prices.id` from their own tables (articles, prompts)
+but never query `prices`; they ask `priceCatalog`.
+
+## What the port changed
+
+- **#252: VAT is part of Pricing.** The Kotlin `vat` module exported
+  `VatReader`; one module owns both tables now, so the lookup is the
+  repository's `findVats`. The routes did not change.
+- **#251 point 6: the unused price CRUD is gone** (`POST /api/admin/prices`,
+  `GET` and `PUT /api/admin/prices/{id}`, and `Price not found`); every Price
+  is written through `priceCatalog`.
+- **The transaction is a parameter.** Kotlin made the writes non-`suspend` and
+  checked at runtime that an Exposed transaction was open. Here the writes take
+  the `Transaction<Tables>`, so calling one outside a transaction does not
+  compile.
+- **Wrong JSON types are field errors.** Kotlin answered a wrong JSON type
+  (`"NET"` misspelled, `"12.34"` as a string, a fractional cent value) with
+  `400 Invalid request body`. Zod reports it under the field, and an unknown
+  property is rejected (`z.strictObject`). A wrong-typed VAT id, `name`, or
+  VAT `percent` answers its required message, as `null` did before.
 
 ## Tests
 
-The focused tests cover the pure formulas and rounding, active-field
-validation, the discount arithmetic and its two post-calculation rejections,
-service behavior against PostgreSQL, one batched VAT lookup for
-purchase and sales IDs, auth and CSRF ordering, exact JSON responses, the
-complete admin flow, Flyway constraints, outer-transaction rollback, and
-recalculation after a VAT change. That a referenced VAT entry cannot be deleted
-is a VAT rule, so it is covered by `VatDeleteInUseIntegrationTest` in the VAT
-module; see [the VAT package](vat-package.md). The domain statement still
-holds: deleting a VAT that a Price references answers `409 VAT is in use`.
-
-The Pricing tests build their VAT reader with the VAT module's
-`createVatReader(database)`, which returns the real reader without installing
-the VAT admin routes.
-
-`PriceCatalogIntegrationTest` covers the capability itself: rollback and commit
-of the in-transaction writes, the refusal to write without a transaction, the
-existed-or-not answers of replace and delete, `prepare` leaving the table
-untouched, and one batched `find` that resolves two prices and both VAT entries
-in one lookup each.
-
-Run the final backend gate from `backend/`:
+Run from `backend/`:
 
 ```sh
-./kotlin do ktfmt
-./kotlin check
+bun test src/modules/pricing    # this module only
+bun run check                   # the full gate
 ```
+
+| Test | What it states |
+| --- | --- |
+| [`calculation.test.ts`](../../../../backend/src/modules/pricing/calculation.test.ts) | The Kotlin `PriceCalculatorTest` table as unit tests of `calculatePrice`: both modes, every active row, negative margins, zero bases, midpoint rounding, the discount arithmetic, the cap, and the 32-bit bound |
+| [`validation.test.ts`](../../../../backend/src/modules/pricing/validation.test.ts) | `priceInput` (defaults, active-row rules, percentage precision and range, the discount pair) and `vatInput` (messages and normalization) through `validationFailed` |
+| [`service.test.ts`](../../../../backend/src/modules/pricing/service.test.ts) | `prepare` (zeroed inactive inputs, unknown VATs, the write rules), `find` after a VAT change and with a capped discount, the default selection, the proof that the three writes join the caller's transaction (a failing outer transaction leaves no stored, replaced, or deleted price), VAT ordering, the moving default, a duplicate name normally and concurrently, concurrent defaults, and the in-use delete |
+| [`routes.test.ts`](../../../../backend/src/modules/pricing/routes.test.ts) | One happy path per route, `400 No VAT is configured`, an unknown VAT on calculate, VAT `404`, `409 VAT entry already exists`, and `409 VAT is in use` |
+
+The platform cases (`401`/`403`, CSRF, malformed ids and bodies, unknown
+properties through the route, the body limit) are pinned once in
+`src/platform/**/*.test.ts` and are not repeated here.
+
+## Safe change recipes
+
+### Add a calculation input
+
+1. Add a migration with the column and its check.
+2. Add the column to `PricesTable`, the field to `PriceInput` and
+   `CalculatedPrice`, and map it in `findPrices` and `priceRow`.
+3. Add it to `priceInput` with its default and rule, and to `defaultPrice`.
+4. Use it in `calculatePrice`; add table rows to `calculation.test.ts` first.
+5. Extend this guide, then run `bun run check`.
+
+### Add a VAT field
+
+1. Add a migration, the column to `ValueAddedTaxesTable`, the field to `Vat`,
+   `vatColumns`, and `vatRow`.
+2. Add it to `vatInput` with its message and normalization.
+3. Extend the tests and this guide.

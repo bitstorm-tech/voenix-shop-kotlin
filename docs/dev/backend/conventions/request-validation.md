@@ -1,241 +1,105 @@
 # Request validation
 
-This guide explains how the backend checks the body of an incoming request
-before a service ever sees it: which types are involved, how a rejected body
-becomes a `400` answer, and how the shared
-[`buildValidationErrors`](../../../../backend/modules/platform/src/shop/voenix/validation/ValidationErrorsBuilder.kt)
-builder collects the field messages.
+A request body is checked **once**, at the route, by a Zod schema. The service
+receives the parsed, typed value and trusts it; there is no second validation
+in the service and no `validate()` method on an input type.
 
-## The two types every input uses
+## The schema lives in `routes.ts`
 
-Both live in the `platform` module, in the package `shop.voenix.validation`:
-
-```kotlin
-public interface Validatable {
-    public fun validate(): ValidationErrors
-}
-
-/** Validation messages grouped by lower-camel-case field name. */
-public typealias ValidationErrors = Map<String, List<String>>
+```ts
+export const countryInput = z.strictObject({
+  name: z
+    .string({ error: 'Name is required' })
+    .trim()
+    .min(1, 'Name is required')
+    .max(255, 'Name must be at most 255 characters'),
+  countryCode: z
+    .string({ error: 'Country code is required' })
+    .trim()
+    .min(1, { error: 'Country code is required', abort: true })
+    .length(2, { error: 'Country code must be exactly 2 characters', abort: true })
+    .regex(/^[A-Za-z]+$/, 'Country code must contain only letters'),
+}) satisfies z.ZodType<CountryInput>
 ```
 
-A request type implements `Validatable` and returns its field errors. An empty
-map means "this body is fine". The same `ValidationErrors` alias is what
-`OperationResult.Invalid` carries, so a rule that only a service can check
-(does this id exist? is this file really uploaded?) reports in exactly the same
-shape as a field rule. See
-[Shared operation results](operation-results.md).
+Three conventions:
 
-### Why required fields are nullable
+- `z.strictObject` rejects an unknown property. The Kotlin backend ignored
+  unknown keys; the port decided for the hard check.
+- The `error` of `z.string(…)` is the message for a **missing, `null`, or
+  non-string** value, so `{}` answers `name: ["Name is required"]` exactly as
+  before. A required field therefore needs no nullable type.
+- `abort: true` on a check stops the following checks of that field, so a
+  blank code reports "is required" and not "must be exactly 2 characters" as
+  well. Without it Zod reports every failing check.
 
-Look at any input type and you will see that the required fields are declared
-nullable with a `null` default:
-
-```kotlin
-@Serializable
-internal data class PromptSlotInput(val name: String? = null) : Validatable
-```
-
-That is deliberate. If `name` were a non-null `String`, a body without it would
-fail during *deserialization*, and the client would get a kotlinx-serialization
-message about a missing field. No client can act on that text, and it quotes
-the payload back. With a nullable field the body parses, `validate()` runs, and
-the client gets `name: ["Name is required"]`, which is a real contract.
-
-The rule is therefore about required fields and fields without a meaningful
-default. Those are nullable with a `null` default, so that a missing value
-reaches `validate()` instead of failing deserialization. A field that has a real
-default keeps its non-null type. Booleans such as `MugArticleInput.active`,
-collections such as `MugArticleInput.mugVariants`, and most numbers of
-`PriceInput` fall into this group, because a missing value there is not an
-error the client has to be told about. It is the default.
+`satisfies z.ZodType<CountryInput>` ties the schema to the input type the
+service declares: a schema that produces a different shape is a compile error,
+and the dependency still runs from the route to the service only.
 
 ## The round trip of a rejected body
 
-```mermaid
-flowchart TD
-    Body["Request body (JSON)"] --> Parse["kotlinx.serialization<br/>parses it into the input type"]
-    Parse --> Plugin["Ktor RequestValidation plugin<br/>validate&lt;XInput&gt; { it.toRequestValidationResult() }"]
-    Plugin -->|"ValidationResult.Valid"| Route["The route handler runs"]
-    Plugin -->|"ValidationResult.Invalid"| Throw["RequestValidationException"]
-    Throw --> Handler["HttpRuntime's StatusPages handler"]
-    Handler --> Answer["400 Bad Request<br/>ApiError('Validation failed', errors)"]
+`jsonBody(schema)` from
+[`respond.ts`](../../../../backend/src/platform/http/respond.ts) is the one
+middleware a JSON route installs. It wraps `@hono/zod-validator` and answers:
+
+| Request | Answer |
+| --- | --- |
+| content type other than `application/json` | `415 {"message":"Unsupported media type"}` |
+| a body that is not JSON | `400 {"message":"Malformed request body"}` |
+| JSON the schema rejects | `400 {"message":"Validation failed","errors":{…}}` |
+| JSON the schema accepts | the handler runs; `c.req.valid('json')` is the typed value |
+
+The `errors` map is built by `validationFailed(error)` from the Zod issues:
+one entry per field, keyed like the JSON (`name`, `size.width`,
+`mugVariants[0].name`), in the order the issues were found; an unknown
+property is reported under its own name with the message `Unknown property`.
+Messages accumulate per field, so two rules on one field report two messages.
+
+## A multipart body
+
+The five pre-upload routes (the example images of articles, subcategories and
+prompts, the cart's print image, the generator's upload) read a
+`multipart/form-data` body with `await c.req.formData()`. They install
+`formBody` from the same file in front of the handler, the multipart
+counterpart of `jsonBody`:
+
+| Request | Answer |
+| --- | --- |
+| content type other than `multipart/form-data` | `415 {"message":"Unsupported media type"}` |
+| a body that is not the form its content type announces | `400 {"message":"Malformed request body"}` |
+| a multipart form | the handler runs; its `await c.req.formData()` gets the form Hono parsed once and cached |
+
+Which parts the form has to carry, and their size, is the route's rule and is
+answered as a field error on the part's name (`file`, `image`). Without the
+middleware, Bun's `formData()` throws on a JSON body and the app's `onError`
+would answer `500`; the Kotlin backend answered the same `415` through Ktor's
+`UnsupportedMediaTypeException`.
+
+## Rules the schema cannot check
+
+A rule that needs the database (does this country exist? is this name taken?)
+is answered by the repository (or by the service where it still branches)
+with `invalid(errors)` or `conflict`, in the same `ValidationErrors` shape. `buildValidationErrors((add) => …)` collects
+messages per field and appends instead of overwriting; a single rule writes
+the record directly:
+
+```ts
+return invalid({ countryId: ['Country not found'] })
 ```
-
-Each module registers its request types once, in a
-`RequestValidationConfig` extension that the composition root calls:
-
-```kotlin
-public fun RequestValidationConfig.validateAccountRequests() {
-    validate<RegisterInput> { input -> input.toRequestValidationResult() }
-    validate<LoginInput> { input -> input.toRequestValidationResult() }
-    // …
-}
-```
-
-`toRequestValidationResult()` is the bridge between our map and Ktor's own
-result type. Ktor's `ValidationResult.Invalid` only holds a flat list of
-strings, so the bridge flattens the map. The field keys are not lost, though,
-because the error handler in `HttpRuntime.kt` reaches back to the original
-value and calls `validate()` once more to build the response body:
-
-```kotlin
-exception<RequestValidationException> { call, cause ->
-    call.respond(
-        HttpStatusCode.BadRequest,
-        ApiError(
-            message = "Validation failed",
-            errors = (cause.value as? Validatable)?.validate().orEmpty(),
-        ),
-    )
-}
-```
-
-So the client always sees one shape: status `400`, message `Validation failed`,
-and an `errors` object keyed by field name.
-
-## Collecting the messages: `buildValidationErrors`
-
-A `validate()` implementation runs several small rules and each of them may add
-a message. The shared builder is what they add to:
-
-```kotlin
-public class ValidationErrorsBuilder {
-    public fun add(field: String, message: String)
-    public fun addAll(field: String, messages: List<String>)
-    public fun addAll(errors: ValidationErrors)
-    public fun build(): ValidationErrors
-}
-
-public inline fun buildValidationErrors(build: ValidationErrorsBuilder.() -> Unit): ValidationErrors
-```
-
-`buildValidationErrors { … }` reads like Kotlin's own `buildMap { … }`, which
-is what it replaced. It is `inline`, so a suspending call may appear inside the
-block. Fields and messages keep the order in which the rules ran, and `build()`
-returns a snapshot, so a builder kept across calls can safely be built more
-than once.
-
-### Before and after
-
-The old shape, from `MugArticleInput`, built a `MutableMap` directly and needed
-its own private `add`/`addAll` extensions at the bottom of the file:
-
-```kotlin
-override fun validate(): ValidationErrors = buildMap {
-    requiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
-    // …
-    mugDetails?.validate()?.forEach { (field, messages) -> addAll(field, messages) }
-}
-
-private fun MutableMap<String, List<String>>.requiredText(/* … */) {
-    when {
-        value.isNullOrBlank() -> add(field, "$displayName is required")
-        // …
-    }
-}
-```
-
-The new shape uses the platform builder, and the private rules become
-extensions on `ValidationErrorsBuilder`:
-
-```kotlin
-override fun validate(): ValidationErrors = buildValidationErrors {
-    requiredText("name", "Name", name, MAXIMUM_NAME_LENGTH)
-    // …
-    mugDetails?.validate()?.let { addAll(it) }
-}
-
-private fun ValidationErrorsBuilder.requiredText(/* … */) {
-    when {
-        value.isNullOrBlank() -> add(field, "$displayName is required")
-        // …
-    }
-}
-```
-
-Nothing about the HTTP contract changes. The field keys and the message texts
-stay the same.
-
-## The one rule to remember: adding never overwrites
-
-`add` appends to what a field already collected. That is the whole reason the
-builder exists, and it fixed a real bug.
-
-`ReorderInput` checks two things about `targetId`: that it is positive, and
-that it differs from `sourceId`. With the old `put`, a body of
-`{"sourceId": 0, "targetId": 0}` let the second rule *overwrite* the first, and
-the client was told the ids must differ while never learning that `0` is not a
-usable id at all:
-
-```kotlin
-// old: the second put replaces the first
-put("targetId", listOf("TargetId must be positive"))
-put("targetId", listOf("TargetId must be different from SourceId"))
-```
-
-With the builder, both messages arrive:
-
-```json
-{
-  "message": "Validation failed",
-  "errors": {
-    "sourceId": ["SourceId must be positive"],
-    "targetId": [
-      "TargetId must be positive",
-      "TargetId must be different from SourceId"
-    ]
-  }
-}
-```
-
-Both `ReorderInputValidationTest` files pin exactly this input.
-
-## Nested inputs
-
-A request body that contains another object does not re-implement that object's
-rules. The nested type has its own `validate()`, and the outer one merges the
-result with `addAll(errors)`:
-
-```kotlin
-mugDetails?.validate()?.let { addAll(it) }
-mugVariants.forEachIndexed { index, variant -> addAll(variant.validate(index)) }
-```
-
-The nested type owns its field *paths* too, which is why
-`MugVariantInput.validate(index)` takes the index. Its keys read
-`mugVariants[0].name`, so the client can point at the entry that is wrong.
-Because merging never overwrites, an outer rule and a nested rule can both
-report on the same key without either message disappearing.
 
 ## What is deliberately not shared
 
-The builder is shared. The field rules are not. There is no platform-wide
-`requiredText`, `positiveId`, or email check, and that is a decision, not an
-omission. The message texts are part of each module's HTTP contract, and today
-several modules word the same rule differently. Unifying them in a shared
-helper would silently change what clients receive.
+The message texts are part of each module's HTTP contract, and modules word the
+same rule differently. There is no platform-wide `requiredText` or email
+check; a rule shared *within* a module is a plain Zod schema fragment in that
+module's `routes.ts`.
 
-When a rule really is shared *within* a module, the sanctioned pattern is a
-plain function returning `List<String>`, as in
-[`AccountFieldRules.kt`](../../../../backend/modules/account/src/shop/voenix/account/AccountFieldRules.kt):
+## Tests
 
-```kotlin
-internal fun accountPasswordErrors(value: String?): List<String> =
-    when {
-        value.isNullOrEmpty() -> listOf("Password is required")
-        value.length < MINIMUM_PASSWORD_LENGTH -> listOf("Password must be at least 8 characters")
-        else -> emptyList()
-    }
-```
-
-A caller feeds it straight into the builder with
-`addAll("password", accountPasswordErrors(password))`. An empty list adds no
-key, so the valid case needs no `if`.
-
-## Adoption status
-
-The builder is the way every `validate()` implementation collects its errors.
-Every module builds its field errors this way, and no
-`buildMap { put(field, listOf(message)) }` implementation is left in the
-backend. A new input type adds to the builder, never to a raw map.
+The schema is tested once, as a unit test of the Zod schema through
+`validationFailed`, with the field names and messages the client sees
+(`validation.test.ts` in the country module). Route tests do not repeat the
+field cases; the platform test `app.test.ts` pins the `415`, the malformed
+body, the unknown property, and the shape of the `400` for JSON bodies, and
+the `415`, the malformed body, and the cached form for multipart bodies.

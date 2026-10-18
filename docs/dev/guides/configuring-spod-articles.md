@@ -18,7 +18,7 @@ category you file it under.
 
 The one thing you never do is type a SPOD article into this admin. **The
 Spreadconnect backoffice is the source of truth for the product**
-([SPOD sync decision 1](../backend/packages/article-package.md#the-sync-decisions)):
+([SPOD sync decision 1](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/article-package.md#the-sync-decisions)):
 you create the article over there with its colours and its sizes, press *Sync
 from Spreadconnect* here, and then decide the shop's half of it — price,
 category, default variant, and whether it is active. There is no *Add* button,
@@ -31,9 +31,9 @@ colours and sizes) and the Stanley/Stella **tote bag** (product type 2973, eight
 colours, one size). Both go through exactly the same steps.
 
 How the production side works once everything is configured is described in
-[SPOD fulfillment](../backend/packages/spod-fulfillment.md); the data model of
+[SPOD fulfillment](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md); the data model of
 the article itself is in the
-[Article package guide](../backend/packages/article-package.md#spod-articles).
+[Article package guide](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/article-package.md#spod-articles).
 
 ## The checklist
 
@@ -88,7 +88,7 @@ the last one is what makes step 6 possible without shipping a parcel.
 ## 1. The application configuration
 
 The SPOD channel needs two environment variables of the backend (see
-[Running the development server](../backend-ts/getting-started/running-the-development-server.md)):
+[Running the development server](../backend/getting-started/running-the-development-server.md)):
 
 ```sh
 PRODUCTION_SPOD_WEBHOOK_SECRET=   # at least 32 characters
@@ -401,11 +401,11 @@ A rename of a colour has one side effect worth knowing: production jobs of that
 colour that are already waiting are quarantined by the name tripwire with
 `SPOD_MAPPING_CHANGED`. That is a known false alarm with a fixed resolution —
 see
-[the runbook](../backend/packages/spod-fulfillment.md#spod_mapping_changed-after-a-rename-in-the-backoffice).
+[the runbook](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md#spod_mapping_changed-after-a-rename-in-the-backoffice).
 A hotspot change has one too: an order placed before it is still sent with the
 old hotspot, and if the partner no longer accepts that one, the job stops with
 `ORDER_CREATE_REJECTED` — see
-[the runbook](../backend/packages/spod-fulfillment.md#order_create_rejected-after-a-hotspot-change).
+[the runbook](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md#order_create_rejected-after-a-hotspot-change).
 
 The one thing you do **here** and not over there is retiring an article for
 good: *Delete* on the article removes it from the shop. Do it only for an
@@ -426,7 +426,7 @@ to production:
    uploads the design, creates the order, and confirms it; the job then shows
    `prepared_at`. A job that stays open has a bounded error code in the
    database — the table in
-   [SPOD fulfillment](../backend/packages/spod-fulfillment.md#the-bounded-error-codes)
+   [SPOD fulfillment](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md#the-bounded-error-codes)
    says what each one means. The one you will meet during set-up is `REFUSED`:
    the token does not belong to the destination's environment.
 4. Simulate the shipment with the partner's staging **simulation endpoints**

@@ -28,7 +28,7 @@ type ApiUser = Omit<User, 'shippingAddress' | 'billingAddress'> & {
 }
 
 /**
- * A failed auth call. The Kotlin backend answers the shared `ApiError` body, so the HTTP
+ * A failed auth call. The backend answers the shared `ApiError` body, so the HTTP
  * `status` is the discriminator on most `/api/auth` routes; the three link flows additionally
  * carry the machine-readable `code` {@link INVALID_LINK_CODE}
  * (`docs/dev/backend/packages/account-package.md`). `status` is `null` when the request never reached
@@ -74,7 +74,7 @@ function toAuthActionError(error: unknown): AuthActionError {
  * there is no body to read.
  *
  * `anonymous` routes live outside the authenticated subtree and are not CSRF protected
- * (`installAnonymousRoutes` in `AccountRoutes.kt`), so they skip the antiforgery round trip.
+ * (`accountRoutes` in `backend/src/modules/account/routes.ts`), so they skip the antiforgery round trip.
  */
 const postAuth = async (
   path: string,

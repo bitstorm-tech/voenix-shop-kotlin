@@ -1,48 +1,50 @@
 # The SPOD package
 
-This guide explains the Kotlin code in
-[`backend/modules/spod/src/shop/voenix/spod`](../../../../backend/modules/spod/src/shop/voenix/spod).
+This guide explains the TypeScript code in
+[`backend/src/modules/spod`](../../../../backend/src/modules/spod).
 
 ## What this package does
 
 The SPOD package is the one place in this backend that knows the HTTP API of
 the print-on-demand partner **Spreadconnect (SPOD)**. It owns the client, the
 vocabulary of a provider call (`SpodAccess`, `SpodEnvironment`, `SpodResult`,
-`SpodError`), the request and response shapes of the ten calls, and the one
-piece of interpretation the partner's answers need, `parseColorHex`.
+`SpodError`), the request and answer shapes of the ten calls, and the two
+readings the partner's answers need, `parseColorHex` and `downloadUrl`.
 
-It is a **leaf module**: it depends on no other module of this backend, not
-even `platform`. It owns no table, installs no route, and has no runtime
-handle. What it has is one class, `SpodClient`, and two modules consume it:
+It is a **leaf module**: it imports no other module, and from the platform only
+the logger (`createLogger`). It owns no table, installs no route, and has no
+worker. What it has is one factory, `createSpodClient`, and two modules consume
+the client it returns:
 
-- `production` submits an order through it — upload a design, create the order
+- `production` submits an order through it: upload a design, create the order
   in state `NEW`, read it, confirm it, and ask which placements a product type
-  offers (see [SPOD fulfillment](spod-fulfillment.md));
+  offers (see [SPOD fulfillment](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md));
 - `article` reads the merchant's backoffice catalog through it and turns it
-  into this shop's SPOD articles — list the articles, read a size chart,
-  download an image one of those answers points at (see the
-  [Article package guide](article-package.md#spod-articles)).
+  into this shop's SPOD articles: list the articles, read a size chart, read a
+  product type's views, render a preview, and download an image one of those
+  answers points at (see
+  [the article guide](article-package.md#the-spod-catalog-sync)).
 
-The client used to live inside `production`. It moved here when the SPOD
-catalog (then the t-shirt catalog) became synced data
-([SPOD sync decision 5](article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered)):
-two modules needed the same client, and the alternative — `article` depending
-on `production`, or a second client next to the first — would either have
-inverted the layering or split the partner's request budget in two.
+The client is a module of its own because two modules need it
+([SPOD sync decision 5](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/article-package.md#decision-5--the-client-is-shared-the-modules-stay-layered),
+kept by [the TypeScript article guide](article-package.md#the-spod-catalog-sync)):
+`article` depending on `production`, or a second client next to the first,
+would either have inverted the layering or split the partner's request budget
+in two.
 
 ## The five-minute mental model
 
 ```mermaid
 flowchart TB
-    Article["article<br/>SpodCatalogSyncService"]
-    Production["production<br/>SpodOrderSubmitter"]
-    Client["SpodClient<br/>one instance per application"]
+    Article["article<br/>the catalog sync"]
+    Production["production<br/>the order submission"]
+    Client["createSpodClient()<br/>one instance per application"]
     Pacer["the pacer<br/>≥ 1050 ms between two API requests"]
     Access["SpodAccess<br/>destination · environment · token · timeout"]
     Environment["SpodEnvironment<br/>STAGING · PRODUCTION → base URL"]
     Api["Spreadconnect REST API"]
     Cdn["The partner's image CDN"]
-    Result["SpodResult<br/>Answered · Failed(SpodError, ambiguous)"]
+    Result["SpodResult<br/>answered · failed(error, ambiguous)"]
 
     Article --> Client
     Production --> Client
@@ -59,194 +61,275 @@ flowchart TB
 
 The ownership rules are:
 
-1. **There is exactly one `SpodClient` per application.**
-   [`Application.kt`](../../../../backend/app/src/shop/voenix/Application.kt)
-   creates it and hands the same instance to the catalog runtime (which passes
-   it to `installArticleModule`) and to the production module. The partner
-   allows 60 requests per minute for the whole account, so one pacer has to
-   hold that budget for every module and every supplier at once.
+1. **There is exactly one client per application.** The composition root calls
+   `createSpodClient()` once and hands the same object to article and
+   production. The partner allows 60 requests per minute for the whole
+   account, so one pacer has to hold that budget for every module and every
+   supplier at once.
 2. **Where to talk and how to authenticate is a property of the call**, not of
    the client. Every API call takes a `SpodAccess` and reads the installation,
    the token, and the timeout off it.
 3. **What the partner wrote leaves this module only as a typed answer.** A call
-   answers `SpodResult.Answered(value)` or `SpodResult.Failed(error,
-   ambiguous)`, and `SpodError` is a four-entry enum. A successful answer *does*
-   carry partner text — titles, descriptions, skus, image and size-chart URLs —
-   because that is the catalog the article module is asked to mirror; that
-   module then validates it, truncates it to its columns, and persists the
-   bounded subset it needs. What never leaves this module is the untrusted rest:
-   a raw failure body, a decoder message, the access token, and — into a log
-   line — any URL at all.
+   answers `{ kind: 'answered', value }` or
+   `{ kind: 'failed', error, ambiguous }`, and `SpodError` is a four-value
+   union. A successful answer *does* carry partner text (titles, descriptions,
+   skus, image URLs), because that is the catalog the article module mirrors;
+   that module validates it, truncates it to its columns, and stores the
+   bounded subset it needs. What never leaves this module is the untrusted
+   rest: a raw failure body, a decoder message, the access token, and, into a
+   log line, any URL at all.
 4. **The module never decides what to do about a failure.** It never retries,
    never deactivates anything, never writes. Retrying belongs to the
    database-backed production worker; degrading belongs to the sync run.
 
 ## File map
 
-| File | Contents |
-| --- | --- |
-| [`SpodClient.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodClient.kt) | The ten calls, the pacer, the response judgements, the order request shapes, `SpodResult`, and `SpodError`. |
-| [`SpodAccess.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodAccess.kt) | `SpodAccess` — one destination row's installation, token, and timeout — and `SpodEnvironment` with the base URL each entry derives. |
-| [`SpodCatalog.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodCatalog.kt) | The catalog answers (`SpodCatalogPage`, `SpodCatalogArticle`, `SpodCatalogVariant`, `SpodCatalogImage`, `SpodSizeChart`), the downloaded `SpodBinary`, `parseColorHex`, and `downloadUrl()`, the one reading of an image answer. |
-| [`SpodPreviews.kt`](../../../../backend/modules/spod/src/shop/voenix/spod/SpodPreviews.kt) | What the partner renders of a product type: the views answer (`SpodViews`, `SpodView`, `SpodHotspotName`, `SpodViewImage`) and the preview request and answer (`SpodPreviewRequest`, `SpodPreviewConfiguration`, `SpodPreviews`, `SpodPreviewImage`). |
+```text
+spod/
+|- index.ts          the public surface: createSpodClient, the types, downloadUrl, parseColorHex
+|- client.ts         createSpodClient({ fetch, now, sleep, logger }) with the ten calls and the pacer;
+|                    SpodAccess, SpodEnvironment, SPOD_ENVIRONMENTS, spodEnvironmentOfStoredValue,
+|                    SpodResult, SpodError, the order request shapes (SpodOrderRequest …)
+|- catalog.ts        the Zod schemas and types of the catalog answers (SpodCatalogPage,
+|                    SpodCatalogArticle, SpodCatalogVariant, SpodCatalogImage, SpodSizeChart),
+|                    SpodBinary, downloadUrl, parseColorHex
+|- previews.ts       the views answer (SpodViews, SpodView, SpodHotspotName, SpodViewImage) and the
+|                    preview request and answer (SpodPreviewRequest, SpodPreviewConfiguration,
+|                    SpodPreviews, SpodPreviewImage)
+|- client.test.ts    every call's request and answer, the error mapping, the pacer, the download, logging
+`- catalog.test.ts   parseColorHex and downloadUrl
+```
 
-These types read only the keys a sync run uses, and each one it does read has a
-job. `SpodCatalogPage` carries the page's `items` and the catalog's total
-`count`; the `count` is nullable, because a page that carries none is a
-malformed answer the caller has to refuse rather than a listing that happens to
-end early (the paging cursor is the `limit`/`offset` the *caller* passed, so the
-echo of them in the body is not read at all). `SpodCatalogVariant` carries the
-three product ids, the colour's name and value, the size, the `sku`, and
-`productTypeName` — the partner's name of the product kind, which the shop
-stores as an article's subtitle. It answers no image id list: which pictures a
-colour gets is decided from `SpodCatalogArticle`'s images, every one whose
+The module has none of the five standard files except `index.ts`: there is no
+route, no service, no repository, and no table. The files are named after the
+concepts of [Source file organization](../conventions/source-file-organization.md).
+
+The answer types are inferred from their Zod schemas
+(`type SpodCatalogPage = z.output<typeof spodCatalogPage>`), so the type and
+the lenient reading below can never drift apart. The schemas themselves stay
+inside the module.
+
+These types read only the keys a sync run uses. `SpodCatalogPage` carries the
+page's `items` and the catalog's total `count`; the `count` is `number | null`,
+because a page that carries none is a malformed answer the caller has to refuse
+rather than a listing that happens to end early. The paging cursor is the
+`limit`/`offset` the *caller* passed, so their echo in the body is not read.
+`SpodCatalogVariant` carries the three product ids, the colour's name and value,
+the size, the `sku`, and `productTypeName`, the partner's name of the product
+kind, which the shop stores as an article's subtitle. Which pictures a colour
+gets is decided from `SpodCatalogArticle`'s `images`: every one whose
 `appearanceId` is that colour, in the listing's order.
 
 One thing about an image answer is undocumented and lives next to the type, so
 the article module never reads the partner's URL format itself:
 
-- **`downloadUrl()`** — the partner writes the Spreadshirt image server's URL
-  with the literal placeholder `lookupId` where the product id belongs
+- **`downloadUrl(image)`**: the partner writes the Spreadshirt image server's
+  URL with the literal placeholder `lookupId` where the product id belongs
   (`…/products/lookupId/views/1,width=1000,…,appearanceId=2,mediaType=png/1`),
   and the CDN answers that with a `404` whose body is a placeholder picture.
   The id is in the same answer as `productId`; putting it in is what makes the
   URL a picture (seen on the staging installation on 2026-08-25, and verified
   against the CDN: the bare number works, a `P` prefix or the `.com` host does
-  not). A URL without the placeholder, or an answer without a product id, is
-  used as it is. The partner's support says to use the URL exactly as
-  answered (2026-10), but the staging CDN still answers it with that `404`
-  (checked again on 2026-10-06), so the replacement stays.
+  not). A URL without the placeholder, or an image without a product id
+  (`productId` is `0`), is used as it is. The partner's support says to use the
+  URL exactly as answered (2026-10), but the staging CDN still answers it with
+  that `404` (checked again on 2026-10-06), so the replacement stays.
 
-Which of a colour's images the shop shows used to be a guess here as well — a
-`frontImage` ranking over the undocumented `perspective` and the `modelId=` of a
-model photo. Issue #260 deleted it: the operator chooses a colour's images in
-the backoffice, and the shop stores all of them in the partner's order.
+Which of a colour's images the shop shows is the operator's choice in the
+backoffice (issue #260); the Kotlin `frontImage` ranking was deleted then and is
+not ported.
 
-## The HTTP API
+## The ten calls
 
-This module serves **no** HTTP route. It is a client, not a surface: it has no
-`install…Module` function, no routes file, and no runtime handle. Its "API" is
-the ten calls it makes outwards.
+This module serves **no** HTTP route. Its API is the ten calls it makes
+outwards. Every call answers a `Promise<SpodResult<T>>`.
 
 | Call | Partner endpoint | Answers |
 | --- | --- | --- |
-| `uploadDesign(access, fileName, png)` | `POST /designs/upload` | the design id the print image was filed under |
+| `uploadDesign(access, fileName, png)` | `POST /designs/upload` (multipart, part `file`, `image/png`) | the design id the print image was filed under |
 | `createOrder(access, request)` | `POST /orders` | the partner's order id, always created in state `NEW` |
-| `getOrder(access, orderId)` | `GET /orders/{id}` | the order's state |
-| `confirmOrder(access, orderId)` | `POST /orders/{id}/confirm` | nothing; this is the moment production is ordered |
+| `getOrder(access, orderId)` | `GET /orders/{id}`, the id percent-encoded into one path segment | the order's state |
+| `confirmOrder(access, orderId)` | `POST /orders/{id}/confirm`, the id encoded the same way | `undefined`; this is the moment production is ordered |
 | `availableHotspots(access, productTypeId, designId)` | `GET /productTypes/{id}/hotspots/design/{designId}` | the placement names this product type offers |
-| `articles(access, limit, offset)` | `GET /articles` | one page of the merchant's backoffice articles |
-| `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `sizeImageUrl` of that product type |
-| `download(url, timeoutSeconds)` | the URL a previous answer carried | the image bytes and their content type |
-| `views(access, productTypeId)` | `GET /productTypes/{id}/views` | each view's name, placement names, and mockup per colour |
-| `previews(access, productTypeId, request)` | `POST /productTypes/{id}/previews` | the URLs of the rendered previews, one per view |
+| `articles(access, limit, offset)` | `GET /articles?limit=…&offset=…` | one `SpodCatalogPage` of the merchant's backoffice articles |
+| `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `SpodSizeChart` (its `sizeImageUrl`) |
+| `download(url, timeoutSeconds)` | the URL a previous answer carried | a `SpodBinary`: the image bytes and their content type |
+| `views(access, productTypeId)` | `GET /productTypes/{id}/views` | `SpodViews`: each view's name, placement names, and mockup per colour |
+| `previews(access, productTypeId, request)` | `POST /productTypes/{id}/previews` | `SpodPreviews`: the URLs of the rendered previews, one per view |
 
 The first five produce an order and are described step by step in
-[SPOD fulfillment](spod-fulfillment.md); the next three read the catalog and
-are what a sync run is built from; the last two calibrate a product type —
-what its sides look like, and where a design lands on them. How the sync run
-turns them into a print frame, and what that costs of the 60-per-minute
-budget, is
-[SPOD sync decision 7](article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews).
+[SPOD fulfillment](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md); the next three
+read the catalog; the last two calibrate a product type, what its sides look
+like and where a design lands on them
+([SPOD sync decision 7](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/article-package.md#decision-7--the-print-frame-is-measured-from-spod-previews),
+and [the sync decisions](article-package.md#the-sync-decisions) of the
+TypeScript article guide).
+
+### The order request
+
+`SpodOrderRequest` is `{ externalOrderReference, email, phone, shipping: {
+address }, oneTimeItems }`, with one `SpodOneTimeItem` per product type,
+design, placement, and price, each with a `SpodQuantityItem` per size and
+colour, a `SpodConfiguration` (`image: { designId }`, `view`, `hotspot`) per
+placement, and a `customerPricePerItem` (`SpodPrice`: `{ amount, currency:
+'EUR' }`). The amount is a decimal number in euros (`24.9`), not cents.
+
+`customerPricePerItem` looks optional in the partner's documentation, which
+shows it only in an example, but the partner requires it: without it,
+`POST /orders` answers a bare `400 Bad Request` with no detail at all, before it
+checks anything else of the order. Found on staging in October 2026 by
+removing and adding fields one at a time; an order without `oneTimeItems`, for
+comparison, gets the readable `422` with reason `NO_ORDER_ITEMS`. So a bare
+`400` on an order creation means the body did not even parse into the
+partner's model: a missing required field or a value of the wrong type or
+outside an enum.
+
+Three fields are not the caller's to choose, so `createOrder` adds them when it
+serializes the request:
+
+- `orderItems: []`. Every line of this shop is a unique print, so nothing is
+  ever ordered from a pre-created article, but the partner requires the field.
+- `state: 'NEW'`. The partner also accepts `CONFIRMED` at creation, and this
+  shop never uses it: an order created `NEW` produces nothing until it is
+  confirmed, which is the only reason a creation whose outcome nobody knows can
+  be repeated at all.
+- `shipping.preferredType: 'STANDARD'`. The customer never chooses (issue #205,
+  decision 5).
+
+### The preview request
 
 The preview request is sent as
 `{ "configurations": [ { "designId", "hotspot" } ], "appearanceId": "<string>", "width": 1000, "height": 1000 }`;
 the partner accepts only multiples of 50 for the size. Both calibration
-endpoints write the colour id as a **string**, unlike the `Long` of an order's
-`appearanceId`, so `SpodViewImage` and `SpodPreviewRequest` carry a `String`. A
-missing `views` or `images` array reads as an empty list.
+endpoints write the colour id as a **string**, unlike the number of an order's
+`appearanceId`, so `SpodViewImage` and `SpodPreviewRequest` carry a `string`.
+A missing `views`, `hotspots`, or `images` array reads as an empty list.
 
 ## The four rules of the client
 
-These four sentences shape every line of `SpodClient.kt`.
+These four sentences shape every line of `client.ts`.
 
 **Nothing the provider wrote is ever logged, and neither is anything of ours
-that is secret.** Not an error body, not a decoder message — a
-`kotlinx.serialization` message quotes the input it stumbled over, so the
-message *is* the untrusted content — not the access token, and not the request
-URL. What reaches a log line is this adapter's own context (a destination id, a
-call name, a host) plus, at most, the HTTP status *number*.
+that is secret.** Not an error body, not a decoder message (a `JSON.parse` or
+Zod message quotes the input it stumbled over, so the message *is* the
+untrusted content), not the access token, and not the request URL. What reaches
+a log line is this adapter's own words (a destination id, a call name, a host),
+at most the HTTP status *number*, and the `name` of a caught error
+(`TimeoutError`, `SyntaxError`, `ZodError`). The error object itself is never
+logged: a fetch error's message may carry the URL it failed on.
 
 **This client never retries.** Retries belong to the database-backed worker.
 That is not a style preference: the partner offers no idempotency key for
 `POST /orders`, so a blind retry inside the adapter could create a second real
-order whose id nobody knows. `SpodResult.Failed.ambiguous` is how the adapter
-tells its caller which failures left the outcome undecided — a `4xx` is the
-partner saying "I did not do this" (`ambiguous = false`), while a timeout, a
-reset connection, an unreadable answer, and every `5xx` are all `true`.
+order whose id nobody knows. `ambiguous` on a failure is how the adapter tells
+its caller which failures left the outcome undecided:
+
+| What happened | `error` | `ambiguous` |
+| --- | --- | --- |
+| `429` | `RATE_LIMITED` | `false` |
+| any other status outside `200`–`299`, below `500` (redirects included) | `REFUSED` | `false` |
+| `500` and above | `PROVIDER_UNAVAILABLE` | `true` |
+| fetch rejected: timeout, reset, DNS, a body cut off mid-transfer | `PROVIDER_UNAVAILABLE` | `true` |
+| a `2xx` whose body is not JSON or not the expected shape | `PROVIDER_ANSWER_UNREADABLE` | `true` |
+
+A `4xx` is the partner saying "I did not do this"; everything else that comes
+back without a usable answer may have created an order.
 
 **Requests are paced, not throttled after the fact.** The pacer keeps at least
-**1050 ms** between any two API requests the client makes, measured on
-`System.nanoTime` behind a mutex that is held *across* the wait, so concurrent
-callers queue up instead of all sleeping the same interval and then firing
-together. 60 requests per minute would be exactly 1000 ms; the extra 50 ms
-absorbs the jitter between reading the clock and the request leaving. A `429`
-that happens anyway is the retryable `SpodError.RATE_LIMITED`.
+**1050 ms** between any two API requests the
+client makes, measured on the monotonic `performance.now()`. Each call chains
+its wait onto a promise queue, which is the in-process mutex: concurrent callers
+queue up behind each other instead of all sleeping the same interval and then
+firing together. After a wait the clock is read again before the next
+deadline is booked, so a timer that wakes up late pushes the following
+requests out with it instead of letting them fire in a burst. 60 requests per
+minute would be exactly 1000 ms; the extra
+50 ms absorb the jitter between reading the clock and the request leaving. A
+`429` that happens anyway is the retryable `RATE_LIMITED`. The queue lives in
+memory, so it holds the budget for the one backend process; a second process
+would need a share of the budget of its own.
 
 **Where to talk and how to authenticate travels with the call.** Every API call
-takes a `SpodAccess(destinationId, environment, accessToken, timeoutSeconds)`
-and derives its URL from `SpodEnvironment`, never from a column — no admin
-input can point this shop at an arbitrary host. `SpodAccess.toString()` redacts
-the token, and `destinationId` is the only part of it that may be logged.
+takes a `SpodAccess { destinationId, environment, accessToken, timeoutSeconds }`,
+sends the token as `X-SPOD-ACCESS-TOKEN`, aborts after `timeoutSeconds` through
+`AbortSignal.timeout`, and derives its URL from the `SpodEnvironment`, never
+from a column: no admin input can point this shop at an arbitrary host.
+`SPOD_ENVIRONMENTS` is `['PRODUCTION', 'STAGING']`, the values the
+`ck_production_destination_spod_environment` check constraint allows;
+`spodEnvironmentOfStoredValue(value)` reads a stored value back and throws on
+anything else, because that is a broken database. `destinationId` is the only
+part of an access that may be logged; never pass a `SpodAccess` to a logger.
 
-The client's `Json` is lenient and ignores unknown keys, because the partner
-answers ids as numbers in some fields and as quoted strings in others, and
-because its answers carry far more than what is read here.
+Every request is sent with `redirect: 'manual'`: this API never answers with a
+redirect, so a `3xx` is a refusal to be judged, not a route to be walked.
+Walking it would replay the request, order body and token included, against a
+URL this adapter never chose.
 
 ## The download is the one documented exception
 
 `download(url, timeoutSeconds)` is the only call whose URL does **not** come
-from `SpodEnvironment`. It comes out of an answer the partner gave this shop —
-a mockup image of a colour, or a size chart — so it is *bounded* instead of
-trusted (SPOD sync decision 5):
+from `SpodEnvironment`. It comes out of an answer the partner gave this shop (a
+mockup image, a size chart), so it is *bounded* instead of trusted (SPOD sync
+decision 5):
 
 - **https only.** A `http` URL, a relative one, or anything that is not a URL
   is refused before a request goes out.
-- **No redirect is followed.** The client is configured that way for every
-  call: this API never answers with a redirect, so a redirect is a refusal to
-  be judged, not a route to be walked. Walking it would replay the request
-  against a URL this adapter never chose.
+- **No redirect is followed**, as for every call.
 - **No access token is sent.** The CDN does not ask for one, and a token sent
   to a host this adapter did not choose would be a token given away.
-- **The `User-Agent` is `Spreadconnect_API_flow`** (`SpodClient.CDN_USER_AGENT`).
-  The CDN's bot protection answers every other non-browser client with a `403`
-  (`{"error":"Forbidden","status":403}`), whatever the other headers say. The
-  partner's support named this value in October 2026. If downloads start
-  failing with `403` again, this value is the first thing to check.
-- **Only an image is accepted.** The answer's content type must be an
-  `image/*` one.
-- **At most 10 MiB is read**, whatever the answer's `Content-Length` claims.
-  The channel is cancelled the moment the cap is exceeded — this is an answer,
-  not a request, and refusing to keep paying for it is the point of the cap.
-  It is the same 10 MiB a visitor may upload: a product image has no
-  business being larger than the picture printed on it.
+- **The `User-Agent` is `Spreadconnect_API_flow`**. The
+  CDN's bot protection answers every other non-browser client with a `403`,
+  whatever the other headers say. The partner's support named this value in
+  October 2026. If downloads start failing with `403` again, this value is the
+  first thing to check.
+- **Only an image is accepted.** The answer's content type must be `image/*`;
+  `SpodBinary.contentType` is that type without its parameters.
+- **At most 10 MiB is read**, whatever the answer's
+  `Content-Length` claims. The body is read chunk by chunk and the stream is
+  cancelled the moment the cap is exceeded. It is the same 10 MiB a visitor may
+  upload: a product image has no business being larger than the picture
+  printed on it.
 - **It is not paced.** The 60-per-minute budget belongs to the API; pacing a
   few hundred CDN images behind it would make a sync take minutes for nothing.
 
-Only the host of the URL may be logged, and only on a refusal — the host is
-picked apart by hand rather than parsed, so a partner-written
-`https://secret@host/` cannot put that `secret` in a log line. A URL or an
-answer that is not a usable image becomes `PROVIDER_ANSWER_UNREADABLE`; there
-is deliberately no error code of its own, because every caller acts on all
-three refusals in the same way.
+Only the host name of the URL may be logged. It is read from `new URL(url)`,
+the same parser the fetch uses, so a partner-written `https://host\secret/a.png`
+logs `host` (the parser reads the backslash as a slash), and user info, port,
+path, query, and fragment never reach a log line: neither
+`https://secret@host/` nor `https://host/a.png?signature=secret` can put its
+secret there. A URL that does not parse is refused without its text being
+logged. A URL or an answer that is not a usable
+image becomes `PROVIDER_ANSWER_UNREADABLE` with `ambiguous: false`; there is
+deliberately no error code of its own, because every caller acts on all three
+refusals in the same way. A refusal status and a failed request are judged like
+every API call.
+
+The unread body of a refusal (here and for every API call) is cancelled best
+effort: a body that broke after the status arrived rejects the cancel, and the
+status that was already read still decides the result, so a `429` stays
+`RATE_LIMITED` instead of becoming an ambiguous `PROVIDER_UNAVAILABLE`.
 
 ## The catalog answers are read leniently
 
-Two decisions run through every type in `SpodCatalog.kt`, both from the SPOD
-sync decisions (6 and 4).
+Two decisions run through every schema in `catalog.ts` and `previews.ts`, both
+from the SPOD sync decisions (6 and 4).
 
 **Every field except an id has a default.** The partner documents neither which
 fields are optional nor what a sparse article looks like, and a sync that
 refuses to decode a page is a sync that writes nothing at all. A missing field
-becomes an empty value — a variant without a colour, an article without images
-— and the judgement (skip it, deactivate it, warn about it) happens in the sync
-run, where it belongs. An id has no default, because an article or a variant
+becomes an empty value (`''`, `0`, `[]`, or `null` for the nullable ones), and
+the judgement (skip it, deactivate it, warn about it) happens in the sync run.
+Unknown keys are dropped. An id has no default, because an article or a variant
 without identity is nothing this shop could store or match.
 
 **Ids are strings.** `{"id": 42}` and `{"id": "42"}` are one and the same
-article, which is what the lenient `Json` buys. The three *product* ids —
-`productTypeId`, `appearanceId`, `sizeId` — are `Long` instead: they are what
-an order is placed with, so they stay numbers all the way down.
+article: every id field reads a number or a string into a `string`. The three
+*product* ids (`productTypeId`, `appearanceId`, `sizeId`) and an image's
+`productId` are `number`s instead, read from a number or a quoted integer:
+they are what an order is placed with. The order answers are read the same way,
+so `{"id": 12345}` from `POST /orders` is the order `"12345"`; without that, a
+creation this shop really performed would fail to read, count as ambiguous, and
+quarantine the job after a second orphan, on every order.
 
 `parseColorHex(value)` is the one interpretation this module performs. The
 partner's `appearanceColorValue` is undocumented, and two things are known from
@@ -260,60 +343,64 @@ warning instead of inventing a colour a customer would order by.
 
 ## Composition
 
-The module has no `install…Module` function. The composition root creates the
-one client and passes it on:
+The module has no `createSpodModule`: a client with no database and no routes
+needs no module object. The composition root creates the one client and passes
+it on:
 
-```kotlin
-// Application.kt
-installModules(databaseFactory.connectAndMigrate(), settings, spod ?: SpodClient())
+```ts
+const spod = createSpodClient()
+// createArticleModule({ db, …, spod })
+// createProductionModule({ db, …, spod })
 ```
 
-`Application.install(application, mollie, spod)` takes an optional client so a
-composition test can point the whole application at a `MockEngine`; a
-deployment passes nothing and gets the CIO-backed client. From there the
-instance travels to `installCatalogRuntime(database, publicStorage, spod)`,
-which hands it to `installArticleModule`, and to the production module, which
-also **closes** it when the application stops.
+`createSpodClient` takes four optional seams, all defaulted for a deployment:
 
-Both consuming modules declare the dependency as `exported`, because their own
-public signatures name types of this module: `installArticleModule` and
-`createProductionModule` take a `SpodClient`, `SpodCatalogSync` takes a
-`SpodAccess`, and the sync report answers a `SpodError`.
+| Parameter | Default | Why it is a parameter |
+| --- | --- | --- |
+| `fetch` | the global `fetch` | tests pass a function that records the request and answers a `Response` |
+| `now` | `performance.now()` | the pacer's monotonic clock; tests pass a fake one |
+| `sleep` | `setTimeout` in a promise | tests record the waits instead of waiting |
+| `logger` | `createLogger('spod')` | tests capture the lines to prove nothing secret is in them |
+
+The consuming modules' own tests drive their submission and sync stages through
+the same `fetch` seam, so no test ever reaches the real partner and nothing is
+mocked globally.
+
+## Differences to the Kotlin package
+
+- `SpodResult`, `SpodError`, and `SpodEnvironment` are unions instead of a
+  sealed interface and enums; `SpodEnvironment.ofStoredValue` is
+  `spodEnvironmentOfStoredValue`.
+- `SpodAccess` is a plain object with no redacting `toString`. The client never
+  logs it; the rule moves to the caller: never hand a `SpodAccess` to a logger.
+- `orderItems`, `state`, and `shipping.preferredType` are not fields of the
+  request types with defaults but constants `createOrder` adds, so no caller can
+  send anything else.
+- An API call that fails without a status logs the error's class, not the
+  error with its stack, exactly like a download; Kotlin kept the throwable
+  because the URL in it was the shop's own, and the simpler rule logs no URL at
+  all.
+- The timeout is one `AbortSignal.timeout(seconds)` for the whole exchange,
+  where Ktor set the connect, request, and socket timeouts separately.
 
 ## Tests
 
-The module's tests drive the real client against a `MockEngine`, which is how
-the exact request, the header, and the pacer's arithmetic are observable at
-all.
-
-- `SpodClientTest` — the exact request of every one of the order and catalog
-  calls including the `X-SPOD-ACCESS-TOKEN` header, an id answered as a number
-  reading like a quoted one, the pacer's waiting arithmetic on a fake clock,
-  `429` → `RATE_LIMITED`, a `4xx` known versus a `5xx` ambiguous, the article
-  listing paging with `limit`/`offset` until the count is reached, the four
-  refusals of `download` (not https, not an image, over the cap, refused by the
-  host), that image downloads are *not* paced while the catalog calls are, and
-  that neither the token nor a URL nor a provider body ever reaches a log line.
-- `SpodCalibrationCallsTest` — the exact request of `views` and `previews`
-  with the token, the configured timeout, and the exact preview JSON; an
-  unknown field ignored and a missing `views` or `images` array read as empty;
-  `429`, `5xx`, and `4xx` judged like every other call; and the two calls paced
-  like every other API call. The fixtures both client tests share — the
-  `MockEngine` client, the staging access, the token and the provider-body
-  marker — live in `SpodTestSupport.kt`.
-- `SpodCatalogImageTest` — the `lookupId` placeholder replaced by the product id
-  and left alone without one.
-- `ParseColorHexTest` — three- and six-digit hex with and without `#`, the
-  first colour of a two-tone value, the normalization to lowercase, and the
-  values that answer `null`.
-
-The behaviour of the consumers is tested where it lives: the submission
-protocol in `production`, the sync run in `article`. Both do it through
-`SpodClient(engine)`, the module's blessed public test seam — see
-[Visibility is never widened only for a test](../conventions/module-architecture.md#visibility-is-never-widened-only-for-a-test).
-
-Run them with:
+Run from `backend/`:
 
 ```sh
-./kotlin test --include-module spod
+bun test src/modules/spod    # this module only
+bun run check                # the full gate
 ```
+
+No test of this module touches the database or the network. Every test builds
+the client with a stubbed `fetch` that turns `(url, init)` into a `Request`,
+records it, and answers a `Response`; a fake clock that only the recording
+`sleep` advances; and a pino logger that writes into an array.
+
+| Test | What it states |
+| --- | --- |
+| [`client.test.ts`](../../../../backend/src/modules/spod/client.test.ts) | The exact request of every call (method, URL, `X-SPOD-ACCESS-TOKEN`, content type, body; the multipart upload; the whole order contract with the three added constants), no redirect followed; an order id with `/` and `?` percent-encoded into one path segment; ids answered as numbers reading like quoted ones; `429` → `RATE_LIMITED`, `4xx` and `3xx` known, `5xx`, a rejected fetch, a timeout, and an unreadable answer ambiguous; the pacer's waiting arithmetic, concurrent callers queueing, and downloads unpaced; the catalog fixtures ported from the Kotlin `SpodClientTest` and `SpodCalibrationCallsTest` (two pages with sparse articles, missing arrays read as empty, a missing `count` read as `null`); the download's refusals (not https, not an image, over the cap, a refusal status); and that neither the token, nor a provider body, nor a URL, path, query, or user info ever reaches a log line |
+| [`catalog.test.ts`](../../../../backend/src/modules/spod/catalog.test.ts) | `parseColorHex` (every accepted spelling, the first of a two-tone value, everything that is no colour) and `downloadUrl` (the placeholder replaced, left alone without one or without a product id) |
+
+The behaviour of the consumers is tested where it lives: the submission
+protocol in `production`, the sync run in `article`.

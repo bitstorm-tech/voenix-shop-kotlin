@@ -161,7 +161,7 @@ export interface ProductionPdfDownload {
  * usable production image, an image that cannot be read, and production data no document can be
  * laid out from. All three are repairable by an admin and the document exists once they are — they
  * are not server faults. None of them means a missing supplier assignment; that case has no code at
- * all (`backend/modules/order/src/shop/voenix/order/OrderRoutes.kt`).
+ * all (`backend/src/modules/order/routes.ts`).
  */
 export const PRODUCTION_PDF_DATA_ERROR_CODES = [
   'PRODUCTION_PDF_MISSING_IMAGE',
