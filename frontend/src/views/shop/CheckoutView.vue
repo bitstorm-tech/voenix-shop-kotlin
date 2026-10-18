@@ -46,21 +46,8 @@ onMounted(async () => {
     return
   }
 
-  // Pre-fill addresses from user profile if available
-  const user = authStore.user
-  if (user?.shippingAddress) {
-    const s = user.shippingAddress
-    const hasData = s.firstName || s.lastName || s.street || s.houseNumber
-    if (hasData) {
-      checkoutStore.shippingAddress = {
-        ...s,
-        email: checkoutStore.shippingAddress.email || user.email,
-      }
-    }
-  }
-  if (user?.hasSeparateBillingAddress && user.billingAddress) {
-    checkoutStore.sameAsShipping = false
-    checkoutStore.billingAddress = { ...user.billingAddress }
+  if (authStore.user) {
+    checkoutStore.prefillFromProfile(authStore.user)
   }
 
   // Only the shipping country is resolved against the list; the billing country is free text.

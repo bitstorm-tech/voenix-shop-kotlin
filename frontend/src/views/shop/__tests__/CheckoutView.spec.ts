@@ -7,6 +7,7 @@ import AddressForm from '@/components/shop/AddressForm.vue'
 import { useCartStore, type CartItem } from '@/stores/shop/cart'
 import { createEmptyAddress, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
+import { useAuthStore, type User } from '@/stores/shared/auth'
 import { CheckoutError, type CheckoutErrorCode } from '@/lib/checkoutErrors'
 import { createCartItem } from '@/testing/cart'
 
@@ -35,6 +36,34 @@ const item: CartItem = createCartItem({
   promptId: null,
   promptPrice: 0,
 })
+
+const profileAddress = {
+  firstName: 'Erika',
+  lastName: 'Muster',
+  street: 'Hauptstr.',
+  houseNumber: '5',
+  city: 'Wien',
+  postalCode: '1010',
+  country: 'AT',
+  email: '',
+  phone: '+431234567',
+}
+
+/** Signs a customer in; the session probe the store starts on its own has settled before. */
+async function signIn(user: Partial<User> = {}) {
+  const authStore = useAuthStore()
+  await authStore.authReadyPromise
+  authStore.user = {
+    id: 7,
+    email: 'erika@example.com',
+    roles: ['CUSTOMER'],
+    shippingAddress: null,
+    billingAddress: null,
+    hasSeparateBillingAddress: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    ...user,
+  }
+}
 
 async function mountCheckout() {
   const router = createRouter({
@@ -148,7 +177,10 @@ describe('CheckoutView', () => {
     vi.spyOn(cartStore, 'fetchCart').mockResolvedValue()
 
     const countriesStore = useCountriesStore()
-    countriesStore.countries = [{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }]
+    countriesStore.countries = [
+      { name: 'Austria', countryCode: 'AT', dialCode: '+43' },
+      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
+    ]
     vi.spyOn(countriesStore, 'fetchCountries').mockResolvedValue()
 
     const checkoutStore = useCheckoutStore()
@@ -168,6 +200,61 @@ describe('CheckoutView', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('fills the form from the profile of a signed-in customer', async () => {
+    useCheckoutStore().$reset()
+    await signIn({ shippingAddress: profileAddress })
+
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('modelValue')).toEqual({
+      ...profileAddress,
+      email: 'erika@example.com',
+    })
+    expect(useCheckoutStore().sameAsShipping).toBe(true)
+  })
+
+  it('fills the account e-mail even when the profile stores no address', async () => {
+    useCheckoutStore().$reset()
+    await signIn()
+
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('modelValue')).toEqual({
+      ...createEmptyAddress(),
+      country: 'DE',
+      email: 'erika@example.com',
+    })
+  })
+
+  it('takes over a separate billing address from the profile', async () => {
+    useCheckoutStore().$reset()
+    await signIn({
+      shippingAddress: profileAddress,
+      billingAddress: { ...profileAddress, street: 'Rechnungsweg', country: 'CH' },
+      hasSeparateBillingAddress: true,
+    })
+
+    const { wrapper } = await mountCheckout()
+
+    expect(useCheckoutStore().sameAsShipping).toBe(false)
+    expect(addressForm(wrapper, 1).props('modelValue')).toMatchObject({
+      street: 'Rechnungsweg',
+      country: 'CH',
+    })
+  })
+
+  it('keeps what the customer entered when they come back to the checkout', async () => {
+    useCheckoutStore().$reset()
+    await signIn({ shippingAddress: profileAddress })
+    const first = await mountCheckout()
+    first.wrapper.unmount()
+    useCheckoutStore().shippingAddress.street = 'Nebenstr.'
+
+    const { wrapper } = await mountCheckout()
+
+    expect(addressForm(wrapper, 0).props('modelValue')).toMatchObject({ street: 'Nebenstr.' })
   })
 
   it('shows the Cart discount and opens confirmation directly for a zero-total Order', async () => {

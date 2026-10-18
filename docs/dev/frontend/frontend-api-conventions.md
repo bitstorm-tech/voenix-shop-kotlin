@@ -179,7 +179,7 @@ so the next request mints a fresh token.
 ## Store conventions
 
 The stores are Pinia composition-API stores under `stores/shared/`,
-`stores/shop/`, `stores/admin/`, and `stores/supplier/`. Five rules run through
+`stores/shop/`, `stores/admin/`, and `stores/supplier/`. Six rules run through
 all of them.
 
 ### 1. The wire shape is the type
@@ -285,6 +285,25 @@ destinations lives at `/admin/logistics/destinations`: one row per destination
 with its supplier, channel, account, and enabled state, and a dialog that swaps
 its detail form when the channel changes, because a destination carries exactly
 the account block its channel names.
+
+### 6. A form filled from the profile belongs to that customer
+
+The checkout form starts from the profile of a signed-in customer:
+`prefillFromProfile` in `stores/shop/checkout.ts` takes the account e-mail, the
+stored shipping address, and a separate billing address if the profile keeps
+one. A profile field that is empty leaves the form field as it is, and the
+shipping country is checked against the shippable list afterwards, as for any
+other address.
+
+The fill runs once per user. The store remembers whose profile it used, so a
+customer who edits the address, goes back to the cart, and returns sees their
+edit and not the profile again. A change saved on the profile page in the
+meantime is therefore not taken over until the next sign-in.
+
+Because the form then holds a customer's address, `logout` in
+`stores/shared/auth.ts` resets the checkout store together with the order list.
+Without that, the next visitor on the same browser would find the previous
+customer's address in the checkout.
 
 ## Where to look next
 

@@ -3,7 +3,12 @@ import { defineStore } from 'pinia'
 
 import { ApiError, clearApiClientCache, fetchJson, type ApiFieldErrors } from '@/lib/api'
 import { useCartStore } from '@/stores/shop/cart'
-import { normalizeAddress, type Address, type AddressInput } from '@/stores/shop/checkout'
+import {
+  normalizeAddress,
+  useCheckoutStore,
+  type Address,
+  type AddressInput,
+} from '@/stores/shop/checkout'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 import { useOrdersStore } from '@/stores/shop/orders'
 
@@ -199,8 +204,10 @@ export const useAuthStore = defineStore('auth', () => {
     setUser(null)
     // The backend keeps the guest cookie across a logout, but the anonymous context it addresses
     // is a different identity than the customer who just left, so cart and balance are re-asked.
-    // The order list is not: it exists for signed-in customers only and is reset instead.
+    // The order list is not: it exists for signed-in customers only and is reset instead. The
+    // checkout form goes as well, because it holds the departed customer's addresses.
     useOrdersStore().$reset()
+    useCheckoutStore().$reset()
     await refetchIdentityScopedState({ cart: true, magicCoins: true })
   }
 

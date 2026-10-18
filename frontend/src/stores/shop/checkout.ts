@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { fetchJson, type ApiFieldErrors } from '@/lib/api'
 import { toCheckoutError, type CheckoutErrorCode } from '@/lib/checkoutErrors'
 import type { OrderStatusSnapshot } from './orders'
+import type { User } from '@/stores/shared/auth'
 
 export interface Address {
   firstName: string
@@ -69,10 +70,21 @@ export function normalizeAddress(address: AddressInput | null | undefined): Addr
   }
 }
 
+/** Every field the profile has a value for wins; the others keep what the form already holds. */
+function withProfileValues(address: Address, profile: Partial<Address>): Address {
+  const merged = { ...address }
+  for (const field of Object.keys(merged) as (keyof Address)[]) {
+    merged[field] = profile[field] || merged[field]
+  }
+  return merged
+}
+
 export const useCheckoutStore = defineStore('checkout', () => {
   const shippingAddress = ref<Address>(createEmptyAddress())
   const billingAddress = ref<Address>(createEmptyAddress())
   const sameAsShipping = shallowRef(true)
+  /** The user whose profile already filled the form, so a later visit keeps the customer's edits. */
+  const prefilledUserId = shallowRef<number | null>(null)
   const isSubmitting = shallowRef(false)
   const error = shallowRef<string | null>(null)
   /** The stable `code` of the last refusal, or `null` when it carried none (a field error). */
@@ -152,6 +164,28 @@ export const useCheckoutStore = defineStore('checkout', () => {
     }
   }
 
+  /**
+   * Fills the form from the profile of the signed-in customer: the account e-mail, the stored
+   * shipping address, and a separate billing address if the profile keeps one. It happens once per
+   * user; when the customer comes back from the cart, the form shows what they last entered.
+   */
+  function prefillFromProfile(user: User) {
+    if (prefilledUserId.value === user.id) {
+      return
+    }
+
+    prefilledUserId.value = user.id
+    shippingAddress.value = withProfileValues(shippingAddress.value, {
+      ...user.shippingAddress,
+      email: user.email,
+    })
+
+    if (user.hasSeparateBillingAddress && user.billingAddress) {
+      sameAsShipping.value = false
+      billingAddress.value = withProfileValues(billingAddress.value, user.billingAddress)
+    }
+  }
+
   /** Drops the server message for one field, e.g. when the customer picks another country. */
   function clearFieldError(field: string) {
     if (!fieldErrors.value[field]) {
@@ -167,6 +201,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
     shippingAddress.value = createEmptyAddress()
     billingAddress.value = createEmptyAddress()
     sameAsShipping.value = true
+    prefilledUserId.value = null
     isSubmitting.value = false
     error.value = null
     errorCode.value = null
@@ -182,6 +217,7 @@ export const useCheckoutStore = defineStore('checkout', () => {
     errorCode,
     fieldErrors,
     clearFieldError,
+    prefillFromProfile,
     submitCheckout,
     startPayment,
     fetchOrderStatus,

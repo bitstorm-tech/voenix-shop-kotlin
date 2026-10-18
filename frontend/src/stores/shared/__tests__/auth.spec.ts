@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { fetchRequestToken, resetApiClientForTests } from '@/lib/api'
 import { MAIL_DELIVERY_FAILED_STATUS, useAuthStore } from '@/stores/shared/auth'
+import { useCheckoutStore } from '@/stores/shop/checkout'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -371,6 +372,17 @@ describe('auth store identity transitions', () => {
     // `GET /api/orders` is guest-capable, but the logout does not preload the guest history:
     // the order page fetches it when it is opened.
     expect(paths).not.toContain('/api/orders')
+  })
+
+  it('clears the checkout form after a logout, because it holds the customer addresses', async () => {
+    stubFetch({ '/api/auth/logout': noContentResponse })
+    const store = await createStore()
+    const checkoutStore = useCheckoutStore()
+    checkoutStore.prefillFromProfile(store.user!)
+
+    await store.logout()
+
+    expect(checkoutStore.shippingAddress.email).toBe('')
   })
 
   it('refetches the cart after a successful registration', async () => {
