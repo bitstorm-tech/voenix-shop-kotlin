@@ -26,9 +26,9 @@ const routes: RouteRecordRaw[] = [
     component: { template: '<div />' },
   },
   {
-    path: '/admin',
+    path: '/admin/orders',
     component: { template: '<div />' },
-    meta: { title: 'Overview' },
+    meta: { title: 'Orders' },
   },
   {
     path: '/admin/prompts',
@@ -102,7 +102,7 @@ describe('AdminLayout', () => {
   })
 
   it('renders mobile navigation and account actions', async () => {
-    const { wrapper } = await mountLayout('/admin')
+    const { wrapper } = await mountLayout('/admin/orders')
 
     expect(wrapper.text()).toContain('Open navigation')
     expect(wrapper.text()).toContain('Go to shop')
@@ -110,7 +110,7 @@ describe('AdminLayout', () => {
   })
 
   it('keeps removed destinations out of desktop and mobile navigation', async () => {
-    const { wrapper } = await mountLayout('/admin')
+    const { wrapper } = await mountLayout('/admin/orders')
 
     const navigationInstances = wrapper.findAll('[data-admin-navigation]')
 

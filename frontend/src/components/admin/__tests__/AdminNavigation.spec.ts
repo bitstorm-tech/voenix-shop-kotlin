@@ -8,7 +8,7 @@ function createAdminNavigationRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/admin', component: { template: '<div />' } },
+      { path: '/admin', redirect: '/admin/orders' },
       { path: '/admin/prompts', component: { template: '<div />' } },
       { path: '/admin/prompts/new', component: { template: '<div />' } },
       { path: '/admin/prompts/categories', component: { template: '<div />' } },
@@ -65,7 +65,7 @@ function getActiveLinkTexts(wrapper: VueWrapper) {
 }
 
 describe('AdminNavigation', () => {
-  it('renders overview followed by the Prompts group and child links', async () => {
+  it('renders the Prompts group first with its child links and child links', async () => {
     const { wrapper } = await mountNavigation()
 
     const topEntries = wrapper.findAll(
@@ -73,8 +73,7 @@ describe('AdminNavigation', () => {
     )
     const promptsGroup = findNavGroup(wrapper, 'Prompts')
 
-    expect(topEntries[0]?.text()).toContain('Overview')
-    expect(topEntries[1]?.text()).toContain('Prompts')
+    expect(topEntries[0]?.text()).toContain('Prompts')
     expect(promptsGroup?.attributes('role')).toBe('group')
     expect(promptsGroup?.attributes('aria-labelledby')).toBe(
       promptsGroup?.find('[data-nav-group-heading]').attributes('id'),

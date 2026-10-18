@@ -35,6 +35,13 @@ describe('adminRoutes', () => {
     expect(children.map((route) => route.path)).not.toContain('orders/completed')
   })
 
+  it('redirects the Admin entry URL to Orders', () => {
+    const entryRecord = getAdminChildRoutes().find((route) => route.path === '')
+
+    expect(entryRecord?.redirect).toEqual({ name: 'admin-orders' })
+    expect(entryRecord?.name).toBeUndefined()
+  })
+
   it('does not register removed Admin child routes', () => {
     const children = getAdminChildRoutes()
     const childPaths = children.map((route) => route.path)

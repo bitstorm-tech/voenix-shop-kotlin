@@ -17,11 +17,7 @@ export const adminRoutes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        name: 'admin-overview',
-        component: () => import('@/views/admin/AdminView.vue'),
-        meta: {
-          title: 'Overview',
-        },
+        redirect: { name: 'admin-orders' },
       },
       {
         path: 'prompts',

@@ -1,5 +1,5 @@
 import type { Component } from 'vue'
-import { Bot, CircleAlert, Database, FileText, LayoutGrid, ShoppingCart } from 'lucide-vue-next'
+import { Bot, CircleAlert, Database, FileText, ShoppingCart } from 'lucide-vue-next'
 
 export interface AdminNavLinkItem {
   type: 'link'
@@ -19,12 +19,6 @@ export interface AdminNavGroupItem {
 export type AdminNavItem = AdminNavLinkItem | AdminNavGroupItem
 
 export const adminNavigationItems: AdminNavItem[] = [
-  {
-    type: 'link',
-    title: 'Overview',
-    to: '/admin',
-    icon: LayoutGrid,
-  },
   {
     type: 'group',
     title: 'Prompts',
