@@ -109,15 +109,33 @@ describe('loadSettings', () => {
     expect(failure({ ...development, MOLLIE_WEBHOOK_SECRET: 'another-webhook-secret' })).toContain(
       'MOLLIE_WEBHOOK_URL must end in the webhook secret',
     )
-    expect(failure({ ...development, PRODUCTION_SPOD_ALERT_EMAIL: 'ops@example.com' })).toContain(
-      'PRODUCTION_SPOD_WEBHOOK_SECRET must be at least 32 characters',
+    expect(
+      failure({
+        ...development,
+        PRODUCTION_SPOD_WEBHOOK_SECRET: 'too-short',
+        OPERATIONS_ALERT_EMAIL: 'ops@example.com',
+      }),
+    ).toBe('Invalid configuration: PRODUCTION_SPOD_WEBHOOK_SECRET must be at least 32 characters')
+    expect(failure({ ...development, PRODUCTION_SPOD_WEBHOOK_SECRET: 'a'.repeat(32) })).toBe(
+      'Invalid configuration: OPERATIONS_ALERT_EMAIL is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set',
     )
-    const spod = loadSettings({
+    const settings = loadSettings({
       ...development,
       PRODUCTION_SPOD_WEBHOOK_SECRET: 'a'.repeat(32),
-      PRODUCTION_SPOD_ALERT_EMAIL: 'ops@example.com',
-    }).production.spod
-    expect(spod).toEqual({ webhookSecret: 'a'.repeat(32), alertEmail: 'ops@example.com' })
+      OPERATIONS_ALERT_EMAIL: 'ops@example.com',
+    })
+    expect(settings.production.spod).toEqual({ webhookSecret: 'a'.repeat(32) })
+    expect(settings.operations).toEqual({ alertEmail: 'ops@example.com' })
+  })
+
+  test('the operations alert address is optional and free of control characters', () => {
+    expect(loadSettings(development).operations).toEqual({ alertEmail: null })
+    const alone = loadSettings({ ...development, OPERATIONS_ALERT_EMAIL: ' ops@example.com ' })
+    expect(alone.operations).toEqual({ alertEmail: 'ops@example.com' })
+    expect(alone.production.spod).toBeNull()
+    expect(failure({ ...development, OPERATIONS_ALERT_EMAIL: 'ops@example.com\nBcc: x@y.z' })).toBe(
+      'Invalid configuration: OPERATIONS_ALERT_EMAIL must not contain control characters',
+    )
   })
 })
 

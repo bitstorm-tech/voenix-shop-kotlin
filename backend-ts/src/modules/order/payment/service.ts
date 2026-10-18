@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import type { Kysely } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import { write, type Tables } from '@/platform/db/database'
-import { createLogger } from '@/platform/logging'
-import { lockOrder, type PayableOrder } from '../repository'
+import { createLogger, errorClass } from '@/platform/logging'
+import { conflict, notFound, ok } from '@/platform/operation'
+import { lockOrder, recordEvent, type PayableOrder, type PaymentCause } from '../repository'
 import type { OrderTransitions } from '../transitions'
 import type { MolliePayment, MolliePayments, PaymentStatus } from './mollie'
 import {
@@ -33,6 +34,9 @@ export type PaymentConfirmation =
 
 export type PaymentService = ReturnType<typeof createPaymentService>
 
+/** A payment under way for longer than this is asked about by the reconciliation. */
+const RECONCILE_AFTER_MILLIS = 15 * 60_000
+
 /**
  * The payment half of the order module: starting a payment, the webhook, and the `paymentStatus`
  * an order answer carries. It never decides an order status itself; it asks the order transitions.
@@ -57,10 +61,14 @@ export function createPaymentService({
    * never asked about again. The order lock comes first, then the payment row. `true` when the
    * order is paid now or was already.
    */
-  const confirmOrder = async (stored: StoredPayment): Promise<boolean> => {
+  const confirmOrder = async (
+    stored: StoredPayment,
+    cause: PaymentCause,
+    actorId: number | null,
+  ): Promise<boolean> => {
     const result = await write(db, async (trx) => {
-      const paid = await transitions.markPaid(trx, stored.orderId)
-      await moveStatus(trx, stored.paymentId, 'PAID')
+      const paid = await transitions.markPaid(trx, stored.orderId, { actorType: 'SYSTEM', cause })
+      await movePayment(trx, stored, 'PAID', cause, actorId)
       return paid
     })
     if (result === 'paid' || result === 'alreadyPaid') return true
@@ -74,19 +82,49 @@ export function createPaymentService({
   }
 
   /**
-   * What the webhook and the detail refresh both do with a status Mollie reported. A status the
-   * row already has, or a row that is final (`PAID` or ended), is written over by nothing: a
-   * delayed `OPEN` arriving after `PAID` was recorded leaves `PAID`. A terminal status releases the
-   * reservation, on a redelivery again: the release is idempotent, and the redelivery is the only
-   * retry a release lost to a failure has.
+   * Writes the reported status over a payment under way and, only when that really changed the
+   * row, records `PAYMENT_STATUS_CHANGED` from the locked previous status with `cause` (and the
+   * admin of an `ADMIN_RECHECK` as `actorId`) in the same transaction; `false` when the row was
+   * final or already had the status and nothing moved.
+   */
+  const movePayment = async (
+    trx: Transaction<Tables>,
+    stored: StoredPayment,
+    to: PaymentStatus,
+    cause: PaymentCause,
+    actorId: number | null,
+  ): Promise<boolean> => {
+    const from = await moveStatus(trx, stored.paymentId, to)
+    if (from === null) return false
+    await recordEvent(trx, stored.orderId, {
+      kind: 'PAYMENT_STATUS_CHANGED',
+      actorType: 'SYSTEM',
+      cause,
+      actorId,
+      details: { paymentId: stored.paymentId, from, to },
+    })
+    return true
+  }
+
+  /**
+   * What the webhook, the detail refresh, and the reconciliation do with a status Mollie reported;
+   * `cause` names which of them asked. A status the row already has, or a row that is final
+   * (`PAID` or ended), is written over by nothing and recorded by nothing: a delayed `OPEN`
+   * arriving after `PAID` was recorded leaves `PAID`. A terminal status is one transaction that
+   * locks orders, then the payment, then the promotion (the order of `confirmOrder`): the payment
+   * ends and the reservation is released together, so a failed release leaves the payment under
+   * way for the next webhook, refresh, or reconciliation. A redelivery of a terminal status
+   * releases again; the release is idempotent.
    */
   const applyReported = async (
     stored: StoredPayment,
     reported: MolliePayment,
+    cause: PaymentCause,
+    actorId: number | null,
   ): Promise<PaymentConfirmation> => {
     if (reported.status === 'PAID') {
       if (reported.amountCents === stored.amountCents) {
-        return (await confirmOrder(stored)) ? 'confirmed' : 'notConfirmed'
+        return (await confirmOrder(stored, cause, actorId)) ? 'confirmed' : 'notConfirmed'
       }
       logger.error(
         {
@@ -98,14 +136,49 @@ export function createPaymentService({
         'Mollie reports a payment as paid with another amount than the shop asked for: ' +
           'the order is not confirmed and needs a human',
       )
-      await write(db, (trx) => moveStatus(trx, stored.paymentId, 'PAID'))
+      await write(db, (trx) => movePayment(trx, stored, 'PAID', cause, actorId))
       return 'notConfirmed'
     }
-    const recorded =
-      stored.status === reported.status ||
-      (await write(db, (trx) => moveStatus(trx, stored.paymentId, reported.status)))
-    if (recorded && !isLive(reported.status)) await transitions.paymentEnded(stored.orderId)
+    if (isLive(reported.status)) {
+      if (stored.status !== reported.status) {
+        await write(db, (trx) => movePayment(trx, stored, reported.status, cause, actorId))
+      }
+      return 'recorded'
+    }
+    await write(db, async (trx) => {
+      await lockOrder(trx, stored.orderId)
+      const moved = await movePayment(trx, stored, reported.status, cause, actorId)
+      if (moved || stored.status === reported.status) {
+        await transitions.paymentEnded(trx, stored.orderId)
+      }
+    })
     return 'recorded'
+  }
+
+  /**
+   * The status of one order's payment, asked of Mollie while the payment is still under way: the
+   * fallback for a webhook that never arrived, which may confirm the order through the same path
+   * the webhook takes; `cause` is recorded on what it changed, with `actorId` the admin of an
+   * `ADMIN_RECHECK`. A provider that cannot answer degrades to the stored status.
+   */
+  const refreshed = async (
+    orderId: number,
+    cause: PaymentCause,
+    actorId: number | null = null,
+  ): Promise<PaymentStatus | null> => {
+    const stored = (await repository.currentPayments([orderId])).get(orderId)
+    if (stored === undefined) return null
+    if (!isUnderWay(stored.status)) return stored.status
+    const reported = await mollie.find(stored.molliePaymentId)
+    if (reported === null) {
+      logger.warn(
+        { paymentId: stored.paymentId, orderId },
+        'Mollie said nothing usable: the order is answered with its stored payment status',
+      )
+      return stored.status
+    }
+    await applyReported(stored, reported, cause, actorId)
+    return reported.status
   }
 
   /** Closes a provider payment nobody will be sent to; a refusal is worth a line. */
@@ -146,12 +219,17 @@ export function createPaymentService({
             return { kind: 'refused' }
           }
           attempt.created = created
-          await insertPayment(trx, {
+          const paymentId = await insertPayment(trx, {
             orderId: order.orderId,
             molliePaymentId: created.id,
             status: created.status,
             amountCents: order.totalCents,
             checkoutUrl: created.checkoutUrl,
+          })
+          await recordEvent(trx, order.orderId, {
+            kind: 'PAYMENT_STARTED',
+            actorType: 'CUSTOMER',
+            details: { paymentId },
           })
           return { kind: 'started', checkoutUrl: created.checkoutUrl }
         })
@@ -186,7 +264,7 @@ export function createPaymentService({
         logger.warn('A webhook named a Mollie payment this backend never created')
         return 'unknownPayment'
       }
-      return applyReported(stored, reported)
+      return applyReported(stored, reported, 'WEBHOOK', null)
     },
 
     /** The stored status of every order that has a payment, in one read, never a provider call. */
@@ -195,25 +273,45 @@ export function createPaymentService({
       return new Map([...payments].map(([orderId, payment]) => [orderId, payment.status]))
     },
 
+    refreshed,
+
     /**
-     * The status of one order's payment, asked of Mollie while the payment is still under way: the
-     * fallback for a webhook that never arrived, which may confirm the order through the same path
-     * the webhook takes. A provider that cannot answer degrades to the stored status.
+     * An admin's "ask Mollie now" on one order: `refreshed` with cause `ADMIN_RECHECK` and the
+     * admin's user id, then the stored order status and payment status read again, so the answer
+     * is what is stored, also when a concurrent webhook got there first (`PAID` on both after a
+     * paid answer). An unknown order is `notFound`, an order without a payment a `conflict`.
      */
-    refreshed: async (orderId: number): Promise<PaymentStatus | null> => {
-      const stored = (await repository.currentPayments([orderId])).get(orderId)
-      if (stored === undefined) return null
-      if (!isUnderWay(stored.status)) return stored.status
-      const reported = await mollie.find(stored.molliePaymentId)
-      if (reported === null) {
-        logger.warn(
-          { paymentId: stored.paymentId, orderId },
-          'Mollie said nothing usable: the order is answered with its stored payment status',
-        )
-        return stored.status
+    recheck: async (orderId: number, adminUserId: number) => {
+      await refreshed(orderId, 'ADMIN_RECHECK', adminUserId)
+      const status = await repository.orderStatus(orderId)
+      if (status === undefined) return notFound
+      const payment = (await repository.currentPayments([orderId])).get(orderId)
+      if (payment === undefined) return conflict
+      return ok({ status, paymentStatus: payment.status })
+    },
+
+    /**
+     * The operations worker's first step: every payment under way for more than fifteen minutes,
+     * oldest first, goes through `refreshed` once, so a lost webhook is repaired without the
+     * customer opening their order. A provider that cannot answer is `refreshed`'s warning; any
+     * other failure is logged by class and the next payment is asked all the same. Once `signal`
+     * is aborted it returns between payments.
+     */
+    reconcile: async (now: Date, signal?: AbortSignal): Promise<void> => {
+      const orderIds = await repository.underWayBefore(
+        new Date(now.getTime() - RECONCILE_AFTER_MILLIS),
+      )
+      for (const orderId of orderIds) {
+        if (signal?.aborted === true) return
+        try {
+          await refreshed(orderId, 'RECONCILIATION')
+        } catch (error) {
+          logger.error(
+            { orderId, errorClass: errorClass(error) },
+            'The reconciliation of a payment failed: the next scan asks again',
+          )
+        }
       }
-      await applyReported(stored, reported)
-      return reported.status
     },
   }
 }

@@ -12,8 +12,11 @@ The Email module renders and delivers the shop's transactional mails. It is a
   `RenderedEmail` (subject, HTML, and plain text);
 - `userEmails.send(email)`, which sends a mail of an interactive user action
   directly;
-- `outbox.enqueue(trx, email)`, which stores a mail inside the caller's
-  transaction for unattended delivery; and
+- `outbox.enqueue(trx, email, { orderId })`, which stores a mail inside the
+  caller's transaction for unattended delivery, attributed to the order it is
+  about when the caller passes one;
+- `outbox.findings(now)` and `outbox.ofOrder(orderId)`, two reads of the
+  stored mails for the [operations module](operations-package.md); and
 - the background worker that delivers the stored mails through Sweego.
 
 There is no HTTP route and no table besides `email_jobs`.
@@ -58,7 +61,8 @@ email/
 |- index.ts                 createEmailModule({ db, settings, fetch }) → { userEmails, outbox, worker };
 |                           the render functions, EmailDeliveryError, and the types
 |- schema.ts                EmailJobsTable, merged into the platform's Tables
-|- outbox.ts                enqueue(trx, email): the insert in the caller's transaction
+|- outbox.ts                enqueue(trx, email, { orderId }): the insert in the caller's transaction;
+|                           stalledEmails(db, now) and emailsOfOrder(db, orderId), the two reads
 |- user-emails.ts           createUserEmails(settings, delivery) → { send }; EmailDeliveryError
 |- worker.ts                createEmailWorker({ db, settings, delivery }) → { runOnce, start, stop }
 |- delivery/sweego.ts       the EmailDelivery interface, DeliveryResult, createSweegoDelivery (its `fetch` is
@@ -72,7 +76,7 @@ email/
 ```
 
 The composition root creates the module, hands `userEmails` to account and
-`outbox` to order and production, and runs the worker:
+`outbox` to order, production, and operations, and runs the worker:
 
 ```ts
 const email = createEmailModule({ db, settings: settings.email, fetch })
@@ -95,6 +99,7 @@ await email.worker.stop()
 | `PRODUCER_PDF_NOTIFICATION` | `renderProducerPdfNotification({ …, producerName })` | queued | producer name, else the destination label |
 | `SHIPPING_NOTIFICATION` | `renderShippingNotification(ShippingNotificationData)` | queued | customer first name |
 | `SPOD_OPS_ALERT` | `renderSpodOpsAlert({ …, reason, externalReference })` | queued | — (an operations mailbox is not a person) |
+| `OPERATIONS_ALERT` | `renderOperationsAlert({ recipient, frontendBaseUrl, findings })` | queued | — (an operations mailbox is not a person) |
 
 Every function returns a `RenderedEmail`:
 
@@ -124,6 +129,12 @@ Some decisions live in the copy and stay as the Kotlin backend made them:
 - The SPOD ops alert names the job, the order, and the partner's order id
   (`noch keine` while none is known). Its `reason` is a bounded union, so no
   provider text reaches a mail.
+- The operations alert lists the new findings of one operations scan, one
+  block per finding with the German name of its kind (a bounded union with a
+  table of cases), the subject, the order number, since when, the attempts and
+  error code, and the link to the admin timeline of the order; the subject
+  names the count. It carries no customer data (see
+  [The alert](operations-package.md#the-alert)).
 
 ### Links
 
@@ -180,6 +191,32 @@ await write(db, async (trx) => {
 `enqueue` inserts one `email_jobs` row inside the caller's transaction and
 returns its id. If the business change rolls back, the mail rolls back with
 it. Email never opens or commits a transaction of its own here.
+
+The optional third argument `{ orderId }` stores the order the mail is about
+in `email_jobs.order_id`. The three order mails pass it: the order
+confirmation (order module, at placement), the producer notification
+(production, when a delivery closes), and the shipping notification
+(production, in the ship transaction). The SPOD ops alert and the operations
+alert pass none. The
+column has no foreign key on purpose: email stays a leaf that knows no order
+table, and deleting an order must never fail on an unrelated mail.
+
+### The two reads for operations
+
+The [operations module](operations-package.md) reads the outbox through two
+capabilities on `outbox`, both plain read transactions over `email_jobs`:
+
+- `findings(now)` reports every **stalled** mail as an `EmailFinding` of kind
+  `EMAIL_STALLED`: `sent_at IS NULL` and either `created_at` more than an hour
+  before `now` or `attempt_count >= 3`. The subject is the job (`EMAIL`, its
+  id), `since` its `created_at`, and the finding carries the mail's own kind
+  (`emailKind`, read from `payload->>'kind'`), so the operations module can
+  tell a stalled order mail from a stalled alert. In a deployment with
+  `EMAIL_ENABLED=false` (the development default) every enqueued mail becomes
+  a finding after an hour, because the email worker sends nothing.
+- `ofOrder(orderId)` lists the mails attributed to one order, oldest first,
+  as `{ emailJobId, kind, recipient, attemptCount, lastErrorCode, createdAt,
+  sentAt }`, without the subject, the HTML, or the text.
 
 ### Decision: the outbox stores the rendered mail
 
@@ -304,7 +341,10 @@ created it and
 [`V32__email_jobs_payload.sql`](../../../../backend-ts/migrations/V32__email_jobs_payload.sql)
 reshaped it: `id`, `payload jsonb`, `attempt_count`, `last_error_code`,
 `created_at`, `sent_at`. V32 drops `email_kind`, `source_id`, the unique
-reference, and the kind and source-id checks. `payload` is typed as
+reference, and the kind and source-id checks.
+[`V33__operations_findings.sql`](../../../../backend-ts/migrations/V33__operations_findings.sql)
+adds the nullable `order_id bigint` without a foreign key, with the index
+`ix_email_jobs_order_id` for `ofOrder`. `payload` is typed as
 `JSONColumnType<RenderedEmail>`: it is written as a JSON string and read back
 as the object.
 
@@ -318,7 +358,7 @@ bun test src/modules/email
 
 | Test | What it states |
 | --- | --- |
-| [`outbox.test.ts`](../../../../backend-ts/src/modules/email/outbox.test.ts) | The payload is stored in the caller's transaction, and a failing transaction leaves no job; a disabled worker sends nothing; an enabled one sends and marks every job with its campaign id; a failure keeps the job open with its code and the next scan resends the stored mail, without an attempt maximum; `start` scans at once and `stop` ends the loop without waiting for the interval; `userEmails.send` sends once, stores nothing, is a no-op when disabled, and throws `EmailDeliveryError` on a refusal |
+| [`outbox.test.ts`](../../../../backend-ts/src/modules/email/outbox.test.ts) | The payload is stored in the caller's transaction, with the order id when one is passed, and a failing transaction leaves no job; `findings` reports an unsent mail older than an hour or failed three times, and nothing at the thresholds or once sent; `ofOrder` lists one order's mails; a disabled worker sends nothing; an enabled one sends and marks every job with its campaign id; a failure keeps the job open with its code and the next scan resends the stored mail, without an attempt maximum; `start` scans at once and `stop` ends the loop without waiting for the interval; `userEmails.send` sends once, stores nothing, is a no-op when disabled, and throws `EmailDeliveryError` on a refusal |
 | [`delivery/sweego.test.ts`](../../../../backend-ts/src/modules/email/delivery/sweego.test.ts) | The exact request (URL, method, headers, body, `redirect: 'manual'`, timeout signal); an omitted campaign id; a `503` and a `302` as status codes without the body; timeout and unreachable provider |
 | [`templates/templates.test.ts`](../../../../backend-ts/src/modules/email/templates/templates.test.ts) | One test per kind with its subject and, where the mail has one, the link built from the base URL as `href` and as text; exact plain texts; escaping; German money with thousands, discount, and free shipping; the producer greeting fallback; the shipping mail without prices or tracking; every ops-alert reason reads differently |
 

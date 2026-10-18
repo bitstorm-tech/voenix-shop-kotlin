@@ -49,6 +49,11 @@ export interface AdminJob {
   externalReference: string | null
   /** The last state the partner reported for the remote order. `null` on an SFTP job. */
   remoteState: string | null
+  /**
+   * The creation state of the partner's order: `PENDING`, `CREATED`, or `OUTCOME_UNKNOWN`, the
+   * quarantine only an admin's release ends. `null` on an SFTP job and before the first attempt.
+   */
+  createState: string | null
   shippedAt: string | null
   shippedByUserId: number | null
   /**
@@ -73,6 +78,15 @@ export interface AdminJobSupplier {
   id: number
   name: string | null
 }
+
+/**
+ * The release of a quarantined SPOD job: what the admin found in the partner's backoffice, the
+ * partner's order id when exactly one order exists, and the job reference `ORD-{orderId}-JOB-{jobId}`
+ * typed by hand.
+ */
+export type SpodReleaseBody =
+  | { decision: 'NOT_CREATED'; confirmation: string }
+  | { decision: 'CREATED'; externalReference: string; confirmation: string }
 
 /** The filter of the list: one supplier, or `null` for every supplier. */
 export type AdminJobSupplierFilter = number | null
@@ -159,6 +173,18 @@ export const useAdminFulfillmentStore = defineStore('admin-fulfillment', () => {
     }
   }
 
+  /**
+   * Releases a quarantined SPOD job and answers it as it is now. A refusal travels as the
+   * `ApiError` it is: `400` a wrong confirmation, `409` a job no longer quarantined or an order id
+   * another job holds.
+   */
+  async function releaseSpodJob(jobId: number, body: SpodReleaseBody): Promise<AdminJob> {
+    return fetchJson<AdminJob>(`/api/admin/production/jobs/${jobId}/spod/release`, {
+      method: 'POST',
+      body,
+    })
+  }
+
   /** Downloads a job's document as a blob, together with the name it should be saved under. */
   async function downloadPdf(jobId: number): Promise<{ blob: Blob; fileName: string }> {
     downloadingJobId.value = jobId
@@ -185,6 +211,7 @@ export const useAdminFulfillmentStore = defineStore('admin-fulfillment', () => {
     downloadingJobId,
     fetchJobs,
     ship,
+    releaseSpodJob,
     downloadPdf,
   }
 })

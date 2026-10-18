@@ -41,6 +41,23 @@ const columns = [
   'checkout_url as checkoutUrl',
 ] as const
 
+/**
+ * A payment that stands still where the shop expected it to move: still under way an hour after it
+ * was started (`PAYMENT_UNRESOLVED`, probably a lost webhook), or paid while its order is not
+ * (`PAYMENT_PAID_ORDER_UNPAID`: the amount differed, or the order was cancelled).
+ */
+export interface OrderFinding {
+  kind: 'PAYMENT_UNRESOLVED' | 'PAYMENT_PAID_ORDER_UNPAID'
+  subject: { type: 'PAYMENT'; id: number }
+  orderId: number
+  since: Date
+  attemptCount: null
+  lastErrorCode: null
+}
+
+/** A payment under way for longer than this is unresolved. */
+const UNRESOLVED_AFTER_MILLIS = 60 * 60 * 1000
+
 export type PaymentRepository = ReturnType<typeof createPaymentRepository>
 
 export function createPaymentRepository(db: Kysely<Tables>) {
@@ -69,6 +86,68 @@ export function createPaymentRepository(db: Kysely<Tables>) {
       return current
     },
 
+    /**
+     * The order module's findings for the operations worker, oldest payment first. Only a live
+     * payment can be either kind, and a live payment is always its order's current one (the index
+     * allows one per order), so no "current payment" selection is needed. A pending order whose
+     * payment ended is an abandoned checkout, not a finding.
+     */
+    findings: async (now: Date): Promise<OrderFinding[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('payments as p')
+          .innerJoin('orders as o', 'o.id', 'p.order_id')
+          .select(['p.id', 'p.order_id', 'p.status', 'p.created_at', 'p.updated_at'])
+          .where((eb) =>
+            eb.or([
+              eb.and([
+                eb('o.status', '=', 'PENDING'),
+                eb('p.status', 'in', UNDER_WAY_STATUSES),
+                eb('p.created_at', '<', new Date(now.getTime() - UNRESOLVED_AFTER_MILLIS)),
+              ]),
+              eb.and([eb('p.status', '=', 'PAID'), eb('o.status', '<>', 'PAID')]),
+            ]),
+          )
+          .orderBy('p.id')
+          .execute(),
+      )
+      return rows.map((row) => ({
+        ...(row.status === 'PAID'
+          ? { kind: 'PAYMENT_PAID_ORDER_UNPAID', since: row.updated_at }
+          : { kind: 'PAYMENT_UNRESOLVED', since: row.created_at }),
+        subject: { type: 'PAYMENT', id: row.id },
+        orderId: row.order_id,
+        attemptCount: null,
+        lastErrorCode: null,
+      }))
+    },
+
+    /**
+     * The orders whose payment is under way and was started before `createdBefore`, oldest payment
+     * first: the payments the reconciliation asks Mollie about. A payment under way is live, and a
+     * live payment is always its order's current one.
+     */
+    underWayBefore: async (createdBefore: Date): Promise<number[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('payments')
+          .select('order_id')
+          .where('status', 'in', UNDER_WAY_STATUSES)
+          .where('created_at', '<', createdBefore)
+          .orderBy('id')
+          .execute(),
+      )
+      return rows.map((row) => row.order_id)
+    },
+
+    /** The status of one order, `undefined` for an unknown id. */
+    orderStatus: async (orderId: number) =>
+      (
+        await read(db, (trx) =>
+          trx.selectFrom('orders').select('status').where('id', '=', orderId).executeTakeFirst(),
+        )
+      )?.status,
+
     /** The payment Mollie is talking about, or `undefined` when this backend never created it. */
     paymentByMollieId: (molliePaymentId: string) =>
       read(db, (trx) =>
@@ -83,21 +162,29 @@ export function createPaymentRepository(db: Kysely<Tables>) {
 
 /**
  * Writes the status Mollie reported, inside the caller's transaction and only while the payment is
- * under way; `false` means the row is final and nothing moved. A write from a live status never
- * conflicts with `ux_payments_live_order`: the row already holds its order's slot or gives it up.
+ * under way and not already in `status`: the row is read `FOR UPDATE` first, so of two concurrent
+ * reports of one change only the first moves it. Answers the locked previous status, or `null`
+ * when nothing moved. A write from a live status never conflicts with `ux_payments_live_order`: the
+ * row already holds its order's slot or gives it up.
  */
 export async function moveStatus(
   trx: Transaction<Tables>,
   paymentId: number,
   status: PaymentStatus,
-): Promise<boolean> {
-  const result = await trx
+): Promise<PaymentStatus | null> {
+  const locked = await trx
+    .selectFrom('payments')
+    .select('status')
+    .where('id', '=', paymentId)
+    .forUpdate()
+    .executeTakeFirstOrThrow()
+  if (locked.status === status || !isUnderWay(locked.status)) return null
+  await trx
     .updateTable('payments')
     .set({ status, updated_at: sql<Date>`now()` })
     .where('id', '=', paymentId)
-    .where('status', 'in', UNDER_WAY_STATUSES)
-    .executeTakeFirst()
-  return result.numUpdatedRows > 0n
+    .execute()
+  return locked.status
 }
 
 /** The order's live payment, read inside the caller's transaction (which holds the order lock). */
@@ -110,11 +197,12 @@ export function livePayment(trx: Transaction<Tables>, orderId: number) {
     .executeTakeFirst()
 }
 
+/** Stores a payment Mollie created and answers its id. */
 export async function insertPayment(
   trx: Transaction<Tables>,
   payment: Omit<StoredPayment, 'paymentId'>,
-): Promise<void> {
-  await trx
+): Promise<number> {
+  const { id } = await trx
     .insertInto('payments')
     .values({
       order_id: payment.orderId,
@@ -123,5 +211,7 @@ export async function insertPayment(
       amount_cents: payment.amountCents,
       checkout_url: payment.checkoutUrl,
     })
-    .execute()
+    .returning('id')
+    .executeTakeFirstOrThrow()
+  return id
 }

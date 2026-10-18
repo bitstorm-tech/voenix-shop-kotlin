@@ -180,6 +180,9 @@ describe('the production worker', () => {
       ['PRODUCER_PDF_NOTIFICATION', 'producer@example.test'],
     ])
     expect(mails[0]?.text).toContain('Anzahl Artikel: 3')
+    expect(await database.db.selectFrom('email_jobs').select('order_id').execute()).toEqual([
+      { order_id: orderId },
+    ])
     expect(mails[0]?.text).toContain('16.07.2026')
 
     // A second scan changes nothing, not even with a changed image under the same path.

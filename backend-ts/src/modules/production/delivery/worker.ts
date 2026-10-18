@@ -3,7 +3,7 @@ import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
 import type { Tables } from '@/platform/db/database'
 import { createLogger, errorClass } from '@/platform/logging'
-import { type OrderLoader, type ProductionItem, type ProductionOrderReads } from '../orders'
+import { type OrderLoader, type ProductionItem, type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import type { SpodOrderRepository } from '../spod/repository'
 import { createSubmissionStage, type SubmissionClient } from '../spod/submitter'
@@ -93,7 +93,7 @@ export function createProductionWorker({
   loadOrder: OrderLoader
   artifacts: ArtifactStore
   outbox: EmailModule['outbox']
-  orders: Pick<ProductionOrderReads, 'fulfillmentOrders'>
+  orders: Pick<ProductionOrders, 'fulfillmentOrders'>
   spodOrders: SpodOrderRepository
   spod: SubmissionClient
 }) {

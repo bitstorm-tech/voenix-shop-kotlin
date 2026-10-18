@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import OrdersView from '../OrdersView.vue'
-import type { ProductionPdfInfo } from '@/stores/admin/orders'
+import type { AdminOrderListEntry, ProductionPdfInfo } from '@/stores/admin/orders'
 
 const mocks = vi.hoisted(() => {
   class OrderNotFoundError extends Error {}
@@ -19,6 +20,10 @@ const mocks = vi.hoisted(() => {
     toast: vi.fn(),
     saveBlobAs: vi.fn(),
     storeState: {
+      orderList: [] as AdminOrderListEntry[],
+      isListLoading: false,
+      listError: null as Error | null,
+      fetchOrders: vi.fn(),
       documents: [] as ProductionPdfInfo[],
       loadedOrderId: null as number | null,
       isLoading: false,
@@ -61,6 +66,10 @@ const documents: ProductionPdfInfo[] = [
 function resetStoreState() {
   mocks.toast.mockReset()
   mocks.saveBlobAs.mockReset()
+  mocks.storeState.orderList = []
+  mocks.storeState.isListLoading = false
+  mocks.storeState.listError = null
+  mocks.storeState.fetchOrders.mockReset().mockResolvedValue(undefined)
   mocks.storeState.documents = []
   mocks.storeState.loadedOrderId = null
   mocks.storeState.isLoading = false
@@ -71,7 +80,17 @@ function resetStoreState() {
 }
 
 async function mountOrdersView() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/admin/orders', name: 'admin-orders', component: { template: '<div />' } },
+      { path: '/admin/orders/:orderId', name: 'admin-order', component: { template: '<div />' } },
+    ],
+  })
+  await router.push('/admin/orders')
+  await router.isReady()
   const wrapper = mount(OrdersView, {
+    global: { plugins: [router] },
     attachTo: document.body,
   })
 
@@ -93,6 +112,41 @@ describe('admin OrdersView', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     resetStoreState()
+  })
+
+  it('lists the newest orders on arrival, each opening its timeline', async () => {
+    mocks.storeState.orderList = [
+      {
+        orderId: 42,
+        createdAt: '2026-10-16T09:00:00.000Z',
+        status: 'PAID',
+        paymentStatus: 'PAID',
+        total: 4070,
+        email: 'kunde@example.com',
+        openFindings: 2,
+      },
+    ]
+    const wrapper = await mountOrdersView()
+
+    expect(mocks.storeState.fetchOrders).toHaveBeenCalledWith('')
+    const row = wrapper.find('[data-testid="order-row"]')
+    expect(row.text()).toContain('kunde@example.com')
+    expect(row.text()).toContain('40,70')
+    expect(row.text()).toContain('2')
+    const link = row.find('[data-testid="order-link"]')
+    expect(link.text()).toBe('ORD-42')
+    expect(link.attributes('href')).toBe('/admin/orders/42')
+  })
+
+  it('filters the list by the typed e-mail address', async () => {
+    const wrapper = await mountOrdersView()
+
+    await wrapper.find('input#order-list-email').setValue('kunde@example.com')
+    queryButtonByText('Show orders')?.click()
+    await flushPromises()
+
+    expect(mocks.storeState.fetchOrders).toHaveBeenLastCalledWith('kunde@example.com')
+    expect(bodyText()).toContain('No order matches.')
   })
 
   it('looks the typed order id up', async () => {

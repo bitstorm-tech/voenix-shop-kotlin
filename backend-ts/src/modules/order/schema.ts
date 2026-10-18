@@ -1,4 +1,4 @@
-import type { Generated } from 'kysely'
+import type { Generated, JSONColumnType } from 'kysely'
 import type { ArticleType } from '@/modules/article'
 import type { PaymentStatus } from './payment/mollie'
 
@@ -86,10 +86,30 @@ export interface PaymentsTable {
   updated_at: Generated<Date>
 }
 
+/** Who moved an order: the shop itself, the customer, a signed-in admin or supplier, or a channel. */
+export type OrderEventActorType = 'SYSTEM' | 'CUSTOMER' | 'ADMIN' | 'SUPPLIER' | 'CHANNEL'
+
+/**
+ * The `order_events` table (V34): the append-only history of one order, one row per transition
+ * that overwrote a column or had an actor. `actor_id` is the user of an `ADMIN` or `SUPPLIER`
+ * event; `details` holds bounded values only.
+ */
+export interface OrderEventsTable {
+  id: Generated<number>
+  order_id: number
+  occurred_at: Generated<Date>
+  kind: string
+  actor_type: OrderEventActorType
+  actor_id: number | null
+  cause: string | null
+  details: JSONColumnType<Record<string, unknown> | null, string | null, string | null>
+}
+
 declare module '@/platform/db/database' {
   interface Tables {
     orders: OrdersTable
     order_items: OrderItemsTable
     payments: PaymentsTable
+    order_events: OrderEventsTable
   }
 }

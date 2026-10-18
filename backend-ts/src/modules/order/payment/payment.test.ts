@@ -5,7 +5,9 @@ import { stubMollie } from '@/test-fixtures'
 import { count, testDatabase } from '@test-support/database'
 import { guestCookie, jsonOf, testApp } from '@test-support/http'
 import {
+  orderEvents,
   orderModuleFor,
+  placedOrder,
   placeInput,
   reserve,
   resetOrders,
@@ -261,5 +263,368 @@ describe('the payment status of an order answer', () => {
     )) as { status: string; paymentStatus: string }
     expect(detail).toMatchObject({ status: 'PENDING', paymentStatus: 'OPEN' })
     expect(calls.find).toBe(1)
+  })
+})
+
+describe('orders.reconcilePayments', () => {
+  const NOW = new Date('2026-10-16T12:00:00.000Z')
+  const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000)
+
+  /**
+   * `ages.length` orders with one started payment each (`tr_1_1`, `tr_2_2`, ...), the first with
+   * the reserved coupon of `placed`, payment `n` created `ages[n - 1]` minutes before `NOW`.
+   * `asked` lists the Mollie ids in the order the stub was asked about them.
+   */
+  async function started(ages: number[]) {
+    const first = await placed()
+    const orders = [first.order]
+    while (orders.length < ages.length) {
+      const cartId = await seedCart(database.db)
+      orders.push(
+        placedOrder(
+          await write(database.db, (trx) => first.module.orders.place(trx, placeInput(cartId))),
+        ),
+      )
+    }
+    for (const [index, order] of orders.entries()) {
+      await first.module.orders.startPayment(order)
+      await database.db
+        .updateTable('payments')
+        .set({ created_at: minutesAgo(ages[index] ?? 0) })
+        .where('order_id', '=', order.orderId)
+        .execute()
+    }
+    const asked: string[] = []
+    const find = first.mollie.find.bind(first.mollie)
+    first.mollie.find = (id) => {
+      asked.push(id)
+      return find(id)
+    }
+    return { ...first, asked }
+  }
+
+  const statuses = async () =>
+    database.db
+      .selectFrom('orders')
+      .innerJoin('payments', 'payments.order_id', 'orders.id')
+      .select(['orders.status as order', 'payments.status as payment'])
+      .orderBy('orders.id')
+      .execute()
+
+  test('asks Mollie once about every payment under way for over 15 minutes, in id order', async () => {
+    const { module, asked } = await started([16, 15, 600, 120, 14])
+    // Payment 3 is authorized and older than payment 1; payment 4 has ended.
+    await database.db
+      .updateTable('payments')
+      .set({ status: 'AUTHORIZED' })
+      .where('id', '=', 3)
+      .execute()
+    await database.db
+      .updateTable('payments')
+      .set({ status: 'EXPIRED' })
+      .where('id', '=', 4)
+      .execute()
+
+    await module.orders.reconcilePayments(NOW)
+    expect(asked).toEqual(['tr_1_1', 'tr_3_3'])
+
+    await module.orders.reconcilePayments(NOW)
+    expect(asked).toEqual(['tr_1_1', 'tr_3_3', 'tr_1_1', 'tr_3_3'])
+  })
+
+  test('a paid answer pays the order the way the webhook does', async () => {
+    const { module, report } = await started([30])
+    report('tr_1_1', { status: 'PAID' })
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(await statuses()).toEqual([{ order: 'PAID', payment: 'PAID' }])
+    expect(await count(database.db, 'production_requests')).toBe(1)
+    expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
+  test.each(['EXPIRED', 'FAILED', 'CANCELED'] as const)(
+    '%s ends the payment, releases the reservation, and leaves the order pending',
+    async (status) => {
+      const { module, report } = await started([30])
+      report('tr_1_1', { status })
+
+      await module.orders.reconcilePayments(NOW)
+
+      expect(await statuses()).toEqual([{ order: 'PENDING', payment: status }])
+      expect(await count(database.db, 'promotion_reservations')).toBe(0)
+      expect(await count(database.db, 'production_requests')).toBe(0)
+    },
+  )
+
+  test('a payment Mollie cannot answer about does not stop the others', async () => {
+    const { module, report, asked } = await started([30, 30, 30])
+    report('tr_1_1', { status: 'PAID' })
+    report('tr_3_3', { status: 'EXPIRED' })
+    await database.db
+      .updateTable('payments')
+      .set({ mollie_payment_id: 'tr_gone' })
+      .where('id', '=', 2)
+      .execute()
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(asked).toEqual(['tr_1_1', 'tr_gone', 'tr_3_3'])
+    expect(await statuses()).toEqual([
+      { order: 'PAID', payment: 'PAID' },
+      { order: 'PENDING', payment: 'OPEN' },
+      { order: 'PENDING', payment: 'EXPIRED' },
+    ])
+  })
+
+  test('a paid transition that fails does not stop the others', async () => {
+    const { module, report } = await started([30, 30])
+    report('tr_1_1', { status: 'PAID' })
+    report('tr_2_2', { status: 'EXPIRED' })
+    await sql`CREATE FUNCTION refuse_request() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'production refused'; END $$`.execute(database.db)
+    await sql`CREATE TRIGGER refuse_request BEFORE INSERT ON production_requests
+      FOR EACH ROW EXECUTE FUNCTION refuse_request()`.execute(database.db)
+    try {
+      await module.orders.reconcilePayments(NOW)
+    } finally {
+      await sql`DROP TRIGGER refuse_request ON production_requests`.execute(database.db)
+      await sql`DROP FUNCTION refuse_request()`.execute(database.db)
+    }
+
+    expect(await statuses()).toEqual([
+      { order: 'PENDING', payment: 'OPEN' },
+      { order: 'PENDING', payment: 'EXPIRED' },
+    ])
+    // The events live in the transition's transaction: the rolled-back order recorded none.
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.orderId === 1)
+        .map((event) => event.kind),
+    ).toEqual(['ORDER_PLACED', 'PAYMENT_STARTED'])
+  })
+
+  test('a release that fails leaves the payment under way, and the next scan ends it', async () => {
+    const { module, report } = await started([30])
+    report('tr_1_1', { status: 'EXPIRED' })
+    await sql`CREATE FUNCTION refuse_release() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'release refused'; END $$`.execute(database.db)
+    await sql`CREATE TRIGGER refuse_release BEFORE DELETE ON promotion_reservations
+      FOR EACH ROW EXECUTE FUNCTION refuse_release()`.execute(database.db)
+    try {
+      await module.orders.reconcilePayments(NOW)
+    } finally {
+      await sql`DROP TRIGGER refuse_release ON promotion_reservations`.execute(database.db)
+      await sql`DROP FUNCTION refuse_release()`.execute(database.db)
+    }
+    expect(await statuses()).toEqual([{ order: 'PENDING', payment: 'OPEN' }])
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
+
+    await module.orders.reconcilePayments(NOW)
+
+    expect(await statuses()).toEqual([{ order: 'PENDING', payment: 'EXPIRED' }])
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
+  test('an aborted signal stops between payments', async () => {
+    const { module, mollie, asked } = await started([30, 30, 30])
+    const controller = new AbortController()
+    const find = mollie.find.bind(mollie)
+    mollie.find = (id) => {
+      controller.abort()
+      return find(id)
+    }
+
+    await module.orders.reconcilePayments(NOW, controller.signal)
+
+    expect(asked).toEqual(['tr_1_1'])
+  })
+})
+
+describe('the order history of a payment', () => {
+  /** The events of order 1 after its placement, as `[kind, actorType, cause, details]`. */
+  const history = async () =>
+    (await orderEvents(database.db))
+      .filter((event) => event.kind !== 'ORDER_PLACED')
+      .map(({ kind, actorType, cause, details }) => [kind, actorType, cause, details])
+
+  test('a start and a webhook record each change once, however often they repeat', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+    await Promise.all([webhook(app, 'tr_1_1'), webhook(app, 'tr_1_1')])
+    await webhook(app, 'tr_1_1')
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['ORDER_PAID', 'SYSTEM', 'WEBHOOK', null],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'WEBHOOK', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('a refused start records the cancellation and no payment', async () => {
+    const { module, order, state } = await placed()
+    state.refuse = true
+    await module.orders.startPayment(order)
+    expect(await history()).toEqual([['ORDER_CANCELLED', 'SYSTEM', 'PAYMENT_START_REFUSED', null]])
+  })
+
+  test('a paid amount other than the one asked for records the payment, not the order', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID', amountCents: 100 })
+    await webhook(app, 'tr_1_1')
+    await webhook(app, 'tr_1_1')
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'WEBHOOK', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('the detail refresh records its changes as REFRESH, an unchanged status as nothing', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    const headers = { Cookie: await guestCookie('guest-a') }
+    await app.request('/api/orders/1', { headers })
+    report('tr_1_1', { status: 'PAID' })
+    await app.request('/api/orders/1', { headers })
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      ['ORDER_PAID', 'SYSTEM', 'REFRESH', null],
+      ['PAYMENT_STATUS_CHANGED', 'SYSTEM', 'REFRESH', { paymentId: 1, from: 'OPEN', to: 'PAID' }],
+    ])
+  })
+
+  test('the reconciliation records its changes as RECONCILIATION', async () => {
+    const { module, order, report } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'EXPIRED' })
+    const later = new Date(Date.now() + 60 * 60_000)
+    await module.orders.reconcilePayments(later)
+    await module.orders.reconcilePayments(later)
+
+    expect(await history()).toEqual([
+      ['PAYMENT_STARTED', 'CUSTOMER', null, { paymentId: 1 }],
+      [
+        'PAYMENT_STATUS_CHANGED',
+        'SYSTEM',
+        'RECONCILIATION',
+        { paymentId: 1, from: 'OPEN', to: 'EXPIRED' },
+      ],
+    ])
+  })
+})
+
+describe('orders.recheckPayment', () => {
+  const ADMIN = 9
+
+  test('pays the order the way the webhook does and records the change once, with the admin', async () => {
+    const { module, order, report, calls } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+
+    const first = await module.orders.recheckPayment(order.orderId, ADMIN)
+    const second = await module.orders.recheckPayment(order.orderId, ADMIN)
+
+    expect(first).toEqual({ kind: 'ok', value: { status: 'PAID', paymentStatus: 'PAID' } })
+    expect(second).toEqual(first)
+    expect(calls.find).toBe(1)
+    expect(await count(database.db, 'production_requests')).toBe(1)
+    expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.kind !== 'ORDER_PLACED' && event.kind !== 'PAYMENT_STARTED')
+        .map(({ kind, actorType, actorId, cause, details }) => [
+          kind,
+          actorType,
+          actorId,
+          cause,
+          details,
+        ]),
+    ).toEqual([
+      ['ORDER_PAID', 'SYSTEM', null, 'ADMIN_RECHECK', null],
+      [
+        'PAYMENT_STATUS_CHANGED',
+        'SYSTEM',
+        ADMIN,
+        'ADMIN_RECHECK',
+        { paymentId: 1, from: 'OPEN', to: 'PAID' },
+      ],
+    ])
+  })
+
+  test('an unchanged status answers the pair and records nothing', async () => {
+    const { module, order } = await placed()
+    await module.orders.startPayment(order)
+    expect(await module.orders.recheckPayment(order.orderId, ADMIN)).toEqual({
+      kind: 'ok',
+      value: { status: 'PENDING', paymentStatus: 'OPEN' },
+    })
+    expect((await orderEvents(database.db)).map((event) => event.kind)).toEqual([
+      'ORDER_PLACED',
+      'PAYMENT_STARTED',
+    ])
+  })
+
+  test('two concurrent rechecks of one change record it once', async () => {
+    const { module, order, report } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PENDING' })
+
+    const answers = await Promise.all([
+      module.orders.recheckPayment(order.orderId, ADMIN),
+      module.orders.recheckPayment(order.orderId, ADMIN),
+    ])
+
+    expect(answers).toEqual([
+      { kind: 'ok', value: { status: 'PENDING', paymentStatus: 'PENDING' } },
+      { kind: 'ok', value: { status: 'PENDING', paymentStatus: 'PENDING' } },
+    ])
+    expect(
+      (await orderEvents(database.db))
+        .filter((event) => event.kind === 'PAYMENT_STATUS_CHANGED')
+        .map((event) => event.details),
+    ).toEqual([{ paymentId: 1, from: 'OPEN', to: 'PENDING' }])
+  })
+
+  test('answers the stored pair when a webhook paid the order while Mollie was asked', async () => {
+    const { module, order, report, app, mollie } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PENDING' })
+    // The recheck's Mollie answer (PENDING) is read at once and held back until the webhook paid.
+    const find = mollie.find.bind(mollie)
+    const asked = Promise.withResolvers<undefined>()
+    const answer = Promise.withResolvers<undefined>()
+    let calls = 0
+    mollie.find = async (id) => {
+      calls += 1
+      if (calls > 1) return find(id)
+      const pending = find(id)
+      asked.resolve(undefined)
+      await answer.promise
+      return pending
+    }
+
+    const recheck = module.orders.recheckPayment(order.orderId, ADMIN)
+    await asked.promise
+    report('tr_1_1', { status: 'PAID' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    answer.resolve(undefined)
+
+    expect(await recheck).toEqual({ kind: 'ok', value: { status: 'PAID', paymentStatus: 'PAID' } })
+    expect(
+      (await orderEvents(database.db)).filter((event) => event.cause === 'ADMIN_RECHECK'),
+    ).toEqual([])
+  })
+
+  test('an order without a payment is a conflict, an unknown order not found', async () => {
+    const { module, order } = await placed()
+    expect(await module.orders.recheckPayment(order.orderId, ADMIN)).toEqual({ kind: 'conflict' })
+    expect(await module.orders.recheckPayment(order.orderId + 100, ADMIN)).toEqual({
+      kind: 'notFound',
+    })
   })
 })

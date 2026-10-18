@@ -30,7 +30,7 @@ function createAdminNavigationRouter() {
       { path: '/admin/promotions', component: { template: '<div />' } },
       { path: '/admin/coupons', redirect: '/admin/promotions' },
       { path: '/admin/orders', component: { template: '<div />' } },
-      { path: '/admin/issues', component: { template: '<div />' } },
+      { path: '/admin/operations', component: { template: '<div />' } },
     ],
   })
 }
@@ -183,18 +183,18 @@ describe('AdminNavigation', () => {
     expect(wrapper.text()).toContain('Masterdata')
   })
 
-  it('renders Orders and Issues as top-level operational links', async () => {
+  it('renders Orders and Operations as top-level operational links', async () => {
     const { wrapper } = await mountNavigation()
 
     const topLevelLinks = wrapper.findAll('[data-nav-link]:not([data-nav-child-link])')
     const operationalLinks = topLevelLinks.filter((link) =>
-      ['Orders', 'Issues'].includes(link.attributes('data-nav-title') ?? ''),
+      ['Orders', 'Operations'].includes(link.attributes('data-nav-title') ?? ''),
     )
 
-    expect(operationalLinks.map((link) => link.text())).toEqual(['Orders', 'Issues'])
+    expect(operationalLinks.map((link) => link.text())).toEqual(['Orders', 'Operations'])
     expect(operationalLinks.map((link) => link.attributes('href'))).toEqual([
       '/admin/orders',
-      '/admin/issues',
+      '/admin/operations',
     ])
     expect(wrapper.text()).not.toContain('Completed Orders')
   })
@@ -218,7 +218,7 @@ describe('AdminNavigation', () => {
 
   it.each([
     ['/admin/orders', 'Orders'],
-    ['/admin/issues', 'Issues'],
+    ['/admin/operations', 'Operations'],
   ])(
     'marks only the matching top-level operational link active for %s',
     async (path, activeTitle) => {

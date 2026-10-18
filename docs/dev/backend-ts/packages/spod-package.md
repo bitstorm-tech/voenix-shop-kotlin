@@ -148,8 +148,8 @@ outwards. Every call answers a `Promise<SpodResult<T>>`.
 | --- | --- | --- |
 | `uploadDesign(access, fileName, png)` | `POST /designs/upload` (multipart, part `file`, `image/png`) | the design id the print image was filed under |
 | `createOrder(access, request)` | `POST /orders` | the partner's order id, always created in state `NEW` |
-| `getOrder(access, orderId)` | `GET /orders/{id}` | the order's state |
-| `confirmOrder(access, orderId)` | `POST /orders/{id}/confirm` | `undefined`; this is the moment production is ordered |
+| `getOrder(access, orderId)` | `GET /orders/{id}`, the id percent-encoded into one path segment | the order's state |
+| `confirmOrder(access, orderId)` | `POST /orders/{id}/confirm`, the id encoded the same way | `undefined`; this is the moment production is ordered |
 | `availableHotspots(access, productTypeId, designId)` | `GET /productTypes/{id}/hotspots/design/{designId}` | the placement names this product type offers |
 | `articles(access, limit, offset)` | `GET /articles?limit=…&offset=…` | one `SpodCatalogPage` of the merchant's backoffice articles |
 | `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `SpodSizeChart` (its `sizeImageUrl`) |
@@ -399,7 +399,7 @@ records it, and answers a `Response`; a fake clock that only the recording
 
 | Test | What it states |
 | --- | --- |
-| [`client.test.ts`](../../../../backend-ts/src/modules/spod/client.test.ts) | The exact request of every call (method, URL, `X-SPOD-ACCESS-TOKEN`, content type, body; the multipart upload; the whole order contract with the three added constants), no redirect followed; ids answered as numbers reading like quoted ones; `429` → `RATE_LIMITED`, `4xx` and `3xx` known, `5xx`, a rejected fetch, a timeout, and an unreadable answer ambiguous; the pacer's waiting arithmetic, concurrent callers queueing, and downloads unpaced; the catalog fixtures ported from the Kotlin `SpodClientTest` and `SpodCalibrationCallsTest` (two pages with sparse articles, missing arrays read as empty, a missing `count` read as `null`); the download's refusals (not https, not an image, over the cap, a refusal status); and that neither the token, nor a provider body, nor a URL, path, query, or user info ever reaches a log line |
+| [`client.test.ts`](../../../../backend-ts/src/modules/spod/client.test.ts) | The exact request of every call (method, URL, `X-SPOD-ACCESS-TOKEN`, content type, body; the multipart upload; the whole order contract with the three added constants), no redirect followed; an order id with `/` and `?` percent-encoded into one path segment; ids answered as numbers reading like quoted ones; `429` → `RATE_LIMITED`, `4xx` and `3xx` known, `5xx`, a rejected fetch, a timeout, and an unreadable answer ambiguous; the pacer's waiting arithmetic, concurrent callers queueing, and downloads unpaced; the catalog fixtures ported from the Kotlin `SpodClientTest` and `SpodCalibrationCallsTest` (two pages with sparse articles, missing arrays read as empty, a missing `count` read as `null`); the download's refusals (not https, not an image, over the cap, a refusal status); and that neither the token, nor a provider body, nor a URL, path, query, or user info ever reaches a log line |
 | [`catalog.test.ts`](../../../../backend-ts/src/modules/spod/catalog.test.ts) | `parseColorHex` (every accepted spelling, the first of a two-tone value, everything that is no colour) and `downloadUrl` (the placeholder replaced, left alone without one or without a product id) |
 
 The behaviour of the consumers is tested where it lives: the submission

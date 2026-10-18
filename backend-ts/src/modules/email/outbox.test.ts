@@ -4,7 +4,7 @@ import { write } from '@/platform/db/database'
 import type { Settings } from '@/platform/settings'
 import { testDatabase } from '@test-support/database'
 import type { DeliveryResult, EmailDelivery } from './delivery/sweego'
-import { enqueue } from './outbox'
+import { emailsOfOrder, enqueue, stalledEmails } from './outbox'
 import { renderPasswordReset } from './templates/password-reset'
 import { renderProducerPdfNotification } from './templates/producer-pdf-notification'
 import type { RenderedEmail } from './templates/layout'
@@ -66,6 +66,19 @@ describe('outbox.enqueue', () => {
     await enqueueMails(1)
     const [job] = await jobs()
     expect(job).toEqual({ payload: producerMail(1), attempts: 0, errorCode: null, sent: false })
+  })
+
+  test('stores the order id the caller passes, and none otherwise', async () => {
+    await write(database.db, async (trx) => {
+      await enqueue(trx, producerMail(1), { orderId: 42 })
+      await enqueue(trx, producerMail(2))
+    })
+    const rows = await database.db
+      .selectFrom('email_jobs')
+      .select('order_id')
+      .orderBy('id')
+      .execute()
+    expect(rows).toEqual([{ order_id: 42 }, { order_id: null }])
   })
 
   test('a failing outer transaction leaves no job', async () => {
@@ -136,6 +149,88 @@ describe('worker', () => {
 
     expect(sent).toHaveLength(1)
     expect((await jobs())[0]?.sent).toBe(true)
+  })
+})
+
+describe('outbox.findings', () => {
+  const NOW = new Date('2026-10-16T12:00:00.000Z')
+  const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000)
+
+  /** One job with the given age, attempts, and state; returns its id. */
+  const seedJob = async (values: {
+    minutes: number
+    attempts?: number
+    sent?: boolean
+    orderId?: number | null
+  }) => {
+    const { id } = await database.db
+      .insertInto('email_jobs')
+      .values({
+        payload: JSON.stringify(producerMail(values.orderId ?? 1)),
+        order_id: values.orderId ?? null,
+        created_at: minutesAgo(values.minutes),
+        attempt_count: values.attempts ?? 0,
+        last_error_code: (values.attempts ?? 0) > 0 ? 'PROVIDER_HTTP_503' : null,
+        sent_at: values.sent === true ? minutesAgo(0) : null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+    return id
+  }
+
+  test('reports an unsent mail older than an hour or failed three times, with its kind', async () => {
+    const old = await seedJob({ minutes: 61, orderId: 7 })
+    const failing = await seedJob({ minutes: 1, attempts: 3 })
+    await seedJob({ minutes: 60, attempts: 2 })
+    await seedJob({ minutes: 600, attempts: 9, sent: true })
+
+    expect(await stalledEmails(database.db, NOW)).toEqual([
+      {
+        kind: 'EMAIL_STALLED',
+        subject: { type: 'EMAIL', id: old },
+        orderId: 7,
+        since: minutesAgo(61),
+        attemptCount: 0,
+        lastErrorCode: null,
+        emailKind: 'PRODUCER_PDF_NOTIFICATION',
+      },
+      {
+        kind: 'EMAIL_STALLED',
+        subject: { type: 'EMAIL', id: failing },
+        orderId: null,
+        since: minutesAgo(1),
+        attemptCount: 3,
+        lastErrorCode: 'PROVIDER_HTTP_503',
+        emailKind: 'PRODUCER_PDF_NOTIFICATION',
+      },
+    ])
+  })
+
+  test('ofOrder lists the mails of one order without their content', async () => {
+    const first = await seedJob({ minutes: 30, orderId: 7, sent: true })
+    const second = await seedJob({ minutes: 20, orderId: 7, attempts: 1 })
+    await seedJob({ minutes: 10, orderId: 8 })
+
+    expect(await emailsOfOrder(database.db, 7)).toEqual([
+      {
+        emailJobId: first,
+        kind: 'PRODUCER_PDF_NOTIFICATION',
+        recipient: 'producer@example.com',
+        attemptCount: 0,
+        lastErrorCode: null,
+        createdAt: minutesAgo(30),
+        sentAt: minutesAgo(0),
+      },
+      {
+        emailJobId: second,
+        kind: 'PRODUCER_PDF_NOTIFICATION',
+        recipient: 'producer@example.com',
+        attemptCount: 1,
+        lastErrorCode: 'PROVIDER_HTTP_503',
+        createdAt: minutesAgo(20),
+        sentAt: null,
+      },
+    ])
   })
 })
 

@@ -334,3 +334,126 @@ describe('the SPOD submission', () => {
     expect((await attempts()).map((row) => row.attempt_count)).toEqual([1, 2])
   })
 })
+
+describe('releasing a quarantined job', () => {
+  const ADMIN = 7
+
+  /** `count` orders whose SPOD job is quarantined after two ambiguous creations each. */
+  async function quarantined(count = 1) {
+    const jobs: { orderId: number; jobId: number; confirmation: string }[] = []
+    for (let index = 0; index < count; index++) {
+      const orderId = await order([shirt()])
+      partner.script.create.push(
+        failed('PROVIDER_UNAVAILABLE', true),
+        failed('PROVIDER_UNAVAILABLE', true),
+      )
+      jobs.push({ orderId, jobId: 0, confirmation: '' })
+    }
+    await kit.worker.runOnce()
+    await kit.worker.runOnce()
+    const states = await spodState()
+    expect(states.map((state) => state.createState)).toEqual(
+      Array<string>(count).fill('OUTCOME_UNKNOWN'),
+    )
+    partner.calls.length = 0
+    return jobs.map((job, index) => {
+      const jobId = states[index]?.jobId ?? 0
+      return { ...job, jobId, confirmation: `ORD-${String(job.orderId)}-JOB-${String(jobId)}` }
+    })
+  }
+
+  const releasedEvents = () =>
+    kit.orders.events.filter(({ event }) => event.kind === 'SPOD_JOB_RELEASED')
+
+  test('NOT_CREATED starts the creation over: the next scan creates and confirms the order', async () => {
+    const [job] = await quarantined()
+    const result = await kit.module.releaseSpodJob(
+      job?.jobId ?? 0,
+      { decision: 'NOT_CREATED', confirmation: job?.confirmation ?? '' },
+      ADMIN,
+    )
+    expect(result).toMatchObject({
+      kind: 'ok',
+      value: { jobId: job?.jobId, createState: 'PENDING', externalReference: null },
+    })
+    expect(await spodState()).toMatchObject([
+      { createState: 'PENDING', ambiguous: 0, code: null, externalReference: null },
+    ])
+    expect(releasedEvents()).toEqual([
+      {
+        orderId: job?.orderId ?? 0,
+        event: {
+          kind: 'SPOD_JOB_RELEASED',
+          actorType: 'ADMIN',
+          actorId: ADMIN,
+          details: { jobId: job?.jobId ?? 0, decision: 'NOT_CREATED' },
+        },
+      },
+    ])
+
+    await kit.worker.runOnce()
+    expect(partner.calls).toEqual(['create', 'get spod-1', 'confirm spod-1'])
+    expect((await spodState())[0]?.preparedAt).not.toBeNull()
+  })
+
+  test('CREATED adopts the partner order: the next scan confirms it without a create', async () => {
+    const [job] = await quarantined()
+    const result = await kit.module.releaseSpodJob(
+      job?.jobId ?? 0,
+      { decision: 'CREATED', externalReference: 'spod-7', confirmation: job?.confirmation ?? '' },
+      ADMIN,
+    )
+    expect(result).toMatchObject({
+      kind: 'ok',
+      value: { createState: 'CREATED', externalReference: 'spod-7' },
+    })
+    expect(await spodState()).toMatchObject([
+      { createState: 'CREATED', ambiguous: 0, code: null, externalReference: 'spod-7' },
+    ])
+    expect(releasedEvents().map(({ event }) => event)).toMatchObject([
+      { actorId: ADMIN, details: { decision: 'CREATED' } },
+    ])
+
+    await kit.worker.runOnce()
+    expect(partner.calls).toEqual(['get spod-7', 'confirm spod-7'])
+    expect((await spodState())[0]?.preparedAt).not.toBeNull()
+  })
+
+  test('a wrong confirmation, an unknown job, and a job not in quarantine change nothing', async () => {
+    const [job] = await quarantined()
+    const jobId = job?.jobId ?? 0
+    const release = (confirmation: string, id = jobId) =>
+      kit.module.releaseSpodJob(id, { decision: 'NOT_CREATED', confirmation }, ADMIN)
+
+    expect(await release(`ORD-${String((job?.orderId ?? 0) + 1)}-JOB-${String(jobId)}`)).toEqual({
+      kind: 'invalid',
+      errors: { confirmation: ['Confirmation must be the job reference'] },
+    })
+    expect(await release('', jobId + 100)).toEqual({ kind: 'notFound' })
+    expect(await spodState()).toMatchObject([{ createState: 'OUTCOME_UNKNOWN', ambiguous: 2 }])
+    expect(releasedEvents()).toEqual([])
+
+    expect((await release(job?.confirmation ?? '')).kind).toBe('ok')
+    expect(await release(job?.confirmation ?? '')).toEqual({ kind: 'conflict' })
+    expect(releasedEvents().length).toBe(1)
+  })
+
+  test('a partner order id another job holds is a conflict, also when both claim it at once', async () => {
+    const [first, second, third] = await quarantined(3)
+    const claim = (job: typeof first) =>
+      kit.module.releaseSpodJob(
+        job?.jobId ?? 0,
+        { decision: 'CREATED', externalReference: 'spod-9', confirmation: job?.confirmation ?? '' },
+        ADMIN,
+      )
+
+    const concurrent = await Promise.all([claim(first), claim(second)])
+    expect(concurrent.map((result) => result.kind).sort()).toEqual(['conflict', 'ok'])
+    expect(await claim(third)).toEqual({ kind: 'conflict' })
+
+    const states = await spodState()
+    expect(states.filter((state) => state.externalReference === 'spod-9').length).toBe(1)
+    expect(states.filter((state) => state.createState === 'OUTCOME_UNKNOWN').length).toBe(2)
+    expect(releasedEvents().length).toBe(1)
+  })
+})
