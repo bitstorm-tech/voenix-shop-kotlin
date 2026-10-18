@@ -116,6 +116,37 @@ describe('ProductImageGallery', () => {
     expect(dots(wrapper)).toHaveLength(2)
   })
 
+  it('keeps the current image when the same images arrive in a new list', async () => {
+    const wrapper = mountGallery()
+    await next(wrapper).trigger('click')
+
+    await wrapper.setProps({ images: [...IMAGES] })
+
+    expect(shownImage(wrapper)).toBe('back.webp')
+  })
+
+  it('keeps the click that ends a swipe away from a surrounding card, but not a plain click', async () => {
+    const onCardClick = vi.fn()
+    const Card = defineComponent(
+      () => () =>
+        h('div', { onClick: onCardClick }, [
+          h(ProductImageGallery, { images: IMAGES, alt: 'Classic Tee' }),
+        ]),
+    )
+    const wrapper = mount(Card)
+    const surface = wrapper.get('[data-testid="product-image-gallery"]').element
+
+    surface.dispatchEvent(new MouseEvent('pointerdown', { clientX: 200, bubbles: true }))
+    surface.dispatchEvent(new MouseEvent('pointerup', { clientX: 100, bubbles: true }))
+    await wrapper.get('img').trigger('click')
+
+    expect(wrapper.get('img').attributes('src')).toBe('back.webp')
+    expect(onCardClick).not.toHaveBeenCalled()
+
+    await wrapper.get('img').trigger('click')
+    expect(onCardClick).toHaveBeenCalledOnce()
+  })
+
   it('keeps clicks and keys of its controls away from a surrounding card', async () => {
     const onCardClick = vi.fn()
     const onCardKeydown = vi.fn()

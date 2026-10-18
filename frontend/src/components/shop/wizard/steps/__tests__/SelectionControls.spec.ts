@@ -392,7 +392,7 @@ describe('wizard selection controls', () => {
     expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)
   })
 
-  it('leafs through the listing images of the selected colour and resets on a colour switch', async () => {
+  it('leafs through the listing images of the selected colour, keeps them on a size switch, and resets on a colour switch', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeTee(5, 20)]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
@@ -407,6 +407,11 @@ describe('wizard selection controls', () => {
     expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-1-front.webp')
 
     await panel().get('[data-testid="product-image-gallery-next"]').trigger('click')
+    expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-1-back.webp')
+
+    // Another size of the same colour has the same pictures, so the current one stays.
+    await wrapper.findAll('[data-testid="wizard-spod-sizes"] button')[1]!.trigger('click')
+    expect(useWizardStore().selectedVariantId).toBe(52)
     expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-1-back.webp')
 
     await wrapper.findAllComponents(SwatchButton)[1]!.trigger('click')

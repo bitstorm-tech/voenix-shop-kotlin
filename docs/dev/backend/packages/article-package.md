@@ -1611,9 +1611,8 @@ every size row, as the t-shirt tables did:
 - **A colour is sellable only with both**: its mockup and at least one listing
   image. Otherwise its variants are inactive (`MOCKUP_UNAVAILABLE`,
   `COLOR_WITHOUT_IMAGE`), the same rule a failed download always followed.
-- **The storefront listing still shows one picture** — the first listing image
-  of the default variant's colour. A gallery over all listing images is a later
-  issue; the table already holds what it will need.
+- **The product card leafs through all listing images of the active colour**
+  (issue #284).
 
 ### The storefront
 

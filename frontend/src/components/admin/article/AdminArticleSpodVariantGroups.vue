@@ -126,8 +126,8 @@ function sizeChipTitle(variant: AdminSpodVariantDto) {
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex shrink-0 items-center gap-1.5">
             <AdminExampleImageThumbnail
-              v-for="filename in group.appearance.listingImageFilenames"
-              :key="filename"
+              v-for="(filename, index) in group.appearance.listingImageFilenames"
+              :key="index"
               :filename="filename"
               :title="group.appearance.colorName"
               :image-url="variantImageUrl"

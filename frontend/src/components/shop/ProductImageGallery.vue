@@ -25,11 +25,15 @@ const SWIPE_THRESHOLD_PX = 30
 
 const currentIndex = shallowRef(0)
 
-// Another colour or another article starts again at its first picture.
+// Another colour or another article starts again at its first picture; a new list with the same
+// pictures (another size of the same colour) keeps the current one.
 watch(
   () => props.images,
-  () => {
-    currentIndex.value = 0
+  (images, previousImages) => {
+    const unchanged =
+      images.length === previousImages.length &&
+      images.every((image, index) => image === previousImages[index])
+    if (!unchanged) currentIndex.value = 0
   },
 )
 
@@ -39,6 +43,8 @@ function show(index: number) {
 }
 
 let pointerStartX: number | null = null
+/** A mouse press that ends in a swipe still fires a click; that one must not reach the card. */
+let swiped = false
 
 function onPointerDown(event: PointerEvent) {
   pointerStartX = event.clientX
@@ -50,7 +56,14 @@ function onPointerUp(event: PointerEvent) {
   pointerStartX = null
   if (Math.abs(distance) < SWIPE_THRESHOLD_PX) return
 
+  swiped = true
   show(currentIndex.value + (distance < 0 ? 1 : -1))
+}
+
+function onClick(event: MouseEvent) {
+  if (!swiped) return
+  swiped = false
+  event.stopPropagation()
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -67,11 +80,12 @@ const arrowClass =
 
 <template>
   <div
-    class="group/gallery absolute inset-0 z-[2] touch-pan-y"
+    class="group/gallery relative z-[2] size-full touch-pan-y"
     data-testid="product-image-gallery"
     @pointerdown.stop="onPointerDown"
     @pointerup.stop="onPointerUp"
     @keydown.stop="onKeydown"
+    @click="onClick"
   >
     <img
       :src="images[currentIndex]"
