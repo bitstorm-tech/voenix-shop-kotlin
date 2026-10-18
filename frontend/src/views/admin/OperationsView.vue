@@ -7,6 +7,7 @@ import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { formatAdminStamp } from '@/lib/adminStamp'
 import { useAdminOperationsStore } from '@/stores/admin/operations'
 
 const operationsStore = useAdminOperationsStore()
@@ -27,12 +28,47 @@ const emptyMessage = computed(() =>
     : 'Nothing is stuck: there is no open finding.',
 )
 
+/**
+ * The worker scans every five minutes; a last scan older than three intervals means scans are
+ * failing or the worker is not running.
+ */
+const STALE_SCAN_MINUTES = 15
+
+/** How many whole minutes ago the last scan was, or `null` when it is unknown or never happened. */
+const lastScanMinutesAgo = computed(() => {
+  const at = operationsStore.lastScanAt
+  if (at === null || at === undefined) return null
+  const millis = Date.now() - new Date(at).getTime()
+  return Number.isNaN(millis) ? null : Math.max(0, Math.floor(millis / 60_000))
+})
+
+const lastScanText = computed(() => {
+  const at = operationsStore.lastScanAt
+  if (at === undefined) return 'Last scan: unknown, the time could not be loaded.'
+  if (at === null) return 'Last scan: none yet.'
+  const minutes = lastScanMinutesAgo.value
+  const ago =
+    minutes === null ? '' : minutes === 0 ? ' (just now)' : ` (${String(minutes)} min ago)`
+  return `Last scan: ${formatAdminStamp(at) ?? at}${ago}`
+})
+
+const lastScanIsStale = computed(
+  () =>
+    operationsStore.lastScanAt === null ||
+    (lastScanMinutesAgo.value !== null && lastScanMinutesAgo.value >= STALE_SCAN_MINUTES),
+)
+
 function reload() {
   void operationsStore.fetchFindings(resolved.value)
 }
 
+function reloadAll() {
+  reload()
+  void operationsStore.fetchLastScan()
+}
+
 watch(resolved, reload)
-onMounted(reload)
+onMounted(reloadAll)
 
 function selectList(value: string) {
   list.value = value === 'RESOLVED' ? 'RESOLVED' : 'OPEN'
@@ -43,7 +79,12 @@ function selectList(value: string) {
   <section class="space-y-4">
     <AdminPageHeader title="Operations" breakpoint="lg">
       <template #actions>
-        <Button variant="outline" size="sm" :disabled="operationsStore.isLoading" @click="reload">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="operationsStore.isLoading"
+          @click="reloadAll"
+        >
           <RefreshCw :class="['size-4', operationsStore.isLoading && 'animate-spin']" />
           Reload
         </Button>
@@ -54,6 +95,12 @@ function selectList(value: string) {
       Orders that stand still: payments, production, delivery, shipping, and mails. The list is
       refreshed by a scan every five minutes; a finding resolves on its own once its row moves on.
     </p>
+
+    <Alert v-if="lastScanIsStale" variant="warning" data-testid="last-scan">
+      {{ lastScanText }} The operations worker should scan every five minutes; check the backend log
+      for "Operations worker scan failed".
+    </Alert>
+    <p v-else class="text-sm text-muted-foreground" data-testid="last-scan">{{ lastScanText }}</p>
 
     <Tabs :model-value="list" @update:model-value="selectList($event as string)">
       <TabsList>

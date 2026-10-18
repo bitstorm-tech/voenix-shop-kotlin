@@ -53,7 +53,7 @@ const get = async (path: string, roles = ['ADMIN']) =>
   app().request(path, { headers: await signedInHeaders({ roles }) })
 
 beforeEach(async () => {
-  await sql`TRUNCATE operations_findings, orders, carts, payments, production_requests,
+  await sql`TRUNCATE operations_findings, operations_last_scan, orders, carts, payments, production_requests,
     production_destinations, suppliers, email_jobs RESTART IDENTITY CASCADE`.execute(database.db)
 })
 
@@ -268,6 +268,27 @@ describe('GET /api/admin/operations/findings', () => {
     expect(await jsonOf(await get(FINDINGS))).toMatchObject([
       { subject: { type: 'DELIVERY', id: 4 } },
     ])
+  })
+})
+
+describe('GET /api/admin/operations/last-scan', () => {
+  const LAST_SCAN = '/api/admin/operations/last-scan'
+
+  test('is for admins only, never cached, and null before the first scan', async () => {
+    expect((await app().request(LAST_SCAN)).status).toBe(401)
+    expect((await get(LAST_SCAN, ['USER'])).status).toBe(403)
+    const admin = await get(LAST_SCAN)
+    expect(admin.status).toBe(200)
+    expect(admin.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(admin)).toEqual({ lastScanAt: null })
+  })
+
+  test('answers when the last scan recorded its findings', async () => {
+    const repository = createFindingRepository(database.db)
+    await repository.record([])
+    const recorded = await repository.lastScanAt()
+
+    expect(await jsonOf(await get(LAST_SCAN))).toEqual({ lastScanAt: recorded?.toISOString() })
   })
 })
 

@@ -15,7 +15,7 @@ import { createOperationsWorker } from './worker'
  * reports its own stalled rows through a `findings(now)` capability (order: payments, production:
  * requests, jobs, deliveries, SPOD orders, email: the outbox); the worker reconciles the payments
  * under way first (`orders.reconcilePayments`) and then records the findings in
- * `operations_findings`, the only table this module owns, mails the new ones to
+ * `operations_findings` (and the scan time in `operations_last_scan`), mails the new ones to
  * `settings.alertEmail` through the outbox, and the admin route lists them. The admin order list
  * and the timeline of one order are assembled from `orders.adminOrders` / `orders.adminOrder`,
  * `production.ofOrder`, `outbox.ofOrder`, and the findings of the order; the two admin actions

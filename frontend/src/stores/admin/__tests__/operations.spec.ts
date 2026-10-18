@@ -97,4 +97,33 @@ describe('admin operations store', () => {
     expect(store.findings).toEqual([resolved])
     expect(store.isLoading).toBe(false)
   })
+
+  it('loads the time of the last scan, null before the first one', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ lastScanAt: '2026-10-16T10:17:00.000Z' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAdminOperationsStore()
+    expect(store.lastScanAt).toBeUndefined()
+
+    await store.fetchLastScan()
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/operations/last-scan')
+    expect(store.lastScanAt).toBe('2026-10-16T10:17:00.000Z')
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ lastScanAt: null }))
+    await store.fetchLastScan()
+    expect(store.lastScanAt).toBeNull()
+  })
+
+  it('forgets the time of the last scan when its load fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ message: 'Boom' }, { status: 500 })),
+    )
+    const store = useAdminOperationsStore()
+    store.lastScanAt = '2026-10-16T10:17:00.000Z'
+
+    await store.fetchLastScan()
+
+    expect(store.lastScanAt).toBeUndefined()
+    expect(store.error).toBeNull()
+  })
 })

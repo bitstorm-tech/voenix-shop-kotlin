@@ -49,6 +49,9 @@ export function createFindingRepository(db: Kysely<Tables>) {
      * Then the open rows of the reported mailed findings that have no `alerted_at` yet go to
      * `alert`; when it enqueued a mail they get `alerted_at = now()`. A listed-only finding is never
      * selected and keeps `alerted_at` `NULL`. Without `alert` nothing is alerted.
+     *
+     * Every call, with findings or without, also sets the scan time of `operations_last_scan` to
+     * `now()`, so the time commits with the findings or not at all.
      */
     record: (findings: readonly Finding[], alert: Alert = () => Promise.resolve(false)) =>
       write(db, async (trx) => {
@@ -83,6 +86,15 @@ export function createFindingRepository(db: Kysely<Tables>) {
           .set({ resolved_at: sql<Date>`now()` })
           .where('resolved_at', 'is', null)
           .where('last_seen_at', '<', sql<Date>`now()`)
+          .execute()
+        await trx
+          .insertInto('operations_last_scan')
+          .values({ finished_at: sql<Date>`now()` })
+          .onConflict((conflict) =>
+            conflict
+              .column('id')
+              .doUpdateSet((eb) => ({ finished_at: eb.ref('excluded.finished_at') })),
+          )
           .execute()
 
         const toAlert = findings.filter(mailed)
@@ -125,6 +137,14 @@ export function createFindingRepository(db: Kysely<Tables>) {
           )
           .execute()
       }),
+
+    /** When the last scan recorded its findings, or `null` before the first scan. */
+    lastScanAt: async (): Promise<Date | null> => {
+      const row = await read(db, (trx) =>
+        trx.selectFrom('operations_last_scan').select('finished_at').executeTakeFirst(),
+      )
+      return row?.finished_at ?? null
+    },
 
     /** The open findings of one order, oldest first: the timeline's findings section. */
     openOfOrder: (orderId: number) =>

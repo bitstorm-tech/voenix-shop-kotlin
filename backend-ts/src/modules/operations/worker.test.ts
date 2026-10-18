@@ -119,7 +119,9 @@ const mails = async () =>
   )
 
 beforeEach(async () => {
-  await sql`TRUNCATE operations_findings, email_jobs RESTART IDENTITY`.execute(database.db)
+  await sql`TRUNCATE operations_findings, operations_last_scan, email_jobs RESTART IDENTITY`.execute(
+    database.db,
+  )
 })
 
 describe('the operations scan', () => {
@@ -218,6 +220,53 @@ describe('the operations scan', () => {
     expect(await rows()).toMatchObject([{ kind: 'PAYMENT_UNRESOLVED', resolved_at: null }])
   })
 
+  test('every recorded scan sets the one last-scan time, also without findings', async () => {
+    const { worker, answer } = scripted()
+    const repository = createFindingRepository(database.db)
+    expect(await repository.lastScanAt()).toBeNull()
+
+    const before = await sql<{ now: Date }>`SELECT now() AS now`.execute(database.db)
+    await worker.runOnce()
+    const first = await repository.lastScanAt()
+    expect(first).not.toBeNull()
+    expect(first?.getTime()).toBeGreaterThanOrEqual(before.rows[0]?.now.getTime() ?? Infinity)
+
+    // Back by an hour, the row holds a time before the first scan; only an update brings it level.
+    await sql`UPDATE operations_last_scan SET finished_at = finished_at - interval '1 hour'`.execute(
+      database.db,
+    )
+    answer.findings = [unresolvedPayment]
+    await worker.runOnce()
+    const second = await repository.lastScanAt()
+    expect(second?.getTime()).toBeGreaterThanOrEqual(first?.getTime() ?? Infinity)
+    const scans = await database.db.selectFrom('operations_last_scan').selectAll().execute()
+    expect(scans).toHaveLength(1)
+  })
+
+  test('a scan whose source fails leaves the last-scan time where it was', async () => {
+    const repository = createFindingRepository(database.db)
+    const { worker } = scripted()
+    await worker.runOnce()
+    const recorded = await repository.lastScanAt()
+
+    const failing = createOperationsWorker({
+      reconcilePayments: () => Promise.resolve(),
+      sources: [{ findings: () => Promise.reject(new Error('The source is down')) }],
+      repository,
+      outbox: { enqueue: () => Promise.reject(new Error('No mail in this test')) },
+      alertEmail: null,
+      frontendBaseUrl: 'https://shop.example',
+      logger,
+    })
+    const failure = await failing.runOnce().then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(Error)
+
+    expect(await repository.lastScanAt()).toEqual(recorded)
+  })
+
   test('stop during the reconciliation records nothing for that scan', async () => {
     const reconciling = Promise.withResolvers<undefined>()
     const finish = Promise.withResolvers<undefined>()
@@ -235,6 +284,7 @@ describe('the operations scan', () => {
 
     expect(answer.scans).toBe(0)
     expect(await rows()).toEqual([])
+    expect(await createFindingRepository(database.db).lastScanAt()).toBeNull()
   })
 })
 

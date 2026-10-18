@@ -10,7 +10,11 @@ const operationsState = reactive({
   isLoading: false,
   error: null as Error | null,
   fetchFindings: vi.fn(),
+  lastScanAt: undefined as string | null | undefined,
+  fetchLastScan: vi.fn(),
 })
+
+const NOW = new Date('2026-10-16T10:20:00.000Z')
 
 vi.mock('@/stores/admin/operations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/admin/operations')>()
@@ -59,6 +63,9 @@ beforeEach(() => {
   operationsState.isLoading = false
   operationsState.error = null
   operationsState.fetchFindings.mockReset().mockResolvedValue(undefined)
+  operationsState.lastScanAt = '2026-10-16T10:17:00.000Z'
+  operationsState.fetchLastScan.mockReset().mockResolvedValue(undefined)
+  vi.spyOn(Date, 'now').mockReturnValue(NOW.getTime())
 })
 
 describe('OperationsView', () => {
@@ -124,5 +131,43 @@ describe('OperationsView', () => {
     operationsState.error = new Error('Boom')
     await flushPromises()
     expect(wrapper.text()).toContain('Boom')
+  })
+
+  it('loads and shows the time of the last scan, reloaded with the list', async () => {
+    const wrapper = await mountView()
+
+    expect(operationsState.fetchLastScan).toHaveBeenCalledTimes(1)
+    const lastScan = wrapper.get('[data-testid="last-scan"]')
+    expect(lastScan.element.tagName).toBe('P')
+    expect(lastScan.text()).toContain('Last scan:')
+    expect(lastScan.text()).toContain('(3 min ago)')
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Reload'))!
+      .trigger('click')
+    expect(operationsState.fetchLastScan).toHaveBeenCalledTimes(2)
+  })
+
+  it('warns when the last scan is 15 minutes old or no scan finished yet', async () => {
+    operationsState.lastScanAt = '2026-10-16T10:05:00.000Z'
+    const wrapper = await mountView()
+    const stale = wrapper.get('[data-testid="last-scan"]')
+    expect(stale.element.tagName).not.toBe('P')
+    expect(stale.text()).toContain('(15 min ago)')
+    expect(stale.text()).toContain('Operations worker scan failed')
+
+    operationsState.lastScanAt = null
+    await flushPromises()
+    expect(wrapper.get('[data-testid="last-scan"]').text()).toContain('Last scan: none yet.')
+  })
+
+  it('says so when the time of the last scan could not be loaded, without a warning', async () => {
+    operationsState.lastScanAt = undefined
+    const wrapper = await mountView()
+
+    const unknown = wrapper.get('[data-testid="last-scan"]')
+    expect(unknown.element.tagName).toBe('P')
+    expect(unknown.text()).toBe('Last scan: unknown, the time could not be loaded.')
   })
 })

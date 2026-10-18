@@ -63,5 +63,25 @@ export const useAdminOperationsStore = defineStore('admin-operations', () => {
     }
   }
 
-  return { findings, isLoading, error, fetchFindings }
+  /**
+   * When the operations worker last recorded a scan: `null` before the first scan, `undefined`
+   * while unknown (not loaded yet, or the last load failed).
+   */
+  const lastScanAt = shallowRef<string | null | undefined>(undefined)
+  let latestLastScanFetchId = 0
+
+  /** Loads the time of the last scan; a failure leaves it unknown instead of showing an old time. */
+  async function fetchLastScan(): Promise<void> {
+    const fetchId = ++latestLastScanFetchId
+    try {
+      const loaded = await fetchJson<{ lastScanAt: string | null }>(
+        '/api/admin/operations/last-scan',
+      )
+      if (fetchId === latestLastScanFetchId) lastScanAt.value = loaded.lastScanAt
+    } catch {
+      if (fetchId === latestLastScanFetchId) lastScanAt.value = undefined
+    }
+  }
+
+  return { findings, isLoading, error, fetchFindings, lastScanAt, fetchLastScan }
 })

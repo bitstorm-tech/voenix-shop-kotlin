@@ -20,8 +20,18 @@ export interface OperationsFindingsTable {
   resolved_at: Date | null
 }
 
+/**
+ * The `operations_last_scan` table (V35): at most one row (`id` is always 1), the time the last
+ * scan recorded its findings.
+ */
+export interface OperationsLastScanTable {
+  id: Generated<number>
+  finished_at: Date
+}
+
 declare module '@/platform/db/database' {
   interface Tables {
     operations_findings: OperationsFindingsTable
+    operations_last_scan: OperationsLastScanTable
   }
 }

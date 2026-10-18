@@ -537,13 +537,17 @@ listed a moment ago can still fail with one of the `409` data codes on download.
 | Frontend file | Call | Backend route | Closed by |
 | --- | --- | --- | --- |
 | `stores/admin/operations.ts` | `GET /api/admin/operations/findings` and `GET /api/admin/operations/findings?resolved=true` | same | #282 |
+| `stores/admin/operations.ts` | `GET /api/admin/operations/last-scan` | same | #282 follow-up |
 
 The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
 placeholder. The list is a bare array of findings
 ([the Operations package](../backend-ts/packages/operations-package.md)); the
 toggle "Resolved in the last 7 days" sends `resolved=true` and gets the same
 shape plus `resolvedAt`. The order id of a finding links to the timeline page of
-that order.
+that order. Above the list the page shows when the last scan was
+(`{"lastScanAt": … | null}`), and a warning once that is 15 minutes ago or no
+scan has completed yet; a failed load of the time says "unknown" instead of
+showing an old one.
 
 ## Admin: production jobs and supplier logins
 

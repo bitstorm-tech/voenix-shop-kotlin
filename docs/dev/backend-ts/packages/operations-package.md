@@ -32,13 +32,15 @@ module does:
   every payment that has been under way for over 15 minutes (the
   **reconciliation**, which repairs a lost webhook), then asks the order,
   production, and email modules which of their rows stand still, and records each answer as a **finding** in
-  `operations_findings`, the only table this module owns;
+  `operations_findings`, one of the two tables this module owns; the other,
+  `operations_last_scan`, keeps the time of the last recorded scan;
 - a finding that the next scan no longer reports is **resolved** on its own;
 - every scan with a new finding of a **mailed** kind enqueues one **alert
   mail** (`OPERATIONS_ALERT`) to `OPERATIONS_ALERT_EMAIL` that lists them all;
 - the admin route `GET /api/admin/operations/findings` lists the open findings
-  (and those resolved in the last seven days), and the admin page
-  *Operations* (`/admin/operations`) shows them;
+  (and those resolved in the last seven days), `GET /api/admin/operations/last-scan`
+  answers when the last scan was, and the admin page *Operations*
+  (`/admin/operations`) shows both;
 - the admin routes `GET /api/admin/orders` and
   `GET /api/admin/orders/{orderId}/timeline` answer "what happened to order
   42?" in one document, assembled from the capabilities of the order,
@@ -98,21 +100,25 @@ The boundaries are:
 operations/
 |- index.ts            createOperationsModule({ db, orders, production, outbox, settings,
 |                      frontendBaseUrl }) → { routes, worker }
-|- schema.ts           OperationsFindingsTable, merged into the platform's Tables
-|- repository.ts       createFindingRepository(db) → { record(findings, alert), openOfOrder,
-|                      openCounts, list }; Finding, the union of the three owning modules'
+|- schema.ts           OperationsFindingsTable, OperationsLastScanTable, merged into the
+|                      platform's Tables
+|- repository.ts       createFindingRepository(db) → { record(findings, alert), lastScanAt,
+|                      openOfOrder, openCounts, list }; Finding, the union of the three owning modules'
 |                      finding types; which kinds are mailed; Alert, UnalertedFinding
 |- service.ts          createOperationsService: the order timeline and the order list, assembled
 |                      from orders.adminOrder/adminOrders, production.ofOrder, outbox.ofOrder,
 |                      and the open findings; the two actions, orders.recheckPayment and
 |                      production.releaseSpodJob
-|- routes.ts           operationsRoutes(repository, service): the findings list, the order list,
+|- routes.ts           operationsRoutes(repository, service): the findings list, the last-scan
+|                      time, the order list,
 |                      the timeline, the two actions with the release's body schema; no-store
 |- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository, outbox,
 |                      alertEmail, frontendBaseUrl, logger }) → { runOnce, start, stop };
 |                      FindingSource; the alert (mail, or log without an address)
-|- worker.test.ts      reconcile first, upsert, resolve, reappear, the alert, the loop
-`- routes.test.ts      the admin guard, no-store, the findings lists, the order list, the timeline,
+|- worker.test.ts      reconcile first, upsert, resolve, reappear, the last-scan time, the alert,
+|                      the loop
+`- routes.test.ts      the admin guard, no-store, the findings lists, the last-scan time, the
+                       order list, the timeline,
                        the two actions with CSRF
 ```
 
@@ -133,12 +139,13 @@ and [`email/outbox.ts`](../../../../backend-ts/src/modules/email/outbox.ts)
 | --- | --- | --- |
 | `GET /api/admin/operations/findings` | admin | `200`, a JSON array of the open findings, newest `firstSeenAt` first |
 | `GET /api/admin/operations/findings?resolved=true` | admin | `200`, the findings resolved within the last seven days, same order, each with `resolvedAt` |
+| `GET /api/admin/operations/last-scan` | admin | `200 {"lastScanAt":"2026-10-16T10:05:00.000Z"}`, when the last scan recorded its findings; `null` before the first one, see [The scan](#the-scan) |
 | `GET /api/admin/orders?email=…` | admin | `200`, the 50 newest orders, optionally of exactly one address, see [The order list](#the-order-list-and-the-order-timeline) |
 | `GET /api/admin/orders/{orderId}/timeline` | admin | `200`, the [timeline document](#the-order-timeline); `404 {"message":"Order not found"}` for an unknown and a non-numeric id |
 | `POST /api/admin/orders/{orderId}/payment/recheck` | admin | `200 {"status":…,"paymentStatus":…}`, the stored pair after Mollie was asked; `404 {"message":"Order not found"}`; `409 {"message":"The order has no payment"}`, see [The admin actions](#the-admin-actions) |
 | `POST /api/admin/production/jobs/{jobId}/spod/release` | admin | `200` with the job's admin view; `400 Validation failed`; `404 {"message":"Production job not found"}`; `409` for a job not in `OUTCOME_UNKNOWN` or a partner order id another job holds, see [The admin actions](#the-admin-actions) |
 
-All five answer `Cache-Control: no-store`; without a session the platform
+All six answer `Cache-Control: no-store`; without a session the platform
 answers `401`, without the admin role `403`. Any other value of `resolved` is
 the open list. One finding on the wire:
 
@@ -354,6 +361,24 @@ One scan does four things, all against the same `now`:
    touched or inserted has `last_seen_at = now()`, and every open row with an
    older `last_seen_at` is one this scan did not report.
 
+   The same transaction also sets the one row of `operations_last_scan` to
+   `now()`, with findings or without:
+
+   ```sql
+   INSERT INTO operations_last_scan (finished_at) VALUES (now())
+   ON CONFLICT (id) DO UPDATE SET finished_at = excluded.finished_at;
+   ```
+
+   `id` defaults to 1 and a check allows no other value, so the table never
+   holds a second row. A scan that throws or is stopped before this step
+   writes nothing, so the time is the last scan that *completed*. The
+   Operations page shows it and warns once it is 15 minutes old (three
+   intervals) or no scan has completed yet: then scans are failing (look for
+   `Operations worker scan failed` in the log) or no worker runs. The time
+   lives in the database, not in the worker's memory, because the admin
+   request may reach another process than the one running the worker, and
+   because it has to survive a restart.
+
 4. **Alert**, in the same transaction: see [The alert](#the-alert).
 
 A resolved row is never touched again. A finding that resolves and later
@@ -417,7 +442,7 @@ created in the composition root after order and production, its routes are
 mounted like every other module's, and its worker starts and stops next to the
 email and production workers.
 
-The module queries only `operations_findings`. Every fact about another
+The module queries only `operations_findings` and `operations_last_scan`. Every fact about another
 module's rows comes from a capability over that module's own tables.
 
 *Rejected:* one SQL view or query across `payments`, `production_*`, and
