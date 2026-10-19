@@ -896,6 +896,7 @@
     "imageAlt": "Dein Design",
     "closePanel": "Panel schließen",
     "tools": {
+      "product": "Produkt",
       "text": "Text",
       "crop": "Zuschnitt",
       "frames": "Rahmen",
@@ -944,6 +945,13 @@
     "cropTool": {
       "hint": "Ziehen zum Verschieben, Scrollen zum Zoomen",
       "reset": "Zurücksetzen"
+    },
+    "productVariant": {
+      "hint": "Wechsle Farbe oder Größe - dein Design bleibt dabei erhalten.",
+      "color": "Farbe",
+      "size": "Größe",
+      "sizeChart": "Größentabelle",
+      "sizeChartHint": "Alle Maße in Zentimetern."
     },
     "frames": {
       "hint": "Ein Rahmen lässt dein Bild weich oder unregelmäßig in das Produkt übergehen.",

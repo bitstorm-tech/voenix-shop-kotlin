@@ -256,6 +256,26 @@ describe('editor store', () => {
     })
   })
 
+  it('changes the variant of a draft and keeps its images and edits', () => {
+    const store = useEditorStore()
+    const draft = store.createDraftFromOrderRedesign({
+      articleId: 15,
+      variantId: 25,
+      imageBlob: createBlob('redesign'),
+    })
+    store.updateCurrentImageEdits({ textOverlays: [createOverlay('overlay-a', 'A')] })
+    const image = draft.images[0]!
+
+    expect(store.changeDraftVariant(draft.id, 26)).toBe(true)
+
+    expect(draft).toMatchObject({ articleId: 15, variantId: 26, selectedImageId: image.id })
+    expect(draft.images).toEqual([image])
+    expect(image.edits.textOverlays).toEqual([createOverlay('overlay-a', 'A')])
+    expect(() => store.changeDraftVariant(draft.id, 0)).toThrow('valid variantId')
+    expect(draft.variantId).toBe(26)
+    expect(store.changeDraftVariant('missing', 27)).toBe(false)
+  })
+
   it('revokes only editor-owned object URLs when drafts are removed and reset', () => {
     const store = useEditorStore()
     const firstDraft = store.createDraftFromGeneratedImages({

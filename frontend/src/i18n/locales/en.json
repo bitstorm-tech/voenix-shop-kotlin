@@ -896,6 +896,7 @@
     "imageAlt": "Your design",
     "closePanel": "Close panel",
     "tools": {
+      "product": "Product",
       "text": "Text",
       "crop": "Crop",
       "frames": "Frames",
@@ -944,6 +945,13 @@
     "cropTool": {
       "hint": "Drag to reposition, scroll to zoom",
       "reset": "Reset"
+    },
+    "productVariant": {
+      "hint": "Switch the color or size - your design stays as it is.",
+      "color": "Color",
+      "size": "Size",
+      "sizeChart": "Size chart",
+      "sizeChartHint": "All measurements in centimetres."
     },
     "frames": {
       "hint": "A frame blends your image into the product with a soft or irregular edge.",

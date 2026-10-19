@@ -7,6 +7,7 @@ import {
   Frame,
   Images,
   Loader2,
+  Palette,
   PanelLeftClose,
   RotateCcw,
   ShoppingCart,
@@ -30,6 +31,7 @@ import CropFrameLayer from './CropFrameLayer.vue'
 import FrameToolPanel from './FrameToolPanel.vue'
 import ProductContextBar from './ProductContextBar.vue'
 import ProductDraftUpload from './ProductDraftUpload.vue'
+import ProductVariantPanel from './ProductVariantPanel.vue'
 import TextOverlayLayer from './TextOverlayLayer.vue'
 import TextToolPanel from './TextToolPanel.vue'
 import type { EditorArticle, EditorArticleVariant } from './types'
@@ -47,7 +49,7 @@ const editorStore = useEditorStore()
 const cartStore = useCartStore()
 const { toast } = useToast()
 
-type EditorToolId = 'text' | 'crop' | 'frames' | 'cliparts' | 'variants'
+type EditorToolId = 'product' | 'text' | 'crop' | 'frames' | 'cliparts' | 'variants'
 
 interface EditorTool {
   id: EditorToolId
@@ -111,7 +113,13 @@ const imageFrameStyle = computed(() =>
 )
 
 const tools = computed<EditorTool[]>(() => {
-  const list: EditorTool[] = [{ id: 'text', icon: markRaw(Type), labelKey: 'editor.tools.text' }]
+  const list: EditorTool[] = []
+
+  if (props.article.variants.length > 1) {
+    list.push({ id: 'product', icon: markRaw(Palette), labelKey: 'editor.tools.product' })
+  }
+
+  list.push({ id: 'text', icon: markRaw(Type), labelKey: 'editor.tools.text' })
 
   if (hasPrintArea.value) {
     list.push({ id: 'crop', icon: markRaw(Crop), labelKey: 'editor.tools.crop' })
@@ -127,14 +135,7 @@ const tools = computed<EditorTool[]>(() => {
   return list
 })
 
-const activeToolHasPanel = computed(
-  () =>
-    activeTool.value === 'text' ||
-    activeTool.value === 'crop' ||
-    activeTool.value === 'frames' ||
-    activeTool.value === 'variants' ||
-    activeTool.value === 'cliparts',
-)
+const activeToolHasPanel = computed(() => activeTool.value !== null)
 
 const isCropFrameVisible = computed(() => hasPrintArea.value && activeTool.value === 'crop')
 const canAddToCart = computed(() => hasCurrentImage.value && !isAddingToCart.value)
@@ -371,6 +372,10 @@ function updateImageFrame(frame: ImageFrameId | null) {
   editorStore.updateCurrentImageEdits({ imageFrame: frame })
 }
 
+function changeProductVariant(variantId: number) {
+  editorStore.changeDraftVariant(props.draft.id, variantId)
+}
+
 function selectImageVariant(id: string) {
   editorStore.selectImage(id)
 }
@@ -591,8 +596,16 @@ async function handleAddToCart() {
               data-testid="editor-active-tool-panel"
               class="editor-active-panel min-w-0 max-md:max-h-[var(--editor-mobile-panel-reserve)] max-md:overflow-y-auto max-md:bg-[var(--editor-control-panel-bg)] max-md:py-3.5 max-md:pl-3.5 max-md:pr-[3.25rem] max-md:[overscroll-behavior:contain] md:flex md:min-h-96 md:flex-col md:gap-4 md:bg-[var(--editor-control-panel-bg)] md:p-4"
             >
+              <ProductVariantPanel
+                v-if="activeTool === 'product'"
+                class="editor-product-variant-panel"
+                :article="article"
+                :variant="variant"
+                @select="changeProductVariant"
+              />
+
               <TextToolPanel
-                v-if="activeTool === 'text'"
+                v-else-if="activeTool === 'text'"
                 class="editor-text-tool-panel md:rounded-none"
                 :overlays="textOverlays"
                 :selected-id="selectedTextOverlayId"

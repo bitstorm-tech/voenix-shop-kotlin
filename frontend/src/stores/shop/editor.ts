@@ -231,6 +231,19 @@ export const useEditorStore = defineStore('editor', () => {
     }
   }
 
+  /**
+   * Swaps the variant of a draft. The images and their edits stay: they belong to the article's
+   * print area, which every variant of the article shares.
+   */
+  function changeDraftVariant(draftId: string, variantId: number): boolean {
+    const draft = drafts.value.find((item) => item.id === draftId)
+    if (!draft) return false
+
+    assertDraftContext({ articleId: draft.articleId, variantId })
+    draft.variantId = variantId
+    return true
+  }
+
   function updateCurrentImageEdits(patch: EditorImageEditPatch): boolean {
     const image = currentImage.value
     if (!image) return false
@@ -291,6 +304,7 @@ export const useEditorStore = defineStore('editor', () => {
     selectDraft,
     addUploadedImageToDraft,
     selectImage,
+    changeDraftVariant,
     updateCurrentImageEdits,
     removeDraft,
     reset,

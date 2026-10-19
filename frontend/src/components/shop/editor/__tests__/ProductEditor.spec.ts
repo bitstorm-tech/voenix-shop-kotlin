@@ -440,6 +440,35 @@ describe('ProductEditor', () => {
     expect(mask().attributes('style')).toBeUndefined()
   })
 
+  it('switches the draft to another variant from the product tool and keeps the design', async () => {
+    const store = useEditorStore()
+    const draft = store.createDraftFromGeneratedImages({
+      articleId: spodArticle.id,
+      variantId: spodVariant.id,
+      images: [generatedImage('image-1')],
+    })
+    const imageId = draft.selectedImageId
+    const wrapper = mountProductEditor(draft, {}, { article: spodArticle, variant: spodVariant })
+
+    expect(wrapper.findAll('.edit-tool-btn')[0]!.text()).toBe('editor.tools.product')
+
+    await findToolButton(wrapper, 'editor.tools.product')!.trigger('click')
+    const sizeButton = wrapper
+      .get('[data-testid="editor-variant-sizes"]')
+      .findAll('button')
+      .find((button) => button.text() === 'L')!
+    await sizeButton.trigger('click')
+
+    expect(draft.variantId).toBe(23)
+    expect(draft.selectedImageId).toBe(imageId)
+  })
+
+  it('offers no product tool for an article with a single variant', () => {
+    const wrapper = mountProductEditor(createDraft())
+
+    expect(findToolButton(wrapper, 'editor.tools.product')).toBeUndefined()
+  })
+
   it('keeps the cliparts tool visible as a disabled placeholder', async () => {
     const draft = createDraft()
     const wrapper = mountProductEditor(draft)
