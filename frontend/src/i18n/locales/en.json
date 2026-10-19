@@ -896,6 +896,7 @@
     "tools": {
       "text": "Text",
       "crop": "Crop",
+      "frames": "Frames",
       "cliparts": "Cliparts",
       "variants": "Variants"
     },
@@ -941,6 +942,17 @@
     "cropTool": {
       "hint": "Drag to reposition, scroll to zoom",
       "reset": "Reset"
+    },
+    "frames": {
+      "hint": "A frame blends your image into the product with a soft or irregular edge.",
+      "none": "No frame",
+      "options": {
+        "soft": "Soft",
+        "oval": "Oval",
+        "torn": "Torn",
+        "stamp": "Stamp",
+        "scallop": "Scallop"
+      }
     },
     "cliparts": {
       "title": "Cliparts are coming later",

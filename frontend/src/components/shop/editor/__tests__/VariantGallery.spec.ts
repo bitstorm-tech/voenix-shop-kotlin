@@ -21,6 +21,7 @@ function image(id: string, createdAt: number): EditorImage {
       cropTransform: { scale: 1, panX: 0, panY: 0 },
       textOverlays: [],
       cliparts: [],
+      imageFrame: null,
     },
   }
 }

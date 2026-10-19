@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   Crop,
+  Frame,
   Images,
   Loader2,
   PanelLeftClose,
@@ -18,6 +19,7 @@ import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
 import { spodMockupImageUrl } from '@/lib/variantExampleImage'
 import { clampCropTransform } from '@/lib/cropTransform'
+import { imageFrameMaskStyle, type ImageFrameId } from '@/lib/imageFrames'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
@@ -25,6 +27,7 @@ import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 import ClipartsPlaceholder from './ClipartsPlaceholder.vue'
 import CropFrameLayer from './CropFrameLayer.vue'
+import FrameToolPanel from './FrameToolPanel.vue'
 import ProductContextBar from './ProductContextBar.vue'
 import ProductDraftUpload from './ProductDraftUpload.vue'
 import TextOverlayLayer from './TextOverlayLayer.vue'
@@ -44,7 +47,7 @@ const editorStore = useEditorStore()
 const cartStore = useCartStore()
 const { toast } = useToast()
 
-type EditorToolId = 'text' | 'crop' | 'cliparts' | 'variants'
+type EditorToolId = 'text' | 'crop' | 'frames' | 'cliparts' | 'variants'
 
 interface EditorTool {
   id: EditorToolId
@@ -100,6 +103,12 @@ const mockupFrameStyle = computed(() => {
 
 const textOverlays = computed(() => currentImage.value?.edits.textOverlays ?? [])
 const cropTransform = computed(() => currentImage.value?.edits.cropTransform ?? defaultCrop())
+const imageFrame = computed(() => currentImage.value?.edits.imageFrame ?? null)
+
+/** The frame mask follows the print frame's aspect ratio, so it hugs the image at any size. */
+const imageFrameStyle = computed(() =>
+  imageFrame.value ? imageFrameMaskStyle(imageFrame.value, frameAspectRatio.value) : undefined,
+)
 
 const tools = computed<EditorTool[]>(() => {
   const list: EditorTool[] = [{ id: 'text', icon: markRaw(Type), labelKey: 'editor.tools.text' }]
@@ -108,6 +117,7 @@ const tools = computed<EditorTool[]>(() => {
     list.push({ id: 'crop', icon: markRaw(Crop), labelKey: 'editor.tools.crop' })
   }
 
+  list.push({ id: 'frames', icon: markRaw(Frame), labelKey: 'editor.tools.frames' })
   list.push({ id: 'cliparts', icon: markRaw(Sticker), labelKey: 'editor.tools.cliparts' })
 
   if (props.draft.images.length > 1) {
@@ -121,6 +131,7 @@ const activeToolHasPanel = computed(
   () =>
     activeTool.value === 'text' ||
     activeTool.value === 'crop' ||
+    activeTool.value === 'frames' ||
     activeTool.value === 'variants' ||
     activeTool.value === 'cliparts',
 )
@@ -356,6 +367,10 @@ function resetCropTransform() {
   updateCropTransform(defaultCrop())
 }
 
+function updateImageFrame(frame: ImageFrameId | null) {
+  editorStore.updateCurrentImageEdits({ imageFrame: frame })
+}
+
 function selectImageVariant(id: string) {
   editorStore.selectImage(id)
 }
@@ -395,6 +410,7 @@ async function handleAddToCart() {
       cropTransform: effectiveCropTransform.value,
       screenFrameWidth: lastScreenFrameWidth.value || 1,
       textOverlays: image.edits.textOverlays,
+      imageFrame: image.edits.imageFrame,
     })
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -489,18 +505,25 @@ async function handleAddToCart() {
               <div
                 ref="imageContainerRef"
                 data-testid="editor-print-frame"
-                class="editor-print-frame relative z-[1] w-full min-w-0 overflow-hidden bg-background-soft"
+                class="editor-print-frame relative z-[1] w-full min-w-0 overflow-hidden"
+                :class="{ 'bg-background-soft': !hasMockupPreview }"
                 :style="printFrameStyle"
               >
-                <img
-                  ref="imageRef"
-                  :src="currentImage.url"
-                  :alt="t('editor.imageAlt')"
-                  class="editor-print-image absolute block max-w-none select-none"
-                  data-testid="editor-print-image"
-                  draggable="false"
-                  :style="printImageStyle"
-                />
+                <div
+                  class="editor-print-image-mask absolute inset-0"
+                  data-testid="editor-print-image-mask"
+                  :style="imageFrameStyle"
+                >
+                  <img
+                    ref="imageRef"
+                    :src="currentImage.url"
+                    :alt="t('editor.imageAlt')"
+                    class="editor-print-image absolute block max-w-none select-none"
+                    data-testid="editor-print-image"
+                    draggable="false"
+                    :style="printImageStyle"
+                  />
+                </div>
                 <TextOverlayLayer
                   v-if="textOverlays.length > 0"
                   :image-rect="editFrameRect"
@@ -597,6 +620,14 @@ async function handleAddToCart() {
                   {{ t('editor.cropTool.reset') }}
                 </Button>
               </div>
+
+              <FrameToolPanel
+                v-else-if="activeTool === 'frames'"
+                class="editor-frame-tool-panel"
+                :image-url="currentImage.url"
+                :selected-frame="imageFrame"
+                @select="updateImageFrame"
+              />
 
               <ClipartsPlaceholder
                 v-else-if="activeTool === 'cliparts'"

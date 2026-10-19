@@ -165,6 +165,15 @@ retired: the image is neither always generated nor always edited (decision by
 Joe, 2026-07-29).
 _Avoid_: generated edited image, guest image
 
+**Image frame / Rahmen**:
+An edge treatment the customer picks in the editor (soft, oval, torn, stamp,
+scallop) so the design blends into the product instead of ending in a hard
+straight edge. It is an alpha mask over the design, sized from the print area's
+aspect ratio, and is baked into the **print image** — only text overlays stay
+uncut. Not to be confused with the **print frame**, the measured print area on a
+mockup image.
+_Avoid_: frame (alone), border
+
 **Article identity**:
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no

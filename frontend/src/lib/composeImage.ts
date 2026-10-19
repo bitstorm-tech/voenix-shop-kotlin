@@ -1,5 +1,6 @@
 import { clampCropTransform } from '@/lib/cropTransform'
 import { computeCoverRect } from '@/lib/geometry'
+import { imageFrameMaskUrl, type ImageFrameId } from '@/lib/imageFrames'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
@@ -11,6 +12,7 @@ export async function composeImage(options: {
   cropTransform: CropFrameTransform
   screenFrameWidth: number
   textOverlays: ReadonlyArray<TextOverlay>
+  imageFrame: ImageFrameId | null
   outputWidth?: number
 }): Promise<HTMLCanvasElement> {
   const {
@@ -19,6 +21,7 @@ export async function composeImage(options: {
     cropTransform,
     screenFrameWidth,
     textOverlays,
+    imageFrame,
     outputWidth = 2048,
   } = options
 
@@ -58,6 +61,15 @@ export async function composeImage(options: {
   ctx.translate(-cx, -cy)
   ctx.drawImage(img, imageRect.x, imageRect.y, imageRect.width, imageRect.height)
   ctx.restore()
+
+  // Cut the image with the frame mask; text overlays are drawn afterwards and stay whole
+  if (imageFrame) {
+    const mask = await loadImage(imageFrameMaskUrl(imageFrame, frameAspectRatio))
+    ctx.save()
+    ctx.globalCompositeOperation = 'destination-in'
+    ctx.drawImage(mask, 0, 0, canvas.width, canvas.height)
+    ctx.restore()
+  }
 
   // Draw text overlays
   if (textOverlays.length > 0) {

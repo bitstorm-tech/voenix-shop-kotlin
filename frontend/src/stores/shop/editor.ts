@@ -1,5 +1,6 @@
 import { computed, markRaw, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
+import type { ImageFrameId } from '@/lib/imageFrames'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
@@ -15,6 +16,7 @@ export interface EditorImageEdits {
   cropTransform: CropFrameTransform
   textOverlays: TextOverlay[]
   cliparts: EditorClipart[]
+  imageFrame: ImageFrameId | null
 }
 
 export interface EditorImage {
@@ -69,6 +71,7 @@ function createDefaultEdits(): EditorImageEdits {
     cropTransform: createDefaultCropTransform(),
     textOverlays: [],
     cliparts: [],
+    imageFrame: null,
   }
 }
 
@@ -242,6 +245,10 @@ export const useEditorStore = defineStore('editor', () => {
 
     if (patch.cliparts !== undefined) {
       image.edits.cliparts = patch.cliparts.map(cloneClipart)
+    }
+
+    if (patch.imageFrame !== undefined) {
+      image.edits.imageFrame = patch.imageFrame
     }
 
     return true

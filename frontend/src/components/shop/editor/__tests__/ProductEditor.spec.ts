@@ -167,6 +167,7 @@ describe('ProductEditor', () => {
     expect(wrapper.findAll('.edit-tool-btn').map((button) => button.text())).toEqual([
       'editor.tools.text',
       'editor.tools.crop',
+      'editor.tools.frames',
       'editor.tools.cliparts',
       'editor.tools.variants',
     ])
@@ -414,6 +415,29 @@ describe('ProductEditor', () => {
 
     expect(store.currentImage?.id).toBe(firstImage.id)
     expect(store.currentImage?.edits.textOverlays).toEqual([overlay('overlay-a', 'First')])
+  })
+
+  it('masks only the current print image with the chosen frame', async () => {
+    const draft = createDraft(2)
+    const store = useEditorStore()
+    const wrapper = mountProductEditor(draft)
+    const mask = () => wrapper.get('[data-testid="editor-print-image-mask"]')
+
+    expect(mask().attributes('style')).toBeUndefined()
+
+    await findToolButton(wrapper, 'editor.tools.frames')!.trigger('click')
+    await wrapper.get('[data-testid="editor-frame-option-torn"]').trigger('click')
+
+    expect(store.currentImage?.edits.imageFrame).toBe('torn')
+    expect(
+      draft.images.find((image) => image.id !== store.currentImage?.id)!.edits.imageFrame,
+    ).toBe(null)
+    expect(mask().attributes('style')).toContain('data:image/svg+xml')
+
+    await wrapper.get('[data-testid="editor-frame-option-none"]').trigger('click')
+
+    expect(store.currentImage?.edits.imageFrame).toBeNull()
+    expect(mask().attributes('style')).toBeUndefined()
   })
 
   it('keeps the cliparts tool visible as a disabled placeholder', async () => {

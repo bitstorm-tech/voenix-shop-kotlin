@@ -234,6 +234,7 @@ describe('editor store', () => {
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
       cliparts: [{ id: 'clipart-b', name: 'Star' }],
+      imageFrame: 'stamp',
     }
 
     store.selectImage(imageA.id)
@@ -245,11 +246,13 @@ describe('editor store', () => {
       cropTransform: { scale: 1, panX: 0, panY: 0 },
       textOverlays: [createOverlay('overlay-a', 'A')],
       cliparts: [],
+      imageFrame: null,
     })
     expect(imageB.edits).toEqual({
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
       cliparts: [{ id: 'clipart-b', name: 'Star' }],
+      imageFrame: 'stamp',
     })
   })
 
