@@ -22,6 +22,13 @@ export interface User {
   createdAt: string
 }
 
+/** The full replace `PUT /api/auth/profile` takes; the billing address counts only with the flag. */
+export interface ProfileUpdate {
+  shippingAddress: Address | null
+  hasSeparateBillingAddress: boolean
+  billingAddress: Address | null
+}
+
 type ApiUser = Omit<User, 'shippingAddress' | 'billingAddress'> & {
   shippingAddress: AddressInput | null
   billingAddress: AddressInput | null
@@ -154,6 +161,16 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** A profile address has no e-mail of its own, and the backend refuses the unknown key. */
+  function toProfileAddress(address: Address | null) {
+    if (!address) {
+      return null
+    }
+
+    const { firstName, lastName, street, houseNumber, city, postalCode, country, phone } = address
+    return { firstName, lastName, street, houseNumber, city, postalCode, country, phone }
+  }
+
   function setUser(nextUser: User | null) {
     const previousUserId = user.value?.id ?? null
     const nextUserId = nextUser?.id ?? null
@@ -269,11 +286,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /** The one auth mutation with a body: `200` answers the updated `AccountProfileView`. */
-  const updateProfile = async (data: Record<string, unknown>): Promise<AuthActionResult> => {
+  const updateProfile = async (data: ProfileUpdate): Promise<AuthActionResult> => {
     try {
       const profile = await fetchJson<ApiUser>('/api/auth/profile', {
         method: 'PUT',
-        body: data,
+        body: {
+          shippingAddress: toProfileAddress(data.shippingAddress),
+          hasSeparateBillingAddress: data.hasSeparateBillingAddress,
+          billingAddress: toProfileAddress(data.billingAddress),
+        },
       })
       setUser(normalizeUser(profile))
       return { success: true }

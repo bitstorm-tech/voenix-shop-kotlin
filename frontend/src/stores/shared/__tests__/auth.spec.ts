@@ -296,13 +296,46 @@ describe('auth store', () => {
       })
       const store = await createStore()
 
-      const result = await store.updateProfile({ hasSeparateBillingAddress: false })
+      const result = await store.updateProfile({
+        shippingAddress: null,
+        hasSeparateBillingAddress: false,
+        billingAddress: null,
+      })
 
       expect(result).toEqual({ success: true })
       expect(store.user?.email).toBe('renamed@example.com')
       const init = requestInit(fetchMock, '/api/auth/profile')
       expect(init.method).toBe('PUT')
       expect((init.headers as Record<string, string>)['X-XSRF-TOKEN']).toBe('token-1')
+    })
+
+    it('sends the addresses without the e-mail, which a profile address does not have', async () => {
+      const fetchMock = stubFetch({ '/api/auth/profile': () => jsonResponse(apiUser) })
+      const store = await createStore()
+      const address = {
+        firstName: 'Erika',
+        lastName: 'Muster',
+        street: 'Hauptstr.',
+        houseNumber: '5',
+        city: 'Wien',
+        postalCode: '1010',
+        country: 'AT',
+        email: 'erika@example.com',
+        phone: '',
+      }
+
+      await store.updateProfile({
+        shippingAddress: address,
+        hasSeparateBillingAddress: true,
+        billingAddress: address,
+      })
+
+      const profileAddress = { ...address, email: undefined }
+      expect(JSON.parse(String(requestInit(fetchMock, '/api/auth/profile').body))).toEqual({
+        shippingAddress: profileAddress,
+        hasSeparateBillingAddress: true,
+        billingAddress: profileAddress,
+      })
     })
 
     it('reads validation errors from the ApiError body', async () => {
@@ -314,7 +347,11 @@ describe('auth store', () => {
       })
       const store = await createStore()
 
-      const result = await store.updateProfile({ hasSeparateBillingAddress: false })
+      const result = await store.updateProfile({
+        shippingAddress: null,
+        hasSeparateBillingAddress: false,
+        billingAddress: null,
+      })
 
       expect(result.success === false && result.error.fieldErrors).toEqual({
         'shippingAddress.country': ['must be a two-letter country code'],

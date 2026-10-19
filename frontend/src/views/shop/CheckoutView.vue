@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, CircleCheck, CreditCard, Loader2, Tag } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
-import { type Address, useCheckoutStore } from '@/stores/shop/checkout'
+import { type Address, createEmptyAddress, useCheckoutStore } from '@/stores/shop/checkout'
 import { useCountriesStore } from '@/stores/shop/countries'
 import { useAuthStore } from '@/stores/shared/auth'
 import { checkoutErrorKeys } from '@/lib/checkoutErrors'
@@ -36,6 +36,9 @@ const authStore = useAuthStore()
 const { toast } = useToast()
 
 const termsAccepted = shallowRef(false)
+/** "Merken": a signed-in customer may keep an address of this order in the profile. */
+const rememberShipping = shallowRef(false)
+const rememberBilling = shallowRef(false)
 /** The inline phone message appears once the customer has tried to place the order, not before. */
 const hasAttemptedSubmit = shallowRef(false)
 
@@ -195,6 +198,32 @@ function updateShippingAddress(address: Address) {
   checkoutStore.shippingAddress = address
 }
 
+/**
+ * Writes the remembered addresses into the profile once the order is placed. The profile route is a
+ * full replace, so whatever the customer did not tick keeps its stored value. The billing box only
+ * shows for a separate billing address, so a tick left behind under "same as shipping" counts for
+ * nothing. A failure does not touch the order, which is already placed.
+ */
+async function rememberAddresses() {
+  const user = authStore.user
+  const rememberBillingAddress = rememberBilling.value && !checkoutStore.sameAsShipping
+  if (!user || (!rememberShipping.value && !rememberBillingAddress)) {
+    return
+  }
+
+  const result = await authStore.updateProfile({
+    shippingAddress: rememberShipping.value
+      ? checkoutStore.shippingAddress
+      : (user.shippingAddress ?? createEmptyAddress()),
+    hasSeparateBillingAddress: rememberBillingAddress || user.hasSeparateBillingAddress,
+    billingAddress: rememberBillingAddress ? checkoutStore.billingAddress : user.billingAddress,
+  })
+
+  if (!result.success) {
+    toast({ title: t('checkout.errors.rememberAddressFailed'), variant: 'destructive' })
+  }
+}
+
 async function retryCountries() {
   await countriesStore.fetchCountries({ force: true })
   checkoutStore.shippingAddress = withShippableCountry(checkoutStore.shippingAddress)
@@ -238,6 +267,7 @@ async function handleSubmit() {
 
   try {
     const result = await checkoutStore.submitCheckout()
+    await rememberAddresses()
     // A free order is already confirmed and has nothing to pay: no provider, straight to the
     // confirmation. Any other order is sent to the URL the payment provider answered with.
     if (result.checkoutUrl) {
@@ -301,6 +331,12 @@ async function handleSubmit() {
                 :phone-error="phoneError"
                 @update:model-value="updateShippingAddress"
               />
+              <div v-if="authStore.user" class="flex items-center gap-2">
+                <Checkbox id="rememberShipping" v-model="rememberShipping" />
+                <Label for="rememberShipping" class="cursor-pointer">
+                  {{ t('checkout.rememberAddress') }}
+                </Label>
+              </div>
             </div>
           </Card>
 
@@ -322,6 +358,12 @@ async function handleSubmit() {
                 :country-options="countriesStore.countries"
                 country-mode="text"
               />
+              <div v-if="authStore.user" class="mt-4 flex items-center gap-2">
+                <Checkbox id="rememberBilling" v-model="rememberBilling" />
+                <Label for="rememberBilling" class="cursor-pointer">
+                  {{ t('checkout.rememberAddress') }}
+                </Label>
+              </div>
             </div>
           </Card>
 

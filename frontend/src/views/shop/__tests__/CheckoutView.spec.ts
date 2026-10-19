@@ -257,6 +257,171 @@ describe('CheckoutView', () => {
     expect(addressForm(wrapper, 0).props('modelValue')).toMatchObject({ street: 'Nebenstr.' })
   })
 
+  it('offers "Merken" only to a signed-in customer', async () => {
+    const guest = await mountCheckout()
+    expect(guest.wrapper.find('#rememberShipping').exists()).toBe(false)
+    expect(guest.wrapper.find('#rememberBilling').exists()).toBe(false)
+    guest.wrapper.unmount()
+
+    await signIn()
+    const { wrapper } = await mountCheckout()
+    const checkoutStore = useCheckoutStore()
+
+    expect(wrapper.find('#rememberShipping').exists()).toBe(true)
+    checkoutStore.sameAsShipping = false
+    await flushPromises()
+    expect(wrapper.find('#rememberBilling').exists()).toBe(true)
+  })
+
+  it('hides "Merken" for the billing address while it is the shipping address', async () => {
+    await signIn()
+    const { wrapper } = await mountCheckout()
+    useCheckoutStore().sameAsShipping = true
+    await flushPromises()
+
+    expect(wrapper.find('#rememberBilling').exists()).toBe(false)
+  })
+
+  it('saves nothing to the profile when no address is remembered', async () => {
+    await signIn()
+    const authStore = useAuthStore()
+    const updateProfile = vi.spyOn(authStore, 'updateProfile')
+    vi.spyOn(useCheckoutStore(), 'submitCheckout').mockResolvedValue({
+      orderId: 8,
+      checkoutUrl: null,
+    })
+    const { wrapper } = await mountCheckout()
+
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateProfile).not.toHaveBeenCalled()
+  })
+
+  it('saves the remembered shipping address and keeps the stored billing address', async () => {
+    const storedBilling = { ...profileAddress, street: 'Rechnungsweg' }
+    await signIn({
+      shippingAddress: profileAddress,
+      billingAddress: storedBilling,
+      hasSeparateBillingAddress: true,
+    })
+    const authStore = useAuthStore()
+    const updateProfile = vi.spyOn(authStore, 'updateProfile').mockResolvedValue({ success: true })
+    const checkoutStore = useCheckoutStore()
+    vi.spyOn(checkoutStore, 'submitCheckout').mockResolvedValue({
+      orderId: 8,
+      checkoutUrl: null,
+    })
+    const { wrapper, router } = await mountCheckout()
+    checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, street: 'Neue Str.' }
+    checkoutStore.sameAsShipping = true
+
+    await wrapper.get('#rememberShipping').trigger('click')
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateProfile).toHaveBeenCalledWith({
+      shippingAddress: checkoutStore.shippingAddress,
+      hasSeparateBillingAddress: true,
+      billingAddress: storedBilling,
+    })
+    expect(checkoutStore.shippingAddress.street).toBe('Neue Str.')
+    expect(router.currentRoute.value.name).toBe('order-confirmation')
+  })
+
+  it('ignores a billing tick left behind when the billing address becomes the shipping address', async () => {
+    await signIn({
+      shippingAddress: profileAddress,
+      billingAddress: { ...profileAddress, street: 'Rechnungsweg' },
+      hasSeparateBillingAddress: true,
+    })
+    const authStore = useAuthStore()
+    const updateProfile = vi.spyOn(authStore, 'updateProfile').mockResolvedValue({ success: true })
+    const checkoutStore = useCheckoutStore()
+    vi.spyOn(checkoutStore, 'submitCheckout').mockResolvedValue({
+      orderId: 8,
+      checkoutUrl: null,
+    })
+    const { wrapper } = await mountCheckout()
+    checkoutStore.sameAsShipping = false
+    await flushPromises()
+
+    await wrapper.get('#rememberBilling').trigger('click')
+    checkoutStore.sameAsShipping = true
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateProfile).not.toHaveBeenCalled()
+  })
+
+  it('saves a remembered separate billing address and keeps the stored shipping address', async () => {
+    await signIn({ shippingAddress: profileAddress })
+    const authStore = useAuthStore()
+    const updateProfile = vi.spyOn(authStore, 'updateProfile').mockResolvedValue({ success: true })
+    const checkoutStore = useCheckoutStore()
+    vi.spyOn(checkoutStore, 'submitCheckout').mockResolvedValue({
+      orderId: 8,
+      checkoutUrl: null,
+    })
+    const { wrapper } = await mountCheckout()
+    checkoutStore.sameAsShipping = false
+    checkoutStore.billingAddress = { ...profileAddress, street: 'Rechnungsweg' }
+    await flushPromises()
+
+    await wrapper.get('#rememberBilling').trigger('click')
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateProfile).toHaveBeenCalledWith({
+      shippingAddress: profileAddress,
+      hasSeparateBillingAddress: true,
+      billingAddress: checkoutStore.billingAddress,
+    })
+  })
+
+  it('does not save the remembered address when the order is refused', async () => {
+    await signIn()
+    const updateProfile = vi.spyOn(useAuthStore(), 'updateProfile')
+    const checkoutStore = useCheckoutStore()
+    vi.spyOn(checkoutStore, 'submitCheckout').mockRejectedValue(new CheckoutError('nope'))
+    const { wrapper } = await mountCheckout()
+
+    await wrapper.get('#rememberShipping').trigger('click')
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(updateProfile).not.toHaveBeenCalled()
+  })
+
+  it('tells the customer when the address could not be remembered, after placing the order', async () => {
+    await signIn()
+    vi.spyOn(useAuthStore(), 'updateProfile').mockResolvedValue({
+      success: false,
+      error: { status: 400, code: null, message: 'Validation failed', fieldErrors: {} },
+    })
+    vi.spyOn(useCheckoutStore(), 'submitCheckout').mockResolvedValue({
+      orderId: 8,
+      checkoutUrl: null,
+    })
+    const { wrapper, router } = await mountCheckout()
+
+    await wrapper.get('#rememberShipping').trigger('click')
+    await wrapper.get('#termsAccepted').trigger('click')
+    await findSubmitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'checkout.errors.rememberAddressFailed',
+      variant: 'destructive',
+    })
+    expect(router.currentRoute.value.name).toBe('order-confirmation')
+  })
+
   it('shows the Cart discount and opens confirmation directly for a zero-total Order', async () => {
     const cartStore = useCartStore()
     cartStore.discountAmount = 1690
