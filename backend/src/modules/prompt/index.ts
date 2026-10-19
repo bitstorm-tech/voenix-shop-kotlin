@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import type { Kysely } from 'kysely'
-import type { ImageModule } from '@/modules/image'
+import type { ImageModule, PublicImageReferences } from '@/modules/image'
 import type { PriceCatalog } from '@/modules/pricing'
 import { requireAdmin } from '@/platform/auth/auth'
-import type { Tables } from '@/platform/db/database'
+import { read, type Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
 import { categoryRoutes, subcategoryRoutes } from './category/routes'
 import { createPromptCategoryRepository } from './category/repository'
@@ -21,7 +21,8 @@ const EXAMPLE_IMAGE_FOLDER = 'prompt-example-images'
  * anonymous `GET /api/prompts`, and `promptCatalog`, the capability the generator (`composedText`)
  * and the cart (`findSalesGrossPriceCents`) use. A prompt's price is written through
  * `priceCatalog` inside the prompt's transaction; its example image follows the image module's
- * example-image rule for the `prompt-example-images` folder.
+ * example-image rule for the `prompt-example-images` folder, and `imageReferences` answers the
+ * example images in use for the image module's orphan list.
  */
 export function createPromptModule({
   db,
@@ -53,7 +54,21 @@ export function createPromptModule({
   const routes = new Hono()
   routes.route('/', publicPromptRoutes(prompts))
   routes.route('/api/admin/prompts', admin)
-  return { routes, promptCatalog: createPromptCatalog({ repository, priceCatalog }) }
+  const imageReferences: PublicImageReferences = async () => {
+    const rows = await read(db, (trx) =>
+      trx
+        .selectFrom('prompts')
+        .select('example_image_filename')
+        .where('example_image_filename', 'is not', null)
+        .execute(),
+    )
+    return rows.map((row) => `${EXAMPLE_IMAGE_FOLDER}/${row.example_image_filename ?? ''}`)
+  }
+  return {
+    routes,
+    promptCatalog: createPromptCatalog({ repository, priceCatalog }),
+    imageReferences,
+  }
 }
 
 export type PromptModule = ReturnType<typeof createPromptModule>

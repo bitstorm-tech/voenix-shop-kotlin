@@ -101,6 +101,8 @@ export function createOrderModule({
       startPayment: payments.startPayment,
       /** The reorder references of one ordered line the caller owns. */
       orderItem: repository.orderItem,
+      /** The print images ordered lines point at, which the cart's orphan answer must keep. */
+      printImageIds: repository.printImageIds,
       /** The stalled payments, for the operations worker. */
       findings: paymentRepository.findings,
       /**

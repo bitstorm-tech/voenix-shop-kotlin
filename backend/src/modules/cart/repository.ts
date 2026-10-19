@@ -3,6 +3,7 @@ import type { GuestImageResolver } from '@/modules/image'
 import type { PrintImageReads } from '@/modules/order'
 import type { PromotionCodes } from '@/modules/promotion'
 import { read, write, type Tables } from '@/platform/db/database'
+import { executePostgresWrite } from '@/platform/db/postgres-write'
 import './schema'
 
 /** The largest quantity one cart line may hold; the CHECK of `cart_items.quantity` says the same. */
@@ -77,6 +78,45 @@ export function createCartRepository(
     })
 
   return {
+    /**
+     * The file name of every print image a cart line points at or whose id is among `orderedIds`
+     * (the ones ordered lines point at, which the order module answers).
+     */
+    printImagesInUse: async (orderedIds: Iterable<number>): Promise<string[]> => {
+      const ordered = new Set(orderedIds)
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('print_images')
+          .select((eb) => [
+            'id',
+            'filename',
+            eb
+              .exists(
+                eb
+                  .selectFrom('cart_items')
+                  .select('cart_items.id')
+                  .whereRef('cart_items.print_image_id', '=', 'print_images.id'),
+              )
+              .as('in_cart'),
+          ])
+          .execute(),
+      )
+      return rows.filter((row) => row.in_cart || ordered.has(row.id)).map((row) => row.filename)
+    },
+
+    /**
+     * Deletes the registration of the print image `filename` and answers `true`, also when there
+     * is none; `false` when a cart or order line still points at it, which the two `RESTRICT`
+     * foreign keys decide, so a line added concurrently is never left without its image.
+     */
+    releasePrintImage: (filename: string): Promise<boolean> =>
+      executePostgresWrite({ foreignKeyViolation: false }, () =>
+        write(db, async (trx) => {
+          await trx.deleteFrom('print_images').where('filename', '=', filename).execute()
+          return true
+        }),
+      ),
+
     /** The active cart of `owner`, or `undefined`. A read never creates anything. */
     findActiveCart: (owner: CartOwner): Promise<StoredCart | undefined> =>
       read(db, async (trx) => {

@@ -448,6 +448,17 @@ else's image": both are `null`, the route answers `404` for both, and an id
 cannot be probed for existence. The reorder asks the same function before it
 reuses an ordered image.
 
+## The print image registry
+
+`printImageRegistry` is the cart's `PrintImageRegistry` for the image
+module's orphan list (see
+[the Image package](image-package.md#orphans)). `inUse` answers the print
+image names a cart line points at, plus the ones whose ids
+`orders.printImageIds` answers for the ordered lines; the cart reads only its
+own tables for that. `release(filename)` deletes the `print_images` row and
+answers `true` (also when there is none); when a cart or order line points at
+it, the `RESTRICT` foreign key refuses the delete and the answer is `false`.
+
 ## The print image read for the order module
 
 The production read of a placed order needs the file name behind each line's
@@ -511,12 +522,13 @@ const cart = createCartModule({
   articleCatalog: article.articleCatalog,
   promptCatalog: prompt.promptCatalog,
   promotionCodes: promotion.promotionCodes,
-  orders: order.orders,                    // orderItem
+  orders: order.orders,                    // orderItem, printImageIds
   images,                                  // privateStorage
   guestTokens: auth.guestTokens,
 })
 app.route('/', cart.routes)
 app.route('/', images.guestImageRoute(cart.guestImageResolver))
+// images.orphanImageRoutes({ …, printImages: cart.printImageRegistry })
 // createCheckoutModule({ …, checkoutCarts: cart.checkoutCarts })
 ```
 

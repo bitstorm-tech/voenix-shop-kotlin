@@ -10,6 +10,7 @@ import { createArticleCatalog } from './catalog'
 import { createCategoryRepository } from './category/repository'
 import { categoryRoutes } from './category/routes'
 import { createCategoryService } from './category/service'
+import { createImageReferences, FOLDERS } from './image-references'
 import { createMugRepository } from './mug/repository'
 import { mugRoutes } from './mug/routes'
 import { createMugService } from './mug/service'
@@ -41,20 +42,12 @@ export type {
   SpodSyncWarningCode,
 } from './spod-article/sync'
 
-/** The public folders the module's pictures live in, one per kind (and per writer rule). */
-const FOLDERS = {
-  subcategoryExamples: 'articles/subcategory-example-images',
-  mugVariantExamples: 'articles/mugs/variant-example-images',
-  spodListingImages: 'articles/spod/listing-images',
-  spodMockups: 'articles/spod/mockups',
-  spodSizeCharts: 'articles/spod/size-charts',
-} as const
-
 /**
  * The article module: the admin routes of categories, subcategories, mugs, and SPOD articles, the
  * three storefront reads, and two capabilities. `articleCatalog` resolves the article-variant
  * references Cart, Order, Checkout, Production, and the Generator store; `spodCatalogSync`
- * reconciles one destination's backoffice catalog, triggered by Production.
+ * reconciles one destination's backoffice catalog, triggered by Production; `imageReferences`
+ * answers the pictures its rows refer to, for the image module's orphan list.
  */
 export function createArticleModule({
   db,
@@ -117,5 +110,6 @@ export function createArticleModule({
       folders: spodFolders,
       logger,
     }),
+    imageReferences: createImageReferences(db),
   }
 }

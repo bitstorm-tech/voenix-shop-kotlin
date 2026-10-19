@@ -23,6 +23,9 @@ without knowing a single filesystem path:
   endpoint receives, and `exampleImageUpload(store, responses)`, the one
   example-image pre-upload handler Article and Prompt mount.
 
+It also lists and deletes **orphans**, the originals no module refers to any
+more, on an admin page (see [Orphans](#orphans)).
+
 The module owns no database table and does not know who owns a private image.
 The guest route asks a `GuestImageResolver` that the cart module implements
 and the composition root hands over.
@@ -70,10 +73,12 @@ image/
 |- upload.ts                FILE_PART_NAME, ImageUpload, UploadedImage, readUploadedImage, uploadRejection,
 |                           exampleImageUpload (the example-image pre-upload handler)
 |- example-images.ts        createExampleImages, the example-image rule
+|- orphans.ts               createOrphanImages: the orphan list and delete, PublicImageReferences, PrintImageRegistry
 |- routes.test.ts           the three routes over HTTP
 |- service.test.ts          derivation, the cache, storage, the roots
 |- upload.test.ts           the multipart reader
-`- example-images.test.ts   the example-image rule against a fake storage
+|- example-images.test.ts   the example-image rule against a fake storage
+`- orphans.test.ts          the orphan list and delete against fake references
 ```
 
 The module has no `repository.ts` and no `schema.ts`, because it owns no
@@ -92,7 +97,11 @@ app.route('/', images.routes)
 //   createCartModule({ …, printImages: images.privateStorage })
 //   createOrderModule({ …, printImages: images.privateStorage })
 // once the cart exists:
-app.route('/', images.guestImageRoute(cart.guestImages))
+app.route('/', images.guestImageRoute(cart.guestImageResolver))
+app.route('/', images.orphanImageRoutes({
+  publicImages: [article.imageReferences, prompt.imageReferences],
+  printImages: cart.printImageRegistry,
+}))
 ```
 
 `createImageModule` checks the three roots synchronously while it runs, so a
@@ -106,13 +115,14 @@ The exported surface of `index.ts`:
 | `.routes` | the public and the private delivery route |
 | `.guestImageRoute(resolver)` | a Hono sub-app with `GET /api/images/guest/{size}/{id}` |
 | `.privateStorage` | an `ImageStorage` for the print images |
+| `.orphanImageRoutes({ publicImages, printImages })` | the admin orphan routes, judged by every module's references |
 | `.publicStorage(folder)` | an `ImageStorage` for one folder below the public root; throws for an unsafe folder |
 | `.exampleImages(folder, logger)` | the example-image rule for one public folder |
 | `readUploadedImage(form)` | `Promise<UploadedImage>`: `received` with the upload, `missing`, or `tooLarge` |
 | `uploadRejection(message)` | `invalid({ file: [message] })`, answered through `respondFailure` |
 | `exampleImageUpload(store, responses)` | the handler of a `POST …/example-images` route: reads the `file` part, calls the folder's `store`, answers `201 { filename }` or the failure |
 | `FILE_PART_NAME` | `'file'`, the part name and the error field |
-| types | `ImageStorage`, `ImageUpload`, `UploadedImage`, `ExampleImages`, `GuestImageResolver`, `ImageModule` |
+| types | `ImageStorage`, `ImageUpload`, `UploadedImage`, `ExampleImages`, `GuestImageResolver`, `PublicImageReferences`, `PrintImageRegistry`, `ImageModule` |
 
 ## HTTP API
 
@@ -121,6 +131,8 @@ The exported surface of `index.ts`:
 | `GET /api/images/public/{size}/{filename...}` | Anonymous | `public, max-age=86400` |
 | `GET /api/images/private/{size}/{filename...}` | Any authenticated session | `private, max-age=3600` |
 | `GET /api/images/guest/{size}/{id}` | Whoever the resolver accepts | `private, max-age=3600` |
+| `GET /api/admin/images/orphans` | Admin | `no-store` |
+| `POST /api/admin/images/orphans/delete` | Admin | `no-store` |
 
 `{filename...}` is the Hono pattern `:filename{.+}`: the rest of the path,
 slashes included.
@@ -266,6 +278,47 @@ const examples = images.exampleImages('articles/subcategory-example-images', log
 
 The shape check is the regular expression `STORED_IMAGE_FILENAME`; a test pins
 that every name `store` mints passes it.
+
+## Orphans
+
+An orphan is an original that no row refers to and that is older than seven
+days (`ORPHAN_MINIMUM_AGE_MS`, by the file's modification time). Orphans come
+from pre-uploads whose form was never saved, from a `deleteObsolete` that only
+logged its failure, and from print images a customer uploaded but never put
+into a cart, or whose cart line was removed. The seven days keep an open admin
+form, an open product editor, and a running SPOD sync out of the list.
+
+The module owns no table, so the owners tell it what is in use. The
+composition root hands them to `orphanImageRoutes` once they exist:
+
+```ts
+type PublicImageReferences = () => Promise<Iterable<string>>  // paths below the public root
+interface PrintImageRegistry {
+  inUse: () => Promise<Iterable<string>>         // print image names a cart or order line points at
+  release: (filename: string) => Promise<boolean> // drop the registration; false while a line points at it
+}
+```
+
+Article answers its subcategory and mug-variant example images, SPOD listing
+images, mockups, and size charts; Prompt its example images; the cart its print
+images, with the ordered ones it gets from `orders.printImageIds`.
+
+- **The list** scans the whole public root (a file in a folder no module owns
+  is an orphan too) and, of the private root, only `print-images`. Temporary
+  files (a segment starting with a dot), symbolic links, and names without an
+  image extension are never listed. It answers a bare array, oldest first:
+  `[{ visibility, path, size, modifiedAt }]`, `path` relative to the root of
+  `visibility`; the admin page previews it through the public or private
+  delivery route.
+- **The delete** takes `{ images: [{ visibility, path }] }` (1 to 10,000) and
+  re-checks each one against fresh references, its age, and its path; a path
+  that runs through a symbolic link names nothing, since its real file could be
+  one a module refers to under another name. A print image's registration is
+  released before its file goes, and the two `RESTRICT` foreign keys of
+  `cart_items` and `order_items` decide that release, so a line added in the
+  meantime keeps its image. Everything else is kept. The answer is
+  `{ deleted: [...], kept: [...] }`; one image and "delete all" use the same
+  route.
 
 ## Upload limits
 

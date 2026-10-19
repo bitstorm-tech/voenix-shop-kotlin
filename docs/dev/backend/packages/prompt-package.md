@@ -79,7 +79,7 @@ flowchart TB
 
 ```text
 prompt/
-|- index.ts              createPromptModule({ db, priceCatalog, exampleImages }) → { routes, promptCatalog };
+|- index.ts              createPromptModule({ db, priceCatalog, exampleImages }) → { routes, promptCatalog, imageReferences };
 |                        the admin sub-app with requireAdmin and the mount order; the example-image folder
 |- schema.ts             the seven table interfaces, merged into the platform's Tables
 |- fields.ts             Zod fragments every request schema shares: requiredName, optionalText, reorderInput

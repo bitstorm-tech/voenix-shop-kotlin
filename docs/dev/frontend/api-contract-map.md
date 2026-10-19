@@ -549,6 +549,20 @@ that order. Above the list the page shows when the last scan was
 scan has completed yet; a failed load of the time says "unknown" instead of
 showing an old one.
 
+## Admin: orphaned images
+
+| Frontend file | Call | Backend route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/orphanImages.ts` | `GET /api/admin/images/orphans` | same | orphan cleanup |
+| `stores/admin/orphanImages.ts` | `POST /api/admin/images/orphans/delete` | same | orphan cleanup |
+
+The page `/admin/images/orphans` shows every orphan
+([the Image package](../backend/packages/image-package.md#orphans)) with a
+preview through `/api/images/{public|private}/400/{path}`, its folder, size, and
+date. "Delete" and "Delete all" post the chosen locations after a confirmation;
+the store drops the `deleted` ones from the list, and when the backend `kept`
+some (in use again, or gone), the page says so and reloads.
+
 ## Admin: production jobs and supplier logins
 
 | Frontend file | Call | Backend route | Closed by |

@@ -13,6 +13,7 @@ import {
   MUG_REF,
   PROMPT_ID,
   resetCarts,
+  seedOrderItem,
   seedPromotion,
   SPOD_REF,
   UNKNOWN_REF,
@@ -269,5 +270,51 @@ describe('checkoutCarts', () => {
     expect(fresh.id).not.toBe(id)
     expect(fresh.items).toMatchObject([{ quantity: 1, ...SPOD_REF }])
     expect((await lines()).map(({ cartId }) => cartId)).toEqual([id, fresh.id])
+  })
+})
+
+describe('printImageRegistry', () => {
+  /** A print image row of guest `guest-a` for `filename`, answering its id. */
+  const seedPrintImage = async (filename: string) => {
+    const { rows } = await sql<{ id: number }>`INSERT INTO print_images
+        (filename, guest_session_token) VALUES (${filename}, 'guest-a') RETURNING id`.execute(
+      database.db,
+    )
+    return rows[0]?.id ?? 0
+  }
+
+  test('inUse answers the images a cart line or an ordered line points at', async () => {
+    const inCart = await seedPrintImage('in-cart.webp')
+    const ordered = await seedPrintImage('ordered.webp')
+    await seedPrintImage('unused.webp')
+    await addItem(await guest(), { imageId: inCart })
+    await seedOrderItem(
+      database.db,
+      { guestToken: 'guest-a', userId: null },
+      { ...MUG_REF, promptId: null, printImageId: ordered },
+    )
+
+    expect([...(await cart.printImageRegistry.inUse())].sort()).toEqual([
+      'in-cart.webp',
+      'ordered.webp',
+    ])
+  })
+
+  test('release deletes an unused registration and refuses one a line points at', async () => {
+    const inCart = await seedPrintImage('in-cart.webp')
+    const ordered = await seedPrintImage('ordered.webp')
+    await seedPrintImage('unused.webp')
+    await addItem(await guest(), { imageId: inCart })
+    await seedOrderItem(
+      database.db,
+      { guestToken: 'guest-a', userId: null },
+      { ...MUG_REF, promptId: null, printImageId: ordered },
+    )
+
+    expect(await cart.printImageRegistry.release('unused.webp')).toBe(true)
+    expect(await cart.printImageRegistry.release('never-registered.webp')).toBe(true)
+    expect(await cart.printImageRegistry.release('in-cart.webp')).toBe(false)
+    expect(await cart.printImageRegistry.release('ordered.webp')).toBe(false)
+    expect(await count(database.db, 'print_images')).toBe(2)
   })
 })

@@ -758,6 +758,7 @@ migrations until `orders` existed.
 | `payable(orderId, userId, guestToken)` | the retry route | `payable` with the `PayableOrder`, or `notFound` (unknown and foreign), `alreadyPaid`, `cancelled`, `free` |
 | `cancel(trx, orderId)` | `startPayment` itself, cause `PAYMENT_START_REFUSED` | [Cancelling](#cancelling-an-order-and-a-payment-that-ends) in the caller's transaction; answers `'cancelled' \| 'alreadyCancelled' \| 'paid' \| 'notFound'` |
 | `orderItem(orderItemId, userId, guestToken)` | cart reorder | `{ articleId, variantId, promptId, printImageId }` of an owned line, or `undefined`; no price and no quantity, because a reorder is an ordinary add at today's price |
+| `printImageIds()` | cart's print image registry | the id of every print image an ordered line points at, so the image module's orphan list keeps it |
 | `productionData`, `fulfillmentOrders`, `shippingNotificationOrder` | production | [The production contract](#the-production-contract) |
 | `recordEvent(trx, orderId, event)` | production, the ship write, `recordRemoteState`, and the SPOD release | appends one of production's three events to the order's [history](#the-order-history) in the caller's transaction |
 | `adminOrder(orderId)` | operations, the admin timeline | [The admin reads](#the-admin-reads); `undefined` for an unknown order |
@@ -804,7 +805,7 @@ app.route('/', order.routes)              // /api/orders, /api/order-lookup, the
 
 const production = await createProductionModule({ …, orders: order.orders })
 app.route('/', order.adminPdfRoutes(production.productionPdfGenerator))
-// createCartModule({ …, orders: order.orders })       orderItem
+// createCartModule({ …, orders: order.orders })       orderItem, printImageIds
 // createCheckoutModule({ …, orders: order.orders })   place, confirmFree, startPayment, payable
 // createOperationsModule({ …, orders: order.orders }) reconcilePayments, findings, adminOrder, adminOrders, recheckPayment
 ```

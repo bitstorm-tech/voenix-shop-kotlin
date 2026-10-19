@@ -265,6 +265,19 @@ export function createOrderRepository(db: Kysely<Tables>) {
           .executeTakeFirst(),
       ),
 
+    /** The id of every print image an ordered line points at, for the image module's orphan list. */
+    printImageIds: async (): Promise<number[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('order_items')
+          .select('print_image_id')
+          .distinct()
+          .where('print_image_id', 'is not', null)
+          .execute(),
+      )
+      return rows.flatMap((row) => (row.print_image_id === null ? [] : [row.print_image_id]))
+    },
+
     /**
      * The whole stored order without an ownership rule: its callers are the production worker and
      * the shipping mail, never a customer, and no route reaches it. A line carries its print image

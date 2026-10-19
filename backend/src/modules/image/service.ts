@@ -105,6 +105,16 @@ export function createImageService(roots: ImageRoots) {
     })
   }
 
+  /**
+   * Removes the original at `path` below the root of `visibility` and every derivation of it; a
+   * missing original is not an error. `path` must already be a safe relative path.
+   */
+  const remove = async ({ visibility, path }: { visibility: ImageVisibility; path: string }) => {
+    const original = await resolveFile(roots[visibility], path)
+    if (typeof original === 'object') await rm(original.path, { force: true })
+    await deleteDerivations(join(roots.cache, visibility), path)
+  }
+
   const storage = (visibility: ImageVisibility, folder: string): ImageStorage => {
     const root = roots[visibility]
     const originalOf = async (filename: string) =>
@@ -123,10 +133,7 @@ export function createImageService(roots: ImageRoots) {
       },
       exists: async (filename) => typeof (await originalOf(filename)) === 'object',
       delete: async (filename) => {
-        if (!isPlainFilename(filename)) return
-        const original = await originalOf(filename)
-        if (typeof original === 'object') await rm(original.path, { force: true })
-        await deleteDerivations(join(roots.cache, visibility), join(folder, filename))
+        if (isPlainFilename(filename)) await remove({ visibility, path: join(folder, filename) })
       },
       originalPaths: async (filenames) => {
         const paths = new Map<string, string>()
@@ -141,6 +148,7 @@ export function createImageService(roots: ImageRoots) {
 
   return {
     get,
+    remove,
     /** The storage of one folder below the public root; `folder` is a safe relative path. */
     publicStorage: (folder: string): ImageStorage => {
       if (safeRelativePath(folder) === null) {

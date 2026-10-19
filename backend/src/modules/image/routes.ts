@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { Hono, type Context } from 'hono'
-import { requireAuthenticated, type Auth } from '@/platform/auth/auth'
-import { apiError, respondFailure } from '@/platform/http/respond'
+import { z } from 'zod'
+import { requireAdmin, requireAuthenticated, type Auth } from '@/platform/auth/auth'
+import { apiError, jsonBody, respondFailure } from '@/platform/http/respond'
 import type { OperationResult } from '@/platform/operation'
+import type { OrphanImages } from './orphans'
 import {
   PRINT_IMAGE_FOLDER,
   type ImageResource,
@@ -81,6 +83,47 @@ export function guestImageRoute(
     )
     return respondImage(c, 'private', result)
   })
+  return routes
+}
+
+/** One original the delete names; the orphan rules decide whether it is really deleted. */
+const imageLocation = z.strictObject({
+  visibility: z.enum(['public', 'private']),
+  path: z.string().min(1).max(1024),
+})
+
+const deleteInput = z.strictObject({
+  images: z.array(imageLocation).min(1).max(10_000),
+})
+
+/**
+ * The admin orphan routes: `GET /api/admin/images/orphans` lists every original no module refers
+ * to, oldest first, and `POST /api/admin/images/orphans/delete` deletes those of the named ones that
+ * are still orphans, answering `{ deleted, kept }`. `requireAdmin` checks the CSRF pair of the
+ * `POST`.
+ */
+export function orphanImageRoutes(orphans: OrphanImages): Hono {
+  const admin = new Hono()
+  admin.use(requireAdmin, async (c, next) => {
+    c.header('Cache-Control', 'no-store')
+    await next()
+  })
+  admin.get('/', async (c) =>
+    c.json(
+      (await orphans.list()).map((image) => ({
+        visibility: image.visibility,
+        path: image.path,
+        size: image.size,
+        modifiedAt: image.modifiedAt.toISOString(),
+      })),
+    ),
+  )
+  admin.post('/delete', jsonBody(deleteInput), async (c) =>
+    c.json(await orphans.delete(c.req.valid('json').images)),
+  )
+
+  const routes = new Hono()
+  routes.route('/api/admin/images/orphans', admin)
   return routes
 }
 

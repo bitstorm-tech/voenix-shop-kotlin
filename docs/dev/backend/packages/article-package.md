@@ -115,10 +115,12 @@ flowchart TB
 
 ```text
 article/
-|- index.ts              createArticleModule(deps) → { routes, articleCatalog, spodCatalogSync }; the exported types
+|- index.ts              createArticleModule(deps) → { routes, articleCatalog, spodCatalogSync, imageReferences }; the exported types
 |- schema.ts             the twelve article tables, merged into the platform's Tables
 |- routes.ts             shared request fragments (reorderInput, articlePrice, optionalId, …),
 |                        storefrontRoutes; the pre-upload routes use the image module's exampleImageUpload
+|- image-references.ts   FOLDERS (the public picture folders) and createImageReferences: every picture a row
+|                        refers to, for the image module's orphan list
 |- persistence.ts        ordering locks, nextPosition, moveInSequence, rewritePositions, closePositionGap,
 |                        lockCategoryReference, namesOf, unreferencedFilenames
 |- price.ts              preparePrice (`null` keeps the stored price; `priceCatalog.prepare` already reports

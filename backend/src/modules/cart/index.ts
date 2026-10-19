@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { ArticleCatalog } from '@/modules/article'
-import type { ImageModule } from '@/modules/image'
+import type { ImageModule, PrintImageRegistry } from '@/modules/image'
 import type { Orders } from '@/modules/order'
 import type { PromotionCodes } from '@/modules/promotion'
 import type { PromptCatalog } from '@/modules/prompt'
@@ -14,10 +14,11 @@ export type { CheckoutCart, CheckoutCartLine } from './service'
 export { createPrintImageReads } from './repository'
 
 /**
- * The cart module: the eight `/api/cart` routes and the two things it exports. `guestImageResolver`
+ * The cart module: the eight `/api/cart` routes and the three things it exports. `guestImageResolver`
  * is the image module's `GuestImageResolver`, which the composition root installs with
- * `image.guestImageRoute(cart.guestImageResolver)`. `checkoutCarts` is what the checkout needs:
- * the priced active cart, the row lock of its first transaction, and the close. The third export
+ * `image.guestImageRoute(cart.guestImageResolver)`. `printImageRegistry` is the image module's
+ * `PrintImageRegistry` for the admin orphan list. `checkoutCarts` is what the checkout needs:
+ * the priced active cart, the row lock of its first transaction, and the close. The fourth export
  * of this module, `createPrintImageReads`, is a factory rather than a member, because the order
  * module needs it and is created before the cart.
  */
@@ -34,7 +35,7 @@ export function createCartModule({
   articleCatalog: Pick<ArticleCatalog, 'find'>
   promptCatalog: Pick<PromptCatalog, 'findSalesGrossPriceCents'>
   promotionCodes: Pick<PromotionCodes, 'validate' | 'find' | 'release'>
-  orders: Pick<Orders, 'orderItem'>
+  orders: Pick<Orders, 'orderItem' | 'printImageIds'>
   images: Pick<ImageModule, 'privateStorage'>
   guestTokens: Auth['guestTokens']
 }) {
@@ -50,6 +51,10 @@ export function createCartModule({
   return {
     routes: cartRoutes(service, guestTokens),
     guestImageResolver: repository.printImageFilename,
+    printImageRegistry: {
+      inUse: async () => repository.printImagesInUse(await orders.printImageIds()),
+      release: repository.releasePrintImage,
+    } satisfies PrintImageRegistry,
     checkoutCarts: {
       /** The priced active cart of the caller (`userId` first, else `guestToken`), or `null`. */
       activeCart: service.checkoutCart,

@@ -164,3 +164,43 @@ describe('GET /api/images/guest/{size}/{id}', () => {
     expect(calls).toHaveLength(1)
   })
 })
+
+describe('/api/admin/images/orphans', () => {
+  const ORPHANS = '/api/admin/images/orphans'
+  const orphanApp = () =>
+    testApp(
+      images.orphanImageRoutes({
+        publicImages: [() => Promise.resolve([])],
+        printImages: { inUse: () => Promise.resolve([]), release: () => Promise.resolve(true) },
+      }),
+    )
+  const admin = () => signedInHeaders({ userId: 1, roles: ['ADMIN'] })
+
+  test('is for admins only and never cached', async () => {
+    expect((await orphanApp().request(ORPHANS)).status).toBe(401)
+    const customer = await orphanApp().request(ORPHANS, {
+      headers: await signedInHeaders({ userId: 2, roles: ['CUSTOMER'] }),
+    })
+    expect(customer.status).toBe(403)
+    const response = await orphanApp().request(ORPHANS, { headers: await admin() })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    // Every file here was just written, so none is old enough to be an orphan.
+    expect(await jsonOf(response)).toEqual([])
+  })
+
+  test('the delete answers what it deleted and kept, and refuses a malformed body', async () => {
+    const post = async (body: unknown) =>
+      orphanApp().request(`${ORPHANS}/delete`, {
+        method: 'POST',
+        headers: { ...(await admin()), 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    const kept = { visibility: 'public', path: 'nested/sample.png' }
+    const answer = await post({ images: [kept] })
+    expect(answer.status).toBe(200)
+    expect(await jsonOf(answer)).toEqual({ deleted: [], kept: [kept] })
+    expect((await post({ images: [] })).status).toBe(400)
+    expect((await post({ images: [{ visibility: 'cache', path: 'x.png' }] })).status).toBe(400)
+  })
+})

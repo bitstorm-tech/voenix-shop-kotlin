@@ -200,6 +200,14 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: 'Operations',
         },
       },
+      {
+        path: 'images/orphans',
+        name: 'admin-orphan-images',
+        component: () => import('@/views/admin/OrphanImagesView.vue'),
+        meta: {
+          title: 'Orphaned images',
+        },
+      },
     ],
   },
 ]

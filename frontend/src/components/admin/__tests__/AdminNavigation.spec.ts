@@ -31,6 +31,7 @@ function createAdminNavigationRouter() {
       { path: '/admin/coupons', redirect: '/admin/promotions' },
       { path: '/admin/orders', component: { template: '<div />' } },
       { path: '/admin/operations', component: { template: '<div />' } },
+      { path: '/admin/images/orphans', component: { template: '<div />' } },
     ],
   })
 }

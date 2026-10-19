@@ -125,7 +125,7 @@ export async function createApplication(
       frontendBaseUrl,
     })
     // The cart owns the print images the guest image route serves, so that route is installed
-    // once both sides exist. The checkout is the last consumer and exports nothing.
+    // once both sides exist, like the orphan routes, which ask every module that refers to images. The checkout is the last consumer and exports nothing.
     const cart = createCartModule({
       db,
       articleCatalog: article.articleCatalog,
@@ -160,6 +160,10 @@ export async function createApplication(
       operations.routes,
       cart.routes,
       image.guestImageRoute(cart.guestImageResolver),
+      image.orphanImageRoutes({
+        publicImages: [article.imageReferences, prompt.imageReferences],
+        printImages: cart.printImageRegistry,
+      }),
       checkout.routes,
     ]) {
       app.route('/', routes)
