@@ -619,7 +619,7 @@ async function handleAddToCart() {
             variant="toolbar"
             size="toolbar-sm"
             data-testid="editor-close-panel"
-            class="editor-panel-close hidden max-md:rounded-t-xl md:rounded-r-xl motion-reduce:transition-none"
+            class="editor-panel-close hidden motion-reduce:transition-none"
             :aria-label="t('editor.closePanel')"
             :title="t('editor.closePanel')"
             @click="closeActivePanel"
@@ -774,7 +774,8 @@ async function handleAddToCart() {
 
   .editor-panel-close {
     position: absolute;
-    top: -1.5rem;
+    /* Overlap the shell border by 1px so the tab reads as part of the panel. */
+    top: calc(-1.5rem + 1px);
     right: 1rem;
     z-index: 2;
     display: inline-flex;
@@ -784,19 +785,18 @@ async function handleAddToCart() {
     justify-content: center;
     border: 1px solid var(--editor-control-border);
     border-bottom: 0;
+    border-radius: 0.75rem 0.75rem 0 0;
     background: var(--editor-control-panel-bg);
-    box-shadow: 0 -10px 24px color-mix(in srgb, var(--foreground) 8%, transparent);
+    box-shadow: none;
     color: var(--editor-control-button-text);
     cursor: pointer;
     transform: none;
     transition:
       background 0.15s ease,
-      color 0.15s ease,
-      height 0.15s ease;
+      color 0.15s ease;
   }
 
   .editor-panel-close:hover {
-    height: 1.75rem;
     background: var(--editor-control-button-hover-bg);
     color: var(--editor-control-button-strong);
   }
@@ -913,7 +913,7 @@ async function handleAddToCart() {
   .editor-panel-close {
     position: absolute;
     top: 50%;
-    right: -1.5rem;
+    right: calc(-1.5rem + 1px);
     z-index: 2;
     display: inline-flex;
     width: 1.5rem;
@@ -922,19 +922,18 @@ async function handleAddToCart() {
     justify-content: center;
     border: 1px solid var(--editor-control-border);
     border-left: 0;
+    border-radius: 0 0.75rem 0.75rem 0;
     background: var(--editor-control-panel-bg);
-    box-shadow: 10px 12px 24px color-mix(in srgb, var(--foreground) 8%, transparent);
+    box-shadow: none;
     color: var(--editor-control-button-text);
     cursor: pointer;
     transform: translateY(-50%);
     transition:
       background 0.15s ease,
-      color 0.15s ease,
-      width 0.15s ease;
+      color 0.15s ease;
   }
 
   .editor-panel-close:hover {
-    width: 1.75rem;
     background: var(--editor-control-button-hover-bg);
     color: var(--editor-control-button-strong);
   }
