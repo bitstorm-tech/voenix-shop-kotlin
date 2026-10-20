@@ -107,6 +107,15 @@ export interface PrintFrameDto {
 }
 
 /**
+ * The size chart values of one size, in millimetres. A measurement name is the partner's letter
+ * ("A", "B", ...); what it measures is shown only by the size chart picture.
+ */
+export interface SpodSizeMeasurementsDto {
+  size: string
+  measurements: { name: string; valueMm: number }[]
+}
+
+/**
  * One article of the print-on-demand partner (a shirt, a tote bag, ...) as the storefront sees
  * it. What kind of product it is, is data: `productTypeName` says it. The design is always square.
  * The three SPOD ids of a variant are deliberately absent: they name the printable product at the
@@ -119,6 +128,8 @@ export interface SpodArticleDto extends ShopArticleBase {
   articleType: 'SPOD'
   productTypeName: string
   sizeChartImageFilename: string | null
+  /** One entry per size with an active variant and at least one measurement, in no set order. */
+  sizeMeasurements: SpodSizeMeasurementsDto[]
   printFrame: PrintFrameDto
   appearances: SpodAppearanceDto[]
   variants: SpodVariantDto[]

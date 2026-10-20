@@ -6,6 +6,7 @@ import {
   type PrintFrameDto,
   type ShopArticle,
   type SpodArticleDto,
+  type SpodSizeMeasurementsDto,
   type SpodVariantDto,
 } from '@/stores/shop/catalog'
 
@@ -74,6 +75,7 @@ export interface EditorSpodArticle extends EditorArticleBase {
   /** Where the design sits on the mockup photo, in percent of the photo (measured by the sync). */
   printFrame: PrintFrameDto
   sizeChartImageFilename: string | null
+  sizeMeasurements: SpodSizeMeasurementsDto[]
   variants: EditorSpodVariant[]
 }
 
@@ -120,6 +122,7 @@ export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle 
     productTypeName: article.productTypeName,
     printFrame: article.printFrame,
     sizeChartImageFilename: article.sizeChartImageFilename,
+    sizeMeasurements: article.sizeMeasurements,
     variants: article.variants.map((variant) => toEditorSpodVariant(article, variant)),
   }
 }

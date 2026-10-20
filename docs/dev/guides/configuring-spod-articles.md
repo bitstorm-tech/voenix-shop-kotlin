@@ -375,8 +375,9 @@ when the article was last synced, which installation and which backoffice
 article it is, the table of active variants (listing image, colour with its
 swatch, size, the partner's variant id, the SKU, and the three product ids), the
 inactive variants behind a *Show … inactive variants* button, and the
-size-chart image. Everything here is overwritten by the next run — change it in
-the backoffice, not here.
+size-chart image with the table of its measurements per size in centimetres
+(or the line that Spreadconnect published none). Everything here is
+overwritten by the next run — change it in the backoffice, not here.
 
 Save, then switch *Active* on and save again once everything above is in place.
 

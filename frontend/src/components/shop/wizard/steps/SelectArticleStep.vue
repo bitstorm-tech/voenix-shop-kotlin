@@ -16,6 +16,7 @@ import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductCard from '@/components/shop/ProductCard.vue'
 import ProductImageGallery from '@/components/shop/ProductImageGallery.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
+import SpodSizeChart from '@/components/shared/SpodSizeChart.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import {
   appearanceOf,
@@ -124,6 +125,8 @@ const sizeChartUrl = computed(() => {
   const filename = selectedSpodArticle.value?.sizeChartImageFilename
   return filename ? sizeChartImageUrl(filename, 1000) : null
 })
+
+const sizeMeasurements = computed(() => selectedSpodArticle.value?.sizeMeasurements ?? [])
 
 /**
  * The pictures the compact view leafs through, like the card it enlarges: a mug variant's own photo,
@@ -323,7 +326,7 @@ onMounted(async () => {
             </Button>
           </div>
 
-          <Dialog v-if="sizeChartUrl">
+          <Dialog v-if="sizeChartUrl || sizeMeasurements.length > 0">
             <DialogTrigger as-child>
               <Button
                 type="button"
@@ -336,20 +339,23 @@ onMounted(async () => {
                 {{ t('configurator.steps.selectArticle.sizeChart') }}
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent class="max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
                   {{ t('configurator.steps.selectArticle.sizeChart') }}
                 </DialogTitle>
                 <DialogDescription>
-                  {{ t('configurator.steps.selectArticle.sizeChartHint') }}
+                  {{
+                    sizeMeasurements.length > 0
+                      ? t('configurator.steps.selectArticle.sizeChartHint')
+                      : t('configurator.steps.selectArticle.sizeChartNoMeasurementsHint')
+                  }}
                 </DialogDescription>
               </DialogHeader>
-              <img
-                :src="sizeChartUrl"
-                :alt="t('configurator.steps.selectArticle.sizeChart')"
-                class="w-full object-contain"
-                data-testid="wizard-size-chart-image"
+              <SpodSizeChart
+                :image-url="sizeChartUrl"
+                :measurements="sizeMeasurements"
+                :selected-size="selectedSpodVariant?.size ?? null"
               />
             </DialogContent>
           </Dialog>

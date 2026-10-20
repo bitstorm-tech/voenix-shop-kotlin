@@ -13,6 +13,7 @@ import AdminFormSectionNav from '@/components/admin/shared/AdminFormSectionNav.v
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
+import SpodSizeChart from '@/components/shared/SpodSizeChart.vue'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -503,6 +504,15 @@ function buildPayload(): SaveAdminSpodArticleRequest {
             />
             <p v-else class="text-sm text-muted-foreground">
               Spreadconnect published no size chart for this product type.
+            </p>
+            <SpodSizeChart
+              v-if="synced?.sizeMeasurements.length"
+              :image-url="null"
+              :measurements="synced.sizeMeasurements"
+              :selected-size="null"
+            />
+            <p v-else class="text-sm text-muted-foreground">
+              Spreadconnect published no measurements for these sizes.
             </p>
           </div>
         </AdminFormSection>
