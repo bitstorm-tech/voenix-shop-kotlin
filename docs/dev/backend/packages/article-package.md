@@ -116,7 +116,7 @@ flowchart TB
 ```text
 article/
 |- index.ts              createArticleModule(deps) → { routes, articleCatalog, spodCatalogSync, imageReferences }; the exported types
-|- schema.ts             the twelve article tables, merged into the platform's Tables
+|- schema.ts             the thirteen article tables, merged into the platform's Tables
 |- routes.ts             shared request fragments (reorderInput, articlePrice, optionalId, …),
 |                        storefrontRoutes; the pre-upload routes use the image module's exampleImageUpload
 |- image-references.ts   FOLDERS (the public picture folders) and createImageReferences: every picture a row
@@ -320,7 +320,8 @@ There is no create and no upload (sync decision 1); the old
 `400 Invalid article id`.
 
 **Two owners.** The sync owns the product: name, descriptions, product type
-name, colours with their pictures, the variant matrix, the size chart, the
+name, colours with their pictures, the variant matrix, the size chart and its
+measurements, the
 supplier, and the measured `printFrame` with its `hotspot`. The shop owns
 `active` (a run only switches it off), the category path, the position, the
 price, and the default variant. The update body is exactly the shop's half:
@@ -343,14 +344,23 @@ price, and the default variant. The update body is exactly the shop's half:
 The detail answer adds `appearances` (each colour with `mockupImageFilename`
 and its ordered `listingImageFilenames`), the flat `spodVariants` in the order
 of their colour then id (`name` is the composed `"Black / M"`, plus the three
-SPOD ids, `spodVariantId`, `sku`), `printFrame` and `hotspot` (`null` until a
-run measured them), the embedded `price`, and
+SPOD ids, `spodVariantId`, `sku`), `sizeMeasurements` (below), `printFrame`
+and `hotspot` (`null` until a run measured them), the embedded `price`, and
 `sync: { spodArticleId, environment, syncedAt, missingSince }`. A list row is
 the mug row's twelve fields plus `syncedAt` and `missingAtSpreadconnect`; its
 picture is the first listing image of the default variant's colour. The delete
 retires an article for good (the next sync of that destination brings it back
 if the operator was wrong) and deletes its listing images, mockups, and size
-chart when no other row names them.
+chart when no other row names them; its measurements go with the row (cascade).
+
+**`sizeMeasurements`** is
+`{ size, measurements: { name, valueMm }[] }[]`: one entry per size that has at
+least one measurement, `size` the `sizeLabel` of the variants with that SPOD
+size id (the variant with the lowest id when the colours disagree),
+`measurements` ordered by `name` (the letter of the size chart picture),
+`valueMm` a JSON number. The order of the entries is not part of the contract.
+The admin answers every size of the article's variants, the storefront only the
+sizes of active variants.
 
 ### The storefront
 
@@ -371,7 +381,8 @@ it, so the navigation never leads into an empty list.
 - **`price`** is the effective gross in cents (a discount already subtracted),
   **`regularPrice`** the gross before the discount, `null` without one. Both
   come from **one** `priceCatalog.find` per page; an empty page asks nothing.
-- A SPOD article answers `productTypeName`, `sizeChartImageFilename`, the
+- A SPOD article answers `productTypeName`, `sizeChartImageFilename`,
+  `sizeMeasurements` (the admin shape, active sizes only), the
   `printFrame`, the colours that still have an active variant, and flat
   variants `{ id, name, appearanceId, size, isDefault }`. **The three SPOD ids
   and the hotspot never appear**: the printer's vocabulary stays inside.
@@ -446,7 +457,12 @@ caller is a human waiting for the report.
    `downloadUrl()` unless a stored image has the same partner image id, and the
    blank front mockup from the views is stored unless the stored one came from
    the same URL. The size chart is asked for and downloaded once per product
-   type per run. All partner and CDN I/O happens **before** the transaction
+   type per run; the whole answer is cached per type (`null` when it was not
+   answered). Its measurements are kept for the sizes among the article's
+   variants only: names trimmed, an entry with an empty name, a name over 32
+   characters, or a value that does not round to more than `0` and less than
+   `100000` mm dropped, values rounded to one decimal, the first of a duplicate
+   name within one size kept. There is no warning for any of it. All partner and CDN I/O happens **before** the transaction
    opens. Files a write orphans are deleted right after its commit.
 3. **Sweep**: every article of this destination the listing did not contain,
    and every article of the other environment, is deactivated with its
@@ -456,7 +472,10 @@ caller is a human waiting for the report.
 Inside the transaction colours are upserted by appearance id, a mockup is
 replaced only when the run fetched a new one, listing images are rewritten only
 when the ordered list of image ids differs, and variants are matched by the
-product triple and never deleted. The frame and hotspot are written as
+product triple and never deleted. The measurements are replaced as a whole
+(delete and insert) only when the answered set differs from the stored one,
+which makes the article `updated`; an answer without `sizes` deletes them, an
+unanswered size chart keeps them. The frame and hotspot are written as
 measured every run — `NULL` when the measurement failed, which also takes
 `active` off. **A run never activates**: `active` stays only while it was on,
 a variant is still sellable, and a frame was measured. A reappearing article
@@ -581,13 +600,17 @@ The tables are the Kotlin ones, migrated by
 [`V27`](../../../../backend/migrations/V27__article_tshirts_spod_sync.sql)
 (the t-shirt tables, dropped again by V29), and
 [`V29`](../../../../backend/migrations/V29__article_spod_articles.sql)
-(`article_spod_articles`, `_appearances`, `_variants`, `_images`). `schema.ts`
-declares twelve: `article_types` (the per-type ordering anchor and identity
+(`article_spod_articles`, `_appearances`, `_variants`, `_images`), and
+[`V36`](../../../../backend/migrations/V36__article_spod_size_measurements.sql)
+(`article_spod_size_measurements`: one row per article, SPOD size id, and
+letter, `value_mm numeric(6,1)`, cascading with the article; the size label
+stays on the variants). `schema.ts` declares thirteen: `article_types` (the per-type ordering anchor and identity
 target, `MUG` and `SPOD`), `article_category_ordering` (the one-row category
 anchor), the two identity registries (`article_identities`,
 `article_variant_identities`, which never gain a column), the two category
-tables, the two mug tables, and the four SPOD tables. `numeric(5,2)` frame
-columns read as strings and are parsed once (`printFrameOf`).
+tables, the two mug tables, and the five SPOD tables. `numeric(5,2)` frame
+columns read as strings and are parsed once (`printFrameOf`), and so does
+`value_mm` (`sizeMeasurements` in `spod-article/repository.ts`).
 `article_spod_articles.spod_destination_id` references `production_destinations`,
 which the production module owns; this module never queries it.
 
@@ -672,11 +695,11 @@ stubbed `fetch` behind the real `createSpodClient`.
 | `category/service.test.ts` | concurrent case-variant creates (one conflict), concurrent creates and reorders stay dense, a gapped sequence is refused, a rotation outside the anchor loses at COMMIT, two cross-category moves under the ascending lock order |
 | `mug/routes.test.ts` | one happy path per mug route; the field errors of the write path, the list with supplier names, the reorder answer and its `409`, the pre-upload |
 | `mug/service.test.ts` | the price joins the transaction (a rejected article leaves no price, identity, or variant identity; a rejected price creates no article; the price is rewritten in place and deleted with the mug), the variant diff with default swap and file cleanup (a shared file survives), concurrent writers stay dense, an outsider's rotation makes the reorder `409` |
-| `spod-article/routes.test.ts` | the five admin routes, the four write-path activation refusals, the delete with all three kinds of file, the reorder and its `409`, no create and no t-shirt paths |
-| `storefront.test.ts` | the visibility matrix over mugs, SPOD articles, and the navigation; the whole public documents; the discounted price; no partner ids in the SPOD answer; the empty catalog |
+| `spod-article/routes.test.ts` | the five admin routes, the four write-path activation refusals, the measurements of every variant size with the lowest-id label, the delete with all three kinds of file and the measurements, the reorder and its `409`, no create and no t-shirt paths |
+| `storefront.test.ts` | the visibility matrix over mugs, SPOD articles, and the navigation; the whole public documents; the discounted price; no partner ids in the SPOD answer; the measurements of active sizes only; the empty catalog |
 | `catalog.test.ts` | `find`: purchasable, inactive, draft without price, discounted, unknown and cross-article pairs, the SPOD triple and hotspot, an unmeasured SPOD article; `printFormats` |
 | `spod-article/calibration.test.ts` | `measurePrintFrame` on drawn pictures: exact box, translucent rim, half-up edges ending at 100, `LOW_FILL`, `NO_RECTANGLE`, `UNREADABLE_IMAGE`, the design itself |
-| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, `busy` |
+| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, the size measurements (sold sizes only, unchanged without a rewrite, a changed value, unanswered, without `sizes`, the normalization), `busy` |
 
 `test-fixtures.ts` holds what they share (the wired module, SQL seeds for VAT,
 suppliers, destinations, categories, synced SPOD articles, and the drawn

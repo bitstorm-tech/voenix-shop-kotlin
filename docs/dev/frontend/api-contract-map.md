@@ -100,7 +100,12 @@ into one discriminated union over `articleType` (`ShopArticle = MugDto |
 SpodArticleDto`), which is why two rows point at the same store file. Since #260
 the second family is the generic SPOD article (a tee, a tote bag, ...): its
 colours are an `appearances` array with the mockup and the listing images, and
-its `variants` stay a flat list in which each variant names its `appearanceId`. That merged
+its `variants` stay a flat list in which each variant names its `appearanceId`. Since #286
+it also carries `sizeMeasurements` (`{ size, measurements: { name, valueMm }[] }[]`, the
+sizes of its active variants), which `components/shared/SpodSizeChart.vue` renders as a
+table in centimetres below the size chart picture in the wizard's and the editor's size
+chart dialog; the admin's `GET /api/admin/articles/spod/{id}` answers the same field for
+every variant size, and `SpodArticleEditView.vue` shows it with the same component. That merged
 list is what the combined listing page `/products` renders since #217: one grid
 for both types, narrowed by its `category`, `subcategory`, and optional `type`
 query. It is also what the wizard's article step picks from. The optional
@@ -412,8 +417,8 @@ moves an article only within its own type.
 
 The SPOD article's `PUT` body is the shop-owned half of a synced article and
 nothing else: `active`, `categoryId`, `subcategoryId`, `defaultVariantId`, and
-`price`. Name, product type, descriptions, supplier, size chart, colours
-(`appearances`), the variant array (`spodVariants`), and the print frame with its
+`price`. Name, product type, descriptions, supplier, size chart with its
+`sizeMeasurements`, colours (`appearances`), the variant array (`spodVariants`), and the print frame with its
 `hotspot` are response-only — a sync run owns them, and a client that still
 sends them is ignored rather than rejected. The print frame is measured by the
 sync, never edited, so it is `null` when the sync could not measure it, and

@@ -10,7 +10,7 @@ import {
 } from '@/stores/admin/articles'
 import type { AdminPriceDto, AdminPriceInputDto } from '@/stores/admin/prices'
 import type { ReorderRequest } from '@/stores/admin/reorder'
-import type { PrintFrameDto } from '@/stores/shop/catalog'
+import type { PrintFrameDto, SpodSizeMeasurementsDto } from '@/stores/shop/catalog'
 
 /** The route family of the SPOD article admin. Everything below is `${SPOD_ARTICLES_PATH}/…`. */
 const SPOD_ARTICLES_PATH = '/api/admin/articles/spod'
@@ -92,6 +92,8 @@ export interface AdminSpodArticleDto {
   supplierId: number
   productTypeName: string
   sizeChartImageFilename: string | null
+  /** One entry per size of any of its variants, active or not, that has a measurement. */
+  sizeMeasurements: SpodSizeMeasurementsDto[]
   printFrame: PrintFrameDto | null
   hotspot: string | null
   appearances: AdminSpodAppearanceDto[]

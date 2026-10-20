@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductVariantPanel from '@/components/shop/editor/ProductVariantPanel.vue'
 import {
   toEditorArticleVariant,
@@ -14,7 +14,7 @@ import {
 } from '@/testing/shopCatalog'
 
 vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({ t: (key: string) => key, locale: { value: 'de' } }),
 }))
 
 // Black (appearance 201) in S/M/L as variants 21-23, white (appearance 202) as variants 24-26.
@@ -34,7 +34,16 @@ function mountPanel(shop: typeof shopTee | typeof shopMug, variantId: number) {
   })
 }
 
+const teeMeasurements = [
+  { size: 'S', measurements: [{ name: 'A', valueMm: 700 }] },
+  { size: 'M', measurements: [{ name: 'A', valueMm: 720 }] },
+]
+
 describe('ProductVariantPanel', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
   it('switches a SPOD colour and keeps the selected size', async () => {
     const wrapper = mountPanel(shopTee, 22)
     const swatches = wrapper.get('[data-testid="editor-variant-colors"]').findAll('button')
@@ -59,6 +68,49 @@ describe('ProductVariantPanel', () => {
     await sizes[2]!.trigger('click')
 
     expect(wrapper.emitted('select')).toEqual([[26]])
+  })
+
+  it('opens the size chart with the picture and the measurements, the selected size highlighted', async () => {
+    const wrapper = mountPanel(
+      createShopTee({
+        id: 2,
+        sizeChartImageFilename: 'size-chart.png',
+        sizeMeasurements: teeMeasurements,
+      }),
+      22,
+    )
+
+    await wrapper.get('[data-testid="editor-size-chart-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="size-chart-image"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="size-chart-table"]')).not.toBeNull()
+    expect(document.body.querySelector('[aria-current="true"]')?.textContent).toContain('M')
+    expect(document.body.textContent).toContain('editor.productVariant.sizeChartHint')
+  })
+
+  it('offers the size chart with measurements but no picture', () => {
+    const wrapper = mountPanel(createShopTee({ id: 2, sizeMeasurements: teeMeasurements }), 22)
+
+    expect(wrapper.find('[data-testid="editor-size-chart-trigger"]').exists()).toBe(true)
+  })
+
+  it('offers the picture without measurements, saying there are none', async () => {
+    const wrapper = mountPanel(shopTee, 22)
+
+    await wrapper.get('[data-testid="editor-size-chart-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="size-chart-image"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="size-chart-table"]')).toBeNull()
+    expect(document.body.textContent).toContain('editor.productVariant.sizeChartNoMeasurementsHint')
+  })
+
+  it('offers no size chart without a picture or measurements', () => {
+    const wrapper = mountPanel(createShopTee({ id: 2 }), 22)
+
+    expect(wrapper.find('[data-testid="editor-variant-sizes"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="editor-size-chart-trigger"]').exists()).toBe(false)
   })
 
   it('offers no size choice for an article in one size', () => {

@@ -739,6 +739,10 @@
       "retry": "Erneut laden"
     }
   },
+  "sizeChart": {
+    "image": "Größentabelle",
+    "size": "Größe"
+  },
   "pwaUpdate": {
     "title": "Update verfügbar",
     "description": "Eine neue Version ist bereit.",
@@ -951,7 +955,8 @@
       "color": "Farbe",
       "size": "Größe",
       "sizeChart": "Größentabelle",
-      "sizeChartHint": "Alle Maße in Zentimetern."
+      "sizeChartHint": "Alle Maße in Zentimetern.",
+      "sizeChartNoMeasurementsHint": "Für diesen Artikel liegen keine Maße vor."
     },
     "frames": {
       "hint": "Ein Rahmen lässt dein Bild weich oder unregelmäßig in das Produkt übergehen.",
@@ -1091,6 +1096,7 @@
         "sizes": "Größen",
         "sizeChart": "Größentabelle",
         "sizeChartHint": "Alle Maße in Zentimetern.",
+        "sizeChartNoMeasurementsHint": "Für diesen Artikel liegen keine Maße vor.",
         "changeArticle": "Produkt ändern"
       },
       "selectStyle": {

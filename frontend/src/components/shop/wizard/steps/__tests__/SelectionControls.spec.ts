@@ -24,6 +24,7 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, values?: Record<string, unknown>) =>
       values ? `${key} ${Object.values(values).join(' ')}` : key,
+    locale: { value: 'de' },
   }),
 }))
 
@@ -71,7 +72,11 @@ function makeMug(id: number, categoryId: number, overrides: Partial<MugDto> = {}
 }
 
 /** A tee in black (M, L) and white (L only), so a colour switch has a size to keep. */
-function makeTee(id: number, categoryId: number): SpodArticleDto {
+function makeTee(
+  id: number,
+  categoryId: number,
+  overrides: Partial<SpodArticleDto> = {},
+): SpodArticleDto {
   const black = createSpodAppearance({ id: 1, colorName: 'Black', colorHex: '#101010' })
   const white = createSpodAppearance({ id: 2, colorName: 'White', colorHex: '#ffffff' })
 
@@ -98,8 +103,26 @@ function makeTee(id: number, categoryId: number): SpodArticleDto {
         isDefault: false,
       }),
     ],
+    ...overrides,
   })
 }
+
+async function mountSelectedTee(overrides: Partial<SpodArticleDto>) {
+  const catalogStore = useCatalogStore()
+  catalogStore.articles = [makeTee(5, 20, overrides)]
+  vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
+  vi.spyOn(useArticleCategoriesStore(), 'fetchCategories').mockResolvedValue()
+  useWizardStore().selectArticle('SPOD', 5, 51)
+
+  const wrapper = mount(SelectArticleStep)
+  await flushPromises()
+  return wrapper
+}
+
+const teeMeasurements = [
+  { size: 'L', measurements: [{ name: 'A', valueMm: 740 }] },
+  { size: 'M', measurements: [{ name: 'A', valueMm: 720 }] },
+]
 
 describe('wizard selection controls', () => {
   beforeEach(() => {
@@ -417,6 +440,50 @@ describe('wizard selection controls', () => {
     await wrapper.findAllComponents(SwatchButton)[1]!.trigger('click')
 
     expect(image()).toBe('/api/images/public/400/articles/spod/listing-images/listing-2-front.webp')
+  })
+
+  it('opens the size chart with the measurements and highlights the selected size', async () => {
+    document.body.innerHTML = ''
+    const wrapper = await mountSelectedTee({ sizeMeasurements: teeMeasurements })
+
+    await wrapper.get('[data-testid="wizard-size-chart-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="size-chart-image"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="size-chart-table"]')).not.toBeNull()
+    expect(document.body.querySelector('[aria-current="true"]')?.textContent).toContain('M')
+    expect(document.body.textContent).toContain('configurator.steps.selectArticle.sizeChartHint')
+    wrapper.unmount()
+  })
+
+  it('offers the size chart with measurements but no picture', async () => {
+    const wrapper = await mountSelectedTee({
+      sizeChartImageFilename: null,
+      sizeMeasurements: teeMeasurements,
+    })
+
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(true)
+  })
+
+  it('offers the picture without measurements, saying there are none', async () => {
+    document.body.innerHTML = ''
+    const wrapper = await mountSelectedTee({})
+
+    await wrapper.get('[data-testid="wizard-size-chart-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="size-chart-table"]')).toBeNull()
+    expect(document.body.textContent).toContain(
+      'configurator.steps.selectArticle.sizeChartNoMeasurementsHint',
+    )
+    wrapper.unmount()
+  })
+
+  it('offers no size chart without a picture or measurements', async () => {
+    const wrapper = await mountSelectedTee({ sizeChartImageFilename: null, sizeMeasurements: [] })
+
+    expect(wrapper.find('[data-testid="wizard-spod-sizes"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)
   })
 
   it('offers a one-size tote its colours but neither size buttons nor a size chart', async () => {

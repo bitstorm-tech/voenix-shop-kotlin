@@ -8,6 +8,7 @@ import {
   type SpodClient,
   type SpodEnvironment,
   type SpodError,
+  type SpodSizeChart,
 } from '@/modules/spod'
 import type { Logger } from '@/platform/logging'
 import { createCalibration, type Calibration, type SpodCalibration } from './calibration'
@@ -15,6 +16,7 @@ import type { PrintFrame } from './repository'
 import type { SpodPictureFolders } from './service'
 import type {
   PreparedAppearance,
+  PreparedSizeMeasurement,
   PreparedSpodArticle,
   StoredSyncArticle,
   SyncRepository,
@@ -98,7 +100,10 @@ export type SpodSyncWarningCode =
   | 'ARTICLE_LEFT_WITHOUT_ACTIVE_VARIANT'
   | 'ARTICLE_REAPPEARED'
 
-/** What one run has collected so far, plus its calibration and the per-run size-chart caches. */
+/**
+ * What one run has collected so far, plus its calibration and the per-run size-chart caches: the
+ * answer per product type (`null` when it was not answered) and the stored picture per type.
+ */
 interface SyncRun {
   calibration: SpodCalibration
   fetchedArticles: number
@@ -108,7 +113,7 @@ interface SyncRun {
   deactivated: SpodSyncLine[]
   failed: SpodSyncLine[]
   warnings: SpodSyncWarning[]
-  sizeChartUrls: Map<number, string | null>
+  sizeCharts: Map<number, SpodSizeChart | null>
   sizeChartFiles: Map<number, string | null>
 }
 
@@ -305,26 +310,33 @@ export function createSpodCatalogSync({
     }
   }
 
+  /** The size chart answer of the product type, asked for once per type per run. */
+  const sizeChartAnswer = async (
+    source: SpodCatalogSource,
+    productTypeId: number,
+    run: SyncRun,
+  ): Promise<SpodSizeChart | null> => {
+    if (!run.sizeCharts.has(productTypeId)) {
+      const answer = await client.sizeChart(source.access, productTypeId)
+      run.sizeCharts.set(productTypeId, answer.kind === 'answered' ? answer.value : null)
+    }
+    return run.sizeCharts.get(productTypeId) ?? null
+  }
+
   /**
-   * The size chart of the product type, asked for and downloaded once per type per run, or `null`
-   * when the stored one stays (same URL, or none could be had).
+   * The size chart picture of the product type, downloaded once per type per run, or `null` when
+   * the stored one stays (same URL, or none could be had).
    */
   const sizeChart = async (
     source: SpodCatalogSource,
     article: SpodCatalogArticle,
     productTypeId: number,
+    chart: SpodSizeChart | null,
     stored: StoredSyncArticle | undefined,
     run: SyncRun,
   ): Promise<{ url: string; filename: string } | null> => {
-    if (!run.sizeChartUrls.has(productTypeId)) {
-      const answer = await client.sizeChart(source.access, productTypeId)
-      const answered = answer.kind === 'answered' ? answer.value.sizeImageUrl : null
-      run.sizeChartUrls.set(
-        productTypeId,
-        answered === null || answered.trim() === '' ? null : answered,
-      )
-    }
-    const url = run.sizeChartUrls.get(productTypeId) ?? null
+    const answered = chart?.sizeImageUrl ?? null
+    const url = answered === null || answered.trim() === '' ? null : answered
     if (url === null || url.length > URL_MAX) {
       warn(
         run,
@@ -359,6 +371,7 @@ export function createSpodCatalogSync({
     colors: readonly ResolvedColor[],
     calibration: Exclude<Calibration, { kind: 'unavailable' }>,
     preparedSizeChart: { url: string; filename: string } | null,
+    sizeMeasurements: PreparedSizeMeasurement[] | null,
     run: SyncRun,
   ): PreparedSpodArticle => {
     if (calibration.kind === 'failed') {
@@ -388,6 +401,7 @@ export function createSpodCatalogSync({
       hotspot: measured?.hotspot ?? null,
       printFrame: measured?.frame ?? null,
       sizeChart: preparedSizeChart,
+      sizeMeasurements,
       appearances: colors.map((color) => color.prepared),
       variants: variants.map((variant) => ({
         productTypeId: variant.productTypeId,
@@ -426,14 +440,24 @@ export function createSpodCatalogSync({
         await resolveColor(source, article, productTypeId, appearanceId, index + 1, stored, run),
       )
     }
-    const preparedSizeChart = await sizeChart(source, article, productTypeId, stored, run)
+    const chart = await sizeChartAnswer(source, productTypeId, run)
+    const preparedSizeChart = await sizeChart(source, article, productTypeId, chart, stored, run)
     const outcome = await repository.upsert(
       {
         destinationId: source.access.destinationId,
         environment: source.access.environment,
         supplierId: source.supplierId,
       },
-      prepare(article, variants, productTypeId, colors, calibration, preparedSizeChart, run),
+      prepare(
+        article,
+        variants,
+        productTypeId,
+        colors,
+        calibration,
+        preparedSizeChart,
+        chart === null ? null : sizeMeasurementsOf(chart, variants),
+        run,
+      ),
       stored !== undefined,
       new Date(),
     )
@@ -520,7 +544,7 @@ export function createSpodCatalogSync({
       deactivated: [],
       failed: [],
       warnings: [],
-      sizeChartUrls: new Map(),
+      sizeCharts: new Map(),
       sizeChartFiles: new Map(),
     }
     const report = (failure: SpodError | null): SpodSyncReport => ({
@@ -608,6 +632,33 @@ function distinctProducts(variants: readonly SpodCatalogVariant[]): SpodCatalogV
   })
 }
 
+/**
+ * The measurements of the sizes the variants sell, as they will be stored: names trimmed, values
+ * rounded to one decimal, the first of a duplicate name within one size kept. An entry with an
+ * empty name, a name over its column, or a value the column cannot hold above zero is dropped.
+ */
+function sizeMeasurementsOf(
+  chart: SpodSizeChart,
+  variants: readonly SpodCatalogVariant[],
+): PreparedSizeMeasurement[] {
+  const sold = new Set(variants.map((variant) => variant.sizeId))
+  const seen = new Set<string>()
+  const measurements: PreparedSizeMeasurement[] = []
+  for (const size of chart.sizes) {
+    if (!sold.has(size.sizeId)) continue
+    for (const measurement of size.measurements) {
+      const name = measurement.name.trim()
+      const valueMm = Math.round(measurement.valueMm * 10) / 10
+      const key = `${String(size.sizeId)}/${name}`
+      if (name === '' || name.length > MEASUREMENT_NAME_MAX || seen.has(key)) continue
+      if (!(valueMm > 0 && valueMm < MEASUREMENT_MM_LIMIT)) continue
+      seen.add(key)
+      measurements.push({ sizeId: size.sizeId, name, valueMm })
+    }
+  }
+  return measurements
+}
+
 /** The colours of the variants in the order they first appear. */
 const appearanceIdsOf = (variants: readonly SpodCatalogVariant[]) => [
   ...new Set(variants.map((variant) => variant.appearanceId)),
@@ -661,3 +712,6 @@ const DESCRIPTION_LONG_MAX = 5000
 const COLOR_NAME_MAX = 64
 const SIZE_LABEL_MAX = 64
 const SKU_MAX = 128
+const MEASUREMENT_NAME_MAX = 32
+/** The first value `numeric(6, 1)` cannot hold. */
+const MEASUREMENT_MM_LIMIT = 100000

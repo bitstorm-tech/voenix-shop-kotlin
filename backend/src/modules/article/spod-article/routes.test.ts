@@ -102,6 +102,7 @@ describe('GET and PUT /api/admin/articles/spod/:id', () => {
       supplierId: supplier,
       productTypeName: "Men's T-Shirt",
       sizeChartImageFilename: null,
+      sizeMeasurements: [],
       printFrame: { leftPct: 35.6, topPct: 18.9, widthPct: 28.4, heightPct: 28.4 },
       hotspot: 'MEDIUM_FRONT',
       appearances: [
@@ -230,8 +231,46 @@ describe('GET and PUT /api/admin/articles/spod/:id', () => {
   })
 })
 
+describe('the size measurements of GET /api/admin/articles/spod/:id', () => {
+  test('cover every size of the variants, labelled by the variant with the lowest id', async () => {
+    const { articleId, variantIds } = await insertSpodArticle(database.db, {
+      destinationId: destination,
+      supplierId: supplier,
+      colors: [
+        { name: 'Black', sizes: ['M', 'L'] },
+        { name: 'White', sizes: ['Medium'] },
+      ],
+      sizeMeasurements: [
+        { sizeId: 1, name: 'A', valueMm: 720.5 },
+        { sizeId: 2, name: 'B', valueMm: 520 },
+        { sizeId: 2, name: 'A', valueMm: 740 },
+        { sizeId: 9, name: 'A', valueMm: 999 },
+      ],
+    })
+    // An inactive variant's size is still the admin's to see.
+    await database.db
+      .updateTable('article_spod_variants')
+      .set({ active: false })
+      .where('id', '=', variantIds[1] ?? 0)
+      .execute()
+    const article = (await jsonOf(await send('GET', `${SPOD}/${String(articleId)}`))) as {
+      sizeMeasurements: { size: string; measurements: unknown[] }[]
+    }
+    expect(article.sizeMeasurements.toSorted((a, b) => a.size.localeCompare(b.size))).toEqual([
+      {
+        size: 'L',
+        measurements: [
+          { name: 'A', valueMm: 740 },
+          { name: 'B', valueMm: 520 },
+        ],
+      },
+      { size: 'M', measurements: [{ name: 'A', valueMm: 720.5 }] },
+    ])
+  })
+})
+
 describe('DELETE /api/admin/articles/spod/:id', () => {
-  test('removes the article with its colours, variants, price, and all three kinds of file', async () => {
+  test('removes the article with its colours, variants, measurements, price, and all three kinds of file', async () => {
     const listing = await store('articles/spod/listing-images')
     const mockup = await store('articles/spod/mockups')
     const sizeChart = await store('articles/spod/size-charts')
@@ -240,6 +279,7 @@ describe('DELETE /api/admin/articles/spod/:id', () => {
       supplierId: supplier,
       sizeChart,
       colors: [{ name: 'Black', sizes: ['M'], listing: [listing], mockup }],
+      sizeMeasurements: [{ sizeId: 1, name: 'A', valueMm: 700 }],
     })
     await send('PUT', `${SPOD}/${String(articleId)}`, {
       defaultVariantId: variantIds[0],
@@ -255,6 +295,9 @@ describe('DELETE /api/admin/articles/spod/:id', () => {
       expect(existsSync(join(publicRoot, 'articles/spod', name, file))).toBe(false)
     }
     expect(await database.db.selectFrom('prices').select('id').execute()).toEqual([])
+    expect(
+      await database.db.selectFrom('article_spod_size_measurements').selectAll().execute(),
+    ).toEqual([])
     expect((await send('DELETE', `${SPOD}/${String(articleId)}`)).status).toBe(404)
   })
 })

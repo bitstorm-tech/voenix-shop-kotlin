@@ -68,6 +68,7 @@ export function createDevEditorSpodArticle(): SpodArticleDto {
     regularPrice: null,
     productTypeName: "Men's Tee",
     sizeChartImageFilename: null,
+    sizeMeasurements: [],
     printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 40 },
     appearances,
     variants: appearances.flatMap((appearance, colorIndex) =>

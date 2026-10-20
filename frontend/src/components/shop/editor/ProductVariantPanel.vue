@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import SpodSizeChart from '@/components/shared/SpodSizeChart.vue'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import { mugSwatchColor } from '@/lib/mugSwatch'
 import { sortSizes } from '@/lib/tshirtSizes'
@@ -100,6 +101,10 @@ const sizeChartUrl = computed(() =>
     : null,
 )
 
+const sizeMeasurements = computed(() =>
+  props.article.type === 'SPOD' ? props.article.sizeMeasurements : [],
+)
+
 function select(variantId: number) {
   if (variantId !== props.variant.id) emit('select', variantId)
 }
@@ -147,7 +152,7 @@ function select(variantId: number) {
         </Button>
       </div>
 
-      <Dialog v-if="sizeChartUrl">
+      <Dialog v-if="sizeChartUrl || sizeMeasurements.length > 0">
         <DialogTrigger as-child>
           <Button
             type="button"
@@ -160,15 +165,21 @@ function select(variantId: number) {
             {{ t('editor.productVariant.sizeChart') }}
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent class="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{{ t('editor.productVariant.sizeChart') }}</DialogTitle>
-            <DialogDescription>{{ t('editor.productVariant.sizeChartHint') }}</DialogDescription>
+            <DialogDescription>
+              {{
+                sizeMeasurements.length > 0
+                  ? t('editor.productVariant.sizeChartHint')
+                  : t('editor.productVariant.sizeChartNoMeasurementsHint')
+              }}
+            </DialogDescription>
           </DialogHeader>
-          <img
-            :src="sizeChartUrl"
-            :alt="t('editor.productVariant.sizeChart')"
-            class="w-full object-contain"
+          <SpodSizeChart
+            :image-url="sizeChartUrl"
+            :measurements="sizeMeasurements"
+            :selected-size="variant.type === 'SPOD' ? variant.size : null"
           />
         </DialogContent>
       </Dialog>

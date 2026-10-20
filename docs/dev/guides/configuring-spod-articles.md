@@ -79,7 +79,8 @@ staging first.
    offer. That choice is the article this shop will show — the sync writes
    exactly what is listed there, and switching a colour or a size off later is
    done over there too, never here. The product photos, the mockups, and the
-   size chart come from the same place; you upload nothing into this shop.
+   size chart with its measurements come from the same place; you upload
+   nothing into this shop.
 
 The partner's own docs are the [API reference](https://api.spreadconnect.app/docs/);
 read its *Authentication*, *Subscriptions*, and *Simulation* sections once —
@@ -184,8 +185,11 @@ writes one colour per appearance, with its hex value, the product photos the
 backoffice lists for it (the *listing images*), and the blank front picture of
 the product type (the *mockup image*), plus one variant per colour × size
 combination with the partner's three product ids, and the size chart of the
-product type. Nothing of that is typed or uploaded here any more — the ids were
-the main source of wrong mappings, and now nobody copies them.
+product type: its picture with the letters A, B, C, and per size the value of
+each letter in millimetres. Only the sizes the article sells are kept; what a
+letter measures is shown only by the picture. Nothing of that is typed or
+uploaded here any more — the ids were the main source of wrong mappings, and
+now nobody copies them.
 
 The order of the colours and of the photos is the backoffice's order. A
 product card starts with the first listing image of its colour and lets the
@@ -371,8 +375,9 @@ when the article was last synced, which installation and which backoffice
 article it is, the table of active variants (listing image, colour with its
 swatch, size, the partner's variant id, the SKU, and the three product ids), the
 inactive variants behind a *Show … inactive variants* button, and the
-size-chart image. Everything here is overwritten by the next run — change it in
-the backoffice, not here.
+size-chart image with the table of its measurements per size in centimetres
+(or the line that Spreadconnect published none). Everything here is
+overwritten by the next run — change it in the backoffice, not here.
 
 Save, then switch *Active* on and save again once everything above is in place.
 

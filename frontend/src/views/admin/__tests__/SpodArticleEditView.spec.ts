@@ -2,6 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+import en from '@/i18n/locales/en.json'
 import SpodArticleEditView from '../SpodArticleEditView.vue'
 import type {
   AdminSpodArticleDto,
@@ -127,6 +129,7 @@ function spodArticle(overrides: Partial<AdminSpodArticleDto> = {}): AdminSpodArt
     supplierId: 4,
     productTypeName: "Men's T-Shirt",
     sizeChartImageFilename: 'chart.webp',
+    sizeMeasurements: [],
     printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
     hotspot: 'front',
     appearances: [
@@ -198,7 +201,7 @@ async function mountEditView(path: string) {
 
   const wrapper = mount(SpodArticleEditView, {
     attachTo: document.body,
-    global: { plugins: [router] },
+    global: { plugins: [router, createI18n({ legacy: false, locale: 'en', messages: { en } })] },
   })
   await flushPromises()
 
@@ -310,6 +313,37 @@ describe('SpodArticleEditView', () => {
     expect(wrapper.get('[data-testid="size-chart-preview"]').attributes('src')).toBe(
       '/api/images/public/400/articles/spod/size-charts/chart.webp',
     )
+  })
+
+  it('shows the measurements of every size below the size chart picture', async () => {
+    mocks.fetchArticle.mockResolvedValue(
+      spodArticle({
+        sizeMeasurements: [
+          { size: 'L', measurements: [{ name: 'A', valueMm: 740 }] },
+          { size: 'M', measurements: [{ name: 'A', valueMm: 720.5 }] },
+        ],
+      }),
+    )
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+
+    const section = wrapper.get('[data-testid="spod-variants-section"]')
+    expect(section.find('[data-testid="size-chart-preview"]').exists()).toBe(true)
+    const rows = section.get('[data-testid="size-chart-table"]').findAll('tr')
+    expect(rows.map((row) => row.findAll('th, td').map((cell) => cell.text()))).toEqual([
+      ['Size', 'A'],
+      ['M', '72.1'],
+      ['L', '74'],
+    ])
+    expect(section.find('[aria-current]').exists()).toBe(false)
+    expect(section.text()).not.toContain('published no measurements')
+  })
+
+  it('says so when Spreadconnect published no measurements', async () => {
+    const { wrapper } = await mountEditView('/admin/articles/spod/10/edit')
+
+    const section = wrapper.get('[data-testid="spod-variants-section"]')
+    expect(section.find('[data-testid="size-chart-table"]').exists()).toBe(false)
+    expect(section.text()).toContain('Spreadconnect published no measurements for these sizes.')
   })
 
   it('offers only the active variants as the default one', async () => {

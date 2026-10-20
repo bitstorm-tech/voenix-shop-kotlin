@@ -739,6 +739,10 @@
       "retry": "Retry"
     }
   },
+  "sizeChart": {
+    "image": "Size chart",
+    "size": "Size"
+  },
   "pwaUpdate": {
     "title": "Update available",
     "description": "A new version is ready.",
@@ -951,7 +955,8 @@
       "color": "Color",
       "size": "Size",
       "sizeChart": "Size chart",
-      "sizeChartHint": "All measurements in centimetres."
+      "sizeChartHint": "All measurements in centimetres.",
+      "sizeChartNoMeasurementsHint": "No measurements are available for this article."
     },
     "frames": {
       "hint": "A frame blends your image into the product with a soft or irregular edge.",
@@ -1091,6 +1096,7 @@
         "sizes": "Sizes",
         "sizeChart": "Size chart",
         "sizeChartHint": "All measurements in centimetres.",
+        "sizeChartNoMeasurementsHint": "No measurements are available for this article.",
         "changeArticle": "Change product"
       },
       "selectStyle": {

@@ -148,9 +148,10 @@ export interface SeededSpodColor {
 }
 
 /**
- * A SPOD article as a sync run writes it: identity, row, colours with their pictures, and one
- * variant per colour × size, the first one the default. `framed: false` leaves the frame and the
- * hotspot unmeasured. Answers the ids of the article, its colours, and its variants in order.
+ * A SPOD article as a sync run writes it: identity, row, colours with their pictures, one variant
+ * per colour × size, the first one the default, and the size chart measurements. A size's SPOD id
+ * is its place in the colour's `sizes`, from 1. `framed: false` leaves the frame and the hotspot
+ * unmeasured. Answers the ids of the article, its colours, and its variants in order.
  */
 export async function insertSpodArticle(
   db: Kysely<Tables>,
@@ -163,6 +164,7 @@ export async function insertSpodArticle(
     framed = true,
     sizeChart = null,
     colors = [{ name: 'Black', sizes: ['M', 'L'] }],
+    sizeMeasurements = [],
   }: {
     destinationId: number
     supplierId: number
@@ -172,6 +174,7 @@ export async function insertSpodArticle(
     framed?: boolean
     sizeChart?: string | null
     colors?: SeededSpodColor[]
+    sizeMeasurements?: { sizeId: number; name: string; valueMm: number }[]
   },
 ): Promise<{ articleId: number; appearanceIds: number[]; variantIds: number[] }> {
   return db.transaction().execute(async (trx) => {
@@ -273,6 +276,17 @@ export async function insertSpodArticle(
           .execute()
         variantIds.push(variant.id)
       }
+    }
+    for (const measurement of sizeMeasurements) {
+      await trx
+        .insertInto('article_spod_size_measurements')
+        .values({
+          article_id: id,
+          spod_size_id: measurement.sizeId,
+          name: measurement.name,
+          value_mm: measurement.valueMm,
+        })
+        .execute()
     }
     return { articleId: id, appearanceIds, variantIds }
   })

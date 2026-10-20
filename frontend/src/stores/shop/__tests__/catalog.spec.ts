@@ -67,6 +67,7 @@ const PUBLIC_SPOD_RESPONSE = [
     regularPrice: 1990,
     productTypeName: "Men's Tee",
     sizeChartImageFilename: null,
+    sizeMeasurements: [],
     printFrame: { leftPct: 35.6, topPct: 18.9, widthPct: 28.4, heightPct: 28.4 },
     appearances: [
       {
