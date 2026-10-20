@@ -234,7 +234,7 @@ describe('editor store', () => {
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
       cliparts: [{ id: 'clipart-b', name: 'Star' }],
-      imageFrame: 'stamp',
+      imageFrame: { id: 'stamp', intensity: 70 },
     }
 
     store.selectImage(imageA.id)
@@ -252,7 +252,7 @@ describe('editor store', () => {
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
       cliparts: [{ id: 'clipart-b', name: 'Star' }],
-      imageFrame: 'stamp',
+      imageFrame: { id: 'stamp', intensity: 70 },
     })
   })
 

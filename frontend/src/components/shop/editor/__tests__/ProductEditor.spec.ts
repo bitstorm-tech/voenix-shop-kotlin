@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { Component } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductEditor from '@/components/shop/editor/ProductEditor.vue'
+import { Slider } from '@/components/ui/slider'
 import {
   toEditorArticleVariant,
   toEditorMugArticle,
@@ -151,6 +152,15 @@ describe('ProductEditor', () => {
     vi.stubGlobal('crypto', {
       randomUUID: () => `editor-id-${nextUuid++}`,
     })
+    // The frame tool's intensity slider measures itself
+    vi.stubGlobal(
+      'ResizeObserver',
+      class ResizeObserver {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
   })
 
   afterEach(() => {
@@ -428,11 +438,17 @@ describe('ProductEditor', () => {
     await findToolButton(wrapper, 'editor.tools.frames')!.trigger('click')
     await wrapper.get('[data-testid="editor-frame-option-torn"]').trigger('click')
 
-    expect(store.currentImage?.edits.imageFrame).toBe('torn')
+    expect(store.currentImage?.edits.imageFrame).toEqual({ id: 'torn', intensity: 50 })
     expect(
       draft.images.find((image) => image.id !== store.currentImage?.id)!.edits.imageFrame,
     ).toBe(null)
     expect(mask().attributes('style')).toContain('data:image/svg+xml')
+
+    wrapper.getComponent(Slider).vm.$emit('update:modelValue', [80])
+    await flushPromises()
+    await wrapper.get('[data-testid="editor-frame-option-stamp"]').trigger('click')
+
+    expect(store.currentImage?.edits.imageFrame).toEqual({ id: 'stamp', intensity: 80 })
 
     await wrapper.get('[data-testid="editor-frame-option-none"]').trigger('click')
 

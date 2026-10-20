@@ -956,6 +956,7 @@
     "frames": {
       "hint": "Ein Rahmen lässt dein Bild weich oder unregelmäßig in das Produkt übergehen.",
       "none": "Kein Rahmen",
+      "intensity": "Intensität",
       "options": {
         "soft": "Weich",
         "oval": "Oval",

@@ -235,7 +235,7 @@ describe('EditorView', () => {
     editorStore.updateCurrentImageEdits({
       cropTransform: { scale: 1.7, panX: 24, panY: -12 },
       textOverlays,
-      imageFrame: 'torn',
+      imageFrame: { id: 'torn', intensity: 40 },
     })
     const router = createRouterForEditor()
     mockLoadedArticles([makeMug()])
@@ -253,7 +253,7 @@ describe('EditorView', () => {
       cropTransform: { scale: 1.7, panX: 24, panY: -12 },
       screenFrameWidth: 1,
       textOverlays,
-      imageFrame: 'torn',
+      imageFrame: { id: 'torn', intensity: 40 },
     })
     expect(addToCart).toHaveBeenCalledWith(
       {

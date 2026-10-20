@@ -956,6 +956,7 @@
     "frames": {
       "hint": "A frame blends your image into the product with a soft or irregular edge.",
       "none": "No frame",
+      "intensity": "Intensity",
       "options": {
         "soft": "Soft",
         "oval": "Oval",

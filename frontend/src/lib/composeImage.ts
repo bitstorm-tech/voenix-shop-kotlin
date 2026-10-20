@@ -1,6 +1,6 @@
 import { clampCropTransform } from '@/lib/cropTransform'
 import { computeCoverRect } from '@/lib/geometry'
-import { imageFrameMaskUrl, type ImageFrameId } from '@/lib/imageFrames'
+import { imageFrameMaskUrl, type ImageFrame } from '@/lib/imageFrames'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
@@ -12,7 +12,7 @@ export async function composeImage(options: {
   cropTransform: CropFrameTransform
   screenFrameWidth: number
   textOverlays: ReadonlyArray<TextOverlay>
-  imageFrame: ImageFrameId | null
+  imageFrame: ImageFrame | null
   outputWidth?: number
 }): Promise<HTMLCanvasElement> {
   const {

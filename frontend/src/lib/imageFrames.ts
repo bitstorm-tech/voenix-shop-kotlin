@@ -7,11 +7,25 @@
  * `MASK_SHORT_SIDE` units and all frame geometry is a fraction of it. The mask therefore fits any
  * image size, and the editor preview (a CSS `mask-image`) and the composed print image (the same
  * SVG drawn onto the canvas) are cut identically.
+ *
+ * The frame's intensity scales how deep it reaches into the image: at 100 % a frame has its full
+ * width, lower values shrink its depth, blur, and arcs proportionally.
  */
 
 export const IMAGE_FRAME_IDS = ['soft', 'oval', 'torn', 'stamp', 'scallop'] as const
 
 export type ImageFrameId = (typeof IMAGE_FRAME_IDS)[number]
+
+/** Intensity range in percent of the full frame; below the minimum the arcs get too fine to print. */
+export const IMAGE_FRAME_INTENSITY_MIN = 20
+export const IMAGE_FRAME_INTENSITY_MAX = 100
+export const IMAGE_FRAME_INTENSITY_DEFAULT = 50
+
+export interface ImageFrame {
+  id: ImageFrameId
+  /** Percent of the full frame depth, `IMAGE_FRAME_INTENSITY_MIN` to `IMAGE_FRAME_INTENSITY_MAX`. */
+  intensity: number
+}
 
 const MASK_SHORT_SIDE = 1000
 
@@ -81,19 +95,19 @@ function insetEdges(size: MaskSize, inset: number): Edge[] {
   ]
 }
 
-function softMask(size: MaskSize): string {
-  const inset = MASK_SHORT_SIDE * 0.09
+function softMask(size: MaskSize, scale: number): string {
+  const inset = MASK_SHORT_SIDE * 0.09 * scale
   return (
-    blurFilter(size, MASK_SHORT_SIDE * 0.045) +
+    blurFilter(size, MASK_SHORT_SIDE * 0.045 * scale) +
     `<rect x="${n(inset)}" y="${n(inset)}" width="${n(size.width - 2 * inset)}" height="${n(size.height - 2 * inset)}" ` +
-    `rx="${n(MASK_SHORT_SIDE * 0.04)}" filter="url(#f)"/>`
+    `rx="${n(MASK_SHORT_SIDE * 0.04 * scale)}" filter="url(#f)"/>`
   )
 }
 
-function ovalMask(size: MaskSize): string {
-  const inset = MASK_SHORT_SIDE * 0.06
+function ovalMask(size: MaskSize, scale: number): string {
+  const inset = MASK_SHORT_SIDE * 0.06 * scale
   return (
-    blurFilter(size, MASK_SHORT_SIDE * 0.03) +
+    blurFilter(size, MASK_SHORT_SIDE * 0.03 * scale) +
     `<ellipse cx="${n(size.width / 2)}" cy="${n(size.height / 2)}" rx="${n(size.width / 2 - inset)}" ` +
     `ry="${n(size.height / 2 - inset)}" filter="url(#f)"/>`
   )
@@ -103,18 +117,19 @@ function ovalMask(size: MaskSize): string {
  * A torn paper edge: a slow random walk gives the tear its uneven depth, a fine jitter on top its
  * ragged fibres.
  */
-function tornMask(size: MaskSize): string {
+function tornMask(size: MaskSize, scale: number): string {
   const random = seededRandom(0x7e4a)
+  // The fibre spacing stays fixed; only the depth of the tear follows the intensity
   const step = MASK_SHORT_SIDE * 0.012
-  const jitter = MASK_SHORT_SIDE * 0.008
-  const maxWalk = MASK_SHORT_SIDE * 0.04
+  const jitter = MASK_SHORT_SIDE * 0.008 * scale
+  const maxWalk = MASK_SHORT_SIDE * 0.04 * scale
   let walk = maxWalk / 2
   const points: string[] = []
 
   // Walking a rectangle inset by the shallowest tear keeps the corners off the image border too
-  for (const edge of insetEdges(size, MASK_SHORT_SIDE * 0.012)) {
+  for (const edge of insetEdges(size, MASK_SHORT_SIDE * 0.012 * scale)) {
     const tear = () => {
-      walk += (random() - 0.5) * MASK_SHORT_SIDE * 0.012
+      walk += (random() - 0.5) * MASK_SHORT_SIDE * 0.012 * scale
       walk = Math.min(maxWalk, Math.max(0, walk))
       return walk + random() * jitter
     }
@@ -167,17 +182,17 @@ function arcEdgePath(size: MaskSize, inset: number, radius: number, gap: number,
   return `<path d="${commands.join(' ')}Z"/>`
 }
 
-function stampMask(size: MaskSize): string {
-  const radius = MASK_SHORT_SIDE * 0.022
-  return arcEdgePath(size, MASK_SHORT_SIDE * 0.02, radius, radius * 0.9, true)
+function stampMask(size: MaskSize, scale: number): string {
+  const radius = MASK_SHORT_SIDE * 0.022 * scale
+  return arcEdgePath(size, MASK_SHORT_SIDE * 0.02 * scale, radius, radius * 0.9, true)
 }
 
-function scallopMask(size: MaskSize): string {
-  const radius = MASK_SHORT_SIDE * 0.035
-  return arcEdgePath(size, radius + MASK_SHORT_SIDE * 0.005, radius, 0, false)
+function scallopMask(size: MaskSize, scale: number): string {
+  const radius = MASK_SHORT_SIDE * 0.035 * scale
+  return arcEdgePath(size, radius + MASK_SHORT_SIDE * 0.005 * scale, radius, 0, false)
 }
 
-const MASK_BUILDERS: Record<ImageFrameId, (size: MaskSize) => string> = {
+const MASK_BUILDERS: Record<ImageFrameId, (size: MaskSize, scale: number) => string> = {
   soft: softMask,
   oval: ovalMask,
   torn: tornMask,
@@ -185,24 +200,32 @@ const MASK_BUILDERS: Record<ImageFrameId, (size: MaskSize) => string> = {
   scallop: scallopMask,
 }
 
+function intensityScale(intensity: number): number {
+  const percent = Number.isFinite(intensity) ? intensity : IMAGE_FRAME_INTENSITY_DEFAULT
+  return (
+    Math.min(IMAGE_FRAME_INTENSITY_MAX, Math.max(IMAGE_FRAME_INTENSITY_MIN, percent)) /
+    IMAGE_FRAME_INTENSITY_MAX
+  )
+}
+
 /** The frame's alpha mask as a standalone SVG document for a frame of the given aspect ratio. */
-export function imageFrameMaskSvg(frameId: ImageFrameId, aspectRatio: number): string {
+export function imageFrameMaskSvg(frame: ImageFrame, aspectRatio: number): string {
   const size = maskSize(aspectRatio)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" ` +
     `viewBox="0 0 ${size.width} ${size.height}" preserveAspectRatio="none">` +
-    MASK_BUILDERS[frameId](size) +
+    MASK_BUILDERS[frame.id](size, intensityScale(frame.intensity)) +
     '</svg>'
   )
 }
 
-export function imageFrameMaskUrl(frameId: ImageFrameId, aspectRatio: number): string {
-  return `data:image/svg+xml,${encodeURIComponent(imageFrameMaskSvg(frameId, aspectRatio))}`
+export function imageFrameMaskUrl(frame: ImageFrame, aspectRatio: number): string {
+  return `data:image/svg+xml,${encodeURIComponent(imageFrameMaskSvg(frame, aspectRatio))}`
 }
 
 /** Inline style that masks an element - stretched to its full box - with the frame. */
-export function imageFrameMaskStyle(frameId: ImageFrameId, aspectRatio: number) {
-  const image = `url("${imageFrameMaskUrl(frameId, aspectRatio)}")`
+export function imageFrameMaskStyle(frame: ImageFrame, aspectRatio: number) {
+  const image = `url("${imageFrameMaskUrl(frame, aspectRatio)}")`
   return {
     maskImage: image,
     WebkitMaskImage: image,

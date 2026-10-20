@@ -20,7 +20,7 @@ import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
 import { spodMockupImageUrl } from '@/lib/variantExampleImage'
 import { clampCropTransform } from '@/lib/cropTransform'
-import { imageFrameMaskStyle, type ImageFrameId } from '@/lib/imageFrames'
+import { imageFrameMaskStyle, type ImageFrame } from '@/lib/imageFrames'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
@@ -368,7 +368,7 @@ function resetCropTransform() {
   updateCropTransform(defaultCrop())
 }
 
-function updateImageFrame(frame: ImageFrameId | null) {
+function updateImageFrame(frame: ImageFrame | null) {
   editorStore.updateCurrentImageEdits({ imageFrame: frame })
 }
 

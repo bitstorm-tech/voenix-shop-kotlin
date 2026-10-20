@@ -168,7 +168,8 @@ _Avoid_: generated edited image, guest image
 **Image frame / Rahmen**:
 An edge treatment the customer picks in the editor (soft, oval, torn, stamp,
 scallop) so the design blends into the product instead of ending in a hard
-straight edge. It is an alpha mask over the design, sized from the print area's
+straight edge. Its intensity (20–100 %) sets how deep it reaches into the
+design. It is an alpha mask over the design, sized from the print area's
 aspect ratio, and is baked into the **print image** — only text overlays stay
 uncut. Not to be confused with the **print frame**, the measured print area on a
 mockup image.
