@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductImageGallery from '@/components/shop/ProductImageGallery.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
+import { descriptionText } from '@/lib/articleDescription'
 import { sizeRange } from '@/lib/tshirtSizes'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
@@ -68,6 +69,13 @@ const spodAppearance = computed(() =>
   isSpodArticle(props.article) && spodVariant.value
     ? appearanceOf(props.article, spodVariant.value)
     : null,
+)
+
+/** A SPOD description is partner HTML, read here as the line or two of text the card has room for. */
+const description = computed(() =>
+  isSpodArticle(props.article)
+    ? descriptionText(props.article.descriptionShort)
+    : props.article.descriptionShort,
 )
 
 const outsideColor = computed(
@@ -239,7 +247,7 @@ const sizeHint = computed(() => {
       <div class="grid gap-1.5">
         <h3 class="text-lg font-bold leading-tight text-foreground">{{ article.name }}</h3>
         <p class="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-          {{ article.descriptionShort }}
+          {{ description }}
         </p>
       </div>
 

@@ -31,6 +31,7 @@ import {
   type SpodVariantDto,
 } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
+import { sanitizeDescriptionHtml } from '@/lib/articleDescription'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
 
@@ -109,6 +110,14 @@ const spodSizes = computed<SpodVariantDto[]>(() => {
   if (!article || appearanceId === undefined) return []
 
   return article.variants.filter((variant) => variant.appearanceId === appearanceId)
+})
+
+/** A SPOD description is partner HTML; a mug's is the plain text the backoffice typed. */
+const selectedSpodDescriptionHtml = computed(() => {
+  const article = selectedSpodArticle.value
+  if (!article) return null
+
+  return sanitizeDescriptionHtml(article.descriptionLong || article.descriptionShort) || null
 })
 
 const sizeChartUrl = computed(() => {
@@ -203,7 +212,7 @@ onMounted(async () => {
     <div
       v-if="!showFullGrid && selectedArticle && selectedVariant && !catalogStore.isLoading"
       data-testid="wizard-selected-article"
-      class="mt-6 flex flex-col overflow-hidden rounded-xl border-[1.5px] border-[oklch(0.61_0.19_35_/_0.7)] bg-[linear-gradient(175deg,oklch(0.99_0.008_50_/_0.8)_0%,oklch(0.98_0.005_40_/_0.5)_100%)] shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] motion-safe:animate-enter-lift motion-reduce:animate-none sm:mt-8 sm:flex-row"
+      class="mt-6 flex flex-col overflow-hidden rounded-2xl border-[1.5px] border-[oklch(0.61_0.19_35_/_0.7)] bg-surface-card shadow-[0_0_0_1px_oklch(0.61_0.19_35_/_0.15),0_4px_12px_oklch(0.61_0.19_35_/_0.1),0_8px_24px_oklch(0.61_0.19_35_/_0.06)] motion-safe:animate-enter-lift motion-reduce:animate-none sm:mt-8 sm:flex-row"
     >
       <!-- Image -->
       <div class="relative aspect-[4/3] bg-muted/30 sm:aspect-auto sm:w-2/5">
@@ -241,8 +250,17 @@ onMounted(async () => {
           :regular-cents="selectedArticle.regularPrice"
           size="lg"
         />
-        <h3 class="mt-1 text-lg font-semibold tracking-tight">{{ selectedArticle.name }}</h3>
-        <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+        <h3 class="mt-1 text-lg font-bold leading-tight text-foreground">
+          {{ selectedArticle.name }}
+        </h3>
+        <!-- eslint-disable-next-line vue/no-v-html -- sanitized to a few text tags -->
+        <div
+          v-if="selectedSpodDescriptionHtml"
+          class="mt-2 text-sm leading-relaxed text-muted-foreground [&_li]:mt-0.5 [&_ol]:mt-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p+p]:mt-2 [&_strong]:font-semibold [&_ul]:mt-2 [&_ul]:list-disc [&_ul]:pl-5"
+          data-testid="wizard-article-description"
+          v-html="selectedSpodDescriptionHtml"
+        />
+        <p v-else class="mt-2 text-sm leading-relaxed text-muted-foreground">
           {{ selectedArticle.descriptionLong || selectedArticle.descriptionShort }}
         </p>
 
