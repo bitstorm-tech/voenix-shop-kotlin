@@ -309,6 +309,7 @@ export async function sizeMeasurements(
     .selectFrom('article_spod_size_measurements')
     .selectAll()
     .where('article_id', 'in', articleIds)
+    .orderBy('spod_size_id')
     .orderBy('name')
     .execute()
   const entries = new Map<string, SpodSizeMeasurements>()

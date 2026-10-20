@@ -480,7 +480,7 @@ describe('wizard selection controls', () => {
   })
 
   it('offers no size chart without a picture or measurements', async () => {
-    const wrapper = await mountSelectedTee({ sizeChartImageFilename: null })
+    const wrapper = await mountSelectedTee({ sizeChartImageFilename: null, sizeMeasurements: [] })
 
     expect(wrapper.find('[data-testid="wizard-spod-sizes"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="wizard-size-chart-trigger"]').exists()).toBe(false)

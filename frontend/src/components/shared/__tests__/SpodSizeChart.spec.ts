@@ -2,10 +2,11 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import de from '@/i18n/locales/de.json'
-import type { SpodSizeMeasurementsDto } from '@/stores/shop/catalog'
 import SpodSizeChart from '../SpodSizeChart.vue'
 
-function size(name: string, values: Record<string, number>): SpodSizeMeasurementsDto {
+type SizeMeasurements = { size: string; measurements: { name: string; valueMm: number }[] }
+
+function size(name: string, values: Record<string, number>): SizeMeasurements {
   return {
     size: name,
     measurements: Object.entries(values).map(([letter, valueMm]) => ({ name: letter, valueMm })),
@@ -14,7 +15,7 @@ function size(name: string, values: Record<string, number>): SpodSizeMeasurement
 
 function mountChart(props: {
   imageUrl?: string | null
-  measurements: SpodSizeMeasurementsDto[]
+  measurements: SizeMeasurements[]
   selectedSize?: string | null
 }) {
   return mount(SpodSizeChart, {
@@ -57,6 +58,18 @@ describe('SpodSizeChart', () => {
       ['Größe', 'A', 'B'],
       ['S', '70', '48'],
       ['M', '72', '–'],
+    ])
+  })
+
+  it('orders the columns by first appearance down the sorted sizes, not alphabetically', () => {
+    const wrapper = mountChart({
+      measurements: [size('L', { A: 740 }), size('XS', { B: 480 })],
+    })
+
+    expect(cells(wrapper)).toEqual([
+      ['Größe', 'B', 'A'],
+      ['XS', '48', '–'],
+      ['L', '–', '74'],
     ])
   })
 

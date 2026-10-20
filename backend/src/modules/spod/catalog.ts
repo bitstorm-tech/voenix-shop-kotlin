@@ -62,20 +62,21 @@ export const spodCatalogPage = z.object({
 })
 
 const spodSizeChartMeasurement = z.object({
-  name: z.string().default(''),
-  valueMm: z.number().default(0),
+  name: z.string().catch(''),
+  valueMm: z.number().catch(0),
 })
 
 const spodSizeChartSize = z.object({
-  sizeId: productId.default(0),
-  name: z.string().default(''),
-  measurements: z.array(spodSizeChartMeasurement).default([]),
+  sizeId: productId.catch(0),
+  name: z.string().catch(''),
+  measurements: z.array(spodSizeChartMeasurement).catch([]),
 })
 
 /**
  * The size chart of a product type: its picture, and per size the value of each letter of the
  * picture in millimetres. The letters are never named; only the picture shows what they measure.
- * Garbled `sizes` read as none, so they never cost the picture.
+ * Each garbled field reads as its empty value and costs only itself (the sync drops the sizes and
+ * values that end up empty); garbled `sizes` read as none, so they never cost the picture.
  */
 export const spodSizeChart = z.object({
   sizeImageUrl: z.string().nullable().default(null),

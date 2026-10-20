@@ -546,13 +546,20 @@ describe('the catalog calls', () => {
     })
   })
 
-  test('sparse sizes read with defaults, and garbled sizes as none without costing the picture', async () => {
+  test('sparse sizes read with defaults, a garbled field costs only itself, and garbled sizes read as none without costing the picture', async () => {
     const sparse = harness(() => jsonAnswer('{"sizes":[{"measurements":[{}]},{}]}'))
     const garbled = harness(() =>
       jsonAnswer('{"sizeImageUrl":"https://image.cdn.example/chart.png","sizes":"none"}'),
     )
     const garbledEntry = harness(() =>
-      jsonAnswer('{"sizeImageUrl":null,"sizes":[{"sizeId":"one","measurements":[]}]}'),
+      jsonAnswer(
+        `{"sizeImageUrl":null,"sizes":[
+          {"sizeId":"one","name":"S","measurements":[{"name":"A","valueMm":1}]},
+          {"sizeId":2,"name":["M"],"measurements":"none"},
+          {"sizeId":3,"name":"L","measurements":[
+            {"name":"A","valueMm":"720"},{"name":"B","valueMm":1e999},{"name":7,"valueMm":540},
+            {"name":"C","valueMm":510.5}]}]}`,
+      ),
     )
 
     expect(await sparse.client.sizeChart(access(), 812)).toEqual({
@@ -571,7 +578,23 @@ describe('the catalog calls', () => {
     })
     expect(await garbledEntry.client.sizeChart(access(), 812)).toEqual({
       kind: 'answered',
-      value: { sizeImageUrl: null, sizes: [] },
+      value: {
+        sizeImageUrl: null,
+        sizes: [
+          { sizeId: 0, name: 'S', measurements: [{ name: 'A', valueMm: 1 }] },
+          { sizeId: 2, name: '', measurements: [] },
+          {
+            sizeId: 3,
+            name: 'L',
+            measurements: [
+              { name: 'A', valueMm: 0 },
+              { name: 'B', valueMm: 0 },
+              { name: '', valueMm: 540 },
+              { name: 'C', valueMm: 510.5 },
+            ],
+          },
+        ],
+      },
     })
   })
 })

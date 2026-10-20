@@ -10,7 +10,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { sortSizes } from '@/lib/tshirtSizes'
-import type { SpodSizeMeasurementsDto } from '@/stores/shop/catalog'
 
 /**
  * The size chart of a SPOD article: the partner's picture, which shows what each letter measures,
@@ -18,7 +17,7 @@ import type { SpodSizeMeasurementsDto } from '@/stores/shop/catalog'
  */
 const props = defineProps<{
   imageUrl: string | null
-  measurements: SpodSizeMeasurementsDto[]
+  measurements: { size: string; measurements: { name: string; valueMm: number }[] }[]
   selectedSize: string | null
 }>()
 

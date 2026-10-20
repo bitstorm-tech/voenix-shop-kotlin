@@ -71,11 +71,19 @@ describe('ProductVariantPanel', () => {
   })
 
   it('opens the size chart with the picture and the measurements, the selected size highlighted', async () => {
-    const wrapper = mountPanel(createShopTee({ id: 2, sizeMeasurements: teeMeasurements }), 22)
+    const wrapper = mountPanel(
+      createShopTee({
+        id: 2,
+        sizeChartImageFilename: 'size-chart.png',
+        sizeMeasurements: teeMeasurements,
+      }),
+      22,
+    )
 
     await wrapper.get('[data-testid="editor-size-chart-trigger"]').trigger('click')
     await flushPromises()
 
+    expect(document.body.querySelector('[data-testid="size-chart-image"]')).not.toBeNull()
     expect(document.body.querySelector('[data-testid="size-chart-table"]')).not.toBeNull()
     expect(document.body.querySelector('[aria-current="true"]')?.textContent).toContain('M')
     expect(document.body.textContent).toContain('editor.productVariant.sizeChartHint')

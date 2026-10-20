@@ -375,7 +375,7 @@ describe('the size measurements', () => {
     expect(await measurements()).toEqual([])
   })
 
-  test('drops what does not fit, rounds to one decimal, and keeps the first of a duplicate', async () => {
+  test('drops what does not fit or is garbled, rounds to one decimal, and keeps the first of a duplicate', async () => {
     const entry = (name: string, valueMm: number) => ({ name, valueMm })
     await (
       await syncWith({
@@ -397,9 +397,12 @@ describe('the size measurements', () => {
                 entry('F', 100000),
                 entry('G', 0.04),
                 entry('H', 99999.9),
+                { name: 'J', valueMm: '720' },
+                { name: 7, valueMm: 720 },
               ],
             },
             { sizeId: 1, measurements: [entry('A', 1), entry('I', 10)] },
+            { sizeId: 'one', measurements: [entry('K', 10)] },
           ],
         }),
       })
