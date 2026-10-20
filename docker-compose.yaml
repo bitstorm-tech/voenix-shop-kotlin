@@ -1,0 +1,59 @@
+# Runs the full-stack image (the root Dockerfile) locally, together with its own
+# PostgreSQL, to test the image the way a deployment runs it:
+#
+#     docker compose up --build
+#
+# Then open http://localhost:8080. The values below are development-only, like
+# backend/.env.development. A variable written as ${NAME:-default} can be
+# overridden from the shell or from a .env file next to this one (ignored by
+# Git), for example a real Mollie test key or a fal.ai key.
+# `docker compose down -v` deletes the database and the uploaded data.
+# See docs/dev/backend/getting-started/full-stack-image.md.
+
+services:
+  app:
+    build: .
+    image: voenix-shop
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: voenix_ts
+      DATABASE_USERNAME: voenix
+      DATABASE_PASSWORD: voenix
+      AUTH_SESSION_SECRET: compose-only-session-secret-not-for-production
+      FRONTEND_BASE_URL: http://localhost:${APP_PORT:-8080}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM_EMAIL: ${EMAIL_FROM_EMAIL:-}
+      GENERATOR_DUMMY_MODE: ${GENERATOR_DUMMY_MODE:-true}
+      GENERATOR_API_KEY: ${GENERATOR_API_KEY:-}
+      MOLLIE_API_KEY: ${MOLLIE_API_KEY:-test_development-placeholder}
+      MOLLIE_WEBHOOK_URL: ${MOLLIE_WEBHOOK_URL:-https://localhost/api/payments/webhook/development-webhook-secret}
+      MOLLIE_WEBHOOK_SECRET: ${MOLLIE_WEBHOOK_SECRET:-development-webhook-secret}
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Its own database, separate from the development container voenix-postgres,
+  # and without a host port, so both can run side by side.
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: voenix
+      POSTGRES_PASSWORD: voenix
+      POSTGRES_DB: voenix_ts
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "voenix", "-d", "voenix_ts"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  app-data:
+  postgres-data:

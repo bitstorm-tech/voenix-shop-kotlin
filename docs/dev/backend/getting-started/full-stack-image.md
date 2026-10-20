@@ -104,7 +104,24 @@ to a development value. The image needs:
 
 ## Building and running locally
 
-From the repository root:
+The quickest way is the [`docker-compose.yaml`](../../../../docker-compose.yaml)
+in the repository root. It builds the image and starts it together with its own
+PostgreSQL (no host port, so it does not collide with the development
+container `voenix-postgres`), with development values for every required
+variable:
+
+```sh
+docker compose up --build
+```
+
+Then open `http://localhost:8080`. A real Mollie test key, a fal.ai key, or
+mail settings go into a `.env` file next to `docker-compose.yaml` (ignored by
+Git), for example `GENERATOR_DUMMY_MODE=false` plus `GENERATOR_API_KEY=…`;
+`APP_PORT` changes the host port. The database and the uploaded data live in
+named volumes; `docker compose down -v` deletes both.
+
+To run the image by hand against a database of your own, from the repository
+root:
 
 ```sh
 docker build -t voenix-shop .
