@@ -175,6 +175,14 @@ uncut. Not to be confused with the **print frame**, the measured print area on a
 mockup image.
 _Avoid_: frame (alone), border
 
+**Clipart**:
+A small ready-made motif (heart, balloons, cat, ...) the customer lays on the
+design in the editor, moves, and resizes on the canvas. Like the **image
+frame** it is an SVG built in code, not an uploaded file. It is baked into the
+**print image** above the design and below the text overlays, and an image
+frame never cuts it.
+_Avoid_: sticker, icon
+
 **Article identity**:
 The type-independent registration of an article (and its variants) that gives
 carts and orders one foreign-key target across per-type tables. Carries no

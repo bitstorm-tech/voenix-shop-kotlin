@@ -233,7 +233,7 @@ describe('editor store', () => {
     const imageBEdits: EditorImageEditPatch = {
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
-      cliparts: [{ id: 'clipart-b', name: 'Star' }],
+      cliparts: [{ id: 'clipart-b', clipartId: 'star', rx: 0.4, ry: 0.6, size: 0.3 }],
       imageFrame: { id: 'stamp', intensity: 70 },
     }
 
@@ -251,7 +251,7 @@ describe('editor store', () => {
     expect(imageB.edits).toEqual({
       cropTransform: { scale: 1.5, panX: 12, panY: -8 },
       textOverlays: [createOverlay('overlay-b', 'B')],
-      cliparts: [{ id: 'clipart-b', name: 'Star' }],
+      cliparts: [{ id: 'clipart-b', clipartId: 'star', rx: 0.4, ry: 0.6, size: 0.3 }],
       imageFrame: { id: 'stamp', intensity: 70 },
     })
   })

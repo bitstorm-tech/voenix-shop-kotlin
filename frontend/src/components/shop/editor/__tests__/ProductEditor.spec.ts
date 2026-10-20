@@ -485,14 +485,36 @@ describe('ProductEditor', () => {
     expect(findToolButton(wrapper, 'editor.tools.product')).toBeUndefined()
   })
 
-  it('keeps the cliparts tool visible as a disabled placeholder', async () => {
+  it('places a clipart on the design and removes it again', async () => {
+    const store = useEditorStore()
     const draft = createDraft()
     const wrapper = mountProductEditor(draft)
 
     await findToolButton(wrapper, 'editor.tools.cliparts')!.trigger('click')
+    await wrapper.get('[data-testid="editor-clipart-option-heart"]').trigger('click')
 
-    expect(
-      wrapper.get('[data-testid="editor-cliparts-placeholder"]').attributes('aria-disabled'),
-    ).toBe('true')
+    expect(store.currentImage!.edits.cliparts).toEqual([
+      { id: 'editor-id-3', clipartId: 'heart', rx: 0.5, ry: 0.5, size: 0.3 },
+    ])
+    const clipart = wrapper.get('[data-testid="editor-clipart"]')
+    expect(clipart.attributes('data-clipart-id')).toBe('heart')
+    expect(clipart.findAll('[data-testid^="editor-clipart-resize-"]')).toHaveLength(4)
+
+    await wrapper.get('[data-testid="editor-clipart-remove"]').trigger('click')
+
+    expect(store.currentImage!.edits.cliparts).toEqual([])
+    expect(wrapper.find('[data-testid="editor-clipart"]').exists()).toBe(false)
+  })
+
+  it('hides the resize handles once another tool is active', async () => {
+    const draft = createDraft()
+    const wrapper = mountProductEditor(draft)
+
+    await findToolButton(wrapper, 'editor.tools.cliparts')!.trigger('click')
+    await wrapper.get('[data-testid="editor-clipart-option-star"]').trigger('click')
+    await findToolButton(wrapper, 'editor.tools.frames')!.trigger('click')
+
+    const clipart = wrapper.get('[data-testid="editor-clipart"]')
+    expect(clipart.findAll('[data-testid^="editor-clipart-resize-"]')).toHaveLength(0)
   })
 })

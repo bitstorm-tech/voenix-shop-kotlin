@@ -32,7 +32,7 @@ function onBackgroundClick(event: MouseEvent) {
 
 <template>
   <div
-    class="absolute inset-0 overflow-hidden"
+    class="absolute inset-0 isolate overflow-hidden"
     :class="interactive ? 'pointer-events-auto' : 'pointer-events-none'"
     @click="onBackgroundClick"
   >

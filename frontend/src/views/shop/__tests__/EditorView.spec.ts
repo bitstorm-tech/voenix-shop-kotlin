@@ -232,9 +232,11 @@ describe('EditorView', () => {
     })
     const image = draft.images[0]!
     const textOverlays = [overlay('overlay-1')]
+    const cliparts = [{ id: 'clipart-1', clipartId: 'star' as const, rx: 0.2, ry: 0.7, size: 0.25 }]
     editorStore.updateCurrentImageEdits({
       cropTransform: { scale: 1.7, panX: 24, panY: -12 },
       textOverlays,
+      cliparts,
       imageFrame: { id: 'torn', intensity: 40 },
     })
     const router = createRouterForEditor()
@@ -253,6 +255,7 @@ describe('EditorView', () => {
       cropTransform: { scale: 1.7, panX: 24, panY: -12 },
       screenFrameWidth: 1,
       textOverlays,
+      cliparts,
       imageFrame: { id: 'torn', intensity: 40 },
     })
     expect(addToCart).toHaveBeenCalledWith(

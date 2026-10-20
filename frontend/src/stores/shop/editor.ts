@@ -1,5 +1,6 @@
 import { computed, markRaw, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
+import type { ClipartId } from '@/lib/cliparts'
 import type { ImageFrame } from '@/lib/imageFrames'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
 import type { GeneratedImage } from '@/stores/shop/imageGeneration'
@@ -7,9 +8,13 @@ import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 export type EditorDraftSource = 'wizard' | 'product' | 'order-redesign' | 'dev-fixture'
 
+/** One clipart placed on the design. */
 export interface EditorClipart {
   id: string
-  [key: string]: unknown
+  clipartId: ClipartId
+  rx: number // X-position of the centre as fraction of the print frame width (0-1)
+  ry: number // Y-position of the centre as fraction of the print frame height (0-1)
+  size: number // edge length of the square clipart as fraction of the print frame width
 }
 
 export interface EditorImageEdits {

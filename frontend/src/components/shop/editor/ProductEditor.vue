@@ -19,14 +19,16 @@ import { useImageCoverRect } from '@/composables/useImageCoverRect'
 import { useToast } from '@/composables/useToast'
 import { composeImage } from '@/lib/composeImage'
 import { spodMockupImageUrl } from '@/lib/variantExampleImage'
+import { CLIPART_DEFAULT_SIZE, type ClipartId } from '@/lib/cliparts'
 import { clampCropTransform } from '@/lib/cropTransform'
 import { imageFrameMaskStyle, type ImageFrame } from '@/lib/imageFrames'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
-import { useEditorStore, type EditorDraft } from '@/stores/shop/editor'
+import { useEditorStore, type EditorClipart, type EditorDraft } from '@/stores/shop/editor'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
-import ClipartsPlaceholder from './ClipartsPlaceholder.vue'
+import ClipartLayer from './ClipartLayer.vue'
+import ClipartToolPanel from './ClipartToolPanel.vue'
 import CropFrameLayer from './CropFrameLayer.vue'
 import FrameToolPanel from './FrameToolPanel.vue'
 import ProductContextBar from './ProductContextBar.vue'
@@ -62,6 +64,7 @@ const imageRef = ref<HTMLImageElement | null>(null)
 
 const activeTool = shallowRef<EditorToolId | null>(null)
 const selectedTextOverlayId = shallowRef<string | null>(null)
+const selectedClipartId = shallowRef<string | null>(null)
 const isAddingToCart = shallowRef(false)
 const mockupLoadFailed = shallowRef(false)
 const lastScreenFrameWidth = shallowRef(1)
@@ -104,6 +107,7 @@ const mockupFrameStyle = computed(() => {
 })
 
 const textOverlays = computed(() => currentImage.value?.edits.textOverlays ?? [])
+const cliparts = computed(() => currentImage.value?.edits.cliparts ?? [])
 const cropTransform = computed(() => currentImage.value?.edits.cropTransform ?? defaultCrop())
 const imageFrame = computed(() => currentImage.value?.edits.imageFrame ?? null)
 
@@ -180,6 +184,7 @@ watch(
   () => currentImage.value?.id ?? null,
   () => {
     selectedTextOverlayId.value = null
+    selectedClipartId.value = null
     activeTool.value = null
   },
 )
@@ -193,9 +198,18 @@ watch(textOverlays, (overlays) => {
   }
 })
 
+watch(cliparts, (list) => {
+  if (selectedClipartId.value && !list.some((clipart) => clipart.id === selectedClipartId.value)) {
+    selectedClipartId.value = null
+  }
+})
+
 watch(activeTool, (tool) => {
   if (tool !== 'text') {
     selectedTextOverlayId.value = null
+  }
+  if (tool !== 'cliparts') {
+    selectedClipartId.value = null
   }
 })
 
@@ -368,6 +382,43 @@ function resetCropTransform() {
   updateCropTransform(defaultCrop())
 }
 
+function setCliparts(list: EditorClipart[]) {
+  editorStore.updateCurrentImageEdits({ cliparts: list })
+}
+
+function addClipart(clipartId: ClipartId) {
+  const clipart: EditorClipart = {
+    id: crypto.randomUUID(),
+    clipartId,
+    rx: 0.5,
+    ry: 0.5,
+    size: CLIPART_DEFAULT_SIZE,
+  }
+  setCliparts([...cliparts.value, clipart])
+  selectedClipartId.value = clipart.id
+}
+
+function removeSelectedClipart() {
+  const id = selectedClipartId.value
+  if (!id) return
+
+  setCliparts(cliparts.value.filter((clipart) => clipart.id !== id))
+  selectedClipartId.value = null
+}
+
+function updateClipart(id: string, patch: Partial<Omit<EditorClipart, 'id' | 'clipartId'>>) {
+  setCliparts(
+    cliparts.value.map((clipart) => (clipart.id === id ? { ...clipart, ...patch } : clipart)),
+  )
+}
+
+function selectClipartFromLayer(id: string | null) {
+  selectedClipartId.value = id
+  if (id !== null) {
+    activeTool.value = 'cliparts'
+  }
+}
+
 function updateImageFrame(frame: ImageFrame | null) {
   editorStore.updateCurrentImageEdits({ imageFrame: frame })
 }
@@ -415,6 +466,7 @@ async function handleAddToCart() {
       cropTransform: effectiveCropTransform.value,
       screenFrameWidth: lastScreenFrameWidth.value || 1,
       textOverlays: image.edits.textOverlays,
+      cliparts: image.edits.cliparts,
       imageFrame: image.edits.imageFrame,
     })
 
@@ -529,6 +581,15 @@ async function handleAddToCart() {
                     :style="printImageStyle"
                   />
                 </div>
+                <ClipartLayer
+                  v-if="cliparts.length > 0"
+                  :frame-rect="editFrameRect"
+                  :interactive="activeTool === 'cliparts'"
+                  :cliparts="cliparts"
+                  :selected-id="selectedClipartId"
+                  @select="selectClipartFromLayer"
+                  @update-clipart="updateClipart"
+                />
                 <TextOverlayLayer
                   v-if="textOverlays.length > 0"
                   :image-rect="editFrameRect"
@@ -642,9 +703,12 @@ async function handleAddToCart() {
                 @select="updateImageFrame"
               />
 
-              <ClipartsPlaceholder
+              <ClipartToolPanel
                 v-else-if="activeTool === 'cliparts'"
-                class="editor-cliparts-tool-panel"
+                class="editor-clipart-tool-panel"
+                :has-selection="selectedClipartId !== null"
+                @add="addClipart"
+                @remove-selected="removeSelectedClipart"
               />
 
               <VariantGallery
@@ -793,10 +857,6 @@ async function handleAddToCart() {
     margin: 0;
   }
 
-  .editor-active-panel :deep(.cliparts-placeholder) {
-    margin-top: 0;
-  }
-
   .editor-active-panel :deep(.editor-variant-gallery) {
     margin-top: 0;
     justify-content: flex-start;
@@ -921,12 +981,6 @@ async function handleAddToCart() {
     border: 1px solid var(--editor-control-divider);
     background: var(--editor-control-inset-bg);
     text-align: left;
-  }
-
-  .editor-active-panel :deep(.cliparts-placeholder) {
-    margin-top: 0;
-    border-style: solid;
-    background: var(--editor-control-inset-bg);
   }
 
   .editor-active-panel :deep(.editor-variant-gallery) {

@@ -1,7 +1,9 @@
+import { clipartUrl } from '@/lib/cliparts'
 import { clampCropTransform } from '@/lib/cropTransform'
 import { computeCoverRect } from '@/lib/geometry'
 import { imageFrameMaskUrl, type ImageFrame } from '@/lib/imageFrames'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
+import type { EditorClipart } from '@/stores/shop/editor'
 import type { TextOverlay } from '@/stores/shop/textOverlays'
 
 const UNDERLINE_OFFSET = 0.075
@@ -12,6 +14,7 @@ export async function composeImage(options: {
   cropTransform: CropFrameTransform
   screenFrameWidth: number
   textOverlays: ReadonlyArray<TextOverlay>
+  cliparts: ReadonlyArray<EditorClipart>
   imageFrame: ImageFrame | null
   outputWidth?: number
 }): Promise<HTMLCanvasElement> {
@@ -21,6 +24,7 @@ export async function composeImage(options: {
     cropTransform,
     screenFrameWidth,
     textOverlays,
+    cliparts,
     imageFrame,
     outputWidth = 2048,
   } = options
@@ -62,7 +66,7 @@ export async function composeImage(options: {
   ctx.drawImage(img, imageRect.x, imageRect.y, imageRect.width, imageRect.height)
   ctx.restore()
 
-  // Cut the image with the frame mask; text overlays are drawn afterwards and stay whole
+  // Cut the image with the frame mask; cliparts and text overlays are drawn afterwards and stay whole
   if (imageFrame) {
     const mask = await loadImage(imageFrameMaskUrl(imageFrame, frameAspectRatio))
     ctx.save()
@@ -70,6 +74,17 @@ export async function composeImage(options: {
     ctx.drawImage(mask, 0, 0, canvas.width, canvas.height)
     ctx.restore()
   }
+
+  // Draw cliparts below the text, in the order they were added, like the editor layers them
+  const clipartImages = await Promise.all(
+    cliparts.map((clipart) => loadImage(clipartUrl(clipart.clipartId))),
+  )
+  cliparts.forEach((clipart, index) => {
+    const edge = clipart.size * canvas.width
+    const x = clipart.rx * canvas.width - edge / 2
+    const y = clipart.ry * canvas.height - edge / 2
+    ctx.drawImage(clipartImages[index]!, x, y, edge, edge)
+  })
 
   // Draw text overlays
   if (textOverlays.length > 0) {
