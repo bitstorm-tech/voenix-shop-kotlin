@@ -51,7 +51,7 @@ export interface CreateDraftFromGeneratedImagesInput extends EditorDraftContext 
   images: readonly GeneratedImage[]
 }
 
-export interface CreateDraftFromOrderRedesignInput extends EditorDraftContext {
+export interface CreateDraftFromImageInput extends EditorDraftContext {
   imageBlob: Blob
 }
 
@@ -182,7 +182,14 @@ export const useEditorStore = defineStore('editor', () => {
     return createDraft(input, 'wizard', images)
   }
 
-  function createDraftFromOrderRedesign(input: CreateDraftFromOrderRedesignInput): EditorDraft {
+  /** The wizard's skipped style step: the uploaded photo itself goes into the editor. */
+  function createDraftFromOriginalImage(input: CreateDraftFromImageInput): EditorDraft {
+    assertDraftContext(input)
+
+    return createDraft(input, 'wizard', [createEditorImage(input.imageBlob)])
+  }
+
+  function createDraftFromOrderRedesign(input: CreateDraftFromImageInput): EditorDraft {
     assertDraftContext(input)
 
     return createDraft(input, 'order-redesign', [createEditorImage(input.imageBlob)])
@@ -304,6 +311,7 @@ export const useEditorStore = defineStore('editor', () => {
     currentImage,
     createDraftFromProduct,
     createDraftFromGeneratedImages,
+    createDraftFromOriginalImage,
     createDraftFromOrderRedesign,
     ensureDevDraft,
     selectDraft,

@@ -896,7 +896,6 @@
   },
   "editor": {
     "title": "Editor",
-    "openDraftError": "Could not open your design",
     "imageAlt": "Your design",
     "closePanel": "Close panel",
     "tools": {
@@ -1107,7 +1106,9 @@
         "selected": "Selected",
         "error": "Failed to load styles",
         "retry": "Try again",
-        "empty": "No styles in this category"
+        "empty": "No styles in this category",
+        "skip": "Continue without a style",
+        "skipHint": "Your original photo goes straight to the editor."
       },
       "uploadImage": {
         "label": "Upload Image",

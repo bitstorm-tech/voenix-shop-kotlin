@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProductOverviewView from '@/views/shop/ProductOverviewView.vue'
-import { useEditorStore } from '@/stores/shop/editor'
+import { useWizardStore } from '@/stores/shop/wizard'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCatalogStore, type MugDto } from '@/stores/shop/catalog'
 import { createMugVariant, createShopMug, createShopTee } from '@/testing/shopCatalog'
@@ -50,7 +50,7 @@ function createProductRouter(): Router {
     routes: [
       { path: '/', name: 'home', component: { template: '<div />' } },
       { path: '/products', name: 'products', component: ProductOverviewView },
-      { path: '/editor/:draftId?', name: 'editor', component: { template: '<div />' } },
+      { path: '/wizard', name: 'wizard', component: { template: '<div />' } },
     ],
   })
 }
@@ -82,23 +82,15 @@ async function mountProductOverview(router: Router, initialRoute = '/products') 
 }
 
 describe('ProductOverviewView', () => {
-  let nextUuid = 1
-
   beforeEach(() => {
     setActivePinia(createPinia())
-    nextUuid = 1
-
-    vi.stubGlobal('crypto', {
-      randomUUID: () => `editor-draft-${nextUuid++}`,
-    })
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('creates a product editor draft and navigates to the editor without wizard query links', async () => {
+  it('starts the upload-first wizard with the chosen article and variant', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeMug()]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
@@ -106,28 +98,18 @@ describe('ProductOverviewView', () => {
     const router = createProductRouter()
     const wrapper = await mountProductOverview(router)
 
-    expect(wrapper.html()).not.toContain('/wizard?mug=')
-    expect(wrapper.html()).not.toContain('/wizard?variant=')
-
     await wrapper.get('[data-testid="product-open-editor"]').trigger('click')
     await flushPromises()
 
-    const editorStore = useEditorStore()
-    const draft = editorStore.drafts[0]
-
-    expect(draft).toMatchObject({
-      id: 'editor-draft-1',
-      source: 'product',
-      articleId: 10,
-      variantId: 102,
-      images: [],
-      selectedImageId: null,
-    })
-    expect(router.currentRoute.value.name).toBe('editor')
-    expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
+    const wizardStore = useWizardStore()
+    expect(wizardStore.selectedArticleType).toBe('MUG')
+    expect(wizardStore.selectedArticleId).toBe(10)
+    expect(wizardStore.selectedVariantId).toBe(102)
+    expect(router.currentRoute.value.name).toBe('wizard')
+    expect(router.currentRoute.value.query).toEqual({ start: 'upload' })
   })
 
-  it('does not open the editor for mugs without variants', async () => {
+  it('does not start the wizard for mugs without variants', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeMug({ variants: [] })]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
@@ -138,7 +120,7 @@ describe('ProductOverviewView', () => {
 
     expect(openButton.attributes('disabled')).toBeDefined()
     expect(openButton.text()).toContain('productOverview.unavailable')
-    expect(useEditorStore().drafts).toHaveLength(0)
+    expect(useWizardStore().hasSelectedArticle).toBe(false)
     expect(router.currentRoute.value.name).toBe('products')
   })
 

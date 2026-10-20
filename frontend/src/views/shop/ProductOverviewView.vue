@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   useRoute,
   useRouter,
@@ -16,13 +16,12 @@ import {
   type ShopArticleVariant,
 } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useEditorStore } from '@/stores/shop/editor'
+import { useWizardStore } from '@/stores/shop/wizard'
 import { Button } from '@/components/ui/button'
 import ProductCard from '@/components/shop/ProductCard.vue'
 import MugCategoryFilter from '@/components/shop/mugs/MugCategoryFilter.vue'
 import MugGridSkeleton from '@/components/shop/mugs/MugGridSkeleton.vue'
 import MugOverviewHero from '@/components/shop/mugs/MugOverviewHero.vue'
-import { useToast } from '@/composables/useToast'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
 
 interface ProductCategoryFilterItem {
@@ -38,8 +37,7 @@ const route = useRoute()
 const router = useRouter()
 const catalogStore = useCatalogStore()
 const categoriesStore = useArticleCategoriesStore()
-const editorStore = useEditorStore()
-const { toast } = useToast()
+const wizardStore = useWizardStore()
 
 function parseRouteNumberParam(value?: LocationQueryValue | LocationQueryValue[]) {
   const rawValue = Array.isArray(value) ? value[0] : value
@@ -195,7 +193,6 @@ const resultLabel = computed(() => {
 
 // Track selected variant per article
 const selectedVariants = ref<Record<number, number>>({})
-const openingArticleId = shallowRef<number | null>(null)
 
 function getSelectedVariant(article: ShopArticle): ShopArticleVariant | null {
   return resolveDisplayVariant(article, article.id, selectedVariants.value[article.id] ?? null)
@@ -209,35 +206,16 @@ function retryArticles() {
   void catalogStore.fetchArticles()
 }
 
-async function openProductDraft(article: ShopArticle) {
-  if (openingArticleId.value !== null) return
-
+/**
+ * An article starts the same upload-first wizard as the landing page, with the article and its
+ * variant already chosen, so the wizard drops its article step.
+ */
+function openProductWizard(article: ShopArticle) {
   const variant = getSelectedVariant(article)
-  if (!variant) {
-    toast({
-      title: t('productOverview.unavailable'),
-      variant: 'destructive',
-    })
-    return
-  }
+  if (!variant) return
 
-  openingArticleId.value = article.id
-
-  try {
-    const draft = editorStore.createDraftFromProduct({
-      articleId: article.id,
-      variantId: variant.id,
-    })
-
-    await router.push({ name: 'editor', params: { draftId: draft.id } })
-  } catch (error) {
-    toast({
-      title: error instanceof Error ? error.message : t('editor.openDraftError'),
-      variant: 'destructive',
-    })
-  } finally {
-    openingArticleId.value = null
-  }
+  wizardStore.selectArticle(article.articleType, article.id, variant.id)
+  void router.push({ name: 'wizard', query: { start: 'upload' } })
 }
 </script>
 
@@ -309,9 +287,9 @@ async function openProductDraft(article: ShopArticle) {
             class="w-full"
             variant="default"
             size="lg"
-            :disabled="openingArticleId !== null || !getSelectedVariant(article)"
+            :disabled="!getSelectedVariant(article)"
             data-testid="product-open-editor"
-            @click.stop="openProductDraft(article)"
+            @click.stop="openProductWizard(article)"
           >
             {{
               getSelectedVariant(article)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { shallowRef, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, Paintbrush, RefreshCw } from 'lucide-vue-next'
+import { Check, ImageIcon, Paintbrush, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { SelectableCard } from '@/components/ui/selectable-card'
@@ -9,6 +9,11 @@ import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { useWizardStore } from '@/stores/shop/wizard'
 import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
+
+const emit = defineEmits<{
+  /** The customer goes on without a style: no generation, the original photo is the design. */
+  skip: []
+}>()
 
 const { t } = useI18n()
 const wizard = useWizardStore()
@@ -66,6 +71,18 @@ onMounted(async () => {
 <template>
   <div class="wizard-step-enter pb-2">
     <h2 class="sr-only">{{ t('configurator.steps.selectStyle.title') }}</h2>
+
+    <div
+      class="mt-6 flex flex-col gap-3 rounded-xl border-[1.5px] border-dashed border-border bg-surface-empty p-4 sm:mt-8 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p class="text-sm text-muted-foreground">
+        {{ t('configurator.steps.selectStyle.skipHint') }}
+      </p>
+      <Button variant="outline" class="shrink-0" data-testid="skip-style" @click="emit('skip')">
+        <ImageIcon class="h-4 w-4" />
+        {{ t('configurator.steps.selectStyle.skip') }}
+      </Button>
+    </div>
 
     <!-- Category filters -->
     <div

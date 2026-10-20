@@ -134,7 +134,9 @@ const defaultStubs = {
   },
   SelectStyleStep: {
     name: 'SelectStyleStep',
-    template: '<section data-testid="select-style-step" />',
+    emits: ['skip'],
+    template:
+      '<section data-testid="select-style-step"><button data-testid="skip-style" @click="$emit(\'skip\')">skip</button></section>',
   },
   UploadImageStep: {
     name: 'UploadImageStep',
@@ -416,6 +418,61 @@ describe('WizardView', () => {
     expect(draft?.images.map((image) => image.blob)).toEqual([firstImage.blob, secondImage.blob])
     expect(router.currentRoute.value.name).toBe('editor')
     expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
+  })
+
+  it('opens the editor with the original photo when the style step is skipped', async () => {
+    const wizardStore = useWizardStore()
+    wizardStore.selectArticle('MUG', 1, 11)
+    const upload = new File(['upload'], 'upload.png', { type: 'image/png' })
+    wizardStore.uploadedFile = upload
+
+    const { router, wrapper } = await mountWizard('/wizard?start=upload')
+
+    expect(stepLabels(wrapper)).toEqual([
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.generate.label',
+    ])
+
+    await nextButton(wrapper).trigger('click')
+    await wrapper.get('[data-testid="skip-style"]').trigger('click')
+    await flushPromises()
+
+    const draft = useEditorStore().drafts[0]
+
+    expect(draft).toMatchObject({ source: 'wizard', articleId: 1, variantId: 11 })
+    expect(draft?.images.map((image) => image.blob)).toEqual([upload])
+    expect(useImageGenerationStore().generatedImages).toEqual([])
+    expect(router.currentRoute.value.name).toBe('editor')
+    expect(router.currentRoute.value.params.draftId).toBe(draft?.id)
+  })
+
+  it('drops the generate step after a skip and brings it back when a style is picked', async () => {
+    const wizardStore = useWizardStore()
+    wizardStore.selectArticle('MUG', 1, 11)
+
+    const { wrapper } = await mountWizard()
+
+    await wrapper.get('[data-testid="skip-style"]').trigger('click')
+    await nextTick()
+
+    expect(stepLabels(wrapper)).toEqual([
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.uploadImage.label',
+    ])
+    expect(wrapper.get('[data-testid="wizard-navigation"]').attributes()).toMatchObject({
+      'data-current-step': '2',
+      'data-is-last-step': 'true',
+    })
+
+    wizardStore.selectPrompt(7)
+    await nextTick()
+
+    expect(stepLabels(wrapper)).toEqual([
+      'configurator.steps.selectStyle.label',
+      'configurator.steps.uploadImage.label',
+      'configurator.steps.generate.label',
+    ])
   })
 
   it('does not treat mug and variant query params as wizard product context', async () => {

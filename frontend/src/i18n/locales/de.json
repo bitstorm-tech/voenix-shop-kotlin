@@ -896,7 +896,6 @@
   },
   "editor": {
     "title": "Editor",
-    "openDraftError": "Dein Design konnte nicht geöffnet werden",
     "imageAlt": "Dein Design",
     "closePanel": "Panel schließen",
     "tools": {
@@ -1107,7 +1106,9 @@
         "selected": "Ausgewählt",
         "error": "Stile konnten nicht geladen werden",
         "retry": "Erneut versuchen",
-        "empty": "Keine Stile in dieser Kategorie"
+        "empty": "Keine Stile in dieser Kategorie",
+        "skip": "Ohne Stil fortfahren",
+        "skipHint": "Dein Originalfoto geht direkt in den Editor."
       },
       "uploadImage": {
         "label": "Bild hochladen",

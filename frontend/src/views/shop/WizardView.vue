@@ -52,10 +52,20 @@ const currentStep = shallowRef(1)
 const isCreatingDraft = shallowRef(false)
 const isValidatingPromptQuery = shallowRef(requestedPromptId !== null)
 const hasValidPreselectedPrompt = shallowRef(false)
+/** The customer skipped the style step: nothing is generated, the original photo goes to the editor. */
+const usesOriginalImage = shallowRef(false)
 
 watch(currentStep, () => {
   window.scrollTo({ top: 0 })
 })
+
+// Picking a style after a skip brings the generation back.
+watch(
+  () => wizardStore.selectedPromptId,
+  (promptId) => {
+    if (promptId !== null) usesOriginalImage.value = false
+  },
+)
 
 interface StepDef {
   id: 'selectArticle' | 'selectStyle' | 'uploadImage' | 'generate'
@@ -74,7 +84,7 @@ const selectStyle: StepDef = {
   id: 'selectStyle',
   labelKey: 'configurator.steps.selectStyle.label',
   component: markRaw(SelectStyleStep),
-  canProceed: () => wizardStore.hasSelectedPrompt,
+  canProceed: () => wizardStore.hasSelectedPrompt || usesOriginalImage.value,
 }
 const uploadImage: StepDef = {
   id: 'uploadImage',
@@ -111,6 +121,9 @@ const steps = computed<StepConfig[]>(() => {
   if (uploadFirst && hasValidPreselectedPrompt.value) {
     excludedSteps.add('selectStyle')
   }
+  if (usesOriginalImage.value) {
+    excludedSteps.add('generate')
+  }
   const orderedSteps = base.filter((step) => !excludedSteps.has(step.id))
   return orderedSteps.map((s, i) => ({ ...s, number: i + 1 }))
 })
@@ -120,6 +133,8 @@ const totalSteps = computed(() => steps.value.length)
 const stepIndicatorSteps = computed<Step[]>(() =>
   steps.value.map(({ number, labelKey }) => ({ number, label: t(labelKey) })),
 )
+
+const currentStepId = computed(() => steps.value[currentStep.value - 1]?.id)
 
 const currentStepComponent = computed(() => {
   const step = steps.value[currentStep.value - 1]
@@ -170,6 +185,12 @@ function goToStep(step: number) {
   }
 }
 
+function requireOriginalImage(): Blob {
+  const image = wizardStore.imageForGeneration
+  if (!image) throw new Error(t('configurator.nav.openEditorError'))
+  return image
+}
+
 async function openEditorDraft() {
   if (isCreatingDraft.value) return
   isCreatingDraft.value = true
@@ -179,11 +200,19 @@ async function openEditorDraft() {
       throw new Error(t('configurator.nav.openEditorError'))
     }
 
-    const draft = editorStore.createDraftFromGeneratedImages({
+    const context = {
       articleId: wizardStore.selectedArticleId,
       variantId: wizardStore.selectedVariantId,
-      images: imageGenerationStore.generatedImages,
-    })
+    }
+    const draft = usesOriginalImage.value
+      ? editorStore.createDraftFromOriginalImage({
+          ...context,
+          imageBlob: requireOriginalImage(),
+        })
+      : editorStore.createDraftFromGeneratedImages({
+          ...context,
+          images: imageGenerationStore.generatedImages,
+        })
 
     await router.push({ name: 'editor', params: { draftId: draft.id } })
   } catch (err) {
@@ -202,6 +231,14 @@ function nextStep() {
   } else {
     openEditorDraft()
   }
+}
+
+function skipStyle() {
+  wizardStore.clearPromptSelection()
+  usesOriginalImage.value = true
+  // The style step stays in place and the generate step drops out, so "next" either reaches the
+  // step after the style or, when the style was the last open question, opens the editor.
+  nextStep()
 }
 
 function prevStep() {
@@ -257,7 +294,8 @@ void validatePromptQuery()
     </div>
 
     <!-- Step Content -->
-    <component :is="currentStepComponent" />
+    <SelectStyleStep v-if="currentStepId === 'selectStyle'" @skip="skipStyle" />
+    <component :is="currentStepComponent" v-else />
 
     <!-- Spacer so floating button doesn't cover content on mobile -->
     <div class="h-20 md:hidden" />
