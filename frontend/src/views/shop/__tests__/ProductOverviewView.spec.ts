@@ -90,7 +90,7 @@ describe('ProductOverviewView', () => {
     vi.restoreAllMocks()
   })
 
-  it('starts the upload-first wizard with the chosen article and variant', async () => {
+  it('starts the wizard with the chosen article and variant', async () => {
     const catalogStore = useCatalogStore()
     catalogStore.articles = [makeMug()]
     vi.spyOn(catalogStore, 'fetchArticles').mockResolvedValue()
@@ -106,7 +106,7 @@ describe('ProductOverviewView', () => {
     expect(wizardStore.selectedArticleId).toBe(10)
     expect(wizardStore.selectedVariantId).toBe(102)
     expect(router.currentRoute.value.name).toBe('wizard')
-    expect(router.currentRoute.value.query).toEqual({ start: 'upload' })
+    expect(router.currentRoute.value.query).toEqual({})
   })
 
   it('does not start the wizard for mugs without variants', async () => {

@@ -207,15 +207,15 @@ function retryArticles() {
 }
 
 /**
- * An article starts the same upload-first wizard as the landing page, with the article and its
- * variant already chosen, so the wizard drops its article step.
+ * An article starts the wizard with the article and its variant already chosen, so the wizard
+ * opens behind its (still reachable) product step.
  */
 function openProductWizard(article: ShopArticle) {
   const variant = getSelectedVariant(article)
   if (!variant) return
 
   wizardStore.selectArticle(article.articleType, article.id, variant.id)
-  void router.push({ name: 'wizard', query: { start: 'upload' } })
+  void router.push({ name: 'wizard' })
 }
 </script>
 

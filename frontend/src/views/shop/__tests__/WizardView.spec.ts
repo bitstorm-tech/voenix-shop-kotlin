@@ -296,8 +296,9 @@ describe('WizardView', () => {
     expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)
     expect(stepLabels(wrapper)).toEqual([
-      'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
       'configurator.steps.uploadImage.label',
+      'configurator.steps.selectStyle.label',
       'configurator.steps.generate.label',
     ])
   })
@@ -373,19 +374,26 @@ describe('WizardView', () => {
     ])
   })
 
-  it('skips the product step when product context already exists in the wizard store', async () => {
+  it('starts behind the answered product step when an article is already chosen', async () => {
     const wizardStore = useWizardStore()
     wizardStore.selectArticle('MUG', 1, 11)
 
     const { wrapper } = await mountWizard()
 
     expect(stepLabels(wrapper)).toEqual([
-      'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
       'configurator.steps.uploadImage.label',
+      'configurator.steps.selectStyle.label',
       'configurator.steps.generate.label',
     ])
-    expect(wrapper.find('[data-testid="select-style-step"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="wizard-navigation"]').attributes('data-current-step')).toBe(
+      '2',
+    )
+    expect(wrapper.find('[data-testid="upload-image-step"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="wizard-back"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="select-article-step"]').exists()).toBe(true)
   })
 
   it('creates an editor draft from generated images and navigates to the editor on finish', async () => {
@@ -426,13 +434,7 @@ describe('WizardView', () => {
     const upload = new File(['upload'], 'upload.png', { type: 'image/png' })
     wizardStore.uploadedFile = upload
 
-    const { router, wrapper } = await mountWizard('/wizard?start=upload')
-
-    expect(stepLabels(wrapper)).toEqual([
-      'configurator.steps.uploadImage.label',
-      'configurator.steps.selectStyle.label',
-      'configurator.steps.generate.label',
-    ])
+    const { router, wrapper } = await mountWizard()
 
     await nextButton(wrapper).trigger('click')
     await wrapper.get('[data-testid="skip-style"]').trigger('click')
@@ -449,7 +451,6 @@ describe('WizardView', () => {
 
   it('drops the generate step after a skip and brings it back when a style is picked', async () => {
     const wizardStore = useWizardStore()
-    wizardStore.selectArticle('MUG', 1, 11)
 
     const { wrapper } = await mountWizard()
 
@@ -458,11 +459,12 @@ describe('WizardView', () => {
 
     expect(stepLabels(wrapper)).toEqual([
       'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
       'configurator.steps.uploadImage.label',
     ])
     expect(wrapper.get('[data-testid="wizard-navigation"]').attributes()).toMatchObject({
       'data-current-step': '2',
-      'data-is-last-step': 'true',
+      'data-is-last-step': 'false',
     })
 
     wizardStore.selectPrompt(7)
@@ -470,6 +472,7 @@ describe('WizardView', () => {
 
     expect(stepLabels(wrapper)).toEqual([
       'configurator.steps.selectStyle.label',
+      'configurator.steps.selectArticle.label',
       'configurator.steps.uploadImage.label',
       'configurator.steps.generate.label',
     ])

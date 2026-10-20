@@ -47,8 +47,12 @@ onBeforeUnmount(() => {
   imageGenerationStore.reset()
 })
 
-const includeProductStep = shallowRef(!wizardStore.hasSelectedArticle)
-const currentStep = shallowRef(1)
+/**
+ * An article chosen before the wizard opens (the product overview) keeps the product step first
+ * but answered: the wizard starts behind it, and the customer can still go back to change it.
+ */
+const startsWithChosenArticle = wizardStore.hasSelectedArticle
+const currentStep = shallowRef(startsWithChosenArticle ? 2 : 1)
 const isCreatingDraft = shallowRef(false)
 const isValidatingPromptQuery = shallowRef(requestedPromptId !== null)
 const hasValidPreselectedPrompt = shallowRef(false)
@@ -101,6 +105,7 @@ const generate: StepDef = {
 
 const styleFirstOrder: StepDef[] = [selectStyle, selectArticle, uploadImage, generate]
 const uploadFirstOrder: StepDef[] = [uploadImage, selectArticle, selectStyle, generate]
+const articleFirstOrder: StepDef[] = [selectArticle, uploadImage, selectStyle, generate]
 
 interface StepConfig {
   number: number
@@ -112,11 +117,12 @@ interface StepConfig {
 
 const steps = computed<StepConfig[]>(() => {
   const uploadFirst = route.query.start === 'upload'
-  const base = uploadFirst ? uploadFirstOrder : styleFirstOrder
+  const base = startsWithChosenArticle
+    ? articleFirstOrder
+    : uploadFirst
+      ? uploadFirstOrder
+      : styleFirstOrder
   const excludedSteps = new Set<StepDef['id']>()
-  if (!includeProductStep.value) {
-    excludedSteps.add('selectArticle')
-  }
   // Campaign links fix the style up front; the visitor only uploads and generates.
   if (uploadFirst && hasValidPreselectedPrompt.value) {
     excludedSteps.add('selectStyle')
