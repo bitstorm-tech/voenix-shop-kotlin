@@ -24,7 +24,7 @@ import type { PlaceOrderResult } from './service'
 export const WEBHOOK_SECRET = 'webhook-secret-0123456789'
 export const MOLLIE_SETTINGS = {
   apiKey: 'test_mollie_key',
-  redirectUrl: 'https://voenix.test/checkout/success',
+  redirectUrl: 'https://voenix.test/order-confirmation',
   webhookUrl: `https://voenix.test/api/payments/webhook/${WEBHOOK_SECRET}`,
   webhookSecret: WEBHOOK_SECRET,
 } satisfies Settings['mollie']

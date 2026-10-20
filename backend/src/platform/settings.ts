@@ -18,7 +18,6 @@ const requiredUntrimmed = z
 const optional = z.string().trim().default('')
 const booleanText = z.enum(['true', 'false']).transform((value) => value === 'true')
 const integerText = z.string().regex(/^\d+$/, 'must be a whole number').transform(Number)
-const absoluteHttpUrl = (value: string) => /^https?:\/\//.test(value)
 const noControlCharacters = (value: string) => !/[\p{Cc}]/u.test(value)
 
 const schema = z
@@ -70,7 +69,6 @@ const schema = z
     GENERATOR_API_KEY: optional,
 
     MOLLIE_API_KEY: required,
-    MOLLIE_REDIRECT_URL: required.refine(absoluteHttpUrl, 'must be an absolute HTTP(S) URL'),
     MOLLIE_WEBHOOK_URL: required.refine(
       (value) => value.startsWith('https://'),
       'must be an absolute HTTPS URL',
@@ -169,7 +167,8 @@ export function loadSettings(env: Record<string, string | undefined>) {
     generator: { dummyMode: v.GENERATOR_DUMMY_MODE, apiKey: v.GENERATOR_API_KEY },
     mollie: {
       apiKey: v.MOLLIE_API_KEY,
-      redirectUrl: v.MOLLIE_REDIRECT_URL,
+      /** Where Mollie sends the customer back: the confirmation page of the order they paid for. */
+      redirectUrl: `${v.FRONTEND_BASE_URL}/order-confirmation`,
       webhookUrl: v.MOLLIE_WEBHOOK_URL,
       webhookSecret: v.MOLLIE_WEBHOOK_SECRET,
     },

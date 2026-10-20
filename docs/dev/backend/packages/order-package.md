@@ -604,8 +604,10 @@ The request shape:
 - `amount.value` is built from integer cents with string arithmetic
   (`4070` → `"40.70"`), never from a float;
 - `description` `Order #42`, `metadata` `{ "orderId": 42 }`, the
-  `webhookUrl`, and the `redirectUrl` with `orderId` appended through `URL`, so
-  a configured URL that already has a query keeps it;
+  `webhookUrl`, and the `redirectUrl` with `orderId` appended through `URL`; the
+  settings derive it as `{FRONTEND_BASE_URL}/order-confirmation`, the page that
+  reads the paid order back (the checkout page would bounce the now empty cart
+  to `/cart`);
 - both addresses with `streetAndNumber` joined from the two stored fields, the
   order's e-mail, and the phone in E.164 through `libphonenumber-js` (a number
   with `+` carries its country, one without is read in the address's country);

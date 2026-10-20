@@ -10,7 +10,6 @@ const development = {
   FRONTEND_BASE_URL: 'http://localhost:5173',
   GENERATOR_DUMMY_MODE: 'true',
   MOLLIE_API_KEY: 'test_development-placeholder',
-  MOLLIE_REDIRECT_URL: 'http://localhost:5173/checkout',
   MOLLIE_WEBHOOK_URL: 'https://localhost/api/payments/webhook/development-webhook-secret',
   MOLLIE_WEBHOOK_SECRET: 'development-webhook-secret',
 }
@@ -39,6 +38,7 @@ describe('loadSettings', () => {
       maximumPoolSize: 100,
     })
     expect(settings.frontend).toEqual({ baseUrl: 'http://localhost:5173', distPath: null })
+    expect(settings.mollie.redirectUrl).toBe('http://localhost:5173/order-confirmation')
     expect(settings.email.enabled).toBe(false)
     expect(settings.email.pollIntervalMinutes).toBe(5)
     expect(settings.email.fromName).toBe('Voenix Shop')

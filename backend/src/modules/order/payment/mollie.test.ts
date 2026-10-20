@@ -68,7 +68,7 @@ describe('create', () => {
     expect(JSON.parse(request?.init.body as string)).toEqual({
       amount: { currency: 'EUR', value: '40.70' },
       description: 'Order #42',
-      redirectUrl: 'https://voenix.test/checkout/success?orderId=42',
+      redirectUrl: 'https://voenix.test/order-confirmation?orderId=42',
       webhookUrl: MOLLIE_SETTINGS.webhookUrl,
       billingAddress: {
         givenName: 'Max',

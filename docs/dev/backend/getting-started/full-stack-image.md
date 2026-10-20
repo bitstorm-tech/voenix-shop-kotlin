@@ -94,10 +94,10 @@ to a development value. The image needs:
 | --- | --- |
 | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | the PostgreSQL connection; `DATABASE_SSL_MODE=require` for a managed database |
 | `AUTH_SESSION_SECRET` | at least 32 bytes |
-| `FRONTEND_BASE_URL` | the public HTTPS address of the service; every mailed link points back to it |
+| `FRONTEND_BASE_URL` | the public HTTPS address of the service; every mailed link and the Mollie return to `/order-confirmation` point back to it |
 | `EMAIL_ENABLED` and, when `true`, `EMAIL_API_KEY` and `EMAIL_FROM_EMAIL` | mail delivery |
 | `GENERATOR_DUMMY_MODE` and, when `false`, `GENERATOR_API_KEY` | image generation |
-| `MOLLIE_API_KEY`, `MOLLIE_REDIRECT_URL`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | payments; a test system uses a `test_` key |
+| `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | payments; a test system uses a `test_` key |
 | `OPERATIONS_ALERT_EMAIL` | the mailbox for the operations alert and the SPOD ops alert; unset, the findings are only logged |
 | `PRODUCTION_SPOD_WEBHOOK_SECRET` | required once a SPOD destination exists, and then `OPERATIONS_ALERT_EMAIL` too |
 | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `true` behind exactly one trusted reverse proxy, see [Rate limiting](../conventions/rate-limiting.md) |
@@ -119,7 +119,6 @@ docker run --rm -p 8080:8080 \
   -e EMAIL_ENABLED=false \
   -e GENERATOR_DUMMY_MODE=true \
   -e MOLLIE_API_KEY=test_… \
-  -e MOLLIE_REDIRECT_URL=http://localhost:8080/checkout \
   -e MOLLIE_WEBHOOK_URL=https://…/api/payments/webhook/… \
   -e MOLLIE_WEBHOOK_SECRET=… \
   voenix-shop

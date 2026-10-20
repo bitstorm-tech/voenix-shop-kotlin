@@ -227,14 +227,14 @@ PORT=9090 bun run dev
 | `DATABASE_SSL_MODE` | `disable` | `disable`, `require`, `verify-ca`, or `verify-full` |
 | `DATABASE_MAXIMUM_POOL_SIZE` | `100` | connections in the pool |
 | `AUTH_SESSION_SECRET` | required | at least 32 UTF-8 bytes; derives every cookie key |
-| `FRONTEND_BASE_URL` | `http://localhost:5173` | where every mailed link points; HTTPS outside local hosts |
+| `FRONTEND_BASE_URL` | `http://localhost:5173` | where every mailed link and the Mollie return to `/order-confirmation` point; HTTPS outside local hosts |
 | `FRONTEND_DIST_PATH` | unset | the built frontend to serve; see [the full-stack image](full-stack-image.md) |
 | `EMAIL_ENABLED`, `EMAIL_POLL_INTERVAL_MINUTES`, `EMAIL_API_KEY`, `EMAIL_FROM_EMAIL`, `EMAIL_FROM_NAME` | `false`, `5`, unset, unset, `Voenix Shop` | live delivery needs the key and the sender |
 | `PRODUCTION_ARTIFACT_ROOT` | `./data/production/artifacts` | where production PDFs are stored |
 | `PRODUCTION_SPOD_WEBHOOK_SECRET` | unset | the secret needs 32 characters; set, it requires `OPERATIONS_ALERT_EMAIL` |
 | `OPERATIONS_ALERT_EMAIL` | unset | where the operations alert and the SPOD ops alert go; unset, the findings are only logged |
 | `GENERATOR_DUMMY_MODE`, `GENERATOR_API_KEY` | `false`, unset | not in dummy mode, the key is required |
-| `MOLLIE_API_KEY`, `MOLLIE_REDIRECT_URL`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | required | the webhook URL must be HTTPS and end in the secret (16 characters or more) |
+| `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | required | the webhook URL must be HTTPS and end in the secret (16 characters or more) |
 | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | see [Rate limiting](../conventions/rate-limiting.md) |
 | `IMAGE_PUBLIC_ROOT`, `IMAGE_PRIVATE_ROOT`, `IMAGE_CACHE_ROOT` | `./data/images/{public,private,cache}` | three non-overlapping directories |
 

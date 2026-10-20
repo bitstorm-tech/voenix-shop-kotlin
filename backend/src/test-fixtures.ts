@@ -35,7 +35,6 @@ export function composedSettings(
     AUTH_SESSION_SECRET: TEST_SESSION_SECRET,
     GENERATOR_DUMMY_MODE: 'true',
     MOLLIE_API_KEY: 'test_composed_mollie_key',
-    MOLLIE_REDIRECT_URL: 'https://voenix.test/checkout/success',
     MOLLIE_WEBHOOK_URL: `https://voenix.test/api/payments/webhook/${WEBHOOK_SECRET}`,
     MOLLIE_WEBHOOK_SECRET: WEBHOOK_SECRET,
     PRODUCTION_ARTIFACT_ROOT: join(root, 'artifacts'),
