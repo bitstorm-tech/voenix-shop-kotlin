@@ -98,7 +98,8 @@ describe('shop router navigation', () => {
     expect(router.currentRoute.value.params.token).toBe('Tok3n-with_chars')
   })
 
-  it('remembers a campaign landing page as the session home for the header logo', async () => {
+  it('makes a campaign landing page the header logo home when the visit starts there', async () => {
+    vi.resetModules()
     const { default: router } = await import('@/router')
     const { useCampaignStore } = await import('@/stores/shop/campaign')
 
@@ -109,6 +110,18 @@ describe('shop router navigation', () => {
 
     expect(campaignStore.homePath).toBe('/royal-dog')
     expect(sessionStorage.getItem('voenix.campaign-home')).toBe('/royal-dog')
+  })
+
+  it('keeps the default home when the visitor opens a campaign page from inside the shop', async () => {
+    vi.resetModules()
+    const { default: router } = await import('@/router')
+    const { useCampaignStore } = await import('@/stores/shop/campaign')
+
+    await router.push('/order/Tok3n-with_chars')
+    await router.push('/royal-dog')
+
+    expect(useCampaignStore().homePath).toBe('/')
+    expect(sessionStorage.getItem('voenix.campaign-home')).toBeNull()
   })
 
   it('still sends the same anonymous visitor from the order history to the login page', async () => {

@@ -51,13 +51,16 @@ logo in the header brings them back to the campaign page, not to the default sho
 This works through a route flag and a small Pinia store:
 
 - Campaign routes carry `meta: { campaignLanding: true }` in `frontend/src/router/shop.ts`.
-- A router hook in `frontend/src/router/index.ts` sees that flag after each navigation and stores
-  the page's path in the campaign store (`frontend/src/stores/shop/campaign.ts`).
+- A router hook in `frontend/src/router/index.ts` looks at the entry page of each page load (the
+  first navigation after `START_LOCATION`). If that page carries the flag, its path goes into the
+  campaign store (`frontend/src/stores/shop/campaign.ts`); otherwise the store falls back to `/`.
+  A visitor who enters on `/` and later opens a campaign page from inside the shop keeps `/` as
+  the logo target, because only the entry page decides.
 - The header logo (`frontend/src/components/shop/Header.vue`) links to the stored path, which
   defaults to `/` for everyone else.
 
-The path is kept in `sessionStorage`, so a page reload keeps the campaign home while a new tab
-starts fresh. New campaign pages get this behavior by setting the meta flag, nothing else.
+The path is kept in `sessionStorage`, so a page reload (navigation type `reload`) keeps the
+campaign home while a new tab, or a fresh entry on a regular page in the same tab, starts on `/`. New campaign pages get this behavior by setting the meta flag, nothing else.
 
 ## Wizard deep links
 

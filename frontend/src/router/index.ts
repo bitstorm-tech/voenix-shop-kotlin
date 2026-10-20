@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { START_LOCATION, createRouter, createWebHistory } from 'vue-router'
 import { adminRoutes } from './admin'
 import { authRoutes } from './auth'
 import { shopRoutes } from './shop'
@@ -12,7 +12,7 @@ declare module 'vue-router' {
     title?: string
     hideFooter?: boolean
     wideContent?: boolean
-    /** Marks a campaign landing page; visiting it makes the page the header logo's home. */
+    /** Marks a campaign landing page; entering the shop on it makes it the header logo's home. */
     campaignLanding?: boolean
   }
 }
@@ -66,10 +66,10 @@ router.beforeEach(async (to) => {
   }
 })
 
-// A visitor coming in through a campaign landing page keeps it as their home for this visit.
-router.afterEach((to) => {
-  if (to.meta.campaignLanding) {
-    useCampaignStore().rememberLanding(to.path)
+// Only the entry page of a visit decides whether the header logo leads to a campaign landing page.
+router.afterEach((to, from) => {
+  if (from === START_LOCATION) {
+    useCampaignStore().startVisit(to.meta.campaignLanding ? to.path : null)
   }
 })
 

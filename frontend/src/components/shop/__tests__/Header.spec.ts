@@ -118,7 +118,7 @@ describe('Header', () => {
   })
 
   it('links the logo to the campaign landing page the visitor entered on', () => {
-    useCampaignStore().rememberLanding('/royal-dog')
+    useCampaignStore().startVisit('/royal-dog')
 
     const wrapper = mountHeader()
 
