@@ -61,8 +61,26 @@ export const spodCatalogPage = z.object({
   count: z.number().int().nullable().default(null),
 })
 
-/** The size chart of a product type, in the one field this shop stores. */
-export const spodSizeChart = z.object({ sizeImageUrl: z.string().nullable().default(null) })
+const spodSizeChartMeasurement = z.object({
+  name: z.string().default(''),
+  valueMm: z.number().default(0),
+})
+
+const spodSizeChartSize = z.object({
+  sizeId: productId.default(0),
+  name: z.string().default(''),
+  measurements: z.array(spodSizeChartMeasurement).default([]),
+})
+
+/**
+ * The size chart of a product type: its picture, and per size the value of each letter of the
+ * picture in millimetres. The letters are never named; only the picture shows what they measure.
+ * Garbled `sizes` read as none, so they never cost the picture.
+ */
+export const spodSizeChart = z.object({
+  sizeImageUrl: z.string().nullable().default(null),
+  sizes: z.array(spodSizeChartSize).catch([]),
+})
 
 export type SpodCatalogPage = z.output<typeof spodCatalogPage>
 export type SpodCatalogArticle = z.output<typeof spodCatalogArticle>

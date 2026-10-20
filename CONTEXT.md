@@ -48,11 +48,11 @@ It comes into being when a **sync run** reads the merchant's Spreadconnect
 backoffice for one production destination, and it has two owners for life. The
 backoffice owns the product — name, descriptions, the product type and its
 name, the colours, the sizes, the SKUs and the three partner ids, the listing
-images and the mockup image per colour, the size chart, and the print frame
-with its **hotspot**, which every run measures (**calibration**) — and every run
-overwrites that half. The shop owns what the shop decides — `active`, category
-and subcategory, display position, price, default variant — and no run ever
-touches it. A run never activates an article; one it could not calibrate, and
+images and the mockup image per colour, the size chart and its measurements,
+and the print frame with its **hotspot**, which every run measures
+(**calibration**) — and every run overwrites that half. The shop owns what the
+shop decides — `active`, category and subcategory, display position, price,
+default variant — and no run ever touches it. A run never activates an article; one it could not calibrate, and
 one the backoffice stopped listing, is deactivated, never deleted. An article
 that is missing at Spreadconnect is marked so and comes back inactive. Its
 identity is (destination, environment, backoffice article id), and a variant's

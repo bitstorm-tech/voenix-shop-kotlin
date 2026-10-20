@@ -3,7 +3,13 @@ import type { CalculatedPrice, PriceCatalog } from '@/modules/pricing'
 import { read, type Tables } from '@/platform/db/database'
 import { spodVariantName } from './catalog'
 import { mugDetailsOf, type MugDetails } from './mug/repository'
-import { appearancePictures, printFrameOf, type PrintFrame } from './spod-article/repository'
+import {
+  appearancePictures,
+  printFrameOf,
+  sizeMeasurements,
+  type PrintFrame,
+  type SpodSizeMeasurements,
+} from './spod-article/repository'
 import './schema'
 
 type Trx = Transaction<Tables>
@@ -54,6 +60,8 @@ export interface PublicSpodArticle {
   regularPrice: number | null
   productTypeName: string
   sizeChartImageFilename: string | null
+  /** Only the sizes of active variants. */
+  sizeMeasurements: SpodSizeMeasurements[]
   printFrame: PrintFrame
   appearances: PublicSpodAppearance[]
   variants: PublicSpodVariant[]
@@ -196,14 +204,19 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
      * colour, then by id) and the colours those variants belong to.
      */
     spodArticles: async (): Promise<PublicSpodArticle[]> => {
-      const { articles, variants, pictures } = await read(db, async (trx) => {
+      const { articles, variants, pictures, measurements } = await read(db, async (trx) => {
         const articles = await visibleSpodArticles(trx)
           .selectAll('a')
           .orderBy('a.position')
           .orderBy('a.id')
           .execute()
         if (articles.length === 0) {
-          return { articles, variants: [], pictures: await appearancePictures(trx, []) }
+          return {
+            articles,
+            variants: [],
+            pictures: await appearancePictures(trx, []),
+            measurements: await sizeMeasurements(trx, [], true),
+          }
         }
         const variants = await trx
           .selectFrom('article_spod_variants as v')
@@ -230,7 +243,12 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
         const pictures = await appearancePictures(trx, [
           ...new Set(variants.map((variant) => variant.appearance_id)),
         ])
-        return { articles, variants, pictures }
+        const measurements = await sizeMeasurements(
+          trx,
+          articles.map((article) => article.id),
+          true,
+        )
+        return { articles, variants, pictures, measurements }
       })
       const priceOf = await amounts(articles.flatMap((article) => article.price_id ?? []))
       return articles.map((article) => {
@@ -257,6 +275,7 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
           ...priceOf(article.price_id, article.id),
           productTypeName: article.spod_product_type_name,
           sizeChartImageFilename: article.size_chart_image_filename,
+          sizeMeasurements: measurements.get(article.id) ?? [],
           printFrame,
           appearances: appearanceIds.map((appearanceId) => {
             const variant = own.find((candidate) => candidate.appearance_id === appearanceId)

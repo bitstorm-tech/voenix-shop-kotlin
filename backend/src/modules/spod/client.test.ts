@@ -508,11 +508,71 @@ describe('the catalog calls', () => {
 
     expect(await spod.client.sizeChart(access(), 812)).toEqual({
       kind: 'answered',
-      value: { sizeImageUrl: 'https://image.cdn.example/chart.png' },
+      value: { sizeImageUrl: 'https://image.cdn.example/chart.png', sizes: [] },
     })
     expect(spod.request().method).toBe('GET')
     expect(spod.request().url).toBe('https://rest.spod-staging.com/productTypes/812/size-chart')
     expect(spod.request().headers.get('X-SPOD-ACCESS-TOKEN')).toBe(ACCESS_TOKEN)
+  })
+
+  /** The staging answer of product type 812, cut to two sizes; the inch values are not read. */
+  test('the size chart reads its sizes with quoted ids and every letter in millimetres', async () => {
+    const spod = harness(() =>
+      jsonAnswer(
+        `{"sizeImageUrl":"https://image.cdn.example/chart.png","sizes":[
+          {"sizeId":"1","name":"XS","measurements":[
+            {"name":"A","valueMm":700.0,"valueInch":27.56},
+            {"name":"B","valueMm":480.0,"valueInch":18.9}]},
+          {"sizeId":2,"name":"S","measurements":[{"name":"A","valueMm":720.5}]}]}`,
+      ),
+    )
+
+    expect(await spod.client.sizeChart(access(), 812)).toEqual({
+      kind: 'answered',
+      value: {
+        sizeImageUrl: 'https://image.cdn.example/chart.png',
+        sizes: [
+          {
+            sizeId: 1,
+            name: 'XS',
+            measurements: [
+              { name: 'A', valueMm: 700 },
+              { name: 'B', valueMm: 480 },
+            ],
+          },
+          { sizeId: 2, name: 'S', measurements: [{ name: 'A', valueMm: 720.5 }] },
+        ],
+      },
+    })
+  })
+
+  test('sparse sizes read with defaults, and garbled sizes as none without costing the picture', async () => {
+    const sparse = harness(() => jsonAnswer('{"sizes":[{"measurements":[{}]},{}]}'))
+    const garbled = harness(() =>
+      jsonAnswer('{"sizeImageUrl":"https://image.cdn.example/chart.png","sizes":"none"}'),
+    )
+    const garbledEntry = harness(() =>
+      jsonAnswer('{"sizeImageUrl":null,"sizes":[{"sizeId":"one","measurements":[]}]}'),
+    )
+
+    expect(await sparse.client.sizeChart(access(), 812)).toEqual({
+      kind: 'answered',
+      value: {
+        sizeImageUrl: null,
+        sizes: [
+          { sizeId: 0, name: '', measurements: [{ name: '', valueMm: 0 }] },
+          { sizeId: 0, name: '', measurements: [] },
+        ],
+      },
+    })
+    expect(await garbled.client.sizeChart(access(), 812)).toEqual({
+      kind: 'answered',
+      value: { sizeImageUrl: 'https://image.cdn.example/chart.png', sizes: [] },
+    })
+    expect(await garbledEntry.client.sizeChart(access(), 812)).toEqual({
+      kind: 'answered',
+      value: { sizeImageUrl: null, sizes: [] },
+    })
   })
 })
 

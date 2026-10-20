@@ -54,6 +54,15 @@ export interface SpodVariant {
   active: boolean
 }
 
+/**
+ * The measurements of one size, in millimetres, by the letter of the size chart picture. `size` is
+ * the size label of the variants; the letters are ordered by name.
+ */
+export interface SpodSizeMeasurements {
+  size: string
+  measurements: { name: string; valueMm: number }[]
+}
+
 /** Where a SPOD article comes from and what the last sync run saw. */
 export interface SpodArticleSync {
   spodArticleId: string
@@ -75,6 +84,7 @@ export interface SpodArticle {
   supplierId: number
   productTypeName: string
   sizeChartImageFilename: string | null
+  sizeMeasurements: SpodSizeMeasurements[]
   printFrame: PrintFrame | null
   hotspot: string | null
   appearances: SpodAppearance[]
@@ -272,6 +282,54 @@ export async function appearancePictures(
 }
 
 /**
+ * The measurements of each of `articleIds`, one entry per size that has any, keyed by article id.
+ * A size is labelled by its variant with the lowest id; `activeOnly` keeps the sizes of active
+ * variants only. An article without measurements is absent.
+ */
+export async function sizeMeasurements(
+  trx: Trx,
+  articleIds: readonly number[],
+  activeOnly: boolean,
+): Promise<Map<number, SpodSizeMeasurements[]>> {
+  const result = new Map<number, SpodSizeMeasurements[]>()
+  if (articleIds.length === 0) return result
+  const variants = await trx
+    .selectFrom('article_spod_variants')
+    .select(['article_id', 'spod_size_id', 'size_label'])
+    .where('article_id', 'in', articleIds)
+    .$if(activeOnly, (query) => query.where('active', '=', true))
+    .orderBy('id')
+    .execute()
+  const labels = new Map<string, string>()
+  for (const variant of variants) {
+    const key = `${String(variant.article_id)}/${String(variant.spod_size_id)}`
+    if (!labels.has(key)) labels.set(key, variant.size_label)
+  }
+  const rows = await trx
+    .selectFrom('article_spod_size_measurements')
+    .selectAll()
+    .where('article_id', 'in', articleIds)
+    .orderBy('name')
+    .execute()
+  const entries = new Map<string, SpodSizeMeasurements>()
+  for (const row of rows) {
+    const key = `${String(row.article_id)}/${String(row.spod_size_id)}`
+    const size = labels.get(key)
+    if (size === undefined) continue
+    let entry = entries.get(key)
+    if (entry === undefined) {
+      entry = { size, measurements: [] }
+      entries.set(key, entry)
+      const own = result.get(row.article_id) ?? []
+      own.push(entry)
+      result.set(row.article_id, own)
+    }
+    entry.measurements.push({ name: row.name, valueMm: Number(row.value_mm) })
+  }
+  return result
+}
+
+/**
  * The picture the shop shows each of `articleIds` with: the first listing image of its default
  * variant's colour. An article without a default variant is absent.
  */
@@ -399,6 +457,7 @@ async function findArticle(
       supplierId: row.supplier_id,
       productTypeName: row.spod_product_type_name,
       sizeChartImageFilename: row.size_chart_image_filename,
+      sizeMeasurements: (await sizeMeasurements(trx, [id], false)).get(id) ?? [],
       printFrame: printFrameOf({
         left: row.print_frame_left_pct,
         top: row.print_frame_top_pct,

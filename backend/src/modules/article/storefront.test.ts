@@ -208,6 +208,7 @@ describe('the storefront documents', () => {
         regularPrice: 1990,
         productTypeName: "Men's T-Shirt",
         sizeChartImageFilename: null,
+        sizeMeasurements: [],
         printFrame: { leftPct: 35.6, topPct: 18.9, widthPct: 28.4, heightPct: 28.4 },
         appearances: [
           {
@@ -231,6 +232,54 @@ describe('the storefront documents', () => {
     ])
     expect(text).not.toContain('MEDIUM_FRONT')
     expect(text).not.toContain('812')
+  })
+
+  test('a SPOD article answers the measurements of the sizes it sells, letters by name', async () => {
+    const shop = await insertCategory(database.db, 'Shop')
+    const { articleId, variantIds } = await insertSpodArticle(database.db, {
+      destinationId: destination,
+      supplierId: supplier,
+      colors: [
+        {
+          name: 'Black',
+          sizes: ['M', 'L', 'XL'],
+          listing: ['black.webp'],
+          mockup: 'black-mockup.webp',
+        },
+      ],
+      sizeMeasurements: [
+        { sizeId: 1, name: 'B', valueMm: 500 },
+        { sizeId: 1, name: 'A', valueMm: 720.5 },
+        { sizeId: 2, name: 'A', valueMm: 740 },
+        { sizeId: 3, name: 'A', valueMm: 760 },
+      ],
+    })
+    // XL is not for sale, so its measurements stay out of the shop.
+    await database.db
+      .updateTable('article_spod_variants')
+      .set({ active: false })
+      .where('id', '=', variantIds[2] ?? 0)
+      .execute()
+    const activated = await admin('PUT', `/api/admin/articles/spod/${String(articleId)}`, {
+      active: true,
+      categoryId: shop,
+      defaultVariantId: variantIds[0],
+      price: grossPrice(vat, 1990),
+    })
+    expect(activated.status).toBe(200)
+    const [article] = (await read('/api/articles/spod')) as {
+      sizeMeasurements: { size: string; measurements: unknown[] }[]
+    }[]
+    expect(article?.sizeMeasurements.toSorted((a, b) => a.size.localeCompare(b.size))).toEqual([
+      { size: 'L', measurements: [{ name: 'A', valueMm: 740 }] },
+      {
+        size: 'M',
+        measurements: [
+          { name: 'A', valueMm: 720.5 },
+          { name: 'B', valueMm: 500 },
+        ],
+      },
+    ])
   })
 
   test('an empty catalog answers empty arrays', async () => {

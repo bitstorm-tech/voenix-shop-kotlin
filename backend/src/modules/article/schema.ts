@@ -1,7 +1,7 @@
 import type { ColumnType, Generated } from 'kysely'
 
 /**
- * The article tables (V13, V19, V26–V29). Every rule lives in the migrations; these interfaces only
+ * The article tables (V13, V19, V26–V29, V36). Every rule lives in the migrations; these interfaces only
  * type the columns. A `numeric` column answers a string, which the repository parses once.
  */
 
@@ -151,6 +151,17 @@ export interface ArticleSpodImagesTable {
   source_url: string | null
 }
 
+/** A `numeric(6, 1)` measurement: read as a string, written as a number. */
+type Millimetres = ColumnType<string, number, number>
+
+/** One letter of a SPOD article's size chart for one size (V36); the size label lives on the variants. */
+export interface ArticleSpodSizeMeasurementsTable {
+  article_id: number
+  spod_size_id: number
+  name: string
+  value_mm: Millimetres
+}
+
 declare module '@/platform/db/database' {
   interface Tables {
     article_types: ArticleTypesTable
@@ -165,5 +176,6 @@ declare module '@/platform/db/database' {
     article_spod_appearances: ArticleSpodAppearancesTable
     article_spod_variants: ArticleSpodVariantsTable
     article_spod_images: ArticleSpodImagesTable
+    article_spod_size_measurements: ArticleSpodSizeMeasurementsTable
   }
 }

@@ -35,6 +35,16 @@ beforeEach(async () => {
 const CDN = 'https://cdn.example.test'
 const TEE = 812
 const TEE_FRAME = { leftPct: 28.5, topPct: 18.8, widthPct: 42.5, heightPct: 42.5 }
+/** Sizes as the partner answers them: quoted ids, inch values, and a size the shirt does not sell. */
+const sizeOf = (sizeId: number, name: string, a: number, b: number) => ({
+  sizeId: String(sizeId),
+  name,
+  measurements: [
+    { name: 'A', valueMm: a, valueInch: a / 25.4 },
+    { name: 'B', valueMm: b, valueInch: b / 25.4 },
+  ],
+})
+const TEE_SIZES = [sizeOf(1, 'M', 720, 500), sizeOf(2, 'L', 740, 530), sizeOf(3, 'XL', 760, 560)]
 
 interface Partner {
   /** The listing pages, by offset; a function so a test can change the catalog between runs. */
@@ -42,7 +52,8 @@ interface Partner {
   holed?: boolean
   viewsRefused?: boolean
   failingDownloads?: Set<string>
-  sizeChartUrl?: string
+  /** The size chart answer: a body, or a whole response; the tee chart below by default. */
+  sizeChart?: () => unknown
   /** Resolves before the listing answers, so a test can hold a run open. */
   gate?: Promise<void>
 }
@@ -76,7 +87,11 @@ function fakePartner(partner: Partner) {
     if (pathname === '/designs/upload') return json({ designId: 'design-1' })
     const productType = pathname.split('/')[2] ?? ''
     if (pathname.endsWith('/size-chart')) {
-      return json({ sizeImageUrl: partner.sizeChartUrl ?? `${CDN}/chart-1.png` })
+      const answer = partner.sizeChart?.() ?? {
+        sizeImageUrl: `${CDN}/chart-1.png`,
+        sizes: TEE_SIZES,
+      }
+      return answer instanceof Response ? answer : json(answer)
     }
     if (pathname.endsWith('/views')) {
       if (partner.viewsRefused === true) return new Response('', { status: 500 })
@@ -301,6 +316,100 @@ describe('an identical second run', () => {
       spod_hotspot: 'FULL_FRONT',
       print_frame_left_pct: '28.50',
     })
+  })
+})
+
+describe('the size measurements', () => {
+  const measurements = () =>
+    database.db
+      .selectFrom('article_spod_size_measurements')
+      .select(['spod_size_id', 'name', 'value_mm'])
+      .orderBy('spod_size_id')
+      .orderBy('name')
+      .execute()
+  /** The row versions: they change when a row is rewritten, even with the same values. */
+  const versions = async () =>
+    (
+      await sql<{ xmin: string }>`
+        SELECT xmin::text FROM article_spod_size_measurements ORDER BY xmin::text`.execute(
+        database.db,
+      )
+    ).rows
+
+  test('stores the sizes the article sells, keeps them on an identical run, replaces a change', async () => {
+    let sizes = TEE_SIZES
+    const { run } = await syncWith({
+      listing: page([shirt()]),
+      sizeChart: () => ({ sizeImageUrl: `${CDN}/chart-1.png`, sizes }),
+    })
+    await run()
+    expect(await measurements()).toEqual([
+      { spod_size_id: 1, name: 'A', value_mm: '720.0' },
+      { spod_size_id: 1, name: 'B', value_mm: '500.0' },
+      { spod_size_id: 2, name: 'A', value_mm: '740.0' },
+      { spod_size_id: 2, name: 'B', value_mm: '530.0' },
+    ])
+    const before = await versions()
+    const identical = await run()
+    expect(identical.unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
+    expect(await versions()).toEqual(before)
+
+    sizes = [sizeOf(1, 'M', 725, 500), sizeOf(2, 'L', 740, 530)]
+    const changed = await run()
+    expect(changed.updated.map((line) => line.spodArticleId)).toEqual(['a-1'])
+    expect((await measurements())[0]).toEqual({ spod_size_id: 1, name: 'A', value_mm: '725.0' })
+  })
+
+  test('an unanswered size chart keeps them, an answer without sizes deletes them', async () => {
+    let answer: unknown = { sizeImageUrl: `${CDN}/chart-1.png`, sizes: TEE_SIZES }
+    const { run } = await syncWith({ listing: page([shirt()]), sizeChart: () => answer })
+    await run()
+    answer = new Response('', { status: 404 })
+    const unanswered = await run()
+    expect(unanswered.unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
+    expect(await measurements()).toHaveLength(4)
+
+    answer = { sizeImageUrl: `${CDN}/chart-1.png` }
+    const empty = await run()
+    expect(empty.updated.map((line) => line.spodArticleId)).toEqual(['a-1'])
+    expect(await measurements()).toEqual([])
+  })
+
+  test('drops what does not fit, rounds to one decimal, and keeps the first of a duplicate', async () => {
+    const entry = (name: string, valueMm: number) => ({ name, valueMm })
+    await (
+      await syncWith({
+        listing: page([shirt()]),
+        sizeChart: () => ({
+          sizeImageUrl: `${CDN}/chart-1.png`,
+          sizes: [
+            {
+              sizeId: 1,
+              measurements: [
+                entry(' A ', 700.04),
+                entry('A', 999),
+                entry('B', 480.06),
+                entry('', 100),
+                entry('   ', 100),
+                entry('C'.repeat(33), 100),
+                entry('D', 0),
+                entry('E', -5),
+                entry('F', 100000),
+                entry('G', 0.04),
+                entry('H', 99999.9),
+              ],
+            },
+            { sizeId: 1, measurements: [entry('A', 1), entry('I', 10)] },
+          ],
+        }),
+      })
+    ).run()
+    expect(await measurements()).toEqual([
+      { spod_size_id: 1, name: 'A', value_mm: '700.0' },
+      { spod_size_id: 1, name: 'B', value_mm: '480.1' },
+      { spod_size_id: 1, name: 'H', value_mm: '99999.9' },
+      { spod_size_id: 1, name: 'I', value_mm: '10.0' },
+    ])
   })
 })
 

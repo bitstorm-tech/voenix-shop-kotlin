@@ -35,6 +35,11 @@ export interface PreparedSpodArticle {
   printFrame: PrintFrame | null
   /** `null` keeps the stored size chart: unchanged, or unavailable this run. */
   sizeChart: { url: string; filename: string } | null
+  /**
+   * `null` keeps the stored measurements: the size chart was not answered this run. An array, even
+   * an empty one, replaces them.
+   */
+  sizeMeasurements: PreparedSizeMeasurement[] | null
   appearances: PreparedAppearance[]
   variants: PreparedVariant[]
 }
@@ -50,6 +55,13 @@ export interface PreparedAppearance {
   position: number
   listingImages: { spodImageId: string; filename: string }[] | null
   mockup: { sourceUrl: string; filename: string } | null
+}
+
+/** One letter of the size chart for one size the article sells, normalized to its columns. */
+export interface PreparedSizeMeasurement {
+  sizeId: number
+  name: string
+  valueMm: number
 }
 
 /** One colour × size; `appearanceId` is the partner's id of its colour. */
@@ -254,6 +266,7 @@ async function insertArticle(
   for (const variant of prepared.variants) {
     await insertVariant(trx, id, appearanceIdOf(ids, variant), variant, variant === defaultVariant)
   }
+  await insertSizeMeasurements(trx, id, prepared.sizeMeasurements ?? [])
   return {
     kind: 'created',
     line: {
@@ -283,6 +296,7 @@ async function updateArticle(
   const previousPicture = (await examplePictures(trx, [id])).get(id) ?? null
   const appearances = await writeAppearances(trx, id, prepared)
   const variants = await writeVariants(trx, id, appearances.ids, prepared)
+  const measurementsTouched = await writeSizeMeasurements(trx, id, prepared.sizeMeasurements)
   const current = await syncedVariants(trx, id)
   const warnings = await warningsAfterWrite(
     trx,
@@ -331,7 +345,7 @@ async function updateArticle(
     !sameFrame(storedFrame, prepared.printFrame) ||
     previousSizeChart !== sizeChartFilename ||
     existing.spod_size_chart_url !== sizeChartUrl
-  const touched = articleChanged || appearances.touched || variants.touched
+  const touched = articleChanged || appearances.touched || variants.touched || measurementsTouched
   return {
     kind: touched || warnings.length > 0 ? 'updated' : 'unchanged',
     line: {
@@ -602,6 +616,61 @@ async function insertVariant(
       is_default: isDefault,
       active: variant.active,
     })
+    .execute()
+}
+
+/**
+ * Replaces the article's measurements when the prepared set differs from the stored one, and
+ * answers whether it wrote. `null` (the size chart was not answered) keeps the stored rows.
+ */
+async function writeSizeMeasurements(
+  trx: Trx,
+  articleId: number,
+  measurements: readonly PreparedSizeMeasurement[] | null,
+): Promise<boolean> {
+  if (measurements === null) return false
+  const stored = await trx
+    .selectFrom('article_spod_size_measurements')
+    .select(['spod_size_id', 'name', 'value_mm'])
+    .where('article_id', '=', articleId)
+    .execute()
+  const key = (sizeId: number, name: string, valueMm: number) =>
+    `${String(sizeId)}/${name}/${String(valueMm)}`
+  const storedKeys = new Set(
+    stored.map((row) => key(row.spod_size_id, row.name, Number(row.value_mm))),
+  )
+  if (
+    stored.length === measurements.length &&
+    measurements.every((measurement) =>
+      storedKeys.has(key(measurement.sizeId, measurement.name, measurement.valueMm)),
+    )
+  ) {
+    return false
+  }
+  await trx
+    .deleteFrom('article_spod_size_measurements')
+    .where('article_id', '=', articleId)
+    .execute()
+  await insertSizeMeasurements(trx, articleId, measurements)
+  return true
+}
+
+async function insertSizeMeasurements(
+  trx: Trx,
+  articleId: number,
+  measurements: readonly PreparedSizeMeasurement[],
+) {
+  if (measurements.length === 0) return
+  await trx
+    .insertInto('article_spod_size_measurements')
+    .values(
+      measurements.map((measurement) => ({
+        article_id: articleId,
+        spod_size_id: measurement.sizeId,
+        name: measurement.name,
+        value_mm: measurement.valueMm,
+      })),
+    )
     .execute()
 }
 
