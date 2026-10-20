@@ -12,9 +12,10 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { SwatchButton } from '@/components/ui/swatch-button'
+import { mugSwatchColor } from '@/lib/mugSwatch'
 import { sortSizes } from '@/lib/tshirtSizes'
 import { sizeChartImageUrl } from '@/lib/variantExampleImage'
-import type { EditorArticle, EditorArticleVariant, EditorMugVariant } from './types'
+import type { EditorArticle, EditorArticleVariant } from './types'
 
 const props = defineProps<{
   article: EditorArticle
@@ -39,17 +40,6 @@ interface SizeOption {
   variantId: number
   size: string
   selected: boolean
-}
-
-/**
- * A mug swatch shows the mug from above: the outside colour as the disc, the inside colour as the
- * opening in its middle - the same picture the product card shows.
- */
-function mugSwatchColor(variant: EditorMugVariant): string {
-  const { outsideColorCode: outside, insideColorCode: inside } = variant
-  if (outside.toLowerCase() === inside.toLowerCase()) return outside
-
-  return `radial-gradient(circle, ${inside} 0 40%, ${outside} calc(40% + 0.5px))`
 }
 
 /**

@@ -32,6 +32,7 @@ import {
 } from '@/stores/shop/catalog'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { sanitizeDescriptionHtml } from '@/lib/articleDescription'
+import { mugSwatchColor } from '@/lib/mugSwatch'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
 import { sizeChartImageUrl, variantExampleImageUrl } from '@/lib/variantExampleImage'
 
@@ -177,10 +178,6 @@ function onSelectSpodAppearance(appearanceId: number) {
   onSelectVariant(article, variant.id)
 }
 
-function mugSwatchColor(variant: MugVariantDto) {
-  return `linear-gradient(135deg, ${variant.outsideColorCode} 0%, ${variant.outsideColorCode} 50%, ${variant.insideColorCode} 50%, ${variant.insideColorCode} 100%)`
-}
-
 function onChangeArticle() {
   showFullGrid.value = true
 }
@@ -269,11 +266,11 @@ onMounted(async () => {
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.colors') }}
           </p>
-          <div class="flex flex-wrap gap-2">
+          <div class="flex flex-wrap items-center gap-1.5">
             <SwatchButton
               v-for="variant in selectedMug.variants"
               :key="variant.id"
-              class="size-6 p-0 transition-transform data-[state=selected]:scale-110 data-[state=unselected]:hover:scale-105"
+              class="size-8 p-0.5"
               :color="mugSwatchColor(variant)"
               :label="variant.name"
               :selected="selectedVariant.id === variant.id"
@@ -288,11 +285,11 @@ onMounted(async () => {
           <p class="mb-1.5 text-xs text-muted-foreground">
             {{ t('configurator.steps.selectArticle.colors') }}
           </p>
-          <div class="flex flex-wrap gap-2" data-testid="wizard-spod-colors">
+          <div class="flex flex-wrap items-center gap-1.5" data-testid="wizard-spod-colors">
             <SwatchButton
               v-for="appearance in selectedSpodArticle.appearances"
               :key="appearance.id"
-              class="size-6 p-0 transition-transform data-[state=selected]:scale-110 data-[state=unselected]:hover:scale-105"
+              class="size-8 p-0.5"
               :color="appearance.colorHex"
               :label="appearance.colorName"
               :selected="selectedSpodVariant?.appearanceId === appearance.id"

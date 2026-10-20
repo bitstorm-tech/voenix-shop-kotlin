@@ -7,6 +7,7 @@ import { SwatchButton } from '@/components/ui/swatch-button'
 import ProductImageGallery from '@/components/shop/ProductImageGallery.vue'
 import ProductPrice from '@/components/shop/ProductPrice.vue'
 import { descriptionText } from '@/lib/articleDescription'
+import { mugSwatchColor } from '@/lib/mugSwatch'
 import { sizeRange } from '@/lib/tshirtSizes'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import {
@@ -103,17 +104,6 @@ interface ColorSwatch {
   label: string
   color: string
   selected: boolean
-}
-
-/**
- * A mug swatch shows the mug from above: the outside colour as the disc, the inside colour as the
- * opening in its middle. A mug that is one colour inside and out is a plain disc.
- */
-function mugSwatchColor(variant: MugVariantDto): string {
-  const { outsideColorCode: outside, insideColorCode: inside } = variant
-  if (outside.toLowerCase() === inside.toLowerCase()) return outside
-
-  return `radial-gradient(circle, ${inside} 0 40%, ${outside} calc(40% + 0.5px))`
 }
 
 const colorSwatches = computed<ColorSwatch[]>(() => {
