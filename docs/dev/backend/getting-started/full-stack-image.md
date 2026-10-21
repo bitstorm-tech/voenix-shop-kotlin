@@ -84,9 +84,11 @@ the image with the right owner.
 
 ## Configuration
 
-The image is configured through environment variables only, the ones listed in
-[Running the development server](running-the-development-server.md#individual-settings).
-No `.env` file is in the image, so a missing required variable fails the start
+The image is configured through environment variables, the ones listed in
+[Running the development server](running-the-development-server.md#individual-settings),
+or through a `.env` file at `/etc/secrets/.env`, where Render mounts a secret
+file of that name; a real environment variable wins over the file. No `.env`
+file is in the image, so a missing required variable fails the start
 with `Invalid configuration: <VARIABLE> is required` instead of falling back
 to a development value. The image needs:
 
@@ -161,10 +163,11 @@ configuration.
 
 The service needs:
 
-- The environment variables of the table above, as Render environment
-  variables or as an environment group. Every setting of the backend is an
-  environment variable, so nothing needs a secret file or a command override;
-  the Kotlin image's `-config` layering is gone with it.
+- The variables of the table above, as Render environment variables, as an
+  environment group, or as a secret file named `.env` (Render mounts it at
+  `/etc/secrets/.env`, which the backend reads at startup). A Render
+  environment variable wins over the same name in the secret file. No command
+  override is needed; the Kotlin image's `-config` layering is gone.
 - `RATE_LIMIT_TRUST_FORWARDED_FOR=true`: Render terminates TLS in front of the
   container, so every request arrives from the proxy's address.
 - A persistent disk mounted at `/app/data`. Uploaded images, the image cache,

@@ -96,16 +96,17 @@ into one `Settings` object. The variable names are the upper-snake-case form of
 the Kotlin backend's YAML keys (`database.host` → `DATABASE_HOST`), and the
 defaults coded in the schema are the Kotlin base `application.yaml`'s.
 
-Four layers supply values, later ones winning:
+Five layers supply values, later ones winning:
 
 | Layer | Source | In Git? | Contains |
 | --- | --- | --- | --- |
 | 1 | the defaults in `settings.ts` | yes | `localhost`, port `5432`, search path `voenix`, pool size `100`, email off, … |
 | 2 | [`backend/.env.development`](../../../../backend/.env.development) | yes | the development database and its password, the development session secret, dummy mode, Mollie placeholders |
 | 3 | `backend/.env.local` | no | optional: real keys and machine-specific values; the template is [`backend/.env.example`](../../../../backend/.env.example) |
-| 4 | the real environment | — | always wins; this is how a container is configured |
+| 4 | `/etc/secrets/.env` | no | optional: the secret file Render mounts into a container (see [the full-stack image](full-stack-image.md#deploying-on-rendercom)) |
+| 5 | the real environment | — | always wins; this is how a container is configured |
 
-`loadEnvFiles()` reads layers 2 and 3 into `process.env` without overriding a
+`loadEnvFiles()` reads layers 2 to 4 into `process.env` without overriding a
 variable that is already set, and `loadSettings(process.env)` parses the
 result. (Bun also loads the two files on its own when started from
 `backend/`; the explicit loader makes the behaviour the same from any

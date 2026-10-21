@@ -182,18 +182,18 @@ export function loadSettings(env: Record<string, string | undefined>) {
 }
 
 /**
- * Reads `.env.development` and then `.env.local` from the project root into `process.env`. A
- * later file wins over an earlier one, and a variable that is already set in the real environment
- * wins over both, so a container configured through its environment is never overridden by a
- * checked-in file. Call it once, before `loadSettings(process.env)`.
+ * Reads `.env.development`, then `.env.local` from the project root, then the secret file
+ * `/etc/secrets/.env` that Render mounts into a container, into `process.env`. A missing file is
+ * skipped. A later file wins over an earlier one, and a variable that is already set in the real
+ * environment wins over all of them, so a container configured through its environment is never
+ * overridden by a file. Call it once, before `loadSettings(process.env)`.
  */
-export function loadEnvFiles(): void {
-  const root = fileURLToPath(new URL('../../', import.meta.url))
+export function loadEnvFiles(files: readonly string[] = defaultEnvFiles()): void {
   const fromFiles: Record<string, string> = {}
-  for (const file of ['.env.development', '.env.local']) {
+  for (const file of files) {
     let content: string
     try {
-      content = readFileSync(`${root}${file}`, 'utf8')
+      content = readFileSync(file, 'utf8')
     } catch {
       continue
     }
@@ -207,6 +207,11 @@ export function loadEnvFiles(): void {
   for (const [name, value] of Object.entries(fromFiles)) {
     process.env[name] ??= value
   }
+}
+
+function defaultEnvFiles(): string[] {
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  return [`${root}.env.development`, `${root}.env.local`, '/etc/secrets/.env']
 }
 
 /**

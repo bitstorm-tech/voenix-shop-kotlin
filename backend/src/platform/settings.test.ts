@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { loadEnvFiles, loadSettings } from '@/platform/settings'
 
 /** The variables `.env.development` sets; everything else falls through to the defaults. */
@@ -151,6 +154,25 @@ describe('loadEnvFiles', () => {
     } finally {
       if (previous === undefined) delete process.env.FRONTEND_BASE_URL
       else process.env.FRONTEND_BASE_URL = previous
+    }
+  })
+
+  test('lets a later file win over an earlier one and skips a missing file', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'env-files-'))
+    writeFileSync(join(directory, 'first'), 'LOAD_ENV_FILES_A=first\nLOAD_ENV_FILES_B=first\n')
+    writeFileSync(join(directory, 'second'), 'LOAD_ENV_FILES_B="second"\n')
+    try {
+      loadEnvFiles([
+        join(directory, 'first'),
+        join(directory, 'missing'),
+        join(directory, 'second'),
+      ])
+      expect(process.env.LOAD_ENV_FILES_A).toBe('first')
+      expect(process.env.LOAD_ENV_FILES_B).toBe('second')
+    } finally {
+      delete process.env.LOAD_ENV_FILES_A
+      delete process.env.LOAD_ENV_FILES_B
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 })
