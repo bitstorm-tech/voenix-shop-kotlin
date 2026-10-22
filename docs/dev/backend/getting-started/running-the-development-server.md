@@ -174,8 +174,8 @@ database and migrate from scratch.
 
 `backend/.env.local` is ignored by Git. Start it as a copy of the
 checked-in template [`backend/.env.example`](../../../../backend/.env.example),
-which lists every variable you are likely to change with a short explanation,
-all commented out:
+which lists every variable the backend reads with a short explanation, all
+commented out, and marks the ones a deployment must set:
 
 ```sh
 cp backend/.env.example backend/.env.local

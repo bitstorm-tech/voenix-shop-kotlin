@@ -90,7 +90,10 @@ or through a `.env` file at `/etc/secrets/.env`, where Render mounts a secret
 file of that name; a real environment variable wins over the file. No `.env`
 file is in the image, so a missing required variable fails the start
 with `Invalid configuration: <VARIABLE> is required` instead of falling back
-to a development value. The image needs:
+to a development value. The template
+[`backend/.env.example`](../../../../backend/.env.example) lists every variable
+and marks the required ones; start the secret file as a copy of it. The image
+needs:
 
 | Variable | Meaning |
 | --- | --- |
