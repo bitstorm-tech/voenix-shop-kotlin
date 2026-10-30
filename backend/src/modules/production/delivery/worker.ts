@@ -2,7 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
 import type { Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { type OrderLoader, type ProductionItem, type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import type { SpodOrderRepository } from '../spod/repository'
@@ -54,7 +54,7 @@ function createSplitStage(requests: RequestRepository, loadOrder: OrderLoader): 
         )
       } catch (error) {
         logger.error(
-          { requestId: request.id, errorClass: errorClass(error) },
+          { requestId: request.id, error: errorDetails(error) },
           'Production request split failed',
         )
         await requests.recordFailure(request.id, 'SPLIT_FAILED')
@@ -125,7 +125,7 @@ export function createProductionWorker({
           try {
             await runOnce(signal)
           } catch (error) {
-            logger.error({ errorClass: errorClass(error) }, 'Production worker scan failed')
+            logger.error({ error: errorDetails(error) }, 'Production worker scan failed')
           }
           await sleep(POLL_INTERVAL_MILLIS, undefined, { signal }).catch(() => undefined)
         }

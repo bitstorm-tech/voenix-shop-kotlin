@@ -552,7 +552,7 @@ bound and no back-off: Mollie expires its own payments, and asking once per
 scan about a payment method that expires in days is a few hundred reads a day.
 A provider that cannot answer is `refreshed`'s WARN line; any other failure
 (say, a paid transition the database refuses) is logged with the payment's
-order and the error's class, and the loop moves on to the next payment, so one
+order and `errorDetails` ([logging](../conventions/logging.md)), and the loop moves on to the next payment, so one
 broken order never keeps the others waiting. The next scan asks again. Once
 the optional `signal` is aborted (the worker's `stop`), the loop returns
 between two payments, so a shutdown waits for at most one Mollie read.
@@ -593,7 +593,8 @@ payment id; a missing or blank checkout URL makes a `create` unusable.
 
 **Nothing the provider wrote reaches a log** (`backend/AGENTS.md`): a refusal
 is logged by its status number, a transport failure and an unreadable answer by
-the error's class (a parse error's message quotes the input it failed on), an
+`errorDetails`, never the message (a parse error's message quotes the input it
+failed on), an
 unknown status word not at all. That rule is why there is no SDK.
 
 The request shape:

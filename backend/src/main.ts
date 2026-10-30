@@ -1,5 +1,5 @@
 import { createApplication } from '@/composition'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { loadEnvFiles, loadSettings } from '@/platform/settings'
 
 /**
@@ -22,6 +22,18 @@ const server = Bun.serve({
   idleTimeout: 255,
 })
 log.info({ port: server.port }, 'Voenix backend listening')
+
+// Only after the start: a failed start prints its whole message (which setting is missing) to
+// stderr. From here on a crash goes through the logger like every other error, then exits as the
+// runtime would have.
+process.on('uncaughtException', (error) => {
+  log.fatal({ error: errorDetails(error) }, 'Uncaught exception')
+  process.exit(1)
+})
+process.on('unhandledRejection', (reason) => {
+  log.fatal({ error: errorDetails(reason) }, 'Unhandled promise rejection')
+  process.exit(1)
+})
 
 const shutdown = (signal: string) => {
   log.info({ signal }, 'Shutting down')

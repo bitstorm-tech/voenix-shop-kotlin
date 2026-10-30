@@ -6,7 +6,7 @@ import {
   type SpodProductRef,
 } from '@/modules/article'
 import type { Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 
 /**
  * What production needs from the order module: three reads and the one write into the order's
@@ -160,7 +160,7 @@ export function createOrderLoader(
     orderId: number,
   ): Promise<{ kind: 'found'; order: ProductionOrder } | { kind: 'failed'; code: SourceError }> => {
     const unavailable = (error: unknown, what: string) => {
-      logger.error({ orderId, errorClass: errorClass(error) }, `Production could not read ${what}`)
+      logger.error({ orderId, error: errorDetails(error) }, `Production could not read ${what}`)
       return { kind: 'failed', code: 'SOURCE_UNAVAILABLE' } as const
     }
     let data: ProductionData | null

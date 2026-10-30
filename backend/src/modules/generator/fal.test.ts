@@ -106,11 +106,12 @@ describe('the fal.ai adapter', () => {
     }
   })
 
-  test('an unreadable answer is logged by its error class only', async () => {
+  test('an unreadable answer is logged without its message', async () => {
     const { generate, logged } = harness(() => json(`{ ${PROVIDER_BODY}`))
     expect(await generate(upload(), PROMPT, '16:9')).toBeNull()
     expect(logged).toHaveLength(1)
-    expect(logged[0]).toContain('could not be read (SyntaxError)')
+    expect(logged[0]).toContain('could not be read')
+    expect(logged[0]).toContain('"class":"SyntaxError"')
     expect(logged[0]).not.toContain(PROVIDER_BODY)
     const refused = harness(() => new Response(PROVIDER_BODY, { status: 500 }))
     expect(await refused.generate(upload(), PROMPT, '16:9')).toBeNull()

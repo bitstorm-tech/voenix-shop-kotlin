@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Kysely, Transaction } from 'kysely'
 import { write, type Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { conflict, notFound, ok } from '@/platform/operation'
 import { lockOrder, recordEvent, type PayableOrder, type PaymentCause } from '../repository'
 import type { OrderTransitions } from '../transitions'
@@ -307,7 +307,7 @@ export function createPaymentService({
           await refreshed(orderId, 'RECONCILIATION')
         } catch (error) {
           logger.error(
-            { orderId, errorClass: errorClass(error) },
+            { orderId, error: errorDetails(error) },
             'The reconciliation of a payment failed: the next scan asks again',
           )
         }

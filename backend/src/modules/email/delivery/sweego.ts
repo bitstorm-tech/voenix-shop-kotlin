@@ -1,4 +1,5 @@
 import type { Fetch } from '@/platform/fetch'
+import { createLogger, errorDetails } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import type { RenderedEmail } from '../templates/layout'
 
@@ -11,6 +12,8 @@ export interface EmailDelivery {
 export type DeliveryResult = { kind: 'accepted' } | { kind: 'failed'; code: string }
 
 /** The `fetch` the adapter calls; the global one in a deployment, a stub in the tests. */
+
+const logger = createLogger('email')
 
 const SEND_URL = 'https://api.sweego.io/send'
 const TIMEOUT_MILLIS = 30_000
@@ -48,7 +51,9 @@ export function createSweegoDelivery(settings: Settings['email'], fetch: Fetch):
           : { kind: 'failed', code: `PROVIDER_HTTP_${String(response.status)}` }
       } catch (error) {
         const timedOut = error instanceof DOMException && error.name === 'TimeoutError'
-        return { kind: 'failed', code: timedOut ? 'REQUEST_TIMEOUT' : 'PROVIDER_UNAVAILABLE' }
+        const code = timedOut ? 'REQUEST_TIMEOUT' : 'PROVIDER_UNAVAILABLE'
+        logger.warn({ code, error: errorDetails(error) }, 'Sweego could not be reached')
+        return { kind: 'failed', code }
       }
     },
   }

@@ -149,7 +149,7 @@ snapshotted at placement, including the hotspot (#260, decisions 8 and 14).
 
 The loader maps every source problem to one bounded code: `SOURCE_NOT_FOUND`
 (`null`), `SOURCE_INVALID` (an order without lines), and
-`SOURCE_UNAVAILABLE` (the read threw; only the error's class is logged).
+`SOURCE_UNAVAILABLE` (the read threw; logged with `errorDetails`, never its message).
 
 ## File map
 
@@ -406,7 +406,7 @@ A missing image is never a blank page. `ProductionPdfError` is the bounded,
 retryable vocabulary, and also the job's generation codes: `MISSING_IMAGE`,
 `UNREADABLE_IMAGE`, `INVALID_SOURCE` (no line for the supplier, a non-positive
 quantity or measurement, a page too narrow for the two columns, a line without
-supplier), and `RENDER_FAILURE` (logged by class only).
+supplier), and `RENDER_FAILURE` (logged with `errorDetails`).
 
 `productionPdfGenerator.generate(orderId)` is the on-demand download for the
 admin order page. It answers

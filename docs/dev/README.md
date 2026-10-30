@@ -38,7 +38,7 @@ shop to one module's internals.
 | Folder | What you find there |
 | --- | --- |
 | [`backend/getting-started/`](backend/getting-started/) | Running, seeding, importing legacy catalog data, building the deployable image. |
-| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: the technology stack, modules, file layout, code quality, results and errors, validation, limits, authentication. |
+| [`backend/conventions/`](backend/conventions/) | Cross-cutting rules and shared mechanisms of the backend: the technology stack, modules, file layout, code quality, results and errors, validation, limits, logging, authentication. |
 | [`backend/packages/`](backend/packages/) | One guide per backend module (`backend/src/modules/<name>`), plus the SPOD channel guide that belongs to the production module. |
 | [`frontend/`](frontend/) | How the Vue frontend talks to the backend and which routes it calls, plus frontend conventions such as landing pages and form controls. |
 | [`guides/`](guides/) | Operator how-tos that cross backend, frontend, and admin UI. |
@@ -72,6 +72,7 @@ the alternatives it beat, are written into the guide of the package it shapes.
 | [Backend persistence error handling](backend/conventions/persistence-error-handling.md) | `executePostgresWrite`, `read`/`write`, and the statement bounds. |
 | [Request size limits](backend/conventions/request-size-limits.md) | The 30,000,000-byte transfer bound, how Hono applies it, and the webhook caveat. |
 | [Rate limiting](backend/conventions/rate-limiting.md) | The per-IP limit of the image generation. |
+| [Logging](backend/conventions/logging.md) | `errorDetails` instead of an error's message, the request id, crashes. |
 | [Authentication and authorization](backend/conventions/authentication-and-authorization.md) | Sealed cookies, the principal, the four protections, CSRF, guests. |
 
 ## Backend: packages

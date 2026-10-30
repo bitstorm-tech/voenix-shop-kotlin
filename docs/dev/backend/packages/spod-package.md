@@ -376,10 +376,10 @@ mocked globally.
 - `orderItems`, `state`, and `shipping.preferredType` are not fields of the
   request types with defaults but constants `createOrder` adds, so no caller can
   send anything else.
-- An API call that fails without a status logs the error's class, not the
-  error with its stack, exactly like a download; Kotlin kept the throwable
-  because the URL in it was the shop's own, and the simpler rule logs no URL at
-  all.
+- An API call that fails without a status logs `errorDetails` (class, code
+  such as `ENOTFOUND`, stack frames), not the error itself, exactly like a
+  download; Kotlin kept the throwable because the URL in it was the shop's
+  own, and the simpler rule logs no URL at all ([logging](../conventions/logging.md)).
 - The timeout is one `AbortSignal.timeout(seconds)` for the whole exchange,
   where Ktor set the connect, request, and socket timeouts separately.
 

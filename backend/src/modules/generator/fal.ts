@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Fetch } from '@/platform/fetch'
-import { errorClass, type Logger } from '@/platform/logging'
+import { errorDetails, type Logger } from '@/platform/logging'
 import { ALLOWED_IMAGE_CONTENT_TYPES, type ImageGenerator, type RawImage } from './image-generator'
 import { MAX_IMAGE_BYTES } from './upload'
 
@@ -40,7 +40,7 @@ export function createFalImageGenerator({
   logger: Logger
 }): ImageGenerator {
   const failed = (what: string, error: unknown): null => {
-    logger.error(`${what} (${errorClass(error)})`)
+    logger.error({ error: errorDetails(error) }, what)
     return null
   }
 

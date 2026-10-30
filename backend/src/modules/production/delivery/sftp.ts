@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Client, type SFTPWrapper } from 'ssh2'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 
 /**
  * An SFTP destination as the delivery stage reads it: the one read model that carries the
@@ -66,7 +66,7 @@ export function deliverOverSftp(
             ? 'AUTH_FAILED'
             : 'TRANSFER_FAILED'
       logger.warn(
-        { destinationId: destination.id, code, errorClass: errorClass(error) },
+        { destinationId: destination.id, code, error: errorDetails(error) },
         'SFTP delivery failed',
       )
       resolve(code)

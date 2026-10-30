@@ -1,6 +1,6 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { read, type Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { type OrderLoader } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { renderProductionPdf } from '../pdf/renderer'
@@ -73,7 +73,7 @@ export function createGenerationStage({
       try {
         await artifacts.write(job.id, job.fileName, rendered.pdf.bytes)
       } catch (error) {
-        logger.error({ jobId: job.id, errorClass: errorClass(error) }, 'Artifact write failed')
+        logger.error({ jobId: job.id, error: errorDetails(error) }, 'Artifact write failed')
         await recordFailure(job.id, 'ARTIFACT_WRITE_FAILED')
         continue
       }

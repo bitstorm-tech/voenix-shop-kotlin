@@ -1,7 +1,7 @@
 import { isSupportedCountry, parsePhoneNumberFromString } from 'libphonenumber-js'
 import { z } from 'zod'
 import type { Fetch } from '@/platform/fetch'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import type { OrderAddress, PayableOrder } from '../repository'
 
@@ -87,7 +87,7 @@ export function createMolliePayments(
     try {
       return await call()
     } catch (error) {
-      logger.error(`${what} (${errorClass(error)})`)
+      logger.error({ error: errorDetails(error) }, what)
       return null
     }
   }

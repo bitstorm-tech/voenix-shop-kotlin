@@ -10,7 +10,7 @@ import {
   type RenderedEmail,
   type UserEmailKind,
 } from '@/modules/email'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 
 const log = createLogger('account')
 
@@ -52,7 +52,10 @@ export function createAccountMails({
     try {
       await userEmails.send(email)
     } catch (error) {
-      log.warn({ err: error, kind: email.kind }, 'Best-effort account notification failed')
+      log.warn(
+        { error: errorDetails(error), kind: email.kind },
+        'Best-effort account notification failed',
+      )
     }
   }
 

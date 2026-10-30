@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Fetch } from '@/platform/fetch'
-import { createLogger, errorClass, type Logger } from '@/platform/logging'
+import { createLogger, errorClass, errorDetails, type Logger } from '@/platform/logging'
 import {
   lenientId,
   spodCatalogPage,
@@ -202,11 +202,11 @@ export function createSpodClient({
     return queue
   }
 
-  /** A request that never got a status: the outcome is unknown. Only the error's name is logged. */
+  /** A request that never got a status: the outcome is unknown. The message is never logged. */
   const unavailable = (context: string, error: unknown): SpodFailure => {
-    const name = errorClass(error)
-    const what = name === 'TimeoutError' ? 'did not answer within the configured timeout' : 'failed'
-    logger.error(`SPOD ${context} ${what} (${name})`)
+    const timedOut = errorClass(error) === 'TimeoutError'
+    const what = timedOut ? 'did not answer within the configured timeout' : 'failed'
+    logger.error({ error: errorDetails(error) }, `SPOD ${context} ${what}`)
     return { kind: 'failed', error: 'PROVIDER_UNAVAILABLE', ambiguous: true }
   }
 
@@ -248,7 +248,8 @@ export function createSpodClient({
       return { kind: 'answered', value: read(body) }
     } catch (error) {
       logger.error(
-        `SPOD ${context} produced an answer that could not be read (${errorClass(error)})`,
+        { error: errorDetails(error) },
+        `SPOD ${context} produced an answer that could not be read`,
       )
       return { kind: 'failed', error: 'PROVIDER_ANSWER_UNREADABLE', ambiguous: true }
     }

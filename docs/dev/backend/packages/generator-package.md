@@ -291,8 +291,8 @@ Five properties of the adapter are deliberate:
   when it is JPEG, PNG, or WebP; anything else, or nothing, becomes
   `image/jpeg`.
 - **Nothing the provider wrote is logged.** A refusal is logged by its status,
-  an unreadable answer and a transport failure by the error's class name only
-  (`SyntaxError`, `ZodError`, `TypeError`, `TimeoutError`). The message of a
+  an unreadable answer and a transport failure by `errorDetails`: class, code,
+  and stack frames, never the message ([logging](../conventions/logging.md)). The message of a
   parse error quotes the input it failed on, and an error body may quote back
   what was sent, including the key (`backend/AGENTS.md`).
 

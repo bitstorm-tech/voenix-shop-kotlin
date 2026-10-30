@@ -1,4 +1,4 @@
-import type { Logger } from '@/platform/logging'
+import { errorDetails, type Logger } from '@/platform/logging'
 import { invalid, ok, type OperationResult } from '@/platform/operation'
 import type { ImageStorage } from './service'
 
@@ -46,7 +46,10 @@ export function createExampleImages(storage: ImageStorage, folder: string, logge
       try {
         await storage.delete(filename)
       } catch (error) {
-        logger.warn({ err: error, filename, folder }, 'Could not delete example image')
+        logger.warn(
+          { error: errorDetails(error), filename, folder },
+          'Could not delete example image',
+        )
       }
     },
   }

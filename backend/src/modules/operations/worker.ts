@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { renderOperationsAlert, type EmailModule } from '@/modules/email'
-import { errorClass, type Logger } from '@/platform/logging'
+import { errorDetails, type Logger } from '@/platform/logging'
 import type { Alert, Finding, FindingRepository } from './repository'
 
 const SCAN_INTERVAL_MILLIS = 5 * 60_000
@@ -78,7 +78,7 @@ export function createOperationsWorker({
           try {
             await runOnce(signal)
           } catch (error) {
-            logger.error({ errorClass: errorClass(error) }, 'Operations worker scan failed')
+            logger.error({ error: errorDetails(error) }, 'Operations worker scan failed')
           }
           await sleep(SCAN_INTERVAL_MILLIS, undefined, { signal }).catch(() => undefined)
         }

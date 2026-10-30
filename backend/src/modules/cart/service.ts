@@ -13,7 +13,7 @@ import type {
   PromotionRejection,
 } from '@/modules/promotion'
 import type { PromptCatalog } from '@/modules/prompt'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { CartOwner, CartRepository, StoredCart } from './repository'
 import { cartTotals, type CartTotals } from './totals'
@@ -215,7 +215,10 @@ export function createCartService({
       } catch (error) {
         // A failing delete must not hide why the registration failed.
         await privateStorage.delete(filename).catch((deleteError: unknown) => {
-          log.error({ err: deleteError, filename }, 'Could not delete an unregistered print image')
+          log.error(
+            { error: errorDetails(deleteError), filename },
+            'Could not delete an unregistered print image',
+          )
         })
         throw error
       }

@@ -1,6 +1,6 @@
 import type { ArticleCatalog } from '@/modules/article'
 import type { PromptCatalog } from '@/modules/prompt'
-import type { Logger } from '@/platform/logging'
+import { errorDetails, type Logger } from '@/platform/logging'
 import type { ImageGenerator, RawImage } from './image-generator'
 import {
   describeOwner,
@@ -55,7 +55,10 @@ export function createGeneratorService({
         )
       }
     } catch (error) {
-      logger.error({ err: error }, `Magic Coin spend failed for ${describeOwner(owner)}`)
+      logger.error(
+        { error: errorDetails(error) },
+        `Magic Coin spend failed for ${describeOwner(owner)}`,
+      )
     }
   }
 

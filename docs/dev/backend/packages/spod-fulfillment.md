@@ -292,7 +292,8 @@ case- and separator-insensitively onto the bounded list (`Deutsche Post`,
 `OTHER`, and the raw name is kept in `shipping_carrier_reported`. The partner's
 **tracking URL is not even a field** of the payload: the shop builds every link
 from its own carrier list (decision J2 of issue #119). A parse failure is
-logged by its class, never by its message, which would quote the body.
+logged with `errorDetails`, never by its message, which would quote the body
+([logging](../conventions/logging.md)).
 
 ### At-least-once delivery
 

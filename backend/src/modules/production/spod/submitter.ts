@@ -1,6 +1,6 @@
 import type { SpodProductRef } from '@/modules/article'
 import type { SpodAccess, SpodClient, SpodOneTimeItem, SpodOrderRequest } from '@/modules/spod'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { type OrderLoader, type ProductionItem, type ProductionOrder } from '../orders'
 import { printImagePng } from './print-image'
 import type { SpodOrderRepository } from './repository'
@@ -206,7 +206,7 @@ export function createSubmissionStage({
         await submit(job)
       } catch (error) {
         logger.error(
-          { jobId: job.id, errorClass: errorClass(error) },
+          { jobId: job.id, error: errorDetails(error) },
           'SPOD job submission failed unexpectedly',
         )
         await orders.recordFailure(job.id, 'SUBMISSION_FAILED')

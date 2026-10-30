@@ -3,7 +3,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
 import type { Auth } from '@/platform/auth/auth'
 import { apiError } from '@/platform/http/respond'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorDetails, withRequestId } from '@/platform/logging'
 
 /**
  * How many bytes of request body the application accepts at all, on every route: the outer
@@ -24,17 +24,20 @@ export function createApp(auth: Auth): Hono {
   app.onError((error, c) => {
     // Hono's own refusals (a malformed form body, for example) keep their status and message.
     if (error instanceof HTTPException) return c.json(apiError(error.message), error.status)
-    log.error({ err: error }, 'Unhandled server error')
+    log.error({ error: errorDetails(error) }, 'Unhandled server error')
     return c.json(apiError('Internal server error'), 500)
   })
   // One line per API request. The path only: a query string can carry a secret link token, and
-  // the static frontend files would drown the API lines.
-  app.use('/api/*', async (c, next) => {
-    const started = performance.now()
-    await next()
-    const milliseconds = Math.round(performance.now() - started)
-    log.info(`${c.req.method} ${c.req.path} ${String(c.res.status)} ${String(milliseconds)}ms`)
-  })
+  // the static frontend files would drown the API lines. Every line logged while the request is
+  // served carries its short random id, so an error line can be matched with its request line.
+  app.use('/api/*', (c, next) =>
+    withRequestId(crypto.randomUUID().slice(0, 8), async () => {
+      const started = performance.now()
+      await next()
+      const milliseconds = Math.round(performance.now() - started)
+      log.info(`${c.req.method} ${c.req.path} ${String(c.res.status)} ${String(milliseconds)}ms`)
+    }),
+  )
   app.use(
     bodyLimit({
       maxSize: MAX_REQUEST_BODY_BYTES,

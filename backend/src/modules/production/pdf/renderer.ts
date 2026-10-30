@@ -14,7 +14,7 @@ import {
   type PDFPage,
 } from 'pdf-lib'
 import sharp from 'sharp'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { orderLabel, pdfFileName, type ProductionItem, type ProductionOrder } from '../orders'
 
 /**
@@ -93,7 +93,7 @@ export async function renderProductionPdf(
     }
   } catch (error) {
     logger.error(
-      { orderId: order.orderId, errorClass: errorClass(error) },
+      { orderId: order.orderId, error: errorDetails(error) },
       'Production PDF rendering failed',
     )
     return { kind: 'failed', error: 'RENDER_FAILURE' }
@@ -142,7 +142,7 @@ async function decodeImages(items: ProductionItem[]): Promise<Map<string, Buffer
     try {
       pngs.set(path, await sharp(path).png().toBuffer())
     } catch (error) {
-      logger.warn({ errorClass: errorClass(error) }, 'A production image cannot be decoded')
+      logger.warn({ error: errorDetails(error) }, 'A production image cannot be decoded')
       return null
     }
   }

@@ -325,8 +325,8 @@ every five minutes, until `stop`), and `stop` (aborts the signal and resolves
 once the scan in progress is finished). The signal reaches the sleep and the
 reconciliation, which returns between two payments; a scan stopped there
 skips collecting and recording, so `stop` waits for at most one Mollie read,
-and the next start scans again. A scan that throws is logged with the
-error's class and the next scan tries again. Run one worker per database.
+and the next start scans again. A scan that throws is logged with
+`errorDetails` ([logging](../conventions/logging.md)) and the next scan tries again. Run one worker per database.
 
 One scan does four things, all against the same `now`:
 

@@ -1,7 +1,7 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { renderProducerPdfNotification, type EmailModule } from '@/modules/email'
 import { read, write, type Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { deliverOverSftp, type SftpDestination } from './sftp'
@@ -194,7 +194,7 @@ export function createDeliveryStage({
         outcome = await deliverOverSftp(target, delivery.fileName, artifact.bytes)
       } catch (error) {
         logger.error(
-          { deliveryId: delivery.id, errorClass: errorClass(error) },
+          { deliveryId: delivery.id, error: errorDetails(error) },
           'Production delivery failed unexpectedly',
         )
         outcome = 'DELIVERY_FAILED'

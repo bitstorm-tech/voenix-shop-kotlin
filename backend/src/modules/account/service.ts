@@ -1,5 +1,5 @@
 import { AuthRoles } from '@/platform/auth/auth'
-import { createLogger } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import { newAccountToken, tokenHashOf, type PasswordHasher } from './credentials'
 import type { AccountMails } from './mails'
 import type {
@@ -119,7 +119,7 @@ export function createAccountService({
     try {
       await block()
     } catch (error) {
-      log.warn({ err: error }, `Suppressed ${operation} failure (enumeration-safe)`)
+      log.warn({ error: errorDetails(error) }, `Suppressed ${operation} failure (enumeration-safe)`)
     }
   }
 

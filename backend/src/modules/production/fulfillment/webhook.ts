@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import type { ReportedRemoteState } from '../spod/repository'
 import { carrierOfReportedName } from './carrier'
 import type { Shipment } from './repository'
@@ -63,7 +63,7 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
   try {
     parsed = payload.parse(JSON.parse(body))
   } catch (error) {
-    logger.warn({ errorClass: errorClass(error) }, 'A SPOD webhook body could not be read')
+    logger.warn({ error: errorDetails(error) }, 'A SPOD webhook body could not be read')
     return null
   }
   const reference = (part: z.output<typeof orderPart>) => {

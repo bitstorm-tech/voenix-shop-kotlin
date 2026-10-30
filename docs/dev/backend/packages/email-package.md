@@ -270,10 +270,13 @@ flowchart LR
 2. delivers the payload with the campaign id `voenix-email-<job id>`;
 3. on acceptance sets `sent_at = now()` and clears `last_error_code`; on a
    failure stores the bounded code (`PROVIDER_HTTP_503`, `REQUEST_TIMEOUT`,
-   `PROVIDER_UNAVAILABLE`, …) and leaves the job open.
+   `PROVIDER_UNAVAILABLE`, …) and leaves the job open. The adapter logs a
+   `REQUEST_TIMEOUT` or `PROVIDER_UNAVAILABLE` with `errorDetails`, so the
+   network cause (`ENOTFOUND`, `ConnectionRefused`) shows up in the log.
 
 There is no retry maximum and no terminal failed state. An exception during a
-scan (the database is gone) is logged with its class only and the next scan
+scan (the database is gone) is logged with `errorDetails`, never
+its message ([logging](../conventions/logging.md)), and the next scan
 tries again. With `EMAIL_ENABLED=false` a scan returns at once and every job
 stays untouched; `start()` then logs one warning, because nothing else in the
 log tells you that no mail goes out.

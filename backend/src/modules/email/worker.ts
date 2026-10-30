@@ -1,7 +1,7 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { read, type Tables } from '@/platform/db/database'
-import { createLogger, errorClass } from '@/platform/logging'
+import { createLogger, errorDetails } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
 import type { EmailDelivery } from './delivery/sweego'
 import './schema'
@@ -80,8 +80,8 @@ export function createEmailWorker({
           try {
             await runOnce(signal)
           } catch (error) {
-            // The class only: a message could quote a stored mail.
-            logger.error({ errorClass: errorClass(error) }, 'Email worker scan failed')
+            // Never the message: it could quote a stored mail.
+            logger.error({ error: errorDetails(error) }, 'Email worker scan failed')
           }
           await sleep(settings.pollIntervalMinutes * 60_000, undefined, { signal }).catch(
             () => undefined,
