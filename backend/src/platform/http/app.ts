@@ -15,9 +15,9 @@ export const MAX_REQUEST_BODY_BYTES = 30_000_000
 const log = createLogger('http')
 
 /**
- * The application with everything that applies to every route: the error answer, the body limit,
- * and the authentication middleware with its antiforgery route. The composition root mounts the
- * module sub-apps on it with `app.route('/', module.routes)`.
+ * The application with everything that applies to every route: the request log, the error
+ * answer, the body limit, and the authentication middleware with its antiforgery route. The
+ * composition root mounts the module sub-apps on it with `app.route('/', module.routes)`.
  */
 export function createApp(auth: Auth): Hono {
   const app = new Hono()
@@ -26,6 +26,14 @@ export function createApp(auth: Auth): Hono {
     if (error instanceof HTTPException) return c.json(apiError(error.message), error.status)
     log.error({ err: error }, 'Unhandled server error')
     return c.json(apiError('Internal server error'), 500)
+  })
+  // One line per API request. The path only: a query string can carry a secret link token, and
+  // the static frontend files would drown the API lines.
+  app.use('/api/*', async (c, next) => {
+    const started = performance.now()
+    await next()
+    const milliseconds = Math.round(performance.now() - started)
+    log.info(`${c.req.method} ${c.req.path} ${String(c.res.status)} ${String(milliseconds)}ms`)
   })
   app.use(
     bodyLimit({

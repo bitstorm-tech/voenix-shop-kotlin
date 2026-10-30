@@ -24,9 +24,10 @@ function caller(): string | undefined {
 /**
  * Human-readable lines (`[time] LEVEL (name): file:line message`) instead of pino's JSON.
  * pino-pretty runs as a plain stream in this process, not as a pino transport in a worker thread.
+ * `bun test` sets `NODE_ENV=test`; it logs from `warn` up, so the request lines stay out of it.
  */
 const root = pino(
-  { mixin: () => ({ caller: caller() }) },
+  { level: process.env.NODE_ENV === 'test' ? 'warn' : 'info', mixin: () => ({ caller: caller() }) },
   pretty({
     translateTime: 'SYS:HH:MM:ss.l',
     ignore: 'pid,hostname,caller',

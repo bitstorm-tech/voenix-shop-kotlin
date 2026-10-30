@@ -147,19 +147,28 @@ export function createAccountService({
     }: Credentials): Promise<
       SignedIn | 'invalidCredentials' | 'emailNotConfirmed' | 'lockedOut'
     > => {
+      // The reason of a refusal is logged, never the address: the answer hides it on purpose.
       const user = await repository.findByEmail(email)
       if (user === undefined) {
         await passwords.verify(password, await unknownUserPasswordHash)
+        log.warn('Login refused: unknown email')
         return 'invalidCredentials'
       }
-      if (!user.emailConfirmed) return 'emailNotConfirmed'
-      if (user.lockedUntil !== null && user.lockedUntil > now()) return 'lockedOut'
+      if (!user.emailConfirmed) {
+        log.warn({ userId: user.id }, 'Login refused: email not confirmed')
+        return 'emailNotConfirmed'
+      }
+      if (user.lockedUntil !== null && user.lockedUntil > now()) {
+        log.warn({ userId: user.id }, 'Login refused: locked out')
+        return 'lockedOut'
+      }
       if (!(await passwords.verify(password, user.passwordHash))) {
         const failures = await repository.recordFailedLogin(
           user.id,
           MAX_FAILED_LOGINS,
           later(LOCKOUT_MILLISECONDS),
         )
+        log.warn({ userId: user.id, failures }, 'Login refused: wrong password')
         return failures >= MAX_FAILED_LOGINS ? 'lockedOut' : 'invalidCredentials'
       }
       if (user.failedLoginCount > 0 || user.lockedUntil !== null) {
