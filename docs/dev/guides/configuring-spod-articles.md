@@ -203,6 +203,8 @@ Three things to get right over there, because only the backoffice can fix them:
   the shop had to invent or cannot show. The staging installation is known to
   list pictures its CDN answers with `404` — such an article arrives with every
   variant inactive, and the next run after the pictures exist fills them in.
+  The same holds for pictures lost from this shop's disk: the next run
+  downloads every picture whose file is gone, and the article keeps its id.
 - **An article whose variants span more than one product type is skipped.** One
   article here is one product in several colours and sizes.
 - **The product type needs a front view with at least one front hotspot** —

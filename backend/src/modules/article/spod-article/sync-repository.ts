@@ -17,9 +17,9 @@ type ArticleRow = Selectable<ArticleSpodArticlesTable>
 
 /** What a stored article already has, so the run fetches only what differs. Keyed by the partner's ids. */
 export interface StoredSyncArticle {
-  sizeChartUrl: string | null
+  sizeChart: { url: string; filename: string } | null
   listingImages: Map<number, { spodImageId: string | null; filename: string }[]>
-  mockupUrls: Map<number, string>
+  mockups: Map<number, { url: string; filename: string }>
 }
 
 /** One article as the run decided to store it: validated, truncated, and its new pictures stored. */
@@ -97,7 +97,7 @@ export function createSyncRepository(db: Kysely<Tables>) {
       read(db, async (trx): Promise<StoredSyncArticle | undefined> => {
         const article = await trx
           .selectFrom('article_spod_articles')
-          .select(['id', 'spod_size_chart_url'])
+          .select(['id', 'spod_size_chart_url', 'size_chart_image_filename'])
           .where('spod_destination_id', '=', destinationId)
           .where('spod_environment', '=', environment)
           .where('spod_article_id', '=', spodArticleId)
@@ -116,18 +116,25 @@ export function createSyncRepository(db: Kysely<Tables>) {
           .where('ap.article_id', '=', article.id)
           .execute()
         const listingImages = new Map<number, { spodImageId: string | null; filename: string }[]>()
-        const mockupUrls = new Map<number, string>()
+        const mockups = new Map<number, { url: string; filename: string }>()
         for (const image of images) {
           if (image.role === 'MOCKUP') {
             if (image.source_url !== null)
-              mockupUrls.set(image.spod_appearance_id, image.source_url)
+              mockups.set(image.spod_appearance_id, {
+                url: image.source_url,
+                filename: image.filename,
+              })
           } else {
             const own = listingImages.get(image.spod_appearance_id) ?? []
             own.push({ spodImageId: image.spod_image_id, filename: image.filename })
             listingImages.set(image.spod_appearance_id, own)
           }
         }
-        return { sizeChartUrl: article.spod_size_chart_url, listingImages, mockupUrls }
+        const sizeChart =
+          article.spod_size_chart_url === null || article.size_chart_image_filename === null
+            ? null
+            : { url: article.spod_size_chart_url, filename: article.size_chart_image_filename }
+        return { sizeChart, listingImages, mockups }
       }),
 
     /**
@@ -490,8 +497,8 @@ async function writeMockup(
 }
 
 /**
- * Replaces the colour's listing images when the ordered list of partner image ids differs from the
- * stored one, adds the file names it dropped to `replaced`, and answers whether it wrote.
+ * Replaces the colour's listing images when the ordered list of partner image ids or their files
+ * differs from the stored one (a file gone from the storage was downloaded again), adds the file names it dropped to `replaced`, and answers whether it wrote.
  */
 async function writeListingImages(
   trx: Trx,
@@ -508,7 +515,10 @@ async function writeListingImages(
     .execute()
   if (
     stored.length === images.length &&
-    stored.every((row, index) => row.spod_image_id === images[index]?.spodImageId)
+    stored.every((row, index) => {
+      const image = images[index]
+      return row.spod_image_id === image?.spodImageId && row.filename === image.filename
+    })
   ) {
     return false
   }

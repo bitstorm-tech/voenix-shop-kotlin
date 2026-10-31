@@ -17,6 +17,9 @@ export function createExampleImages(storage: ImageStorage, folder: string, logge
     /** Stores an upload and answers the name a following write submits. */
     store: storage.store,
 
+    /** Whether `filename` names a file of this folder, for a writer that reuses a stored name. */
+    exists: storage.exists,
+
     /**
      * Whether `filename` names a file of this folder, reported on `field`; `null` means "no
      * example image" and is valid. A name without the minted shape never reaches the storage.

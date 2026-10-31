@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { readdir, rm } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { sql } from 'kysely'
 import { createSpodClient, type SpodCatalogArticle } from '@/modules/spod'
 import { testDatabase } from '@test-support/database'
@@ -191,13 +193,13 @@ const source = (): SpodCatalogSource => ({
 
 async function syncWith(partner: Partner) {
   const { client, hits } = fakePartner(partner)
-  const { article } = await articleTestModule(database.db, testAuth.guestTokens, client)
+  const { article, publicRoot } = await articleTestModule(database.db, testAuth.guestTokens, client)
   const run = async (): Promise<SpodSyncReport> => {
     const result = await article.spodCatalogSync.sync(source())
     if (result.kind !== 'reported') throw new Error('The run was refused as busy')
     return result.report
   }
-  return { sync: article.spodCatalogSync, run, hits, routes: article.routes }
+  return { sync: article.spodCatalogSync, run, hits, routes: article.routes, publicRoot }
 }
 
 const storedArticle = () =>
@@ -276,6 +278,32 @@ describe('an identical second run', () => {
     expect(report.warnings).toEqual([])
     expect(downloads(hits)).toEqual([])
     expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(1)
+  })
+
+  test('downloads again every picture whose file is gone, and refers only to stored files', async () => {
+    const { run, hits, publicRoot } = await syncWith({ listing: page([shirt()]) })
+    await run()
+    const { id } = await storedArticle()
+    for (const path of await readdir(publicRoot, { recursive: true })) {
+      if (path.endsWith('.webp')) await rm(join(publicRoot, path))
+    }
+    hits.length = 0
+    const report = await run()
+    expect(report.unchanged).toEqual([])
+    expect(report.updated.map((line) => line.articleId)).toEqual([id])
+    expect(report.warnings.map((warning) => warning.code)).toEqual(['EXAMPLE_IMAGE_REPLACED'])
+    expect(downloads(hits)).toHaveLength(6)
+    const images = await database.db.selectFrom('article_spod_images').select('filename').execute()
+    const referenced = [
+      ...images.map((row) => row.filename),
+      (await storedArticle()).size_chart_image_filename,
+    ]
+    const stored = new Set(
+      (await readdir(publicRoot, { recursive: true })).map((path) => basename(path)),
+    )
+    expect(referenced).toHaveLength(6)
+    expect(referenced.filter((filename) => filename === null || !stored.has(filename))).toEqual([])
+    expect((await storedArticle()).id).toBe(id)
   })
 
   test('overwrites the product and the frame, and keeps the shop-owned half', async () => {

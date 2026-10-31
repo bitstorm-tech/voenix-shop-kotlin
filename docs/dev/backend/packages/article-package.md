@@ -456,7 +456,10 @@ caller is a human waiting for the report.
    (`parseColorHex`), every listing image of the colour is stored from
    `downloadUrl()` unless a stored image has the same partner image id, and the
    blank front mockup from the views is stored unless the stored one came from
-   the same URL. The size chart is asked for and downloaded once per product
+   the same URL. A stored picture is reused only while its file is still in the
+   storage; one whose file is gone is downloaded again under a new name, so a
+   plain run heals pictures lost from the disk without changing the article id.
+   The size chart is asked for and downloaded once per product
    type per run; the whole answer is cached per type (`null` when it was not
    answered). Its measurements are kept for the sizes among the article's
    variants only: names trimmed, an entry with an empty name, a name over 32
@@ -471,7 +474,7 @@ caller is a human waiting for the report.
 
 Inside the transaction colours are upserted by appearance id, a mockup is
 replaced only when the run fetched a new one, listing images are rewritten only
-when the ordered list of image ids differs, and variants are matched by the
+when the ordered list of image ids or their file names differs, and variants are matched by the
 product triple and never deleted. The measurements are replaced as a whole
 (delete and insert) only when the answered set differs from the stored one,
 which makes the article `updated`; an answer without `sizes` deletes them, an
@@ -485,7 +488,7 @@ the run deletes the files it minted and prepares the article once more from
 nothing.
 
 **A second identical run** lands every article in `unchanged`, downloads no
-picture, and costs one `spod_synced_at` bump per article — plus the
+picture (one storage check per stored picture), and costs one `spod_synced_at` bump per article — plus the
 re-measurement (one design upload per run and `2 + candidates` paced calls per
 product type).
 

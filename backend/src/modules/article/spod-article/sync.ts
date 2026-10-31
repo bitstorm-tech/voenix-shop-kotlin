@@ -203,9 +203,16 @@ export function createSpodCatalogSync({
     return unreadable('more pages than a catalog has')
   }
 
+  /** Whether a stored file can be reused: it came from `url`, and the storage still has it. */
+  const reusable = async (
+    stored: { url: string; filename: string } | null | undefined,
+    url: string,
+    folder: ExampleImages,
+  ) => stored?.url === url && (await folder.exists(stored.filename))
+
   /**
-   * The blank front mockup of one colour, fetched unless the stored one came from the same URL. A
-   * colour without one is not for sale this run: the editor would have nothing to lay the frame on.
+   * The blank front mockup of one colour, fetched unless the stored one came from the same URL and
+   * its file is still there. A colour without one is not for sale this run: the editor would have nothing to lay the frame on.
    */
   const mockup = async (
     source: SpodCatalogSource,
@@ -225,7 +232,9 @@ export function createSpodCatalogSync({
       )
       return { prepared: null, available: false }
     }
-    if (url === stored?.mockupUrls.get(appearanceId)) return { prepared: null, available: true }
+    if (await reusable(stored?.mockups.get(appearanceId), url, folders.mockups)) {
+      return { prepared: null, available: true }
+    }
     const filename = await store(source.access, url, folders.mockups)
     if (filename === null) {
       warn(
@@ -241,7 +250,8 @@ export function createSpodCatalogSync({
 
   /**
    * One colour and its pictures: every listing image the partner lists for it, in its order, reused
-   * when a stored image has the same partner id and downloaded otherwise, and its mockup. An
+   * when a stored image has the same partner id and its file is still there, and downloaded
+   * otherwise, and its mockup. An
    * unreadable colour value becomes a neutral grey; a colour without a readable value, a stored
    * listing image, or a mockup is not for sale this run (SPOD sync decision 6).
    */
@@ -271,6 +281,7 @@ export function createSpodCatalogSync({
     )) {
       let filename =
         storedImages.find((candidate) => candidate.spodImageId === image.id)?.filename ?? null
+      if (filename !== null && !(await folders.listingImages.exists(filename))) filename = null
       if (filename === null) {
         filename = await store(source.access, downloadUrl(image), folders.listingImages)
         if (filename !== null) minted.push(filename)
@@ -325,7 +336,7 @@ export function createSpodCatalogSync({
 
   /**
    * The size chart picture of the product type, downloaded once per type per run, or `null` when
-   * the stored one stays (same URL, or none could be had).
+   * the stored one stays (same URL and its file still there, or none could be had).
    */
   const sizeChart = async (
     source: SpodCatalogSource,
@@ -346,7 +357,7 @@ export function createSpodCatalogSync({
       )
       return null
     }
-    if (url === stored?.sizeChartUrl) return null
+    if (await reusable(stored?.sizeChart, url, folders.sizeCharts)) return null
     if (!run.sizeChartFiles.has(productTypeId)) {
       run.sizeChartFiles.set(productTypeId, await store(source.access, url, folders.sizeCharts))
     }
