@@ -1,5 +1,12 @@
 import { buildValidationErrors, invalid, ok, type OperationResult } from '@/platform/operation'
-import { calculatePrice, type CalculatedPrice, type PriceInput } from './calculation'
+import type { Transaction } from 'kysely'
+import type { Tables } from '@/platform/db/database'
+import {
+  calculatePrice,
+  withPurchasePrice,
+  type CalculatedPrice,
+  type PriceInput,
+} from './calculation'
 import type { PricingRepository, Vat } from './repository'
 
 export type PriceService = ReturnType<typeof createPriceService>
@@ -55,34 +62,69 @@ export function createPriceService(repository: PricingRepository) {
      * marked; `undefined` when no VAT exists.
      */
     defaultPrice: async (): Promise<CalculatedPrice | undefined> => {
-      const vats = await repository.listVats()
-      const vat =
-        vats.find((candidate) => candidate.isDefault) ?? vats.toSorted((a, b) => a.id - b.id)[0]
-      if (vat === undefined) return undefined
-      return calculatePrice(
-        null,
-        {
-          purchaseVatId: vat.id,
-          purchaseCalculationMode: 'NET',
-          purchaseActiveRow: 'COST',
-          purchasePriceInputCents: 0,
-          purchaseCostInputCents: 0,
-          purchaseCostPercent: 0,
-          salesVatId: vat.id,
-          salesCalculationMode: 'GROSS',
-          salesActiveRow: 'TOTAL',
-          salesMarginInputCents: 0,
-          salesMarginPercent: 0,
-          salesTotalInputCents: 0,
-          discountType: null,
-          discountValue: null,
-        },
-        vat,
-        vat,
+      const vat = defaultVatOf(await repository.listVats())
+      return vat === undefined ? undefined : calculatePrice(null, zeroPrice(vat.id), vat, vat)
+    },
+
+    /**
+     * Sets the partner's net purchase price on the price `priceId` in the caller's transaction,
+     * holding its regular sales total (see `withPurchasePrice`), or creates a price with it when
+     * `priceId` is `null`: the default VAT on both sides and a sales total of zero, which the admin
+     * replaces before activating. Answers the id and whether anything was written; `null` when a
+     * price is to be created but no VAT exists.
+     */
+    syncPurchasePriceInTransaction: async (
+      trx: Transaction<Tables>,
+      priceId: number | null,
+      purchaseNetCents: number,
+    ): Promise<{ id: number; changed: boolean } | null> => {
+      const vatList = await repository.listVatsInTransaction(trx)
+      if (priceId === null) {
+        const vat = defaultVatOf(vatList)
+        if (vat === undefined) return null
+        const input = { ...zeroPrice(vat.id), purchasePriceInputCents: purchaseNetCents }
+        const id = await repository.insertPrice(trx, calculatePrice(null, input, vat, vat))
+        return { id, changed: true }
+      }
+      const stored = await repository.findPriceForUpdate(trx, priceId)
+      if (stored === undefined) throw new Error(`The price row ${String(priceId)} disappeared`)
+      const vats = new Map(vatList.map((vat) => [vat.id, vat]))
+      const purchaseVat = vatOf(vats, stored.purchaseVatId)
+      const salesVat = vatOf(vats, stored.salesVatId)
+      const input = withPurchasePrice(stored, purchaseNetCents, purchaseVat, salesVat)
+      const keys = Object.keys(input) as (keyof PriceInput)[]
+      if (keys.every((key) => input[key] === stored[key])) return { id: priceId, changed: false }
+      await repository.updatePrice(
+        trx,
+        priceId,
+        calculatePrice(priceId, input, purchaseVat, salesVat),
       )
+      return { id: priceId, changed: true }
     },
   }
 }
+
+/** The VAT marked default, or the one with the smallest id when none is marked. */
+const defaultVatOf = (vats: Vat[]): Vat | undefined =>
+  vats.find((candidate) => candidate.isDefault) ?? vats.toSorted((a, b) => a.id - b.id)[0]
+
+/** An all-zero price on `vatId` for both sides, net purchase and gross sales total. */
+const zeroPrice = (vatId: number): PriceInput => ({
+  purchaseVatId: vatId,
+  purchaseCalculationMode: 'NET',
+  purchaseActiveRow: 'COST',
+  purchasePriceInputCents: 0,
+  purchaseCostInputCents: 0,
+  purchaseCostPercent: 0,
+  salesVatId: vatId,
+  salesCalculationMode: 'GROSS',
+  salesActiveRow: 'TOTAL',
+  salesMarginInputCents: 0,
+  salesMarginPercent: 0,
+  salesTotalInputCents: 0,
+  discountType: null,
+  discountValue: null,
+})
 
 /** Inactive inputs are stored as zero, so the same price always produces the same row. */
 function zeroInactiveFields(input: PriceInput): PriceInput {

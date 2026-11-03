@@ -354,10 +354,17 @@ refused outright for an article that is missing at Spreadconnect.
 
 The same price block as a mug: purchase VAT, sales VAT, and the gross sales
 price in cents. The calculation fills the rest. An active article must have a
-price. The partner's own prices are deliberately not stored: what the shop
-charges is the shop's decision. The optional discount on that price is part of
-it and therefore shop-owned as well: a price discount you configure here
-survives every sync run, because a run never touches the price.
+sales price above zero.
+
+The **purchase price** is the partner's: every sync run writes the highest
+`b2bPrice` of the article's variants (read as net euros, so the margin holds
+for the dearest size) into the purchase price, in the purchase mode the price
+already has. A new article gets a price on the default VAT with a sales total
+of zero, which is why activation insists on a sales price above zero. A run
+never moves what the customer pays: a sales total stays as it is, and a margin
+price becomes the cent margin that keeps its regular sales total. The discount
+is untouched. A run whose variants answer no usable `b2bPrice` keeps the stored
+price. What the shop charges stays the shop's decision.
 
 #### Print
 

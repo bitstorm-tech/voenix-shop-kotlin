@@ -156,6 +156,34 @@ export function calculatePrice(
   }
 }
 
+/**
+ * `stored` with the partner's net purchase price, in the stored purchase mode. The regular sales
+ * total is held: a `TOTAL` row holds it by itself, and a margin row becomes the cent margin that
+ * leaves the total where it was, since a percentage cannot always hit it to the cent.
+ */
+export function withPurchasePrice(
+  stored: PriceInput,
+  purchaseNetCents: number,
+  purchaseVat: Vat,
+  salesVat: Vat,
+): PriceInput {
+  const purchasePriceInputCents =
+    stored.purchaseCalculationMode === 'NET'
+      ? purchaseNetCents
+      : cents(purchaseNetCents + percentOfCents(purchaseNetCents, purchaseVat.percent))
+  const input = { ...stored, purchasePriceInputCents }
+  if (stored.salesActiveRow === 'TOTAL') return input
+  const mode = stored.salesCalculationMode
+  const regularTotal = calculatePrice(null, stored, purchaseVat, salesVat).regularSalesTotal
+  const purchaseTotal = calculatePrice(null, input, purchaseVat, salesVat).purchaseTotal
+  return {
+    ...input,
+    salesActiveRow: 'MARGIN',
+    salesMarginInputCents: cents(modeAmount(regularTotal, mode) - modeAmount(purchaseTotal, mode)),
+    salesMarginPercent: 0,
+  }
+}
+
 function calculateSales(
   input: PriceInput,
   vatPercent: number,

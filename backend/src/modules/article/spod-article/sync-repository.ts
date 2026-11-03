@@ -1,4 +1,5 @@
 import type { Kysely, Selectable, Transaction } from 'kysely'
+import type { PriceCatalog } from '@/modules/pricing'
 import { read, write, type Tables } from '@/platform/db/database'
 import { lockArticleType, nextPosition, unreferencedFilenames } from '../persistence'
 import { examplePictures, printFrameOf, type PrintFrame } from './repository'
@@ -7,12 +8,14 @@ import type { ArticleSpodArticlesTable } from '../schema'
 
 type Trx = Transaction<Tables>
 type ArticleRow = Selectable<ArticleSpodArticlesTable>
+type SyncPrices = Pick<PriceCatalog, 'syncPurchasePriceInTransaction'>
 
 /**
  * The writing half of a sync run: one transaction per article and one sweep at the end (SPOD sync
  * decision 6). Neither talks to the partner or stores a file; both happened before. Only the
  * SPOD-owned half of an article is written; `active` is only ever switched off, and the category
- * path, the price, and the default variant (except to keep it sellable) belong to the shop.
+ * path, the sales price, and the default variant (except to keep it sellable) belong to the shop.
+ * The purchase price is the partner's and is written with the article.
  */
 
 /** What a stored article already has, so the run fetches only what differs. Keyed by the partner's ids. */
@@ -40,6 +43,8 @@ export interface PreparedSpodArticle {
    * an empty one, replaces them.
    */
   sizeMeasurements: PreparedSizeMeasurement[] | null
+  /** The highest net purchase price of the variants in cents; `null` keeps the stored price. */
+  purchasePriceCents: number | null
   appearances: PreparedAppearance[]
   variants: PreparedVariant[]
 }
@@ -87,7 +92,7 @@ export interface SyncWriteOutcome {
 
 export type SyncRepository = ReturnType<typeof createSyncRepository>
 
-export function createSyncRepository(db: Kysely<Tables>) {
+export function createSyncRepository(db: Kysely<Tables>, prices: SyncPrices) {
   return {
     /**
      * What the run needs to know before it downloads anything. Deliberately not authoritative: it
@@ -158,9 +163,9 @@ export function createSyncRepository(db: Kysely<Tables>) {
           .where('spod_article_id', '=', prepared.spodArticleId)
           .forUpdate()
           .executeTakeFirst()
-        if (existing !== undefined) return updateArticle(trx, existing, prepared, now)
+        if (existing !== undefined) return updateArticle(trx, prices, existing, prepared, now)
         if (expectedExisting) return null
-        return insertArticle(trx, source, prepared, now)
+        return insertArticle(trx, prices, source, prepared, now)
       }),
 
     /**
@@ -227,11 +232,12 @@ const syncLine = (articleId: number, spodArticleId: string, name: string): SpodS
 
 /**
  * Appends a new article behind the last SPOD article. Everything the shop owns starts neutral —
- * inactive, no category, no price (SPOD sync decision 2) — and the first sellable variant becomes
- * the default, so the article already has a picture in the admin list.
+ * inactive, no category, a sales price of zero (SPOD sync decision 2) — and the first sellable
+ * variant becomes the default, so the article already has a picture in the admin list.
  */
 async function insertArticle(
   trx: Trx,
+  prices: SyncPrices,
   source: { destinationId: number; environment: string; supplierId: number },
   prepared: PreparedSpodArticle,
   now: Date,
@@ -243,6 +249,10 @@ async function insertArticle(
     .values({ article_type: 'SPOD' })
     .returning('id')
     .executeTakeFirstOrThrow()
+  const price =
+    prepared.purchasePriceCents === null
+      ? null
+      : await prices.syncPurchasePriceInTransaction(trx, null, prepared.purchasePriceCents)
   await trx
     .insertInto('article_spod_articles')
     .values({
@@ -255,7 +265,7 @@ async function insertArticle(
       category_id: null,
       subcategory_id: null,
       supplier_id: source.supplierId,
-      price_id: null,
+      price_id: price?.id ?? null,
       size_chart_image_filename: prepared.sizeChart?.filename ?? null,
       spod_destination_id: source.destinationId,
       spod_environment: source.environment,
@@ -295,6 +305,7 @@ async function insertArticle(
  */
 async function updateArticle(
   trx: Trx,
+  prices: SyncPrices,
   existing: ArticleRow,
   prepared: PreparedSpodArticle,
   now: Date,
@@ -317,6 +328,14 @@ async function updateArticle(
   const sizeChartFilename = prepared.sizeChart?.filename ?? previousSizeChart
   const sizeChartUrl = prepared.sizeChart?.url ?? existing.spod_size_chart_url
   const stillSellable = current.some((variant) => variant.active)
+  const price =
+    prepared.purchasePriceCents === null
+      ? null
+      : await prices.syncPurchasePriceInTransaction(
+          trx,
+          existing.price_id,
+          prepared.purchasePriceCents,
+        )
   await trx
     .updateTable('article_spod_articles')
     .set({
@@ -331,6 +350,7 @@ async function updateArticle(
       spod_missing_since: null,
       spod_product_type_id: prepared.productTypeId,
       spod_product_type_name: prepared.productTypeName,
+      price_id: price?.id ?? existing.price_id,
       ...frameColumns(prepared),
     })
     .where('id', '=', id)
@@ -352,7 +372,12 @@ async function updateArticle(
     !sameFrame(storedFrame, prepared.printFrame) ||
     previousSizeChart !== sizeChartFilename ||
     existing.spod_size_chart_url !== sizeChartUrl
-  const touched = articleChanged || appearances.touched || variants.touched || measurementsTouched
+  const touched =
+    articleChanged ||
+    price?.changed === true ||
+    appearances.touched ||
+    variants.touched ||
+    measurementsTouched
   return {
     kind: touched || warnings.length > 0 ? 'updated' : 'unchanged',
     line: {

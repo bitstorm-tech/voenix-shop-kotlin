@@ -26,8 +26,8 @@ export { priceInput } from './routes'
  * The pricing module: the price and VAT admin routes, and `priceCatalog`, the capability a module
  * that owns prices (Article, Prompt) uses. `prepare` validates against the current VAT and
  * calculates without writing, reporting its field errors under `price.`, the path an owner embeds
- * `priceInput` at (`price.salesVatId`); the three writes run on the caller's transaction, so the
- * owner and its price commit or roll back together; `find` reads and recalculates prices in one
+ * `priceInput` at (`price.salesVatId`); the writes, and the SPOD sync's purchase price write, run on the caller's
+ * transaction, so the owner and its price commit or roll back together; `find` reads and recalculates prices in one
  * batch.
  */
 export function createPricingModule({ db }: { db: Kysely<Tables> }) {
@@ -55,6 +55,7 @@ export function createPricingModule({ db }: { db: Kysely<Tables> }) {
       replaceInTransaction: repository.updatePrice,
       deleteInTransaction: repository.deletePrice,
       find: prices.find,
+      syncPurchasePriceInTransaction: prices.syncPurchasePriceInTransaction,
     },
   }
 }

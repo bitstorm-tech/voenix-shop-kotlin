@@ -413,6 +413,7 @@ export function createSpodCatalogSync({
       printFrame: measured?.frame ?? null,
       sizeChart: preparedSizeChart,
       sizeMeasurements,
+      purchasePriceCents: purchasePriceOf(variants),
       appearances: colors.map((color) => color.prepared),
       variants: variants.map((variant) => ({
         productTypeId: variant.productTypeId,
@@ -670,6 +671,17 @@ function sizeMeasurementsOf(
   return measurements
 }
 
+/**
+ * The highest purchase price of the variants in cents, so the margin holds for the dearest size;
+ * `null` when no variant answered a usable one.
+ */
+function purchasePriceOf(variants: readonly SpodCatalogVariant[]): number | null {
+  const cents = variants
+    .map((variant) => Math.round((variant.b2bPrice ?? 0) * 100))
+    .filter((value) => value > 0 && value < PURCHASE_CENTS_LIMIT)
+  return cents.length === 0 ? null : Math.max(...cents)
+}
+
 /** The colours of the variants in the order they first appear. */
 const appearanceIdsOf = (variants: readonly SpodCatalogVariant[]) => [
   ...new Set(variants.map((variant) => variant.appearanceId)),
@@ -724,5 +736,7 @@ const COLOR_NAME_MAX = 64
 const SIZE_LABEL_MAX = 64
 const SKU_MAX = 128
 const MEASUREMENT_NAME_MAX = 32
+/** A purchase price no garment costs; it guards the 32-bit cent columns of the price. */
+const PURCHASE_CENTS_LIMIT = 10_000_000
 /** The first value `numeric(6, 1)` cannot hold. */
 const MEASUREMENT_MM_LIMIT = 100000

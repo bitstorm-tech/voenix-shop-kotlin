@@ -1,9 +1,9 @@
-import type { Kysely, Transaction } from 'kysely'
+import type { Kysely, Selectable, Transaction } from 'kysely'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
 import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { CalculatedPrice, PriceInput } from './calculation'
-import './schema'
+import type { PricesTable } from './schema'
 
 /** A stored VAT entry; also the admin response and the VAT a calculated price carries. */
 export interface Vat {
@@ -105,28 +105,26 @@ export function createPricingRepository(db: Kysely<Tables>) {
       const rows = await read(db, (trx) =>
         trx.selectFrom('prices').selectAll().where('id', 'in', wanted).execute(),
       )
-      return new Map(
-        rows.map((row) => [
-          row.id,
-          {
-            purchaseVatId: row.purchase_vat_id,
-            purchaseCalculationMode: row.purchase_calculation_mode,
-            purchaseActiveRow: row.purchase_active_row,
-            purchasePriceInputCents: row.purchase_price_input_cents,
-            purchaseCostInputCents: row.purchase_cost_input_cents,
-            purchaseCostPercent: Number(row.purchase_cost_percent),
-            salesVatId: row.sales_vat_id,
-            salesCalculationMode: row.sales_calculation_mode,
-            salesActiveRow: row.sales_active_row,
-            salesMarginInputCents: row.sales_margin_input_cents,
-            salesMarginPercent: Number(row.sales_margin_percent),
-            salesTotalInputCents: row.sales_total_input_cents,
-            discountType: row.discount_type,
-            discountValue: row.discount_value === null ? null : Number(row.discount_value),
-          },
-        ]),
-      )
+      return new Map(rows.map((row) => [row.id, priceInputOf(row)]))
     },
+
+    /** The stored inputs of the price `id`, locked until the caller's transaction ends. */
+    findPriceForUpdate: async (
+      trx: Transaction<Tables>,
+      id: number,
+    ): Promise<PriceInput | undefined> => {
+      const row = await trx
+        .selectFrom('prices')
+        .selectAll()
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst()
+      return row === undefined ? undefined : priceInputOf(row)
+    },
+
+    /** Every VAT entry, read in the caller's transaction. */
+    listVatsInTransaction: (trx: Transaction<Tables>) =>
+      trx.selectFrom('value_added_taxes').select(vatColumns).execute(),
 
     /**
      * Inserts `price` in the caller's transaction and answers the new id. Its VAT entries are
@@ -202,6 +200,24 @@ const vatRow = (vat: Omit<Vat, 'id'>) => ({
   percent: vat.percent,
   description: vat.description,
   is_default: vat.isDefault,
+})
+
+/** The one column mapping of every price read. */
+const priceInputOf = (row: Selectable<PricesTable>): PriceInput => ({
+  purchaseVatId: row.purchase_vat_id,
+  purchaseCalculationMode: row.purchase_calculation_mode,
+  purchaseActiveRow: row.purchase_active_row,
+  purchasePriceInputCents: row.purchase_price_input_cents,
+  purchaseCostInputCents: row.purchase_cost_input_cents,
+  purchaseCostPercent: Number(row.purchase_cost_percent),
+  salesVatId: row.sales_vat_id,
+  salesCalculationMode: row.sales_calculation_mode,
+  salesActiveRow: row.sales_active_row,
+  salesMarginInputCents: row.sales_margin_input_cents,
+  salesMarginPercent: Number(row.sales_margin_percent),
+  salesTotalInputCents: row.sales_total_input_cents,
+  discountType: row.discount_type,
+  discountValue: row.discount_value === null ? null : Number(row.discount_value),
 })
 
 /** The one column mapping of every price write: a calculated price stores exactly its inputs. */

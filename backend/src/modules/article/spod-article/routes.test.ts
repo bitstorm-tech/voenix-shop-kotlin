@@ -211,6 +211,14 @@ describe('GET and PUT /api/admin/articles/spod/:id', () => {
     ).toEqual({
       price: ['An active article requires a price'],
     })
+    expect(
+      await errorsOf(framed.articleId, {
+        ...activate(framed.variantIds[0]),
+        price: grossPrice(vat, 0),
+      }),
+    ).toEqual({
+      price: ['An active article requires a sales price above zero'],
+    })
     expect(await errorsOf(framed.articleId, activate(unframed.variantIds[0]))).toEqual({
       defaultVariantId: ['The default variant is not an active variant of this article'],
     })

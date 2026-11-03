@@ -165,6 +165,7 @@ function variant(
     sizeId,
     sizeName,
     sku: `sku-${id}`,
+    b2bPrice: null as number | null,
   }
 }
 
@@ -344,6 +345,76 @@ describe('an identical second run', () => {
       spod_hotspot: 'FULL_FRONT',
       print_frame_left_pct: '28.50',
     })
+  })
+})
+
+describe('the purchase price', () => {
+  const priced = (prices: (number | null)[]) =>
+    shirt({
+      variants: shirt().variants.map((entry, index) => ({
+        ...entry,
+        b2bPrice: prices[index] ?? null,
+      })),
+    })
+  const storedPrice = async () =>
+    database.db
+      .selectFrom('prices')
+      .select([
+        'purchase_price_input_cents',
+        'sales_active_row',
+        'sales_margin_input_cents',
+        'sales_total_input_cents',
+      ])
+      .where('id', '=', (await storedArticle()).price_id ?? -1)
+      .executeTakeFirst()
+
+  test('a new article gets the dearest variant as net purchase price and a sales total of zero', async () => {
+    await insertVat(database.db)
+    const { run } = await syncWith({ listing: page([priced([9.5, 12.34, null])]) })
+    await run()
+    expect(await storedPrice()).toEqual({
+      purchase_price_input_cents: 1234,
+      sales_active_row: 'TOTAL',
+      sales_margin_input_cents: 0,
+      sales_total_input_cents: 0,
+    })
+  })
+
+  test('a changed purchase price is written and holds the sales total of a margin price', async () => {
+    await insertVat(database.db)
+    let listed = priced([10, 10, 10])
+    const { run } = await syncWith({ listing: () => page([listed])() })
+    await run()
+    const { price_id: priceId } = await storedArticle()
+    await database.db
+      .updateTable('prices')
+      .set({
+        sales_calculation_mode: 'NET',
+        sales_active_row: 'MARGIN',
+        sales_margin_input_cents: 1500,
+      })
+      .where('id', '=', priceId ?? -1)
+      .execute()
+    expect((await run()).unchanged).toHaveLength(1)
+    listed = priced([10, 12, 10])
+    const report = await run()
+    expect(report.updated.map((line) => line.spodArticleId)).toEqual(['a-1'])
+    expect(await storedPrice()).toMatchObject({
+      purchase_price_input_cents: 1200,
+      sales_active_row: 'MARGIN',
+      sales_margin_input_cents: 1300,
+    })
+    expect((await storedArticle()).price_id).toBe(priceId)
+  })
+
+  test('no usable purchase price keeps the stored one', async () => {
+    await insertVat(database.db)
+    let listed = priced([10, 10, 10])
+    const { run } = await syncWith({ listing: () => page([listed])() })
+    await run()
+    listed = priced([null, 0, null])
+    expect((await run()).unchanged).toHaveLength(1)
+    expect((await storedPrice())?.purchase_price_input_cents).toBe(1000)
   })
 })
 

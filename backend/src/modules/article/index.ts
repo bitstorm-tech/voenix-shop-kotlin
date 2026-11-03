@@ -105,7 +105,7 @@ export function createArticleModule({
     routes,
     articleCatalog: createArticleCatalog(db, prices),
     spodCatalogSync: createSpodCatalogSync({
-      repository: createSyncRepository(db),
+      repository: createSyncRepository(db, prices),
       client: spod,
       folders: spodFolders,
       logger,

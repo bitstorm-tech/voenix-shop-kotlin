@@ -414,7 +414,7 @@ const ARTICLES_PAGE_1 = `
   {"id":11,"title":"Shirt","description":"A shirt","unknownField":"ignored",
    "variants":[{"id":101,"productTypeId":812,"productTypeName":"Men's T-Shirt","appearanceId":4,
                 "appearanceName":"Schwarz","appearanceColorValue":"#0A0B0C","sizeId":3,
-                "sizeName":"M","sku":"SKU-1","imageIds":[901]}],
+                "sizeName":"M","sku":"SKU-1","imageIds":[901],"b2bPrice":12.34,"d2cPrice":21.56}],
    "images":[{"id":901,"productId":598279462,"appearanceId":4,"perspective":"front",
               "imageUrl":"https://image.cdn.example/901.png"}]},
   {"id":12}
@@ -456,6 +456,7 @@ describe('the catalog calls', () => {
                 sizeId: 3,
                 sizeName: 'M',
                 sku: 'SKU-1',
+                b2bPrice: 12.34,
               },
             ],
             images: [

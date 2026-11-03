@@ -4,6 +4,7 @@ import {
   type CalculatedPrice,
   type PriceAmount,
   type PriceInput,
+  withPurchasePrice,
 } from '@/modules/pricing/calculation'
 import type { Vat } from '@/modules/pricing/repository'
 
@@ -294,5 +295,43 @@ describe('the discount', () => {
     expect(result.salesTotal).toEqual(amount(0, 0, 0))
     expect(result.salesDiscount).toEqual(result.regularSalesTotal)
     expectComponentwiseIdentity(result)
+  })
+})
+
+describe('withPurchasePrice', () => {
+  const total = (input: PriceInput) =>
+    calculatePrice(null, input, standardVat, standardVat).regularSalesTotal
+
+  test('a total row keeps its total and takes the net price in a gross purchase mode as gross', () => {
+    const stored = priceInput({ purchaseCalculationMode: 'GROSS', salesTotalInputCents: 2990 })
+    const synced = withPurchasePrice(stored, 1000, standardVat, standardVat)
+    expect(synced).toEqual({ ...stored, purchasePriceInputCents: 1190 })
+    expect(total(synced)).toEqual(total(stored))
+  })
+
+  test('a margin row becomes the cent margin that holds the regular total', () => {
+    for (const stored of [
+      priceInput({
+        purchasePriceInputCents: 800,
+        salesActiveRow: 'MARGIN_PERCENT',
+        salesMarginPercent: 33.33,
+      }),
+      priceInput({
+        purchasePriceInputCents: 800,
+        purchaseActiveRow: 'COST_PERCENT',
+        purchaseCostPercent: 7,
+        salesCalculationMode: 'NET',
+        salesActiveRow: 'MARGIN',
+        salesMarginInputCents: 1234,
+      }),
+    ]) {
+      const synced = withPurchasePrice(stored, 1111, standardVat, standardVat)
+      expect(synced).toMatchObject({
+        purchasePriceInputCents: 1111,
+        salesActiveRow: 'MARGIN',
+        salesMarginPercent: 0,
+      })
+      expect(total(synced)).toEqual(total(stored))
+    }
   })
 })

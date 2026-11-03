@@ -63,6 +63,15 @@ export function createSpodArticleService(
     update: async (id: number, input: SpodArticleInput): Promise<OperationResult<SpodArticle>> => {
       const price = await preparePrice(prices, input.price)
       if (price.kind !== 'ok') return price
+      if (input.active) {
+        // A synced article owns a price with a sales total of zero until the admin sets one.
+        const stored = price.value === null ? await repository.find(id) : undefined
+        const effective =
+          price.value ?? (stored === undefined ? null : (await withPrice(stored)).price)
+        if (effective?.regularSalesTotal.gross === 0) {
+          return invalid({ price: ['An active article requires a sales price above zero'] })
+        }
+      }
       const result = await repository.update(id, input, price.value)
       switch (result) {
         case 'notFound':

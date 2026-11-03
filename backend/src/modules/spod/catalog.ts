@@ -33,6 +33,8 @@ const spodCatalogVariant = z.object({
   sizeId: productId.default(0),
   sizeName: z.string().default(''),
   sku: z.string().nullable().default(null),
+  /** What the merchant pays the partner, read as net euros; garbled reads as none. */
+  b2bPrice: z.number().nullable().catch(null),
 })
 
 const spodCatalogImage = z.object({

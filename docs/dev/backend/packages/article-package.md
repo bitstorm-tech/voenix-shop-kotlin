@@ -322,9 +322,12 @@ There is no create and no upload (sync decision 1); the old
 **Two owners.** The sync owns the product: name, descriptions, product type
 name, colours with their pictures, the variant matrix, the size chart and its
 measurements, the
-supplier, and the measured `printFrame` with its `hotspot`. The shop owns
-`active` (a run only switches it off), the category path, the position, the
-price, and the default variant. The update body is exactly the shop's half:
+supplier, the measured `printFrame` with its `hotspot`, and the purchase price
+(the highest variant `b2bPrice`, net; a new article gets a price with a sales
+total of zero on the default VAT). The shop owns `active` (a run only switches
+it off), the category path, the position, the sales side of the price (a run
+holds the regular sales total; a margin row becomes the cent margin that keeps
+it), and the default variant. Activation needs a sales price above zero. The update body is exactly the shop's half:
 
 ```json
 { "active": true, "categoryId": 7, "subcategoryId": 42, "defaultVariantId": 34,
@@ -531,7 +534,9 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
    create route, no variant editor, no picture upload; a run is started by hand
    per destination.
 2. **Two owners per article** — see [SPOD articles](#spod-articles). The short
-   description is the same text truncated.
+   description is the same text truncated. Deviation from the Kotlin guide
+   (2026-11-03, Joe): the purchase price moved to the sync's half, because it
+   is the partner's number; the sales price stays the shop's.
 3. **Orders stay `oneTimeItems`.** The customer's design is per order;
    production keeps its upload → create `NEW` → confirm protocol.
 4. **Identity is (destination, environment, backoffice article id)**; variants
