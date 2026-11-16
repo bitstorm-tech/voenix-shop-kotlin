@@ -22,7 +22,7 @@ Nummern = Priorität. Zuerst 1 + 2, dann 3–7 vor echtem Traffic.
   Mehrere Bestellungen mit Code anlegen, jeweils abbrechen (Reservierung frei), dann alle bezahlen → nur erste Einlösung klappt, Rest wird trotzdem PAID.
   Fix: in `startPayment` unter Order-Lock neu reservieren; bei Ablehnung keine Zahlung (`promotionRejected`).
   Achtung: `checkout-package.md:274-277` akzeptiert „PAID ohne Einlösung“ nur als seltenes Race.
-- [ ] **6. Öffentliche Bild-Route: beliebige Größen, Cache wächst endlos** – `backend/src/modules/image/codec.ts:51-67`
+- [x] **6. Öffentliche Bild-Route: beliebige Größen, Cache wächst endlos** – `backend/src/modules/image/codec.ts:51-67`
   Jede Größe bis 4096×4096 anonym, kleine Bilder werden hochskaliert, Cache wird nie geleert → Platte/Speicher voll.
   Fix: nur feste Größen erlauben (80, 200, 320, 400, 1000, 1600).
 - [ ] **7. Service Worker cacht private API-Antworten über Logout hinaus** – `frontend/vite.config.ts:35-42`

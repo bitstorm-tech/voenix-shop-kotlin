@@ -39,7 +39,7 @@ function isItemBusy(item: OrderItem) {
 }
 
 function getImageUrl(item: OrderItem) {
-  return item.imageId ? `/api/images/guest/320/${item.imageId}` : ''
+  return item.imageId ? `/api/images/guest/400/${item.imageId}` : ''
 }
 
 /**

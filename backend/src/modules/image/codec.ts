@@ -12,7 +12,6 @@ import sharp, { type Metadata, type Sharp } from 'sharp'
 const MAX_DECODED_PIXELS = 40_000_000
 /** The most bytes an upload may have; the reader and the storage both enforce it. */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const MAX_DIMENSION = 4096
 
 export type ImageFormat = 'jpeg' | 'png' | 'webp'
 
@@ -37,49 +36,28 @@ function formatOfContentType(value: string): ImageFormat | null {
 }
 
 /**
- * A requested size: one width (`300`) or a box (`300x200`), each dimension 1 through 4096. The
- * image is scaled as large as possible inside it, keeping its aspect ratio: no crop, no padding,
- * and a smaller original is upscaled.
+ * The widths the frontend requests; every other size is refused. Each width is a cache directory
+ * that is never cleaned, and the public route is anonymous, so a free size would let anyone fill
+ * the disk. The image is scaled to the width, keeping its aspect ratio, and a smaller original is
+ * upscaled.
  */
-export interface ImageSize {
-  width: number
-  height: number | null
-  /** The canonical spelling, which is also the cache directory of this size. */
-  key: string
+export const IMAGE_WIDTHS = [80, 200, 400, 1000, 1600] as const
+
+/** The width a requested size names, or `null`; the spelling must match exactly (no `080`). */
+export function parseImageWidth(value: string): number | null {
+  return IMAGE_WIDTHS.find((width) => String(width) === value) ?? null
 }
 
-export function parseImageSize(value: string): ImageSize | null {
-  const match = /^(\d+)(?:x(\d+))?$/.exec(value)
-  if (match === null) return null
-  const width = dimension(match[1])
-  const height = match[2] === undefined ? null : dimension(match[2])
-  if (width === null || (match[2] !== undefined && height === null)) return null
-  return {
-    width,
-    height,
-    key: height === null ? String(width) : `${String(width)}x${String(height)}`,
-  }
-}
-
-function dimension(digits: string | undefined): number | null {
-  const value = Number(digits)
-  return Number.isInteger(value) && value >= 1 && value <= MAX_DIMENSION ? value : null
-}
-
-/** Writes `original` resized to `size` in `format` to `target`. */
+/** Writes `original` resized to `width` in `format` to `target`. */
 export async function writeDerivative(
   original: string,
-  size: ImageSize,
+  width: number,
   format: ImageFormat,
   target: string,
 ): Promise<void> {
   const resized = sharp(original, { limitInputPixels: MAX_DECODED_PIXELS })
     .autoOrient()
-    .resize(
-      size.height === null
-        ? { width: size.width }
-        : { width: size.width, height: size.height, fit: 'inside' },
-    )
+    .resize({ width })
   switch (format) {
     case 'jpeg':
       await resized.flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toFile(target)

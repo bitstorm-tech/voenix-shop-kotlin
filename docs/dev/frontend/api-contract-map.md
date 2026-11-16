@@ -304,7 +304,7 @@ filename or an id. All of them match the image module's routes
 | `views/admin/MugArticleEditView.vue` | `/api/images/public/200/articles/mugs/variant-example-images/{filename}` | same | #97 |
 | `views/admin/SpodArticleEditView.vue` | `/api/images/public/1000/articles/spod/mockups/{filename}` (the mockup the read-only print frame is drawn on, via `spodMockupImageUrl`), `/api/images/public/{size}/articles/spod/listing-images/{filename}` (the variant thumbnails in its `AdminArticleSpodVariantGroups`), and `/api/images/public/400/articles/spod/size-charts/{filename}` (all written by the sync, not by an upload) | same | #220, #231, #260 |
 | `components/shop/CartLineItem.vue` | `/api/images/guest/400/{imageId}` | `GET /api/images/guest/{size}/{id}` | #91 |
-| `components/shop/orders/OrderDetails.vue` | `/api/images/guest/320/{imageId}` | same | #94 |
+| `components/shop/orders/OrderDetails.vue` | `/api/images/guest/400/{imageId}` | same | #94 |
 | `stores/shop/printImages.ts` | `GET /api/images/guest/1600/{imageId}` (blob download) | same | #94 |
 
 `stores/shop/printImages.ts` is the only *image* row that is a real request: it
@@ -563,8 +563,8 @@ showing an old one.
 
 The page `/admin/images/orphans` shows every orphan
 ([the Image package](../backend/packages/image-package.md#orphans)) with a
-preview through `/api/images/{public|private}/400/{path}`, its folder, size, and
-date. "Delete" and "Delete all" post the chosen locations after a confirmation;
+preview through `/api/images/{public|private}/400/{path}` (linked to the
+`1600` version), its folder, size, and date. "Delete" and "Delete all" post the chosen locations after a confirmation;
 the store drops the `deleted` ones from the list, and when the backend `kept`
 some (in use again, or gone), the page says so and reloads.
 
@@ -676,7 +676,6 @@ decision, not an oversight.
 | Backend route | Disposition |
 | --- | --- |
 | `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
-| `GET /api/images/private/{size}/{filename...}` | **No caller.** Private images are reached through the guest resolver route instead. Nothing to build. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
 | `POST /api/production/webhooks/spod/{secret}` | **Must stay uncalled.** The print-on-demand partner calls this, never a browser; the secret in the path is its whole authentication (`docs/dev/backend/packages/spod-fulfillment.md`). |
 
