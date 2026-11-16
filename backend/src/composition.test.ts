@@ -1,11 +1,18 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApplication } from '@/composition'
-import { composedApplication, composedSettings, type ComposedApplication } from '@/test-fixtures'
+import { httpLog } from '@/platform/http/app'
+import {
+  composedApplication,
+  composedSettings,
+  WEBHOOK_SECRET,
+  type ComposedApplication,
+} from '@/test-fixtures'
 import { testDatabase } from '@test-support/database'
-import { guestHeaders, jsonOf } from '@test-support/http'
+import { CSRF_COOKIE } from '@/platform/auth/cookies'
+import { guestHeaders, jsonOf, setCookies } from '@test-support/http'
 
 /**
  * The composition root against the test database: every module's routes are mounted (one smoke
@@ -159,5 +166,64 @@ describe('the built frontend', () => {
     expect(countries.status).toBe(200)
     expect(countries.headers.get('Content-Type')).toContain('application/json')
     expect((await page('/api/nowhere')).status).toBe(404)
+  })
+})
+
+describe('a deployment', () => {
+  const SPOD_SECRET = 'spod-webhook-secret-with-32-chars-at-least'
+  const ORDER_TOKEN = 'an-order-link-token'
+  let deployed: Awaited<ReturnType<typeof createApplication>> | undefined
+  afterAll(async () => {
+    await deployed?.stop()
+  })
+  beforeAll(async () => {
+    const root = await mkdtemp(join(tmpdir(), 'voenix-deployed-'))
+    const dist = join(root, 'dist')
+    await mkdir(dist, { recursive: true })
+    await writeFile(join(dist, 'index.html'), '<!doctype html>frontend')
+    deployed = await createApplication(
+      composedSettings(database.settings, root, {
+        FRONTEND_BASE_URL: 'https://shop.example.com',
+        FRONTEND_DIST_PATH: dist,
+        PRODUCTION_SPOD_WEBHOOK_SECRET: SPOD_SECRET,
+        OPERATIONS_ALERT_EMAIL: 'ops@example.com',
+      }),
+      { fetch: () => Promise.reject(new Error('The composed tests reach no network')) },
+    )
+  })
+  const request = (path: string, init?: RequestInit) => {
+    if (deployed === undefined) throw new Error('The application exists only inside a test')
+    return deployed.app.request(path, init)
+  }
+
+  test('the request log names the route, never a webhook secret or an order link token', async () => {
+    const info = spyOn(httpLog, 'info')
+    try {
+      const post = { method: 'POST' }
+      expect((await request(`/api/payments/webhook/${WEBHOOK_SECRET}`, post)).status).toBe(400)
+      expect((await request('/api/payments/webhook/wrong-secret', post)).status).toBe(403)
+      expect((await request(`/api/production/webhooks/spod/${SPOD_SECRET}`, post)).status).toBe(202)
+      expect((await request(`/api/order-lookup/${ORDER_TOKEN}`)).status).toBe(404)
+      expect((await request(`/api/no-such-route/${ORDER_TOKEN}`)).status).toBe(404)
+      const lines = info.mock.calls.map(([line]) => String(line).replace(/ \d+ms$/, ''))
+      expect(lines).toEqual([
+        'POST /api/payments/webhook/:secret 400',
+        'POST /api/payments/webhook/:secret 403',
+        'POST /api/production/webhooks/spod/:secret 202',
+        'GET /api/order-lookup/:token 404',
+        'GET /* 404',
+      ])
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  test('the auth cookies are Secure behind a TLS-ending proxy, whatever the Host says', async () => {
+    for (const url of [
+      'http://shop.example.com/api/antiforgery/token',
+      'http://localhost/api/antiforgery/token',
+    ]) {
+      expect(setCookies(await request(url), CSRF_COOKIE)[0]).toContain('Secure')
+    }
   })
 })

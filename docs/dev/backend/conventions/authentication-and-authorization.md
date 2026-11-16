@@ -175,11 +175,16 @@ A failed check answers `400` with the shared
 | Path | `/` | `/api` |
 | `HttpOnly` | yes | yes |
 | `SameSite` | `Lax` | `Lax` |
-| `Secure` | on HTTPS requests only | on HTTPS requests only |
+| `Secure` | unless `FRONTEND_BASE_URL` is local HTTP | unless `FRONTEND_BASE_URL` is local HTTP |
 | `Max-Age` | none (browser session) | 30 days |
 
-`Secure` is derived from the request URL's scheme, so production must pass the
-real scheme to the backend. The session has its own server-checked expiry: a
+`Secure` comes from the settings, not from the request: every cookie carries it
+unless `FRONTEND_BASE_URL` is an `http:` URL, which the settings allow only for
+`localhost`, `127.0.0.1`, and `[::1]`. Until November 2026 it was derived from
+the request URL's scheme. Render ends TLS at its proxy, so the container saw
+only HTTP and production cookies went out without `Secure`. The request's
+`Host` header was rejected as the switch too, since a client sets it; a
+setting no request can change was the remaining choice. The session has its own server-checked expiry: a
 new session lasts 24 hours; once more than half of that has elapsed, any
 request, also a public one, renews it for another 24 hours; an expired session
 is anonymous and is not renewed. Roles are not reloaded from the database
@@ -222,6 +227,6 @@ both; the subtree still fails closed.
 [`auth.test.ts`](../../../../backend/src/platform/auth/auth.test.ts) pins
 every rule of this guide on probe routes: the four protections and their
 refusals, CSRF accepted and rejected, the token binding, expiry and sliding
-renewal, the cookie flags on HTTP and HTTPS, sign-in and sign-out, and the guest
+renewal, the cookie flags with `Secure` on and off, sign-in and sign-out, and the guest
 cookie. Module tests use `signedInHeaders({ userId, roles })` and
 `guestHeaders()` from `@test-support/http` and never repeat these cases.
