@@ -228,7 +228,7 @@ PORT=9090 bun run dev
 | `DATABASE_SSL_MODE` | `disable` | `disable`, `require`, `verify-ca`, or `verify-full` |
 | `DATABASE_MAXIMUM_POOL_SIZE` | `100` | connections in the pool |
 | `AUTH_SESSION_SECRET` | required | at least 32 UTF-8 bytes; derives every cookie key |
-| `FRONTEND_BASE_URL` | `http://localhost:5173` | where every mailed link and the Mollie return to `/order-confirmation` point; HTTPS outside local hosts |
+| `FRONTEND_BASE_URL` | `http://localhost:5173` | where every mailed link and the Mollie return to `/order-confirmation` point; HTTPS outside local hosts; an `http:` value leaves the auth cookies without `Secure` |
 | `FRONTEND_DIST_PATH` | unset | the built frontend to serve; see [the full-stack image](full-stack-image.md) |
 | `EMAIL_ENABLED`, `EMAIL_POLL_INTERVAL_MINUTES`, `EMAIL_API_KEY`, `EMAIL_FROM_EMAIL`, `EMAIL_FROM_NAME` | `false`, `5`, unset, unset, `Voenix Shop` | live delivery needs the key and the sender |
 | `PRODUCTION_ARTIFACT_ROOT` | `./data/production/artifacts` | where production PDFs are stored |

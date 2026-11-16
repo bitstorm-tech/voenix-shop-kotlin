@@ -39,11 +39,25 @@ export type Auth = ReturnType<typeof createAuth>
  * sealed cookies into `c.var.principal` and `c.var.csrfSession` and renews a session past half its
  * life, the antiforgery route, the login and logout cookie writes, and the guest identity.
  */
-export function createAuth({ sessionSecret }: { sessionSecret: string }) {
+export function createAuth({
+  sessionSecret,
+  secureCookies,
+}: {
+  sessionSecret: string
+  /** `Secure` on every cookie; from the settings, never the request, which a proxy or client sets. */
+  secureCookies: boolean
+}) {
   const cookies = authCookies(sessionSecret)
+  /** Browser-session cookies: no Max-Age. */
+  const sessionCookieOptions = {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax' as const,
+    secure: secureCookies,
+  }
 
   const writeSession = async (c: Context, session: UserSession) => {
-    setCookie(c, SESSION_COOKIE, await cookies.session.seal(session), sessionCookieOptions(c))
+    setCookie(c, SESSION_COOKIE, await cookies.session.seal(session), sessionCookieOptions)
   }
 
   const middleware = createMiddleware(async (c, next) => {
@@ -67,7 +81,7 @@ export function createAuth({ sessionSecret }: { sessionSecret: string }) {
   routes.get('/api/antiforgery/token', async (c) => {
     const token = randomBytes(32).toString('base64url')
     const csrf: CsrfSession = { token, userId: c.var.principal?.userId ?? null }
-    setCookie(c, CSRF_COOKIE, await cookies.csrf.seal(csrf), sessionCookieOptions(c))
+    setCookie(c, CSRF_COOKIE, await cookies.csrf.seal(csrf), sessionCookieOptions)
     return c.json({ requestToken: token })
   })
 
@@ -102,7 +116,7 @@ export function createAuth({ sessionSecret }: { sessionSecret: string }) {
           path: '/api',
           httpOnly: true,
           sameSite: 'Lax',
-          secure: isHttps(c),
+          secure: secureCookies,
           maxAge: 30 * 24 * 60 * 60,
         })
         return token
@@ -111,12 +125,6 @@ export function createAuth({ sessionSecret }: { sessionSecret: string }) {
   }
 }
 
-/** Browser-session cookies: no Max-Age, `Secure` exactly when the request came over HTTPS. */
-function sessionCookieOptions(c: Context) {
-  return { path: '/', httpOnly: true, sameSite: 'Lax' as const, secure: isHttps(c) }
-}
-
-const isHttps = (c: Context) => new URL(c.req.url).protocol === 'https:'
 const epochSeconds = () => Math.floor(Date.now() / 1000)
 
 // --- Route protections -------------------------------------------------------------------------

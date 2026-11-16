@@ -14,7 +14,7 @@ import { createApp } from '@/platform/http/app'
 export const TEST_SESSION_SECRET = 'test-session-secret-with-at-least-32-bytes'
 
 /** The one auth instance every test app and every minted cookie share. */
-export const testAuth = createAuth({ sessionSecret: TEST_SESSION_SECRET })
+export const testAuth = createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: false })
 const cookies = authCookies(TEST_SESSION_SECRET)
 
 /** The application with the platform middleware and the given module sub-apps mounted. */

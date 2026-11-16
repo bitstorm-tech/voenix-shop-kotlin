@@ -5,10 +5,10 @@ Nummern = Priorität. Zuerst 1 + 2, dann 3–7 vor echtem Traffic.
 
 ## Must fix
 
-- [ ] **1. Webhook-Secrets und Bestell-Links im Log** – `backend/src/platform/http/app.ts:33-39`
+- [x] **1. Webhook-Secrets und Bestell-Links im Log** – `backend/src/platform/http/app.ts:33-39`
   Logger schreibt `c.req.path`; Secrets stehen im Pfad (`/api/payments/webhook/:secret`, `/api/production/webhooks/spod/:secret`, `/api/order-lookup/:token`).
   Fix: `c.req.routePath` loggen. Danach Mollie- und SPOD-Webhook-Secret rotieren.
-- [ ] **2. Auth-Cookies ohne `Secure` in Produktion** – `backend/src/platform/auth/auth.ts:119`
+- [x] **2. Auth-Cookies ohne `Secure` in Produktion** – `backend/src/platform/auth/auth.ts:119`
   `isHttps` liest `c.req.url`; Render terminiert TLS am Proxy, Container sieht nur HTTP.
   Fix: `secure: true` außer bei Host `localhost`.
 - [ ] **3. Deaktivierte Artikel bleiben bestellbar** – `backend/src/modules/order/service.ts:141-144`

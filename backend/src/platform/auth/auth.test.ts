@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import {
+  createAuth,
   guestCapable,
   requireAdmin,
   requireAuthenticated,
@@ -9,6 +10,7 @@ import {
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
+  GUEST_COOKIE,
   SESSION_COOKIE,
   SESSION_DURATION_SECONDS,
 } from '@/platform/auth/cookies'
@@ -18,26 +20,27 @@ import {
   jsonOf,
   setCookies,
   signedInHeaders,
-  testApp,
+  TEST_SESSION_SECRET,
   testAuth,
 } from '@test-support/http'
+import { createApp } from '@/platform/http/app'
 
 const UNAUTHORIZED = { success: false, message: 'Authentication required', code: null }
 const CSRF_PROBLEM = { message: 'Invalid CSRF token', errors: {} }
 const MUTATING = ['POST', 'PUT', 'PATCH', 'DELETE']
 
-function probeApp(lookups: number[] = []) {
+function probeApp(lookups: number[] = [], auth = testAuth) {
   const routes = new Hono()
   routes.get('/probe/public', (c) => c.text('public'))
   routes.post('/probe/sign-in', async (c) => {
-    await testAuth.signIn(c, 11, ['ADMIN'])
+    await auth.signIn(c, 11, ['ADMIN'])
     return c.text('signed in')
   })
   routes.post('/probe/sign-out', (c) => {
     testAuth.signOut(c)
     return c.text('signed out')
   })
-  routes.get('/probe/guest-token', async (c) => c.text(await testAuth.guestTokens.getOrCreate(c)))
+  routes.get('/probe/guest-token', async (c) => c.text(await auth.guestTokens.getOrCreate(c)))
   routes.get('/probe/guest-token/try', async (c) =>
     c.text((await testAuth.guestTokens.tryGet(c)) ?? 'none'),
   )
@@ -73,7 +76,9 @@ function probeApp(lookups: number[] = []) {
   supplier.post('/', (c) => c.text(`shipped ${String(c.var.supplierId)}`))
   routes.route('/probe/supplier', supplier)
 
-  return testApp(routes)
+  const app = createApp(auth)
+  app.route('/', routes)
+  return app
 }
 
 /** The session cookie alone, without the CSRF pair `signedInHeaders` mints next to it. */
@@ -314,33 +319,31 @@ describe('the session cookie', () => {
     expect(setCookies(renewable, SESSION_COOKIE)).toHaveLength(1)
   })
 
-  test('sign-in and the antiforgery token set browser-session cookies, Secure on HTTPS only', async () => {
-    const app = probeApp()
+  test('sign-in, the antiforgery token, and the guest cookie are Secure exactly when configured', async () => {
     const flags = (cookie: string, secure: boolean) => {
       expect(cookie).toContain('Path=/')
       expect(cookie).toContain('HttpOnly')
       expect(cookie).toContain('SameSite=Lax')
       expect(cookie.includes('Secure')).toBe(secure)
-      expect(cookie).not.toContain('Max-Age')
-      expect(cookie).not.toContain('Expires')
     }
-    flags(
-      setCookies(await app.request('/probe/sign-in', { method: 'POST' }), SESSION_COOKIE)[0] ?? '',
-      false,
-    )
-    flags(setCookies(await app.request('/api/antiforgery/token'), CSRF_COOKIE)[0] ?? '', false)
-    flags(
-      setCookies(
-        await app.request('https://localhost/probe/sign-in', { method: 'POST' }),
-        SESSION_COOKIE,
-      )[0] ?? '',
-      true,
-    )
-    flags(
-      setCookies(await app.request('https://localhost/api/antiforgery/token'), CSRF_COOKIE)[0] ??
-        '',
-      true,
-    )
+    for (const secure of [false, true]) {
+      const app = probeApp(
+        [],
+        createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: secure }),
+      )
+      // The scheme and host of the request do not matter: TLS ends at the proxy.
+      for (const origin of ['http://localhost', 'https://localhost', 'http://shop.example.com']) {
+        const signIn = await app.request(`${origin}/probe/sign-in`, { method: 'POST' })
+        const session = setCookies(signIn, SESSION_COOKIE)[0] ?? ''
+        flags(session, secure)
+        expect(session).not.toContain('Max-Age')
+        expect(session).not.toContain('Expires')
+        const csrf = setCookies(await app.request(`${origin}/api/antiforgery/token`), CSRF_COOKIE)
+        flags(csrf[0] ?? '', secure)
+        const guest = setCookies(await app.request(`${origin}/probe/guest-token`), GUEST_COOKIE)
+        flags(guest[0] ?? '', secure)
+      }
+    }
   })
 
   test('a signed-in cookie round-trips and a sign-out clears it', async () => {

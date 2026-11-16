@@ -82,6 +82,13 @@ describe('loadSettings', () => {
       loadSettings({ ...development, FRONTEND_BASE_URL: value }).frontend.baseUrl
     expect(baseUrl('https://shop.example.com/')).toBe('https://shop.example.com')
     expect(baseUrl('http://127.0.0.1:5173')).toBe('http://127.0.0.1:5173')
+    // The auth cookies are Secure everywhere but on a local HTTP frontend.
+    const secure = (value: string) =>
+      loadSettings({ ...development, FRONTEND_BASE_URL: value }).auth.secureCookies
+    expect(secure('https://shop.example.com')).toBe(true)
+    expect(secure('https://localhost:5173')).toBe(true)
+    expect(secure('http://localhost:5173')).toBe(false)
+    expect(secure('http://127.0.0.1:5173')).toBe(false)
     expect(failure({ ...development, FRONTEND_BASE_URL: 'http://shop.example.com' })).toContain(
       'FRONTEND_BASE_URL must use HTTPS outside local environments',
     )

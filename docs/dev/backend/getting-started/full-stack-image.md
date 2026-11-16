@@ -99,7 +99,7 @@ needs:
 | --- | --- |
 | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | the PostgreSQL connection; `DATABASE_SSL_MODE=require` for a managed database |
 | `AUTH_SESSION_SECRET` | at least 32 bytes |
-| `FRONTEND_BASE_URL` | the public HTTPS address of the service; every mailed link and the Mollie return to `/order-confirmation` point back to it |
+| `FRONTEND_BASE_URL` | the public HTTPS address of the service; every mailed link and the Mollie return to `/order-confirmation` point back to it; HTTPS also marks the auth cookies `Secure` |
 | `EMAIL_ENABLED` and, when `true`, `EMAIL_API_KEY` and `EMAIL_FROM_EMAIL` | mail delivery |
 | `GENERATOR_DUMMY_MODE` and, when `false`, `GENERATOR_API_KEY` | image generation |
 | `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | payments; a test system uses a `test_` key |

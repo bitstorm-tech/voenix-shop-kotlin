@@ -139,7 +139,13 @@ export function loadSettings(env: Record<string, string | undefined>) {
       sslMode: v.DATABASE_SSL_MODE,
       maximumPoolSize: v.DATABASE_MAXIMUM_POOL_SIZE,
     },
-    auth: { sessionSecret: v.AUTH_SESSION_SECRET },
+    auth: {
+      sessionSecret: v.AUTH_SESSION_SECRET,
+      // Render ends TLS at its proxy, so the request scheme says nothing. The frontend URL is HTTPS
+      // everywhere but on a local host (`frontendBaseUrlProblem`), so only local development is
+      // left without `Secure`, and no request header can switch it off.
+      secureCookies: v.FRONTEND_BASE_URL.startsWith('https:'),
+    },
     frontend: {
       baseUrl: v.FRONTEND_BASE_URL,
       /** The built frontend to serve, or `null` when the Vite dev server serves it. */

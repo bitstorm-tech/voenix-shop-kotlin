@@ -3,7 +3,22 @@
 The backend logs through pino, one child logger per module or component
 (`createLogger(name)` in `backend/src/platform/logging.ts`). Every line shows
 the logger name and the `file:line` of the log statement. Each `/api` request
-gets one line with method, path, status, and duration.
+gets one line with method, route pattern, status, and duration.
+
+## The request line names the route, never the path
+
+```text
+POST /api/payments/webhook/:secret 200 12ms
+```
+
+The line carries `routePath(c)` (`hono/route`) read after the handler ran: the pattern of
+the route that answered, also inside a sub-app mounted with `app.route()`. A
+request no API route matched logs a catch-all (`/*`), and a request a
+middleware refused logs that middleware's pattern. The real path stays out: the
+Mollie and SPOD webhook secrets and the order link token are path segments, and
+any line that reaches Render's log stays there. The query string stays out for
+the same reason. Before November 2026 the line carried `c.req.path`, with the
+secrets in it.
 
 ## A caught error is logged as `errorDetails(error)`, never as itself
 
