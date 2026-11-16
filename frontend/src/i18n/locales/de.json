@@ -712,15 +712,7 @@
       "home": "Startseite",
       "products": "Produkte"
     },
-    "hero": {
-      "kicker": "Produkt-Kollektion",
-      "title": "Produkte für dein Motiv",
-      "categoryTitle": "{category}",
-      "subtitle": "Tassen, Thermobecher und T-Shirts mit sauberer Druckfläche und stabiler Vorschau.",
-      "designReady": "Druckfertige Varianten",
-      "count": "{count} von {total} Produkten",
-      "loading": "Produkte werden geladen"
-    },
+    "title": "Produkte für dein Motiv",
     "filters": {
       "all": "Alle Produkte"
     },

@@ -712,15 +712,7 @@
       "home": "Home",
       "products": "Products"
     },
-    "hero": {
-      "kicker": "Product collection",
-      "title": "Products for your artwork",
-      "categoryTitle": "{category}",
-      "subtitle": "Mugs, thermo cups, and t-shirts with clean print areas and stable previews.",
-      "designReady": "Print-ready variants",
-      "count": "{count} of {total} products",
-      "loading": "Loading products"
-    },
+    "title": "Products for your artwork",
     "filters": {
       "all": "All products"
     },

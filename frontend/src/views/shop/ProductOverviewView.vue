@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button'
 import ProductCard from '@/components/shop/ProductCard.vue'
 import MugCategoryFilter from '@/components/shop/mugs/MugCategoryFilter.vue'
 import MugGridSkeleton from '@/components/shop/mugs/MugGridSkeleton.vue'
-import MugOverviewHero from '@/components/shop/mugs/MugOverviewHero.vue'
 import { resolveDisplayVariant } from '@/lib/changeArticleSelection'
 
 interface ProductCategoryFilterItem {
@@ -239,12 +238,7 @@ function openProductWizard(article: ShopArticle) {
       </template>
     </nav>
 
-    <MugOverviewHero
-      :active-category-name="activeSegmentName"
-      :visible-count="filteredArticles.length"
-      :total-count="catalogStore.articles.length"
-      :is-loading="isInitialLoading"
-    />
+    <h1 class="sr-only">{{ activeSegmentName ?? t('productOverview.title') }}</h1>
 
     <MugCategoryFilter
       v-if="categoryFilters.length > 1 && !isInitialLoading && !catalogStore.error"
