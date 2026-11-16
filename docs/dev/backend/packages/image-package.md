@@ -129,7 +129,7 @@ The exported surface of `index.ts`:
 | Method and path | Access | Successful cache policy |
 | --- | --- | --- |
 | `GET /api/images/public/{size}/{filename...}` | Anonymous | `public, max-age=86400` |
-| `GET /api/images/private/{size}/{filename...}` | Any authenticated session | `private, max-age=3600` |
+| `GET /api/images/private/{size}/{filename...}` | Any authenticated session (the admin's orphan-image view) | `private, max-age=3600` |
 | `GET /api/images/guest/{size}/{id}` | Whoever the resolver accepts | `private, max-age=3600` |
 | `GET /api/admin/images/orphans` | Admin | `no-store` |
 | `POST /api/admin/images/orphans/delete` | Admin | `no-store` |
@@ -137,10 +137,20 @@ The exported surface of `index.ts`:
 `{filename...}` is the Hono pattern `:filename{.+}`: the rest of the path,
 slashes included.
 
-`size` is one positive width such as `300` or a box such as `300x200`, each
-dimension 1 through 4096. The whole image is scaled as large as possible
-inside the bounds, keeping its aspect ratio; it is not cropped or padded, and
-a smaller original is upscaled.
+`size` is one of the widths `80`, `200`, `400`, `1000`, and `1600`
+(`IMAGE_WIDTHS` in `codec.ts`), on all three routes. Every other value, a box
+such as `400x300`, and another spelling such as `080` answer `400`. The image
+is scaled to that width, keeping its aspect ratio; it is not cropped or
+padded, and a smaller original is upscaled.
+
+The list is closed because every size is a cache directory that is never
+cleaned and the public route is anonymous: with free sizes (formerly any width
+or box up to 4096), anyone could fill the disk with derivations until uploads
+and production PDFs fail. The widths are the ones the frontend requests:
+`80` admin thumbnails, `200` admin and editor previews, `400` cards, carts,
+orders, and size charts in the admin, `1000` mockups and size charts in the
+shop, `1600` full views. A new display size in the frontend needs its width
+added here, or it reuses the next larger one.
 
 The filename may contain nested forward-slash segments. Absolute paths, empty
 or blank segments, `.` and `..`, backslashes, unsupported extensions, and
@@ -153,7 +163,7 @@ the derived file.
 | a derived file | `200` (or `206` for a range) | the image |
 | a matching `If-None-Match`, or a satisfied `If-Modified-Since` | `304` | none |
 | a range past the end of the file | `416` | none, `Content-Range: bytes */<length>` |
-| invalid size | `400` | `Validation failed`, `size: ["Size must be width or widthxheight from 1 through 4096"]` |
+| invalid size | `400` | `Validation failed`, `size: ["Size must be one of 80, 200, 400, 1000, 1600"]` |
 | unsafe filename (also an encoded `..%2F`) | `400` | `Validation failed`, `filename: ["Invalid image filename"]` |
 | unsupported extension | `400` | `Validation failed`, `filename: ["Unsupported image format"]` |
 | missing original, even with a cached file left | `404` | `Image not found` |
@@ -183,8 +193,8 @@ on disk:
   the whole file, which HTTP permits. Ktor answered several ranges with a
   `multipart/byteranges` body; no client of this shop asks for one.
 
-The file is read into memory and sliced. Derived files are display sizes of at
-most 4096 × 4096 pixels, so streaming would buy nothing worth its code.
+The file is read into memory and sliced. Derived files are display sizes at
+most 1600 pixels wide, so streaming would buy nothing worth its code.
 
 ### The guest route
 
@@ -461,8 +471,8 @@ temporary directory (`mkdtemp`) and generates its images with sharp.
 
 | Test | What it states |
 | --- | --- |
-| [`routes.test.ts`](../../../../backend/src/modules/image/routes.test.ts) | The public route with its cache headers, `304`, and a `206` range; `404` and the `400`s; traversal attempts; the private route with and without a session; the guest route for a guest owner (no `Set-Cookie`, `304`), a signed-in owner, a denied image, and a non-numeric id |
-| [`service.test.ts`](../../../../backend/src/modules/image/service.test.ts) | Fit-within resizing and upscaling; one derivation for eight concurrent requests (a spy on `writeDerivative`) and no temporary file left; cache invalidation by a newer original; `404` with a stale cache; WebP normalization of the three formats; every upload rejection; the pixel limit from a header; delete with its derivations; `originalPaths` leaving out unknown and non-plain names; the root checks |
+| [`routes.test.ts`](../../../../backend/src/modules/image/routes.test.ts) | The public route with its cache headers, `304`, and a `206` range; `404` and the `400`s; traversal attempts; the private route with and without a session and its `400` for `4096x4095`; the guest route for a guest owner (no `Set-Cookie`, `304`), a signed-in owner and its `400` for `4096x4095`, a denied image, and a non-numeric id |
+| [`service.test.ts`](../../../../backend/src/modules/image/service.test.ts) | Resizing to the width and upscaling; every allowed width served and other sizes (`4096x4095`, `320`, `080`, …) refused without a cache directory; one derivation for eight concurrent requests (a spy on `writeDerivative`) and no temporary file left; cache invalidation by a newer original; `404` with a stale cache; WebP normalization of the three formats; every upload rejection; the pixel limit from a header; delete with its derivations; `originalPaths` leaving out unknown and non-plain names; the root checks |
 | [`upload.test.ts`](../../../../backend/src/modules/image/upload.test.ts) | The `file` part with its content type, text parts skipped, a missing part, exactly 10 MiB accepted and one byte more refused |
 | [`example-images.test.ts`](../../../../backend/src/modules/image/example-images.test.ts) | `checkSubmitted` for no name, a stored, a malformed, and a missing name; `deleteObsolete` deleting, doing nothing for `null`, and only logging a failure |
 

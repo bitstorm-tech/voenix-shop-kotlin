@@ -43,8 +43,8 @@ describe('createApplication', () => {
     expect((await request('/api/orders')).status).toBe(200)
     expect((await request('/api/magic-coins/balance')).status).toBe(200)
     expect((await request('/api/order-lookup/nobody')).status).toBe(404)
-    expect((await request('/api/images/public/100/nobody.png')).status).toBe(404)
-    expect((await request('/api/images/guest/100/1')).status).toBe(404)
+    expect((await request('/api/images/public/200/nobody.png')).status).toBe(404)
+    expect((await request('/api/images/guest/200/1')).status).toBe(404)
     for (const path of [
       '/api/admin/prices',
       '/api/admin/suppliers',

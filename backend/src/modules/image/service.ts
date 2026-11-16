@@ -5,11 +5,11 @@ import { invalid, notFound, ok, type OperationResult } from '@/platform/operatio
 import {
   CONTENT_TYPES,
   formatOfFilename,
+  IMAGE_WIDTHS,
   normalizeToWebp,
-  parseImageSize,
+  parseImageWidth,
   writeDerivative,
   type ImageFormat,
-  type ImageSize,
 } from './codec'
 import {
   deleteDerivations,
@@ -61,10 +61,10 @@ export function createImageService(roots: ImageRoots) {
   /** The derivation running for a cache path: concurrent misses for one key share it. */
   const derivations = new Map<string, Promise<void>>()
 
-  const derive = (cachePath: string, original: string, size: ImageSize, format: ImageFormat) => {
+  const derive = (cachePath: string, original: string, width: number, format: ImageFormat) => {
     let running = derivations.get(cachePath)
     if (running === undefined) {
-      running = publishDerivative(cachePath, original, size, format).finally(() => {
+      running = publishDerivative(cachePath, original, width, format).finally(() => {
         derivations.delete(cachePath)
       })
       derivations.set(cachePath, running)
@@ -78,9 +78,9 @@ export function createImageService(roots: ImageRoots) {
     requestedSize: string,
     filename: string,
   ): Promise<OperationResult<ImageResource>> => {
-    const size = parseImageSize(requestedSize)
-    if (size === null) {
-      return invalidField('size', 'Size must be width or widthxheight from 1 through 4096')
+    const width = parseImageWidth(requestedSize)
+    if (width === null) {
+      return invalidField('size', `Size must be one of ${IMAGE_WIDTHS.join(', ')}`)
     }
     const relative = safeRelativePath(filename)
     if (relative === null) return invalidField('filename', INVALID_FILENAME)
@@ -90,11 +90,11 @@ export function createImageService(roots: ImageRoots) {
     if (original === 'invalid') return invalidField('filename', INVALID_FILENAME)
     if (original === 'missing') return notFound
 
-    const cachePath = join(roots.cache, visibility, size.key, relative)
+    const cachePath = join(roots.cache, visibility, String(width), relative)
     if (!(await isFresh(roots.cache, cachePath, original.path))) {
       const directory = await directoryInside(roots.cache, dirname(cachePath))
       if (directory === null) return invalidField('filename', INVALID_FILENAME)
-      await derive(join(directory, basename(cachePath)), original.path, size, format)
+      await derive(join(directory, basename(cachePath)), original.path, width, format)
     }
     const derived = await stat(cachePath)
     return ok({
@@ -171,12 +171,12 @@ export type ImageService = ReturnType<typeof createImageService>
 async function publishDerivative(
   cachePath: string,
   original: string,
-  size: ImageSize,
+  width: number,
   format: ImageFormat,
 ): Promise<void> {
   const source = await stat(original)
   await publish(cachePath, async (temporary) => {
-    await writeDerivative(original, size, format, temporary)
+    await writeDerivative(original, width, format, temporary)
     await utimes(temporary, source.atime, source.mtime)
   })
 }

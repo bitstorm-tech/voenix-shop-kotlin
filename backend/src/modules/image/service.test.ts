@@ -45,26 +45,52 @@ const derivedOf = async (size: string, filename: string) => {
 }
 
 describe('derivation', () => {
-  test('fits the image into the size, upscaling a smaller original', async () => {
+  test('scales to the width, upscaling a smaller original', async () => {
     await writeFile(join(roots.public, 'fit.png'), await image('png', 300, 200))
-    expect(await sharp((await derivedOf('150', 'fit.png')).path).metadata()).toMatchObject({
-      width: 150,
-      height: 100,
+    expect(await sharp((await derivedOf('200', 'fit.png')).path).metadata()).toMatchObject({
+      width: 200,
+      height: 133,
     })
-    expect(await sharp((await derivedOf('100x100', 'fit.png')).path).metadata()).toMatchObject({
-      width: 100,
-      height: 67,
+    expect(await sharp((await derivedOf('400', 'fit.png')).path).metadata()).toMatchObject({
+      width: 400,
+      height: 267,
     })
-    expect(await sharp((await derivedOf('600', 'fit.png')).path).metadata()).toMatchObject({
-      width: 600,
-    })
+  })
+
+  test('serves every allowed width and refuses any other size', async () => {
+    await writeFile(join(roots.public, 'widths.png'), await image('png', 30, 20))
+    for (const width of codec.IMAGE_WIDTHS) {
+      expect(
+        (await sharp((await derivedOf(String(width), 'widths.png')).path).metadata()).width,
+      ).toBe(width)
+    }
+    for (const size of [
+      '4096x4095',
+      '4096',
+      '320',
+      '1200',
+      '80x80',
+      '080',
+      '80.0',
+      '0',
+      '-80',
+      '',
+    ]) {
+      expect(await service.get('public', size, 'widths.png')).toEqual({
+        kind: 'invalid',
+        errors: { size: ['Size must be one of 80, 200, 400, 1000, 1600'] },
+      })
+    }
+    expect((await readdir(join(roots.cache, 'public'))).sort()).toEqual(
+      codec.IMAGE_WIDTHS.map(String).sort(),
+    )
   })
 
   test('turns an original upright by its EXIF orientation', async () => {
     await writeFile(join(roots.public, 'sideways.jpg'), await sidewaysJpeg())
-    expect(await sharp((await derivedOf('30', 'sideways.jpg')).path).metadata()).toMatchObject({
-      width: 30,
-      height: 45,
+    expect(await sharp((await derivedOf('80', 'sideways.jpg')).path).metadata()).toMatchObject({
+      width: 80,
+      height: 120,
     })
   })
 
@@ -80,29 +106,30 @@ describe('derivation', () => {
     } finally {
       derivations.mockRestore()
     }
-    expect(await readdir(join(roots.cache, 'public', '200'))).toEqual(['busy.png'])
+    const cached = await readdir(join(roots.cache, 'public', '200'))
+    expect(cached.filter((name) => name.includes('busy'))).toEqual(['busy.png'])
   })
 
   test('serves the cache until the original is replaced', async () => {
     const original = join(roots.public, 'replaced.png')
     await writeFile(original, await image('png', 100, 100))
-    const first = await derivedOf('50', 'replaced.png')
-    expect((await derivedOf('50', 'replaced.png')).lastModified).toEqual(first.lastModified)
+    const first = await derivedOf('80', 'replaced.png')
+    expect((await derivedOf('80', 'replaced.png')).lastModified).toEqual(first.lastModified)
 
     await writeFile(original, await image('png', 100, 50))
     const later = new Date(first.lastModified.getTime() + 5_000)
     await utimes(original, later, later)
-    const second = await derivedOf('50', 'replaced.png')
+    const second = await derivedOf('80', 'replaced.png')
     expect(second.lastModified).toEqual(later)
-    expect(await sharp(second.path).metadata()).toMatchObject({ width: 50, height: 25 })
+    expect(await sharp(second.path).metadata()).toMatchObject({ width: 80, height: 40 })
   })
 
   test('a missing original is not found even when a cached file remains', async () => {
     const original = join(roots.public, 'gone.png')
     await writeFile(original, await image('png'))
-    await derivedOf('20', 'gone.png')
+    await derivedOf('80', 'gone.png')
     await rm(original)
-    expect(await service.get('public', '20', 'gone.png')).toEqual({ kind: 'notFound' })
+    expect(await service.get('public', '80', 'gone.png')).toEqual({ kind: 'notFound' })
   })
 })
 
@@ -175,12 +202,12 @@ describe('storage', () => {
     if (stored.kind !== 'ok') throw new Error('The upload was rejected')
     const { filename } = stored.value
     expect(await storage().exists(filename)).toBe(true)
-    expect((await service.get('private', '30', `print-images/${filename}`)).kind).toBe('ok')
+    expect((await service.get('private', '80', `print-images/${filename}`)).kind).toBe('ok')
 
     await storage().delete(filename)
     await storage().delete(filename)
     expect(await storage().exists(filename)).toBe(false)
-    expect(await readdir(join(roots.cache, 'private', '30', 'print-images'))).toEqual([])
+    expect(await readdir(join(roots.cache, 'private', '80', 'print-images'))).toEqual([])
     expect(await storage().originalPaths([filename])).toEqual(new Map())
   })
 

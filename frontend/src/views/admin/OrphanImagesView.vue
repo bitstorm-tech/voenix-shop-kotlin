@@ -210,7 +210,7 @@ onMounted(reload)
                 >
                   <TableCell>
                     <a
-                      :href="orphanImageUrl(image, 1200)"
+                      :href="orphanImageUrl(image, 1600)"
                       target="_blank"
                       rel="noopener"
                       class="block size-14 overflow-hidden rounded border bg-muted/30"
