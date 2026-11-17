@@ -10,6 +10,7 @@ import { createCountryModule } from '@/modules/country'
 import { createEmailModule } from '@/modules/email'
 import { createGeneratorModule } from '@/modules/generator'
 import { createImageModule } from '@/modules/image'
+import { createLegalModule } from '@/modules/legal'
 import { createOperationsModule } from '@/modules/operations'
 import { createOrderModule, type MolliePayments } from '@/modules/order'
 import { createPricingModule } from '@/modules/pricing'
@@ -34,7 +35,7 @@ import type { Settings } from '@/platform/settings'
  *
  * `overrides` is for the composed tests only, and a deployment never sets it: `mollie` replaces the
  * provider adapter with a stub, `fetch` is the one HTTP client the email delivery, the image
- * generator, and the print-on-demand client share.
+ * generator, the print-on-demand client, and the legal documents share.
  */
 export async function createApplication(
   settings: Settings,
@@ -135,6 +136,7 @@ export async function createApplication(
       images: image,
       guestTokens,
     })
+    const legal = createLegalModule({ fetch })
     const checkout = createCheckoutModule({
       db,
       checkoutCarts: cart.checkoutCarts,
@@ -165,6 +167,7 @@ export async function createApplication(
         printImages: cart.printImageRegistry,
       }),
       checkout.routes,
+      legal.routes,
     ]) {
       app.route('/', routes)
     }

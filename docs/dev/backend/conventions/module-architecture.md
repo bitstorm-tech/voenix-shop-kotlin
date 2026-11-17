@@ -48,6 +48,7 @@ flowchart TD
     Pricing["pricing<br/>prices · VAT"]
     Spod["spod<br/>partner HTTP client"]
     Promotion["promotion"]
+    Legal["legal<br/>iubenda policies"]
     Account["account"]
     Article["article"]
     Prompt["prompt"]
@@ -60,13 +61,14 @@ flowchart TD
     TestSupport["test-support"]
 
     Root --> Platform
-    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator & Operations
+    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Legal & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator & Operations
     Country --> Platform
     Email --> Platform
     Image --> Platform
     Supplier --> Platform
     Supplier --> Country
     Pricing --> Platform
+    Legal --> Platform
     Spod --> Platform
     Promotion --> Platform
     Account --> Platform
@@ -124,6 +126,7 @@ module with what it may import besides the platform:
 | `pricing` | — | Prices and VAT (the former `vat` module is part of it); the `PriceCatalog` capability an owning module writes a price with inside its own transaction |
 | `spod` | — | The print-on-demand partner's HTTP client and the pacer that holds its request budget. Owns no table, installs no route; uses the platform's logger only |
 | `promotion` | — | Coupon admin and the `PromotionCodes` capability |
+| `legal` | — | Serves the privacy and cookie policy, read from iubenda's API and cached in memory, so the reader's browser never contacts iubenda. Owns no table |
 | `account` | `email` | Accounts, login, profile; the creator of sessions; `SupplierAccounts` |
 | `article` | `image`, `pricing`, `supplier`, `spod` | The catalog: categories, mugs, SPOD articles, the SPOD catalog sync |
 | `prompt` | `image`, `pricing` | Prompts, slots, categories, the `PromptCatalog` capability |
@@ -296,7 +299,7 @@ order the capabilities allow, with no late binding anywhere:
    `order.orders`; the order module itself takes the cart's
    `createPrintImageReads(db)`, a plain repository read created before the
    cart module exists), operations (with the `findings` of order, production,
-   and the email outbox), cart, and last the checkout.
+   and the email outbox), cart, legal, and last the checkout.
 4. The sub-apps, mounted with `app.route('/', x.routes)` in that order, plus
    the two routes that need a later module: `order.adminPdfRoutes(production.productionPdfGenerator)`
    and `image.guestImageRoute(cart.guestImageResolver)`.

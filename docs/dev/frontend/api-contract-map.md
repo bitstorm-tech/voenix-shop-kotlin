@@ -171,6 +171,7 @@ an identity change and adopts whatever the backend answers.
 | `stores/shop/orders.ts` | `GET /api/orders/{orderId}` | same | #94 |
 | `stores/shop/orders.ts` | `GET /api/order-lookup/{token}` | same | #116 |
 | `stores/shop/countries.ts` | `GET /api/countries` | same | #92 |
+| `views/shop/PrivacyView.vue` | `GET /api/legal/privacy` | same | none |
 | `stores/shop/magicCoins.ts` | `GET /api/magic-coins/balance` | same | none |
 | `stores/shop/imageGeneration.ts` | `POST /api/generator/generate` (multipart) | same | #95 |
 

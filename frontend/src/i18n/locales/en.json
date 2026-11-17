@@ -358,7 +358,8 @@
     },
     "privacy": {
       "title": "Privacy Policy",
-      "description": "This page will soon contain the privacy information for Voenix."
+      "loading": "Loading the privacy policy …",
+      "loadError": "The privacy policy could not be loaded right now. Please try again later or write to write-us@voenix.shop."
     },
     "terms": {
       "title": "Terms & Conditions",

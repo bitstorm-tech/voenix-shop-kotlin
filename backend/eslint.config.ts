@@ -15,6 +15,7 @@ const moduleDependencies: Record<string, string[]> = {
   pricing: [],
   spod: [],
   promotion: [],
+  legal: [],
   account: ['email'],
   article: ['image', 'pricing', 'supplier', 'spod'],
   prompt: ['image', 'pricing'],

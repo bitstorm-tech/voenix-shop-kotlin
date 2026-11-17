@@ -358,7 +358,8 @@
     },
     "privacy": {
       "title": "Datenschutzerklärung",
-      "description": "Hier ergänzen wir bald alle Informationen zum Datenschutz bei Voenix."
+      "loading": "Die Datenschutzerklärung wird geladen …",
+      "loadError": "Die Datenschutzerklärung konnte gerade nicht geladen werden. Bitte versuche es später erneut oder schreib uns an write-us@voenix.shop."
     },
     "terms": {
       "title": "Allgemeine Geschäftsbedingungen",
