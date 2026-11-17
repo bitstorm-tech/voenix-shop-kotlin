@@ -140,7 +140,7 @@ function deleteCategory() {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="w-[calc(100%-2rem)] max-w-lg rounded-xl">
+    <DialogContent @interact-outside.prevent class="w-[calc(100%-2rem)] max-w-lg rounded-xl">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
       </DialogHeader>

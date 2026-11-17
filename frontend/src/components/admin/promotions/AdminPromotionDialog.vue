@@ -351,7 +351,7 @@ function fromDateTimeLocalValue(value: string) {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="w-[calc(100%-2rem)] max-w-3xl rounded-xl">
+    <DialogContent @interact-outside.prevent class="w-[calc(100%-2rem)] max-w-3xl rounded-xl">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription class="sr-only">

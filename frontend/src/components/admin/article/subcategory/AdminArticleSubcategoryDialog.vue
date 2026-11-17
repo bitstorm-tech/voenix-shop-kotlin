@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="w-[calc(100%-2rem)] max-w-xl rounded-xl">
+    <DialogContent @interact-outside.prevent class="w-[calc(100%-2rem)] max-w-xl rounded-xl">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
       </DialogHeader>
