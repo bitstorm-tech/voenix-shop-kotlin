@@ -8,20 +8,14 @@
 - Point out destructive consequences, but do not treat them as an automatic reason against a change.
 - This freedom applies to the development environment. Do not modify external systems, shared environments, or irreplaceable data destructively without explicit authorization.
 
-## Agent skills
+## Issues and decisions
 
-### Issue tracker
-
-Issues and PRDs are tracked as GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`, including what `ready-for-agent` means and when an issue gets a parent.
-
-### Domain language and decisions
-
-- Use the domain terms as defined in the glossary `CONTEXT.md` at the repo root, in code, issues, and docs alike.
+- Issues live on GitHub; use the `gh` CLI. A PR that finishes an issue says `Closes #<number>` in its body.
 - There are no ADRs. The reason for a design and the alternatives it beat are written into the `docs/dev` guide of the package it shapes (for example the numbered decisions in the SPOD fulfillment guide). Read the guides that touch the area you work in; when your proposal contradicts a recorded decision, say so explicitly instead of overriding it silently.
 
-### Council workflow
+## Council workflow
 
-Substantial tasks are planned with Joe in a normal conversation until the issue set meets the planning bar in `docs/agents/issue-tracker.md` (`ready-for-agent`). Implementation and verification then run autonomously with the repo-local `council` skill (`.claude/skills/council/SKILL.md`): Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
+Substantial tasks are planned with Joe in a normal conversation until the driving issue carries what the `council` skill expects as input (`.claude/skills/council/SKILL.md`). Implementation and verification then run autonomously with that skill: Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
 
 ## Backend
 

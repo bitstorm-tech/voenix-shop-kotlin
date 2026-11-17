@@ -1,6 +1,6 @@
 ---
 name: council
-description: Implement and verify a GitHub issue that is labeled ready-for-agent - implementation delegated to Claude sub-agents ticket by ticket, then a verification review by three independent general reviewers (orchestrator, a Fable reviewer sub-agent, Codex/GPT) plus two lane reviewers (simplifier, security), consolidated into a PR comment. Use when Joe asks to implement an issue with the council. Planning an issue needs no skill; the planning bar lives in docs/agents/issue-tracker.md.
+description: Implement and verify a planned GitHub issue - implementation delegated to Claude sub-agents ticket by ticket, then a verification review by three independent general reviewers (orchestrator, a Fable reviewer sub-agent, Codex/GPT) plus two lane reviewers (simplifier, security), consolidated into a PR comment. Use when Joe asks to implement an issue with the council.
 ---
 
 # Council workflow
@@ -11,16 +11,15 @@ three independent general reviews plus two lane reviews (simplifier,
 security). The orchestrator (the main Claude session) runs the workflow,
 delegates work, and owns every synthesis.
 
-The input is a **driving issue labeled `ready-for-agent`** whose issue set meets
-the planning bar in `docs/agents/issue-tracker.md`: the decided plan in the
-driving issue and an ordered list of tickets with acceptance criteria,
-affected files, and test expectations. A ticket is either a native sub-issue
-(ordered by blocked-by dependencies) or an inline `T<n>` entry under
-`## Tickets` in the driving issue (ordered by list position); the planning
-bar defines both shapes. That planning happens in a normal conversation with
-Joe, not in this skill; the issue set is the only channel into this thread.
-Do not re-plan it, and do not cut tickets yourself: a driving issue without
-tickets fails the planning bar.
+The input is a **driving issue** that holds the complete decided plan (no
+open or deferred questions; special instructions and branch hints live here
+too) and an ordered list of tickets, each with acceptance criteria, affected
+files, and test expectations. A ticket is either a native sub-issue (ordered
+by blocked-by dependencies) or an inline `T<n>` entry under `## Tickets` in
+the driving issue (ordered by list position); one shape per driving issue.
+That planning happens in a normal conversation with Joe, not in this skill;
+the issue set is the only channel into this thread. Do not re-plan it, and
+do not cut tickets yourself: a driving issue without tickets is not ready.
 
 ## Participants and channels
 
@@ -191,8 +190,7 @@ first when the delegation is refused; it lists the provider's constraints.
 
 The thread works from the issues alone and does not ask Joe anything. A
 genuinely contested point or a destructive action outside the plan still
-stops and waits for Joe — but hitting one means the issue set failed its
-planning bar: record the gap as a comment on the driving issue so the next
+stops and waits for Joe — but hitting one means the issue set was not ready: record the gap as a comment on the driving issue so the next
 planning round closes it. Never close the driving issue by hand; the PR's
 `Closes #<n>` does it on merge.
 
