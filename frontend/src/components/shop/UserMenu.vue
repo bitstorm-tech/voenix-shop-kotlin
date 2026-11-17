@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Package, User, LogOut } from 'lucide-vue-next'
+import { Package, User, LogOut, Shield, Truck } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/shared/auth'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 
@@ -13,7 +13,9 @@ const { t } = useI18n()
 const menuValue = ref('')
 
 watch(menuValue, (value) => {
-  if (value === 'profile') {
+  if (value === 'admin' || value === 'supplier') {
+    router.push(`/${value}`)
+  } else if (value === 'profile') {
     router.push('/profile')
   } else if (value === 'orders') {
     router.push('/orders')
@@ -37,6 +39,18 @@ watch(menuValue, (value) => {
       }}</span>
     </SelectTrigger>
     <SelectContent align="end">
+      <SelectItem v-if="authStore.isAdmin" value="admin">
+        <span class="flex items-center">
+          <Shield class="mr-2 size-4" />
+          Admin
+        </span>
+      </SelectItem>
+      <SelectItem v-if="authStore.isSupplier" value="supplier">
+        <span class="flex items-center">
+          <Truck class="mr-2 size-4" />
+          Supplier
+        </span>
+      </SelectItem>
       <SelectItem value="orders">
         <span class="flex items-center">
           <Package class="mr-2 size-4" />

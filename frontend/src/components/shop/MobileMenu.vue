@@ -16,6 +16,7 @@ import {
   Plus,
   Shield,
   Sun,
+  Truck,
   User,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -258,6 +259,16 @@ const activeThemeIcon = computed(
               >
                 <Shield class="size-4" />
                 Admin
+              </Button>
+              <Button
+                v-if="authStore.isSupplier"
+                type="button"
+                variant="ghost"
+                class="flex w-full justify-start items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                @click="navigateTo('/supplier')"
+              >
+                <Truck class="size-4" />
+                Supplier
               </Button>
               <Button
                 type="button"

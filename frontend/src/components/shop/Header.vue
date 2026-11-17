@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/shared/auth'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCampaignStore } from '@/stores/shop/campaign'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
-import { LogIn, Shield } from 'lucide-vue-next'
+import { LogIn } from 'lucide-vue-next'
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -105,20 +105,6 @@ function isCategoryActive(categoryId: number) {
               {{ t('header.login') }}
             </RouterLink>
           </template>
-
-          <RouterLink
-            v-if="authStore.isAdmin"
-            to="/admin"
-            class="inline-flex items-center gap-2 text-sm font-medium transition-colors"
-            :class="
-              route.path.startsWith('/admin')
-                ? 'text-primary'
-                : 'text-foreground hover:text-muted-foreground'
-            "
-          >
-            <Shield class="size-4" />
-            Admin
-          </RouterLink>
 
           <UserMenu v-if="authStore.isAuthenticated" />
           <RouterLink
