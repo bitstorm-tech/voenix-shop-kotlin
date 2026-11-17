@@ -262,8 +262,9 @@ function buildPayload(): SaveProductionDestinationRequest {
     channel: form.channel,
     label: form.label.trim(),
     enabled: form.enabled,
-    notificationEmail: optionalText(form.notificationEmail),
-    notificationName: optionalText(form.notificationName),
+    // Only the SFTP delivery mails the producer; a hidden field must not send a stale value.
+    notificationEmail: form.channel === 'SFTP' ? optionalText(form.notificationEmail) : null,
+    notificationName: form.channel === 'SFTP' ? optionalText(form.notificationName) : null,
   }
 
   if (form.channel === 'SFTP') {
@@ -383,19 +384,24 @@ function deleteDestination() {
           </div>
         </div>
 
-        <fieldset class="space-y-4 border-t border-border pt-5">
+        <fieldset
+          v-if="form.channel === 'SFTP'"
+          class="space-y-4 border-t border-border pt-5"
+          data-testid="destination-notification-form"
+        >
           <legend class="text-base font-semibold text-foreground">Notification</legend>
           <div class="grid gap-4 md:grid-cols-2">
             <FormField
               label="Notification email"
               for="destination-notification-email"
               :error="errorFor('notificationEmail')"
-              hint="Optional. Who the producer notification goes to."
+              hint="Optional. Gets an info mail after each PDF upload to the SFTP server."
             >
               <Input
                 id="destination-notification-email"
                 v-model="form.notificationEmail"
                 type="email"
+                data-testid="destination-notification-email"
                 :aria-invalid="errorFor('notificationEmail') ? true : undefined"
               />
             </FormField>

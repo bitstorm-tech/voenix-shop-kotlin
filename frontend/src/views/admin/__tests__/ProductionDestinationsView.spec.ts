@@ -247,6 +247,7 @@ describe('ProductionDestinationsView', () => {
     expect(input('destination-sftp-host')).toBeTruthy()
     expect(input('destination-sftp-password')).toBeTruthy()
     expect(document.body.querySelector('[data-testid="destination-spod-form"]')).toBeNull()
+    expect(input('destination-notification-email')).toBeTruthy()
 
     selectAt(wrapper, 1).vm.$emit('update:modelValue', 'SPOD')
     await flushPromises()
@@ -256,6 +257,7 @@ describe('ProductionDestinationsView', () => {
     expect(input('destination-spod-timeout')).toBeTruthy()
     expect(input('destination-spod-access-token')).toBeTruthy()
     expect(document.body.querySelector('[data-testid="destination-sftp-form"]')).toBeNull()
+    expect(input('destination-notification-email')).toBeNull()
   })
 
   it('never renders the access token back after a save or when an existing destination is reopened', async () => {
@@ -279,6 +281,8 @@ describe('ProductionDestinationsView', () => {
       1,
       expect.objectContaining({
         channel: 'SPOD',
+        notificationEmail: null,
+        notificationName: null,
         spod: expect.objectContaining({
           environment: 'PRODUCTION',
           accessToken: 'freshly-typed-token',
