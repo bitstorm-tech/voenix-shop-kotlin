@@ -11,7 +11,7 @@ import {
   type CatalogVariant,
   type SpodCatalogSource,
   type SpodProductRef,
-  type SpodSyncResult,
+  type SpodSyncState,
 } from '@/modules/article'
 import { createEmailModule, type RenderedEmail } from '@/modules/email'
 import type { SpodResult } from '@/modules/spod'
@@ -318,11 +318,13 @@ export async function productionTestKit(
   {
     spodSettings = SPOD_SETTINGS,
     client = stubSpodClient(),
-    syncResult = { kind: 'busy' },
+    syncStart = 'busy',
+    syncState = { running: false, progress: null, report: null },
   }: {
     spodSettings?: Settings['production']['spod']
     client?: SubmissionClient
-    syncResult?: SpodSyncResult
+    syncStart?: 'started' | 'busy'
+    syncState?: SpodSyncState
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'production-test-'))
@@ -353,10 +355,11 @@ export async function productionTestKit(
     suppliers,
     articleCatalog: catalog,
     spodCatalogSync: {
-      sync: (source) => {
+      start: (source) => {
         syncCalls.push(source)
-        return Promise.resolve(syncResult)
+        return syncStart
       },
+      state: () => syncState,
     },
     spod: client,
     accounts: logins.accounts,

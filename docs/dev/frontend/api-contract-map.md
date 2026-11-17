@@ -586,7 +586,7 @@ some (in use again, or gone), the page says so and reloads.
 | `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations` | same | #220 |
 | `stores/admin/productionDestinations.ts` | `PUT /api/admin/production/destinations/{id}` | same | #220 |
 | `stores/admin/productionDestinations.ts` | `DELETE /api/admin/production/destinations/{id}` | same | #220 |
-| `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations/{id}/sync-articles` | same | #232 |
+| `stores/admin/productionDestinations.ts` | `POST /api/admin/production/destinations/{id}/sync-articles` (start) and `GET` on the same path (poll) | same | #232 |
 
 The admin side of issue #119. The job routes are the supplier ones with the scope
 turned into a *filter*: `supplierId` is left out entirely when the Logistics page
@@ -628,9 +628,14 @@ disabling it is the way out, not a retry.
 `POST …/{id}/sync-articles` joined them with the catalog sync and is the *Sync from
 Spreadconnect* button `views/admin/ProductionDestinationsView.vue` shows on
 every SPOD row, enabled and disabled alike. The store holds the per-destination
-loading state and the last report; the request is synchronous and may take a
-while, so the button stays disabled while it runs and there is no polling. The
-`200` answer is the run's report (`SpodSyncReport`) — counts for created,
+loading state and the last report. The `POST` only starts the run (`202`); the
+store polls `GET` on the same path every two seconds until its `running` is
+`false`, and reads it once when the page opens, so a run that outlived a reload
+keeps its spinner. While it runs, the report panel shows its `progress` live:
+the phase or the article in work (*Article 3 of 12: …*), a progress bar, and the
+counts, hotspots, and warnings so far. The button stays disabled while it runs.
+The finished state
+carries the run's report (`SpodSyncReport`) — counts for created,
 updated, unchanged, deactivated, and failed, the hotspot the run chose for each
 created and updated article, a destructive alert naming the articles whose print
 frame could not be measured (`CALIBRATION_FAILED`), an expandable warning list of

@@ -25,7 +25,9 @@ import {
   DestinationNotFoundError,
   InvalidDestinationRequestError,
   type SaveProductionDestinationRequest,
+  type SpodSyncProgress,
   type SpodSyncReport,
+  type SpodSyncWarning,
   useAdminProductionDestinationsStore,
 } from '@/stores/admin/productionDestinations'
 import { useAdminSuppliersStore } from '@/stores/admin/suppliers'
@@ -141,10 +143,14 @@ interface DestinationRow {
   supplierName: string
   /** The account the channel talks to, in one line: an SFTP target, or the SPOD installation. */
   accountNote: string
-  /** Whether this destination's sync request is still in flight. */
+  /** Whether this destination's sync is still running. */
   syncing: boolean
   /** What its last finished sync did, or `null` while nobody has pressed the button. */
   report: SpodSyncReport | null
+  /** What its running sync has done so far, or `null` when none runs. */
+  progress: SpodSyncProgress | null
+  /** The lists the panel shows: the running sync's so far, otherwise the last report's. */
+  shown: SpodSyncProgress | SpodSyncReport | null
   /** The SPOD article ids whose print frame the last run could not measure (`CALIBRATION_FAILED`). */
   uncalibratedArticleIds: string[]
 }
@@ -152,6 +158,8 @@ interface DestinationRow {
 const rows = computed<DestinationRow[]>(() =>
   destinationsStore.destinations.map((destination) => {
     const report = destinationsStore.syncReport(destination.id)
+    const progress = destinationsStore.syncProgress(destination.id)
+    const shown = progress ?? report
     return {
       destination,
       supplierName:
@@ -159,18 +167,43 @@ const rows = computed<DestinationRow[]>(() =>
       accountNote: accountNote(destination),
       syncing: destinationsStore.isSyncing(destination.id),
       report,
-      uncalibratedArticleIds: uncalibratedArticleIds(report),
+      progress,
+      shown,
+      uncalibratedArticleIds: uncalibratedArticleIds(shown),
     }
   }),
 )
 
 /** A `CALIBRATION_FAILED` warning always names its article; the type only allows `null` for others. */
-function uncalibratedArticleIds(report: SpodSyncReport | null): string[] {
-  return (report?.warnings ?? []).flatMap((warning) =>
+function uncalibratedArticleIds(shown: { warnings: SpodSyncWarning[] } | null): string[] {
+  return (shown?.warnings ?? []).flatMap((warning) =>
     warning.code === 'CALIBRATION_FAILED' && warning.spodArticleId !== null
       ? [warning.spodArticleId]
       : [],
   )
+}
+
+/** Where a running sync is, in one line. */
+function progressText(progress: SpodSyncProgress): string {
+  const started = new Date(progress.startedAt).toLocaleTimeString()
+  switch (progress.phase) {
+    case 'LISTING':
+      return `Reading the article list from Spreadconnect... (started ${started})`
+    case 'ARTICLES':
+      return `Article ${progress.processedArticles + 1} of ${progress.fetchedArticles}: ${progress.currentArticle ?? ''} (started ${started})`
+    case 'SWEEPING':
+      return `Deactivating articles Spreadconnect no longer lists... (started ${started})`
+  }
+}
+
+/** How far a running sync is through the listed articles, in percent. */
+function progressPercent(progress: SpodSyncProgress): number {
+  if (progress.phase === 'SWEEPING') {
+    return 100
+  }
+  return progress.fetchedArticles === 0
+    ? 0
+    : Math.round((progress.processedArticles / progress.fetchedArticles) * 100)
 }
 
 function accountNote(destination: AdminProductionDestinationDto): string {
@@ -214,6 +247,12 @@ async function syncArticles(destination: AdminProductionDestinationDto) {
 
 onMounted(async () => {
   await Promise.all([destinationsStore.fetchDestinations(), suppliersStore.fetchSuppliers()])
+  // A sync outlives the page: show a run that still works, or the last one's report.
+  for (const destination of destinationsStore.destinations) {
+    if (destination.channel === 'SPOD') {
+      void destinationsStore.loadSyncState(destination.id)
+    }
+  }
 })
 </script>
 
@@ -285,6 +324,8 @@ onMounted(async () => {
                 accountNote,
                 syncing,
                 report,
+                progress,
+                shown,
                 uncalibratedArticleIds,
               } in rows"
               :key="destination.id"
@@ -337,15 +378,37 @@ onMounted(async () => {
                 </TableCell>
               </TableRow>
 
-              <TableRow v-if="report" :data-testid="`destination-sync-report-${destination.id}`">
+              <TableRow v-if="shown" :data-testid="`destination-sync-report-${destination.id}`">
                 <TableCell colspan="7" class="bg-muted/30">
                   <div class="space-y-2 text-sm">
-                    <Alert v-if="report.status === 'FAILED'" variant="destructive">
+                    <template v-if="progress">
+                      <p
+                        class="text-foreground"
+                        :data-testid="`destination-sync-progress-${destination.id}`"
+                      >
+                        {{ progressText(progress) }}
+                      </p>
+                      <div
+                        class="h-1.5 overflow-hidden rounded-full bg-muted"
+                        role="progressbar"
+                        aria-label="Sync progress"
+                        :aria-valuenow="progressPercent(progress)"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                      >
+                        <div
+                          class="h-full bg-primary transition-[width]"
+                          :style="{ width: `${progressPercent(progress)}%` }"
+                        />
+                      </div>
+                    </template>
+
+                    <Alert v-else-if="report?.status === 'FAILED'" variant="destructive">
                       The catalog could not be read to the end, so nothing was written. Reason:
                       {{ report.failure ?? 'UNKNOWN' }}
                     </Alert>
 
-                    <p v-else class="text-muted-foreground">
+                    <p v-else-if="report" class="text-muted-foreground">
                       Read {{ report.fetchedArticles }} articles from {{ report.environment }}.
                     </p>
 
@@ -359,20 +422,20 @@ onMounted(async () => {
                     </Alert>
 
                     <div class="flex flex-wrap gap-x-4 gap-y-1 text-foreground">
-                      <span>Created {{ report.created.length }}</span>
-                      <span>Updated {{ report.updated.length }}</span>
-                      <span>Unchanged {{ report.unchanged.length }}</span>
-                      <span>Deactivated {{ report.deactivated.length }}</span>
-                      <span>Failed {{ report.failed.length }}</span>
+                      <span>Created {{ shown.created.length }}</span>
+                      <span>Updated {{ shown.updated.length }}</span>
+                      <span>Unchanged {{ shown.unchanged.length }}</span>
+                      <span>Deactivated {{ shown.deactivated.length }}</span>
+                      <span>Failed {{ shown.failed.length }}</span>
                     </div>
 
                     <ul
-                      v-if="report.created.length + report.updated.length > 0"
+                      v-if="shown.created.length + shown.updated.length > 0"
                       class="space-y-1 text-muted-foreground"
                       :data-testid="`destination-sync-hotspots-${destination.id}`"
                     >
                       <li
-                        v-for="line in [...report.created, ...report.updated]"
+                        v-for="line in [...shown.created, ...shown.updated]"
                         :key="line.spodArticleId"
                       >
                         <span class="font-medium text-foreground">{{ line.name }}</span>
@@ -382,7 +445,7 @@ onMounted(async () => {
                     </ul>
 
                     <Collapsible
-                      v-if="report.warnings.length > 0"
+                      v-if="shown.warnings.length > 0"
                       v-slot="{ open }"
                       :open="expandedWarnings[destination.id] === true"
                       @update:open="expandedWarnings[destination.id] = $event"
@@ -396,14 +459,14 @@ onMounted(async () => {
                           class="size-4 transition-transform"
                           :class="{ 'rotate-180': open }"
                         />
-                        {{ open ? 'Hide' : 'Show' }} {{ report.warnings.length }} warnings
+                        {{ open ? 'Hide' : 'Show' }} {{ shown.warnings.length }} warnings
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <ul
                           class="mt-2 space-y-1 text-muted-foreground"
                           :data-testid="`destination-sync-warnings-${destination.id}`"
                         >
-                          <li v-for="(warning, index) in report.warnings" :key="index">
+                          <li v-for="(warning, index) in shown.warnings" :key="index">
                             <span class="font-medium text-foreground">{{ warning.code }}</span>
                             <span v-if="warning.spodArticleId"> · {{ warning.spodArticleId }}</span>
                             · {{ warning.detail }}

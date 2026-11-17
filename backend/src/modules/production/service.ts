@@ -1,4 +1,4 @@
-import type { SpodCatalogSync, SpodSyncReport } from '@/modules/article'
+import type { SpodCatalogSync } from '@/modules/article'
 import type { SpodEnvironment } from '@/modules/spod'
 import {
   buildValidationErrors,
@@ -45,9 +45,9 @@ export interface DestinationResponse {
   spod: { environment: SpodEnvironment; timeoutSeconds: number } | null
 }
 
-/** A sync request: the run's report (also for a failed run), or why there was no run. */
+/** A sync request: the run started in the background, or why it did not. */
 export type DestinationSyncResult =
-  | { kind: 'reported'; report: SpodSyncReport }
+  | { kind: 'started' }
   | { kind: 'notFound' }
   | { kind: 'notSyncable' }
   | { kind: 'busy' }
@@ -65,7 +65,7 @@ const UNCONFIGURED_SPOD =
 export function createDestinationService(
   repository: DestinationRepository,
   spodConfigured: boolean,
-  spodCatalogSync: Pick<SpodCatalogSync, 'sync'>,
+  spodCatalogSync: Pick<SpodCatalogSync, 'start' | 'state'>,
 ) {
   const refusedSpod = (input: DestinationInput) =>
     !spodConfigured && input.detail.channel === 'SPOD'
@@ -102,14 +102,16 @@ export function createDestinationService(
 
     /**
      * Reads the destination and hands its catalog source to the article module's sync, which runs
-     * to the end before this returns (SPOD sync decision 5). Opens no transaction of its own.
+     * in the background (SPOD sync decision 5); `syncState` follows it. Opens no transaction.
      */
     syncArticles: async (id: number): Promise<DestinationSyncResult> => {
       const source = await repository.catalogSource(id)
       if (source === 'notFound') return { kind: 'notFound' }
       if (source === 'notSyncable') return { kind: 'notSyncable' }
-      return spodCatalogSync.sync(source)
+      return spodCatalogSync.start(source) === 'started' ? { kind: 'started' } : { kind: 'busy' }
     },
+
+    syncState: spodCatalogSync.state,
   }
 }
 

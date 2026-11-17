@@ -258,7 +258,8 @@ writes):
 | `POST /api/admin/production/destinations` | `201` + `Location` | Create a destination |
 | `GET /api/admin/production/destinations/{id}` | `200` | Read one destination |
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
-| `POST /api/admin/production/destinations/{id}/sync-articles` | `200` | Sync this destination's SPOD catalog |
+| `POST /api/admin/production/destinations/{id}/sync-articles` | `202` + sync state | Start a background sync of this destination's SPOD catalog |
+| `GET /api/admin/production/destinations/{id}/sync-articles` | `200` + sync state | Whether the sync still runs, and the last finished run's report |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
 
 | Failure | Answer |
@@ -286,18 +287,26 @@ An `SFTP` body brings `sftp` instead, with `host`, `port`, `username`,
 `POST …/{id}/sync-articles` is the trigger of the sync the
 [article module](article-package.md#the-spod-catalog-sync) runs. Production
 reads what the sync cannot read itself, the supplier, the installation, and
-the token, and calls `spodCatalogSync.sync({ supplierId, access })`. It opens
-no transaction. The admin waits for the answer. The server closes a connection
-that stays silent for 255 seconds (`idleTimeout` in `src/main.ts`, Bun's
-maximum), and a paced sync of a large catalog can take longer: the client then
-loses its connection while the run completes server-side. Its writes land, but
-its `SpodSyncReport` is lost with the connection; look at the articles instead of
-starting the sync again (a second start answers `SYNC_RUNNING` until the first
-run ends).
+the token, and calls `spodCatalogSync.start({ supplierId, access })`. It opens
+no transaction. The run works in the background: a paced sync of a large
+catalog takes longer than the 255 seconds the server keeps a silent connection
+open (`idleTimeout` in `src/main.ts`, Bun's maximum), so the admin does not wait
+on the request. Both routes answer the *sync state*
+`{ running, progress, report }`: whether a run of that destination still works,
+how far it got (`progress`: the phase — `LISTING`, `ARTICLES`, `SWEEPING` — the
+article in work, the count done of the count listed, and the report's lists so
+far; `null` when nothing runs), and the `SpodSyncReport` of the last run that
+finished. The admin screen polls
+`GET …/{id}/sync-articles` every two seconds until `running` is `false`, and
+reads it once when the page opens, so a run started before a reload is still
+followed. The state lives in the process: a restart forgets the last report
+(the articles keep what the run wrote). A run that throws instead of reporting
+leaves no report, only an error log line; the screen then says the sync stopped
+without one.
 
 | Answer | When |
 | --- | --- |
-| `200` with the `SpodSyncReport` | the run happened, also when its `status` is `FAILED` |
+| `202` with the sync state | the run started; its report arrives through `GET`, also when its `status` is `FAILED` |
 | `404 Production destination not found` | no destination with that id |
 | `409`, code `CHANNEL_WITHOUT_CATALOG` | an `SFTP` destination: *Only print-on-demand destinations have a SPOD catalog to sync* |
 | `409`, code `SYNC_RUNNING` | that destination is syncing already: *This destination is already syncing; wait for that run to finish* |

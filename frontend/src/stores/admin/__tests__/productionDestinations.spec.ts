@@ -233,7 +233,9 @@ describe('admin production destinations store', () => {
     expect(store.isSyncing(2)).toBe(false)
     expect(store.syncReport(1)).toBeNull()
 
-    releaseSync(jsonResponse(syncReport()))
+    releaseSync(
+      jsonResponse({ running: false, progress: null, report: syncReport() }, { status: 202 }),
+    )
     const report = await pending
 
     expect(fetchMock.mock.calls[1]![0]).toBe('/api/admin/production/destinations/1/sync-articles')
@@ -245,7 +247,10 @@ describe('admin production destinations store', () => {
 
   it('keeps a failed report like any other answer', async () => {
     stubFetch(() =>
-      jsonResponse(syncReport({ status: 'FAILED', failure: 'PROVIDER_UNAVAILABLE', created: [] })),
+      jsonResponse({
+        running: false,
+        report: syncReport({ status: 'FAILED', failure: 'PROVIDER_UNAVAILABLE', created: [] }),
+      }),
     )
     const store = useAdminProductionDestinationsStore()
 
@@ -257,8 +262,70 @@ describe('admin production destinations store', () => {
     })
   })
 
+  it('polls a run that is still working until it ends, then keeps its report', async () => {
+    vi.useFakeTimers()
+    const progress = {
+      phase: 'ARTICLES',
+      startedAt: '2026-08-24T10:00:00Z',
+      fetchedArticles: 2,
+      processedArticles: 1,
+      currentArticle: 'Classic Tee',
+      created: [],
+      updated: [],
+      unchanged: [],
+      deactivated: [],
+      failed: [],
+      warnings: [],
+    }
+    const states = [
+      { running: true, progress: { ...progress, phase: 'LISTING' }, report: null },
+      { running: true, progress, report: null },
+      { running: false, progress: null, report: syncReport() },
+    ]
+    const fetchMock = stubFetch(() => jsonResponse(states.shift()))
+    const store = useAdminProductionDestinationsStore()
+
+    const pending = store.syncArticles(1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.syncProgress(1)?.phase).toBe('LISTING')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(store.syncProgress(1)).toEqual(progress)
+    await vi.advanceTimersByTimeAsync(2000)
+    const report = await pending
+    vi.useRealTimers()
+
+    const syncCalls = fetchMock.mock.calls.filter(([input]) => input !== '/api/antiforgery/token')
+    expect(syncCalls.map(([input, init]) => [input, init?.method ?? 'GET'])).toEqual([
+      ['/api/admin/production/destinations/1/sync-articles', 'POST'],
+      ['/api/admin/production/destinations/1/sync-articles', 'GET'],
+      ['/api/admin/production/destinations/1/sync-articles', 'GET'],
+    ])
+    expect(report.created).toHaveLength(1)
+    expect(store.syncReport(1)).toEqual(report)
+    expect(store.syncProgress(1)).toBeNull()
+    expect(store.isSyncing(1)).toBe(false)
+  })
+
+  it('reports a run that ended without a report as an error', async () => {
+    stubFetch(() => jsonResponse({ running: false, progress: null, report: null }))
+    const store = useAdminProductionDestinationsStore()
+
+    await expect(store.syncArticles(1)).rejects.toThrow('The sync stopped without a report')
+    expect(store.isSyncing(1)).toBe(false)
+  })
+
+  it('picks up the last report when the page opens', async () => {
+    stubFetch(() => jsonResponse({ running: false, progress: null, report: syncReport() }))
+    const store = useAdminProductionDestinationsStore()
+
+    await store.loadSyncState(1)
+
+    expect(store.syncReport(1)?.created).toHaveLength(1)
+    expect(store.isSyncing(1)).toBe(false)
+  })
+
   it('drops the previous report when the next run starts, even if that run is refused', async () => {
-    stubFetch(() => jsonResponse(syncReport()))
+    stubFetch(() => jsonResponse({ running: false, progress: null, report: syncReport() }))
     const store = useAdminProductionDestinationsStore()
     await store.syncArticles(1)
     expect(store.syncReport(1)).not.toBeNull()

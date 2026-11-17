@@ -10,7 +10,7 @@ import {
   type SpodError,
   type SpodSizeChart,
 } from '@/modules/spod'
-import type { Logger } from '@/platform/logging'
+import { errorDetails, type Logger } from '@/platform/logging'
 import { createCalibration, type Calibration, type SpodCalibration } from './calibration'
 import type { PrintFrame } from './repository'
 import type { SpodPictureFolders } from './service'
@@ -39,6 +39,36 @@ export interface SpodCatalogSource {
 
 /** The run happened and answered a report, or the destination was already syncing. */
 export type SpodSyncResult = { kind: 'reported'; report: SpodSyncReport } | { kind: 'busy' }
+
+/**
+ * What the admin polls while a run started with `start` works in the background: whether it still
+ * runs, what it has done so far, and the report of the last run that finished since the process
+ * started.
+ */
+export interface SpodSyncState {
+  running: boolean
+  progress: SpodSyncProgress | null
+  report: SpodSyncReport | null
+}
+
+/**
+ * A running run as far as it got: the report's lists so far, and where it is. `LISTING` reads the
+ * partner's catalog, `ARTICLES` works through it one article at a time (`currentArticle` is the
+ * title in work), `SWEEPING` deactivates what the partner no longer lists.
+ */
+export interface SpodSyncProgress {
+  phase: 'LISTING' | 'ARTICLES' | 'SWEEPING'
+  startedAt: Date
+  fetchedArticles: number
+  processedArticles: number
+  currentArticle: string | null
+  created: SpodSyncLine[]
+  updated: SpodSyncLine[]
+  unchanged: SpodSyncLine[]
+  deactivated: SpodSyncLine[]
+  failed: SpodSyncLine[]
+  warnings: SpodSyncWarning[]
+}
 
 /**
  * What one run did, as a diff: every article it saw is in exactly one of the five lists. `FAILED`
@@ -106,6 +136,10 @@ export type SpodSyncWarningCode =
  */
 interface SyncRun {
   calibration: SpodCalibration
+  phase: SpodSyncProgress['phase']
+  startedAt: Date
+  processedArticles: number
+  currentArticle: string | null
   fetchedArticles: number
   created: SpodSyncLine[]
   updated: SpodSyncLine[]
@@ -140,6 +174,10 @@ export function createSpodCatalogSync({
 }) {
   /** The destinations syncing right now: an in-process lock, as far as one backend instance goes. */
   const busy = new Set<number>()
+  /** The report of each destination's last finished run, in memory: a restart forgets it. */
+  const lastReports = new Map<number, SpodSyncReport>()
+  /** The run of each destination syncing right now, for `state` to read its progress from. */
+  const runs = new Map<number, SyncRun>()
 
   const warn = (
     run: SyncRun,
@@ -546,9 +584,12 @@ export function createSpodCatalogSync({
   }
 
   const reconcile = async (source: SpodCatalogSource): Promise<SpodSyncReport> => {
-    const startedAt = new Date()
     const run: SyncRun = {
       calibration: createCalibration(client, source.access),
+      phase: 'LISTING',
+      startedAt: new Date(),
+      processedArticles: 0,
+      currentArticle: null,
       fetchedArticles: 0,
       created: [],
       updated: [],
@@ -559,13 +600,14 @@ export function createSpodCatalogSync({
       sizeCharts: new Map(),
       sizeChartFiles: new Map(),
     }
+    runs.set(source.access.destinationId, run)
     const report = (failure: SpodError | null): SpodSyncReport => ({
       destinationId: source.access.destinationId,
       supplierId: source.supplierId,
       environment: source.access.environment,
       status: failure === null ? 'COMPLETED' : 'FAILED',
       failure,
-      startedAt,
+      startedAt: run.startedAt,
       finishedAt: new Date(),
       fetchedArticles: run.fetchedArticles,
       created: run.created,
@@ -578,7 +620,14 @@ export function createSpodCatalogSync({
     const listing = await listArticles(source.access)
     if (listing.kind === 'failed') return report(listing.error)
     run.fetchedArticles = listing.articles.length
-    for (const article of listing.articles) await reconcileArticle(source, article, run)
+    run.phase = 'ARTICLES'
+    for (const article of listing.articles) {
+      run.currentArticle = article.title
+      await reconcileArticle(source, article, run)
+      run.processedArticles++
+    }
+    run.currentArticle = null
+    run.phase = 'SWEEPING'
     run.deactivated.push(
       ...(await repository.sweep(
         source.access.destinationId,
@@ -603,24 +652,69 @@ export function createSpodCatalogSync({
     return report(null)
   }
 
+  /**
+   * Runs one sync of `source` to completion, or answers `busy` without reading or writing anything
+   * while the same destination is already syncing. Nothing is queued.
+   */
+  const sync = async (source: SpodCatalogSource): Promise<SpodSyncResult> => {
+    const destinationId = source.access.destinationId
+    if (busy.has(destinationId)) return { kind: 'busy' }
+    busy.add(destinationId)
+    try {
+      return { kind: 'reported', report: await reconcile(source) }
+    } finally {
+      busy.delete(destinationId)
+      runs.delete(destinationId)
+    }
+  }
+
   return {
+    sync,
+
     /**
-     * Runs one sync of `source` to completion, or answers `busy` without reading or writing anything
-     * while the same destination is already syncing. The caller (a human waiting for the report)
-     * retries; nothing is queued.
+     * Starts a run of `source` in the background and returns at once; `state` follows it. A run can
+     * outlast any HTTP connection, so the admin polls instead of waiting. A run that throws leaves
+     * no report, only a log line.
      */
-    sync: async (source: SpodCatalogSource): Promise<SpodSyncResult> => {
+    start: (source: SpodCatalogSource): 'started' | 'busy' => {
       const destinationId = source.access.destinationId
-      if (busy.has(destinationId)) return { kind: 'busy' }
-      busy.add(destinationId)
-      try {
-        return { kind: 'reported', report: await reconcile(source) }
-      } finally {
-        busy.delete(destinationId)
+      if (busy.has(destinationId)) return 'busy'
+      lastReports.delete(destinationId)
+      // `sync` takes the lock before its first await, so `state` reports the run from here on.
+      sync(source)
+        .then((result) => {
+          if (result.kind === 'reported') lastReports.set(destinationId, result.report)
+        })
+        .catch((error: unknown) => {
+          logger.error({ destinationId, error: errorDetails(error) }, 'SPOD sync run broke')
+        })
+      return 'started'
+    },
+
+    state: (destinationId: number): SpodSyncState => {
+      const run = runs.get(destinationId)
+      return {
+        running: busy.has(destinationId),
+        progress: run === undefined ? null : progressOf(run),
+        report: lastReports.get(destinationId) ?? null,
       }
     },
   }
 }
+
+const progressOf = (run: SyncRun): SpodSyncProgress => ({
+  phase: run.phase,
+  startedAt: run.startedAt,
+  fetchedArticles: run.fetchedArticles,
+  processedArticles: run.processedArticles,
+  currentArticle: run.currentArticle,
+  created: run.created,
+  updated: run.updated,
+  unchanged: run.unchanged,
+  deactivated: run.deactivated,
+  failed: run.failed,
+  warnings: run.warnings,
+})
 
 const emptyLine = (spodArticleId: string, name: string): SpodSyncLine => ({
   articleId: null,

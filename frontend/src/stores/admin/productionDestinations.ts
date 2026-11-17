@@ -145,6 +145,38 @@ export interface SpodSyncReport {
   warnings: SpodSyncWarning[]
 }
 
+/**
+ * A running sync as far as it got: the report's lists so far, and where it is. `LISTING` reads the
+ * partner's catalog, `ARTICLES` works through it one article at a time (`currentArticle` is the
+ * title in work), `SWEEPING` deactivates what the partner no longer lists.
+ */
+export interface SpodSyncProgress {
+  phase: 'LISTING' | 'ARTICLES' | 'SWEEPING'
+  startedAt: string
+  fetchedArticles: number
+  processedArticles: number
+  currentArticle: string | null
+  created: SpodSyncLine[]
+  updated: SpodSyncLine[]
+  unchanged: SpodSyncLine[]
+  deactivated: SpodSyncLine[]
+  failed: SpodSyncLine[]
+  warnings: SpodSyncWarning[]
+}
+
+/**
+ * What `…/sync-articles` answers, to the start and to every poll: whether a run still works, what
+ * it has done so far, and the report of the last run that finished since the backend started.
+ */
+export interface SpodSyncState {
+  running: boolean
+  progress: SpodSyncProgress | null
+  report: SpodSyncReport | null
+}
+
+/** How often a running sync is polled. A run takes seconds to many minutes. */
+const SYNC_POLL_INTERVAL_MS = 2000
+
 /** The two `409` codes of the sync route, in the words the admin screen shows. */
 const SYNC_CONFLICT_MESSAGES: Record<string, string> = {
   SYNC_RUNNING: 'A sync is already running for this destination.',
@@ -199,10 +231,12 @@ export const useAdminProductionDestinationsStore = defineStore(
     const destinations = ref<AdminProductionDestinationDto[]>([])
     const isLoading = shallowRef(false)
     const error = shallowRef<string | null>(null)
-    /** The destinations whose sync request is still in flight. A sync runs per destination. */
+    /** The destinations whose sync is still running. A sync runs per destination. */
     const syncingDestinationIds = ref<number[]>([])
     /** The report of the last finished sync of a destination, kept until the page is left. */
     const syncReports = ref<Record<number, SpodSyncReport>>({})
+    /** What a destination's running sync has done so far, from its latest poll. */
+    const syncProgresses = ref<Record<number, SpodSyncProgress>>({})
 
     function sortDestinations(items: AdminProductionDestinationDto[]) {
       return [...items].sort(
@@ -338,12 +372,63 @@ export const useAdminProductionDestinationsStore = defineStore(
       return syncReports.value[id] ?? null
     }
 
+    function syncProgress(id: number): SpodSyncProgress | null {
+      return syncProgresses.value[id] ?? null
+    }
+
+    function syncPath(id: number) {
+      return `${DESTINATIONS_PATH}/${id}/sync-articles`
+    }
+
+    function setProgress(id: number, progress: SpodSyncProgress | null) {
+      const others = { ...syncProgresses.value }
+      delete others[id]
+      syncProgresses.value = progress ? { ...others, [id]: progress } : others
+    }
+
+    /** Polls a run until it ends, showing its progress on the way, and keeps its report. */
+    async function followSync(id: number, state: SpodSyncState): Promise<SpodSyncReport | null> {
+      try {
+        while (state.running) {
+          setProgress(id, state.progress)
+          await new Promise((resolve) => setTimeout(resolve, SYNC_POLL_INTERVAL_MS))
+          state = await fetchJson<SpodSyncState>(syncPath(id))
+        }
+      } finally {
+        setProgress(id, null)
+      }
+      if (state.report) {
+        syncReports.value = { ...syncReports.value, [id]: state.report }
+      }
+      return state.report
+    }
+
+    /**
+     * Picks up what the backend knows about the destination's sync when the page opens: a run still
+     * working (started before a reload, or by another admin) is followed, a finished one shows its
+     * report. A failed read only means no report is shown, so it is not an error here.
+     */
+    async function loadSyncState(id: number): Promise<void> {
+      if (isSyncing(id)) {
+        return
+      }
+      syncingDestinationIds.value = [...syncingDestinationIds.value, id]
+      try {
+        await followSync(id, await fetchJson<SpodSyncState>(syncPath(id)))
+      } catch {
+        // Nothing to show; the sync button still works.
+      } finally {
+        syncingDestinationIds.value = syncingDestinationIds.value.filter((item) => item !== id)
+      }
+    }
+
     /**
      * Reads the destination's backoffice catalog into the shop's SPOD articles and keeps what the run
-     * did. The request is synchronous — a few seconds of partner calls — so the caller waits.
+     * did. The backend runs the sync in the background, so this starts it and polls until it ends.
      *
      * A `FAILED` report is a normal answer and is stored like any other; only the `409` of a
-     * destination that is already syncing, or of one without a catalog, comes back as an error.
+     * destination that is already syncing, of one without a catalog, and a run that broke without a
+     * report come back as an error.
      */
     async function syncArticles(id: number): Promise<SpodSyncReport> {
       syncingDestinationIds.value = [...syncingDestinationIds.value, id]
@@ -356,10 +441,11 @@ export const useAdminProductionDestinationsStore = defineStore(
       syncReports.value = remaining
 
       try {
-        const report = await fetchJson<SpodSyncReport>(`${DESTINATIONS_PATH}/${id}/sync-articles`, {
-          method: 'POST',
-        })
-        syncReports.value = { ...syncReports.value, [id]: report }
+        const started = await fetchJson<SpodSyncState>(syncPath(id), { method: 'POST' })
+        const report = await followSync(id, started)
+        if (!report) {
+          throw new Error('The sync stopped without a report; see the backend log.')
+        }
         return report
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
@@ -383,7 +469,9 @@ export const useAdminProductionDestinationsStore = defineStore(
       deleteDestination,
       isSyncing,
       syncReport,
+      syncProgress,
       syncArticles,
+      loadSyncState,
     }
   },
 )

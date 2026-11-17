@@ -187,13 +187,17 @@ export function destinationRoutes(destinations: DestinationService): Hono {
       DESTINATION_RESPONSES,
     ),
   )
-  // The admin waits for the run: a sync is a few seconds of partner calls, not a job to watch. A
-  // run that happened answers 200 even when its report says FAILED.
+  // A paced run can outlast Bun's 255 s idle timeout, so it runs in the background: the POST starts
+  // it, the GET answers whether it still runs and the last finished run's report.
+  admin.get('/:id/sync-articles', destinationId, (c) =>
+    c.json(destinations.syncState(c.req.valid('param').id)),
+  )
   admin.post('/:id/sync-articles', destinationId, async (c) => {
-    const result = await destinations.syncArticles(c.req.valid('param').id)
+    const id = c.req.valid('param').id
+    const result = await destinations.syncArticles(id)
     switch (result.kind) {
-      case 'reported':
-        return c.json(result.report)
+      case 'started':
+        return c.json(destinations.syncState(id), 202)
       case 'notFound':
         return c.json(apiError(DESTINATION_RESPONSES.notFound), 404)
       case 'notSyncable':

@@ -673,4 +673,27 @@ describe('one destination at a time', () => {
     expect((await first).kind).toBe('reported')
     expect((await sync.sync(source())).kind).toBe('reported')
   })
+
+  test('start runs in the background and state follows it to the report', async () => {
+    let open: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    const { sync } = await syncWith({ listing: page([shirt()]), gate })
+    const destinationId = source().access.destinationId
+    expect(sync.state(destinationId)).toEqual({ running: false, progress: null, report: null })
+    expect(sync.start(source())).toBe('started')
+    expect(sync.start(source())).toBe('busy')
+    expect(sync.state(destinationId)).toMatchObject({
+      running: true,
+      progress: { phase: 'LISTING', fetchedArticles: 0, processedArticles: 0 },
+      report: null,
+    })
+    open()
+    while (sync.state(destinationId).running) await Bun.sleep(1)
+    const done = sync.state(destinationId)
+    expect(done.progress).toBeNull()
+    expect(done.report?.status).toBe('COMPLETED')
+    expect(done.report?.created.map((line) => line.spodArticleId)).toEqual(['a-1'])
+  })
 })

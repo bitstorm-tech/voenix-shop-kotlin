@@ -71,7 +71,7 @@ export async function createProductionModule({
   email: Pick<EmailModule, 'outbox'>
   suppliers: Pick<SupplierModule, 'find' | 'ids'>
   articleCatalog: Pick<ArticleCatalog, 'find'>
-  spodCatalogSync: Pick<SpodCatalogSync, 'sync'>
+  spodCatalogSync: Pick<SpodCatalogSync, 'start' | 'state'>
   spod: SubmissionClient
   accounts: SupplierAccounts
   orders: ProductionOrders

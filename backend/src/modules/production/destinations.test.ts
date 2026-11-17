@@ -234,15 +234,18 @@ describe('a deployment without SPOD settings', () => {
   })
 })
 
-describe('POST …/{id}/sync-articles', () => {
+describe('…/{id}/sync-articles', () => {
   const report = { destinationId: 1, status: 'COMPLETED', created: [] } as unknown as SpodSyncReport
 
-  test('a SPOD destination, also a disabled one, hands its source to the sync and answers the report', async () => {
-    const { kit, call } = await adminApp({ syncResult: { kind: 'reported', report } })
+  test('a SPOD destination, also a disabled one, hands its source to the sync and answers 202 with the state', async () => {
+    const { kit, call } = await adminApp({
+      syncStart: 'started',
+      syncState: { running: true, progress: null, report: null },
+    })
     const destinationId = await seedSpodDestination(database.db, supplierId, false)
     const answer = await call('POST', `${PATH}/${String(destinationId)}/sync-articles`)
-    expect(answer.status).toBe(200)
-    expect(await jsonOf(answer)).toEqual(report)
+    expect(answer.status).toBe(202)
+    expect(await jsonOf(answer)).toEqual({ running: true, progress: null, report: null })
     expect(kit.syncCalls).toEqual([
       {
         supplierId,
@@ -257,7 +260,7 @@ describe('POST …/{id}/sync-articles', () => {
   })
 
   test('unknown, without a catalog, and already running', async () => {
-    const { call } = await adminApp({ syncResult: { kind: 'busy' } })
+    const { call } = await adminApp({ syncStart: 'busy' })
     expect((await call('POST', `${PATH}/99/sync-articles`)).status).toBe(404)
     const sftpId = await seedSftpDestination(database.db, {
       supplierId,
@@ -275,5 +278,12 @@ describe('POST …/{id}/sync-articles', () => {
     const running = await call('POST', `${PATH}/${String(spodId)}/sync-articles`)
     expect(running.status).toBe(409)
     expect(await jsonOf(running)).toMatchObject({ code: 'SYNC_RUNNING' })
+  })
+
+  test('GET answers whether the run still works and the last finished report', async () => {
+    const { call } = await adminApp({ syncState: { running: false, progress: null, report } })
+    const answer = await call('GET', `${PATH}/1/sync-articles`)
+    expect(answer.status).toBe(200)
+    expect(await jsonOf(answer)).toEqual({ running: false, progress: null, report })
   })
 })

@@ -5,6 +5,7 @@ import { Select } from '@/components/ui/select'
 import type {
   AdminProductionDestinationDto,
   SpodSyncLine,
+  SpodSyncProgress,
   SpodSyncReport,
 } from '@/stores/admin/productionDestinations'
 
@@ -50,7 +51,9 @@ const mocks = vi.hoisted(() => {
       deleteDestination: vi.fn(),
       isSyncing: vi.fn(),
       syncReport: vi.fn(),
+      syncProgress: vi.fn(),
       syncArticles: vi.fn(),
+      loadSyncState: vi.fn(),
     },
     suppliersState: {
       suppliers: [{ id: 3, name: 'Acme' }],
@@ -121,7 +124,9 @@ function resetStoreState() {
   mocks.storeState.deleteDestination.mockReset()
   mocks.storeState.isSyncing.mockReset().mockReturnValue(false)
   mocks.storeState.syncReport.mockReset().mockReturnValue(null)
+  mocks.storeState.syncProgress.mockReset().mockReturnValue(null)
   mocks.storeState.syncArticles.mockReset().mockResolvedValue(undefined)
+  mocks.storeState.loadSyncState.mockReset().mockResolvedValue(undefined)
   mocks.suppliersState.fetchSuppliers.mockReset().mockResolvedValue(undefined)
 }
 
@@ -333,6 +338,8 @@ describe('ProductionDestinationsView', () => {
 
     await mountView()
 
+    // A run that outlived the page is picked up for the SPOD row alone.
+    expect(mocks.storeState.loadSyncState.mock.calls).toEqual([[1]])
     expect(syncButton(2)).toBeNull()
     const button = syncButton(1)
     expect(button).toBeTruthy()
@@ -362,6 +369,38 @@ describe('ProductionDestinationsView', () => {
     const button = syncButton(1)
     expect(button?.disabled).toBe(true)
     expect(button?.textContent).toContain('Syncing...')
+  })
+
+  it('shows a running sync live: where it is and what it has done so far', async () => {
+    mocks.storeState.destinations = [spodDestination]
+    mocks.storeState.isSyncing.mockReturnValue(true)
+    mocks.storeState.syncProgress.mockReturnValue({
+      phase: 'ARTICLES',
+      startedAt: '2026-08-24T10:00:00Z',
+      fetchedArticles: 4,
+      processedArticles: 1,
+      currentArticle: 'Classic Tee',
+      created: [line('spod-1', 'front')],
+      updated: [],
+      unchanged: [],
+      deactivated: [],
+      failed: [],
+      warnings: [],
+    } satisfies SpodSyncProgress)
+
+    await mountView()
+
+    const progress = document.body.querySelector('[data-testid="destination-sync-progress-1"]')
+    expect(progress?.textContent).toContain('Article 2 of 4: Classic Tee')
+    expect(document.body.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(
+      '25',
+    )
+    const panel = document.body.querySelector('[data-testid="destination-sync-report-1"]')
+    expect(panel?.textContent).toContain('Created 1')
+    expect(panel?.textContent).not.toContain('Read ')
+    expect(
+      document.body.querySelector('[data-testid="destination-sync-hotspots-1"]')?.textContent,
+    ).toContain('spod-1')
   })
 
   it('reports what the finished run did, with the warnings behind a toggle', async () => {

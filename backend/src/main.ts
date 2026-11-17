@@ -17,8 +17,8 @@ const server = Bun.serve({
   port: settings.port,
   fetch: application.app.fetch,
   // Bun closes a connection that stays silent for 10 s by default, but an image generation waits
-  // up to 2 × 120 s for fal.ai and a SPOD catalog sync is paced at about one request per second.
-  // 255 s is Bun's maximum; a sync that runs longer finishes server-side without its client.
+  // up to 2 × 120 s for fal.ai. 255 s is Bun's maximum. (A SPOD catalog sync runs in the
+  // background and is polled, so it is not bound by this.)
   idleTimeout: 255,
 })
 log.info({ port: server.port }, 'Voenix backend listening')

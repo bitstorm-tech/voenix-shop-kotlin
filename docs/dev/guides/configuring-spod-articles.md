@@ -217,8 +217,12 @@ Three things to get right over there, because only the backoffice can fix them:
 
 Open `/admin/logistics/destinations` and press **Sync from Spreadconnect** on
 the SPOD destination of your supplier (step 3). The button sits on every SPOD
-row, enabled destinations and disabled ones alike; you wait for the run, which
-takes a few seconds per product type (see [the rate budget](#the-rate-budget)).
+row, enabled destinations and disabled ones alike. The run works in the
+background and takes a few seconds per product type (see
+[the rate budget](#the-rate-budget)); the button shows *Syncing...* until it is
+done, also after a reload of the page or when you come back to it later. While
+it runs, the panel below the row shows which article it is working on, a
+progress bar, and what it has created, updated, or skipped so far.
 
 The panel that appears is the run's report:
 
@@ -323,8 +327,8 @@ meets, two calls plus one preview per accepted front hotspot (at most five), and
 once per run one design upload; the picture downloads do not count. Twenty tees
 of one product type therefore cost as much calibration as one tee. Each paced
 call takes a little over a second, so ten different product types with two
-front hotspots each add about forty seconds to a run. The run is synchronous:
-the button waits until it is done.
+front hotspots each add about forty seconds to a run. The run works in the
+background; the screen polls it until it is done.
 
 ### 5c. Complete the shop's half in the article editor
 

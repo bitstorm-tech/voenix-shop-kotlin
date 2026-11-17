@@ -38,6 +38,8 @@ export type {
   SpodSyncLine,
   SpodSyncReport,
   SpodSyncResult,
+  SpodSyncProgress,
+  SpodSyncState,
   SpodSyncWarning,
   SpodSyncWarningCode,
 } from './spod-article/sync'
