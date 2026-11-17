@@ -1,22 +1,7 @@
 # Frontend - Vue 3/TypeScript SPA
 
-## Quick Reference
-
-Run commands from `frontend/`:
-
-```bash
-bun run dev            # Start Vite dev server
-bun run build          # Type-check and build for production
-bun run lint           # ESLint with auto-fix
-bun run check:ui-boundary  # Scan app code for UI boundary violations
-bun run format         # Format src/ with Prettier
-bun run type-check     # TypeScript checking only
-bun run test:unit      # Run Vitest tests
-```
-
 ## Frontend Conventions
 
-- Use Vue 3 Composition API with `<script setup lang="ts">` for SFCs.
 - Keep code identifiers, comments, and technical text in English.
 - Keep page, route, layout, store, and component code in the matching `views/`, `router/`, `layouts/`, `stores/`, and `components/` area folders (`admin`, `supplier`, `shop`, `auth`, `shared`, `ui`).
 - Use vue-i18n for localized user-facing copy on the shop and auth surfaces; the active locales are German (`de`) and English (`en`).
@@ -39,7 +24,6 @@ bun run test:unit      # Run Vitest tests
 
 ## Routing and Auth
 
-- Routes are split by area: `router/auth.ts`, `router/admin.ts`, `router/supplier.ts`, and `router/shop.ts`. `router/index.ts` composes them.
 - Put new routed pages under the matching `views/` subfolder.
 - Admin routes require `adminGuard`; supplier routes require `supplierGuard` (the supplier role, not the admin role); authenticated shop routes use `authGuard`; guest-only auth pages use `guestGuard`.
 - Where a signed-in user lands without an explicit `?redirect=` is decided in one place, `router/authRedirect.ts`: a supplier login goes to its job list, everybody else to the shop landing page.
@@ -49,7 +33,6 @@ bun run test:unit      # Run Vitest tests
 
 ## State Management
 
-- Pinia stores use the composition API style.
 - Shared state belongs under `stores/shared/`; admin, supplier, and shop state belong under their matching area folders.
 - Keep auth behavior in `stores/shared/auth.ts`.
 - Magic Coins balance is handled by `stores/shop/magicCoins.ts` and fetched from `GET /api/magic-coins/balance`.
