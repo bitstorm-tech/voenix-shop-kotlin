@@ -5,6 +5,7 @@ import { isRouteActive } from '@/lib/routeMatching'
 import { cn } from '@/lib/utils'
 import {
   getAdminNavLinkActivePatterns,
+  type AdminMenuCounts,
   type AdminNavGroupItem,
   type AdminNavItem,
   type AdminNavLinkItem,
@@ -12,6 +13,8 @@ import {
 
 interface Props {
   items: AdminNavItem[]
+  /** The badge numbers; `null` while unknown, so no badge is shown. */
+  menuCounts?: AdminMenuCounts | null
 }
 
 const props = defineProps<Props>()
@@ -79,6 +82,14 @@ function handleNavigate() {
         </span>
 
         <span class="truncate">{{ item.title }}</span>
+
+        <span
+          v-if="item.badge && menuCounts"
+          class="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground"
+          data-nav-badge
+        >
+          {{ menuCounts[item.badge] }}
+        </span>
       </RouterLink>
 
       <section

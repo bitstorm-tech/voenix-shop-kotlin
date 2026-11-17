@@ -7,6 +7,13 @@ export interface AdminNavLinkItem {
   to: string
   icon?: Component
   activePatterns?: string[]
+  /** Which count of `GET /api/admin/operations/menu-counts` the link shows as a badge. */
+  badge?: keyof AdminMenuCounts
+}
+
+export interface AdminMenuCounts {
+  unshippedOrders: number
+  openFindings: number
 }
 
 export interface AdminNavGroupItem {
@@ -115,12 +122,14 @@ export const adminNavigationItems: AdminNavItem[] = [
     title: 'Orders',
     to: '/admin/orders',
     icon: ShoppingCart,
+    badge: 'unshippedOrders',
   },
   {
     type: 'link',
     title: 'Operations',
     to: '/admin/operations',
     icon: CircleAlert,
+    badge: 'openFindings',
   },
   {
     type: 'link',

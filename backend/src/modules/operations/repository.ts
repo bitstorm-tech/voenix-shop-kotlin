@@ -167,6 +167,18 @@ export function createFindingRepository(db: Kysely<Tables>) {
           .execute(),
       ),
 
+    /** How many findings are open. */
+    openCount: async (): Promise<number> => {
+      const row = await read(db, (trx) =>
+        trx
+          .selectFrom('operations_findings')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .where('resolved_at', 'is', null)
+          .executeTakeFirstOrThrow(),
+      )
+      return row.count
+    },
+
     /** How many open findings each order in `orderIds` has; an order without one is absent. */
     openCounts: async (orderIds: readonly number[]): Promise<Map<number, number>> => {
       if (orderIds.length === 0) return new Map()

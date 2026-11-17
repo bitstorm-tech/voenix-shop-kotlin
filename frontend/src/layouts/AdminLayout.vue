@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { House, LogOut, Menu, Shield } from 'lucide-vue-next'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AdminNavigation from '@/components/admin/AdminNavigation.vue'
-import { adminNavigationItems } from '@/components/admin/adminNavigation'
+import { adminNavigationItems, type AdminMenuCounts } from '@/components/admin/adminNavigation'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -14,12 +14,29 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { fetchJson } from '@/lib/api'
 import { useAuthStore } from '@/stores/shared/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
+const route = useRoute()
+
 const mobileNavOpen = shallowRef(false)
+
+/** The menu badges, reloaded on every navigation; a failed load hides them instead of lying. */
+const menuCounts = shallowRef<AdminMenuCounts | null>(null)
+watch(
+  () => route.path,
+  async () => {
+    try {
+      menuCounts.value = await fetchJson<AdminMenuCounts>('/api/admin/operations/menu-counts')
+    } catch {
+      menuCounts.value = null
+    }
+  },
+  { immediate: true },
+)
 
 const userLabel = computed(() => authStore.user?.email ?? 'Admin user')
 
@@ -54,7 +71,7 @@ function closeMobileNav() {
         </div>
 
         <div class="flex-1 overflow-y-auto px-3 py-4">
-          <AdminNavigation :items="adminNavigationItems" />
+          <AdminNavigation :items="adminNavigationItems" :menu-counts="menuCounts" />
         </div>
 
         <div class="border-t border-border px-5 py-4">
@@ -102,7 +119,11 @@ function closeMobileNav() {
                   </SheetHeader>
 
                   <div class="flex-1 overflow-y-auto">
-                    <AdminNavigation :items="adminNavigationItems" @navigate="closeMobileNav" />
+                    <AdminNavigation
+                      :items="adminNavigationItems"
+                      :menu-counts="menuCounts"
+                      @navigate="closeMobileNav"
+                    />
                   </div>
 
                   <div class="border-t border-border pt-4">

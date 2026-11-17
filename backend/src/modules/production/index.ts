@@ -20,7 +20,7 @@ import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
-import { productionOfOrder } from './timeline'
+import { productionOfOrder, unshippedOrderCount } from './timeline'
 
 export type { ProductionFinding } from './findings'
 export type {
@@ -126,6 +126,8 @@ export async function createProductionModule({
     findings: (now: Date) => productionFindings(db, now),
     /** The production section of one order's admin timeline: request, jobs, deliveries, SPOD. */
     ofOrder: (orderId: number) => productionOfOrder(db, orderId),
+    /** How many paid orders still have something to ship (the admin menu's order badge). */
+    unshippedOrderCount: () => unshippedOrderCount(db),
     /**
      * An admin's release of a quarantined SPOD job after looking at the partner's backoffice;
      * answers the job's admin view (SPOD fulfillment, "Reconciling a quarantined job").

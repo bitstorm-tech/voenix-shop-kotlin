@@ -543,6 +543,7 @@ listed a moment ago can still fail with one of the `409` data codes on download.
 | --- | --- | --- | --- |
 | `stores/admin/operations.ts` | `GET /api/admin/operations/findings` and `GET /api/admin/operations/findings?resolved=true` | same | #282 |
 | `stores/admin/operations.ts` | `GET /api/admin/operations/last-scan` | same | #282 follow-up |
+| `layouts/AdminLayout.vue` | `GET /api/admin/operations/menu-counts` | same | menu badges |
 
 The Operations page (`/admin/operations`) of issue #282 replaced the "Issues"
 placeholder. The list is a bare array of findings

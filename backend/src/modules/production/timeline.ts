@@ -90,3 +90,24 @@ export function productionOfOrder(db: Kysely<Tables>, orderId: number) {
     }
   })
 }
+
+/**
+ * How many paid orders are not fully shipped: a request whose jobs are not split yet, or one with a
+ * job that has no `shipped_at`. "Fully shipped" is derived from the jobs, never stored.
+ */
+export async function unshippedOrderCount(db: Kysely<Tables>): Promise<number> {
+  const row = await read(db, (trx) =>
+    trx
+      .selectFrom('production_requests as request')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .where((eb) => {
+        const jobs = eb
+          .selectFrom('production_jobs as job')
+          .select('job.id')
+          .whereRef('job.request_id', '=', 'request.id')
+        return eb.or([eb.not(eb.exists(jobs)), eb.exists(jobs.where('job.shipped_at', 'is', null))])
+      })
+      .executeTakeFirstOrThrow(),
+  )
+  return row.count
+}

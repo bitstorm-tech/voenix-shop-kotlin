@@ -21,9 +21,9 @@ export function createOperationsService({
   production,
   outbox,
 }: {
-  findings: Pick<FindingRepository, 'openOfOrder' | 'openCounts'>
+  findings: Pick<FindingRepository, 'openOfOrder' | 'openCounts' | 'openCount'>
   orders: Pick<Orders, 'adminOrder' | 'adminOrders' | 'recheckPayment'>
-  production: Pick<ProductionModule, 'ofOrder' | 'releaseSpodJob'>
+  production: Pick<ProductionModule, 'ofOrder' | 'releaseSpodJob' | 'unshippedOrderCount'>
   outbox: Pick<EmailModule['outbox'], 'ofOrder'>
 }) {
   return {
@@ -60,6 +60,15 @@ export function createOperationsService({
       const list = await orders.adminOrders({ email, limit: ORDER_LIST_SIZE })
       const counts = await findings.openCounts(list.map((order) => order.orderId))
       return list.map((order) => ({ ...order, openFindings: counts.get(order.orderId) ?? 0 }))
+    },
+
+    /** The numbers of the admin menu's badges: paid orders not fully shipped, open findings. */
+    menuCounts: async () => {
+      const [unshippedOrders, openFindings] = await Promise.all([
+        production.unshippedOrderCount(),
+        findings.openCount(),
+      ])
+      return { unshippedOrders, openFindings }
     },
 
     /** Asks Mollie about the order's payment now, recorded with the admin's user id. */

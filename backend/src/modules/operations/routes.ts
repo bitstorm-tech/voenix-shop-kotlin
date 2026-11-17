@@ -74,7 +74,7 @@ const orderListQuery = z.object({
  * ones resolved within the last seven days, which carry `resolvedAt` as well; any other value of
  * `resolved` is the open list), the order list with its e-mail filter, one order's timeline, and
  * the two admin actions (the payment recheck and the SPOD job release), plus the time of the last
- * scan (`lastScanAt`, `null` before the first one). The order routes share
+ * scan (`lastScanAt`, `null` before the first one) and the admin menu's badge counts. The order routes share
  * `/api/admin/orders` with the order module's production PDF routes, the release shares
  * `/api/admin/production/jobs` with production's job routes. `requireAdmin` checks the CSRF pair
  * of every `POST`.
@@ -99,6 +99,8 @@ export function operationsRoutes(findings: FindingRepository, service: Operation
       })),
     )
   })
+
+  admin.get('/menu-counts', async (c) => c.json(await service.menuCounts()))
 
   admin.get('/last-scan', async (c) => c.json({ lastScanAt: await findings.lastScanAt() }))
 

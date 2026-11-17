@@ -292,6 +292,33 @@ describe('GET /api/admin/operations/last-scan', () => {
   })
 })
 
+describe('GET /api/admin/operations/menu-counts', () => {
+  const MENU_COUNTS = '/api/admin/operations/menu-counts'
+
+  test('is for admins only, never cached, and zero without orders or findings', async () => {
+    expect((await app().request(MENU_COUNTS)).status).toBe(401)
+    expect((await get(MENU_COUNTS, ['USER'])).status).toBe(403)
+    const admin = await get(MENU_COUNTS)
+    expect(admin.status).toBe(200)
+    expect(admin.headers.get('Cache-Control')).toBe('no-store')
+    expect(await jsonOf(admin)).toEqual({ unshippedOrders: 0, openFindings: 0 })
+  })
+
+  test('counts paid orders not fully shipped and open findings', async () => {
+    await seedTimeline()
+    const unsplit = await seedOrder('zwei@example.test', LATER)
+    await database.db.insertInto('production_requests').values({ order_id: unsplit }).execute()
+
+    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({ unshippedOrders: 2, openFindings: 1 })
+
+    await database.db
+      .updateTable('production_jobs')
+      .set({ prepared_at: LATER, shipped_at: LATER })
+      .execute()
+    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({ unshippedOrders: 1, openFindings: 1 })
+  })
+})
+
 describe('GET /api/admin/orders/{orderId}/timeline', () => {
   test('answers every section of one order, never its access token', async () => {
     const orderId = await seedTimeline()

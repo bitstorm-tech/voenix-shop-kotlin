@@ -199,6 +199,19 @@ describe('AdminNavigation', () => {
     expect(wrapper.text()).not.toContain('Completed Orders')
   })
 
+  it('shows the menu counts as badges on Orders and Operations, zero included', async () => {
+    const { wrapper } = await mountNavigation()
+    expect(wrapper.find('[data-nav-badge]').exists()).toBe(false)
+
+    await wrapper.setProps({ menuCounts: { unshippedOrders: 3, openFindings: 0 } })
+
+    const badgeOf = (title: string) =>
+      wrapper.find(`[data-nav-title="${title}"] [data-nav-badge]`).text()
+    expect(badgeOf('Orders')).toBe('3')
+    expect(badgeOf('Operations')).toBe('0')
+    expect(wrapper.findAll('[data-nav-badge]')).toHaveLength(2)
+  })
+
   it('does not render removed Admin destinations', async () => {
     const { wrapper } = await mountNavigation()
 

@@ -36,7 +36,10 @@ export function createOperationsModule({
     Orders,
     'findings' | 'reconcilePayments' | 'adminOrder' | 'adminOrders' | 'recheckPayment'
   >
-  production: Pick<ProductionModule, 'findings' | 'ofOrder' | 'releaseSpodJob'>
+  production: Pick<
+    ProductionModule,
+    'findings' | 'ofOrder' | 'releaseSpodJob' | 'unshippedOrderCount'
+  >
   outbox: Pick<EmailModule['outbox'], 'findings' | 'enqueue' | 'ofOrder'>
   settings: Settings['operations']
   frontendBaseUrl: string
