@@ -53,7 +53,7 @@ module does:
   the order's history with the admin's user id.
 
 A finding is one bounded record: a kind, the row it is about, the order that
-row belongs to, since when it stands still, and its attempt counter and error
+row belongs to (none for a supplier finding), since when it stands still, and its attempt counter and error
 code. It never carries customer data or a provider's text.
 
 ## The five-minute mental model
@@ -297,11 +297,13 @@ what "stuck" means for that table, and nobody tunes them per deployment.
 | `PAYMENT_PAID_ORDER_UNPAID` | order | payment | the current payment is `PAID` and the order is not (amount mismatch, or paid on a cancelled order) |
 | `PRODUCTION_REQUEST_STALLED` | production | request | `processed_at IS NULL` and (older than 15 minutes or 3 attempts) |
 | `JOB_GENERATION_STALLED` | production | job | an SFTP job without its document, and (older than 15 minutes or 3 attempts) |
+| `JOB_WITHOUT_DESTINATION` | production | job | an SFTP job without any delivery (its supplier had no enabled destination at the split), not shipped |
 | `DELIVERY_STALLED` | production | delivery | undelivered, its job's document exists, and (the document is older than an hour or 3 attempts) |
 | `SPOD_SUBMISSION_STALLED` | production | job | a SPOD job, not prepared, not quarantined, and (older than an hour or 3 attempts) |
 | `SPOD_QUARANTINED` | production | job | `create_state = 'OUTCOME_UNKNOWN'` |
 | `SPOD_REMOTE_ATTENTION` | production | job | the partner reported `NEEDS_ACTION` or `CANCELLED`, and the job is not shipped |
 | `SHIPMENT_OVERDUE` | production | job | prepared more than seven days ago and not shipped |
+| `SUPPLIER_WITHOUT_DESTINATION` | production | supplier | the supplier has no enabled destination of either channel; no order |
 | `EMAIL_STALLED` | email | mail | unsent, and (older than an hour or 3 attempts); carries the mail's own kind |
 
 In a deployment with `EMAIL_ENABLED=false` (the development default) every
@@ -313,6 +315,14 @@ says otherwise; the details per kind (`since`, which counter) are in
 [the Order package](order-package.md#payments-that-stand-still-findingsnow),
 [the Production package](production-package.md#findings-for-operations), and
 [the Email package](email-package.md#the-two-reads-for-operations).
+
+`SUPPLIER_WITHOUT_DESTINATION` is the one finding about configuration rather
+than a row of the pipeline: a supplier without an enabled destination is
+reported at once, before an order is routed to it, because the split would
+give that order a job no destination ever receives. Its `order_id` is `NULL`,
+so the admin page and the alert show it without an order. A supplier just
+created has no destination yet, so creating one is followed by an alert; that
+is accepted.
 
 An abandoned checkout (a `PENDING` order whose payment ended) is **not** a
 finding. It is not a broken promise but a customer who left, and listing every
@@ -408,7 +418,7 @@ and reappears is a new row and is in the next mail again.
 
 | Mailed | Listed only (on the admin page, never in a mail, `alerted_at` stays `NULL`) |
 | --- | --- |
-| `PAYMENT_UNRESOLVED`, `PAYMENT_PAID_ORDER_UNPAID`, `PRODUCTION_REQUEST_STALLED`, `JOB_GENERATION_STALLED`, `DELIVERY_STALLED`, `SPOD_SUBMISSION_STALLED`, `SHIPMENT_OVERDUE`, `EMAIL_STALLED` of every mail kind but one | `SPOD_QUARANTINED`, `SPOD_REMOTE_ATTENTION`, and `EMAIL_STALLED` whose stalled mail is itself an `OPERATIONS_ALERT` |
+| `PAYMENT_UNRESOLVED`, `PAYMENT_PAID_ORDER_UNPAID`, `PRODUCTION_REQUEST_STALLED`, `JOB_GENERATION_STALLED`, `JOB_WITHOUT_DESTINATION`, `DELIVERY_STALLED`, `SPOD_SUBMISSION_STALLED`, `SHIPMENT_OVERDUE`, `SUPPLIER_WITHOUT_DESTINATION`, `EMAIL_STALLED` of every mail kind but one | `SPOD_QUARANTINED`, `SPOD_REMOTE_ATTENTION`, and `EMAIL_STALLED` whose stalled mail is itself an `OPERATIONS_ALERT` |
 
 The table does not store the stalled mail's kind, so the rule is applied to
 the reported `Finding` objects (`EmailFinding.emailKind`) before the select,

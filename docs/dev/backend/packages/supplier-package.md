@@ -211,6 +211,17 @@ like a missing one.
 `find` is the repository's function, exported directly from the factory's
 result, so it reads the same table as the admin routes.
 
+## The exported `ids` capability
+
+```ts
+ids: () => Promise<number[]>
+```
+
+The ids of every supplier, ascending. Production's findings use it to report a
+supplier without an enabled destination (`SUPPLIER_WITHOUT_DESTINATION`, see
+[Findings for operations](production-package.md#findings-for-operations))
+without reading the `suppliers` table.
+
 ## Persistence
 
 `schema.ts` maps the `suppliers` table of

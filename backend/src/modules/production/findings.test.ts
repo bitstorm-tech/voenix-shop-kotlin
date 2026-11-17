@@ -145,7 +145,8 @@ describe('production.findings', () => {
       generation_attempt_count: 3,
       last_generation_error_code: 'MISSING_IMAGE',
     })
-    await seedJob({ created_at: minutesAgo(15), generation_attempt_count: 2 })
+    const young = await seedJob({ created_at: minutesAgo(15), generation_attempt_count: 2 })
+    for (const { jobId } of [old, failing, young]) await seedDelivery(jobId, 0)
     // A SPOD job never has a document; it is not a generation finding.
     await seedJob({ created_at: minutesAgo(30), fulfillment_channel: 'SPOD' })
 
@@ -313,7 +314,8 @@ describe('production.findings', () => {
       prepared_at: minutesAgo(minutes),
     })
     const overdue = await seedJob(prepared(7 * DAY_MINUTES + 1))
-    await seedJob(prepared(7 * DAY_MINUTES))
+    const due = await seedJob(prepared(7 * DAY_MINUTES))
+    for (const { jobId } of [overdue, due]) await seedDelivery(jobId, 1, minutesAgo(10))
     await seedJob({ ...prepared(8 * DAY_MINUTES), shipped_at: minutesAgo(10) })
 
     expect(await findingsAt(NOW)).toEqual([
@@ -325,6 +327,54 @@ describe('production.findings', () => {
         attemptCount: null,
         lastErrorCode: null,
       },
+    ])
+  })
+
+  test('an unshipped SFTP job without any delivery: its supplier had no enabled destination', async () => {
+    const stranded = await seedJob({ created_at: minutesAgo(1), generated_at: minutesAgo(1) })
+    // Shipped anyway, for example from the PDF on the supplier page: nothing stands still any more.
+    await seedJob({
+      created_at: minutesAgo(3),
+      generated_at: minutesAgo(2),
+      prepared_at: minutesAgo(2),
+      shipped_at: minutesAgo(1),
+    })
+    // A SPOD job never has a delivery.
+    await seedJob({ created_at: minutesAgo(1), fulfillment_channel: 'SPOD' })
+
+    expect(await findingsAt(NOW)).toEqual([
+      {
+        kind: 'JOB_WITHOUT_DESTINATION',
+        subject: { type: 'JOB', id: stranded.jobId },
+        orderId: stranded.orderId,
+        since: minutesAgo(1),
+        attemptCount: null,
+        lastErrorCode: null,
+      },
+    ])
+  })
+
+  test('a supplier without an enabled destination', async () => {
+    const withoutAny = await seedSupplier(database.db, 'Ohne')
+    const disabledOnly = await seedSupplier(database.db, 'Deaktiviert')
+    await seedSftpDestination(database.db, {
+      supplierId: disabledOnly,
+      port: 22,
+      fingerprint: 'SHA256:unused',
+      enabled: false,
+    })
+
+    const supplierFinding = (id: number): ProductionFinding => ({
+      kind: 'SUPPLIER_WITHOUT_DESTINATION',
+      subject: { type: 'SUPPLIER', id },
+      orderId: null,
+      since: NOW,
+      attemptCount: null,
+      lastErrorCode: null,
+    })
+    expect(await findingsAt(NOW)).toEqual([
+      supplierFinding(withoutAny),
+      supplierFinding(disabledOnly),
     ])
   })
 })

@@ -77,6 +77,14 @@ export function createSupplierRepository(db: Kysely<Tables>) {
         trx.selectFrom('suppliers').select(columns).orderBy('name').orderBy('id').execute(),
       ),
 
+    /** The ids of every supplier, for production's check that each one has an enabled destination. */
+    ids: async (): Promise<number[]> => {
+      const rows = await read(db, (trx) =>
+        trx.selectFrom('suppliers').select('id').orderBy('id').execute(),
+      )
+      return rows.map((row) => row.id)
+    },
+
     get: async (id: number): Promise<OperationResult<StoredSupplier>> => {
       const supplier = await read(db, (trx) =>
         trx.selectFrom('suppliers').select(columns).where('id', '=', id).executeTakeFirst(),

@@ -27,11 +27,13 @@ const KIND_LABELS: Record<FindingKind, string> = {
   PAYMENT_PAID_ORDER_UNPAID: 'Payment paid, order not paid',
   PRODUCTION_REQUEST_STALLED: 'Production request not split',
   JOB_GENERATION_STALLED: 'Production document not generated',
+  JOB_WITHOUT_DESTINATION: 'Production job without destination',
   DELIVERY_STALLED: 'Document not delivered',
   SPOD_SUBMISSION_STALLED: 'SPOD order not submitted',
   SPOD_QUARANTINED: 'SPOD job quarantined',
   SPOD_REMOTE_ATTENTION: 'SPOD order needs attention',
   SHIPMENT_OVERDUE: 'Not shipped for seven days',
+  SUPPLIER_WITHOUT_DESTINATION: 'Supplier without enabled destination',
   EMAIL_STALLED: 'Mail not sent',
 }
 

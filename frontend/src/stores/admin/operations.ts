@@ -8,20 +8,26 @@ export type FindingKind =
   | 'PAYMENT_PAID_ORDER_UNPAID'
   | 'PRODUCTION_REQUEST_STALLED'
   | 'JOB_GENERATION_STALLED'
+  | 'JOB_WITHOUT_DESTINATION'
   | 'DELIVERY_STALLED'
   | 'SPOD_SUBMISSION_STALLED'
   | 'SPOD_QUARANTINED'
   | 'SPOD_REMOTE_ATTENTION'
   | 'SHIPMENT_OVERDUE'
+  | 'SUPPLIER_WITHOUT_DESTINATION'
   | 'EMAIL_STALLED'
 
 /**
  * One finding as `GET /api/admin/operations/findings` answers it: a row of the pipeline that stands
- * still, the order it belongs to, and since when. `resolvedAt` is present in the resolved list only.
+ * still (or a supplier without an enabled destination), the order it belongs to, and since when.
+ * `resolvedAt` is present in the resolved list only.
  */
 export interface OperationsFinding {
   kind: FindingKind
-  subject: { type: 'ORDER' | 'PAYMENT' | 'REQUEST' | 'JOB' | 'DELIVERY' | 'EMAIL'; id: number }
+  subject: {
+    type: 'ORDER' | 'PAYMENT' | 'REQUEST' | 'JOB' | 'DELIVERY' | 'EMAIL' | 'SUPPLIER'
+    id: number
+  }
   orderId: number | null
   since: string
   attemptCount: number | null

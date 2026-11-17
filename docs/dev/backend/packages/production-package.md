@@ -467,7 +467,10 @@ lines in order). Then, in **one** transaction
 Every insert ignores a duplicate on its identity, so a repeated split heals.
 The channel and the deliveries are a snapshot: a destination configured later
 affects later orders only. An SFTP supplier without an enabled destination
-still gets its job (the supplier page serves the PDF); the split logs it.
+still gets its job (the supplier page serves the PDF); the split logs it, and
+operations reports the supplier (`SUPPLIER_WITHOUT_DESTINATION`) and every such
+job until it is shipped (`JOB_WITHOUT_DESTINATION`), both mailed. A destination
+configured afterwards does not reach that job.
 
 | Code | Meaning | Recovery |
 | --- | --- | --- |
@@ -698,17 +701,22 @@ answers from production's own tables in one read transaction: three
 statements narrow to the rows that are still open (an unprocessed request, a
 job that is unshipped or quarantined with its SPOD row, an undelivered delivery
 of a generated job), and plain TypeScript conditions decide which of them
-stand still. Every finding carries the order id of its request.
+stand still. Every job, request, and delivery finding carries the order id of
+its request. A fourth statement reads the suppliers with an enabled
+destination and compares them with every supplier id, which the supplier
+module's `ids` capability supplies; a supplier finding belongs to no order.
 
 | Kind | Subject | Rule | `since` | Attempts and code |
 | --- | --- | --- | --- | --- |
 | `PRODUCTION_REQUEST_STALLED` | the request | `processed_at IS NULL` and (`created_at` older than 15 minutes or `attempt_count >= 3`) | `created_at` | the request's |
 | `JOB_GENERATION_STALLED` | the job | an `SFTP` job, `generated_at IS NULL`, and (`created_at` older than 15 minutes or `generation_attempt_count >= 3`) | `created_at` | the generation's |
+| `JOB_WITHOUT_DESTINATION` | the job | an `SFTP` job without any delivery row and `shipped_at IS NULL`; at once, since the split writes a job and its deliveries in one transaction | `created_at` | none |
 | `DELIVERY_STALLED` | the delivery | `delivered_at IS NULL`, the job's `generated_at` is set, and (`generated_at` older than an hour or the delivery's `attempt_count >= 3`) | the job's `generated_at` | the delivery's |
 | `SPOD_SUBMISSION_STALLED` | the job | a `SPOD` job, `prepared_at IS NULL`, `create_state` is not `OUTCOME_UNKNOWN`, and (`created_at` older than an hour or the SPOD row's `attempt_count >= 3`) | the job's `created_at` | the SPOD row's (`0` before the first attempt, when the row does not exist yet) |
 | `SPOD_QUARANTINED` | the job | `create_state = 'OUTCOME_UNKNOWN'` | the job's `created_at` | the SPOD row's |
 | `SPOD_REMOTE_ATTENTION` | the job | `remote_state` is `NEEDS_ACTION` or `CANCELLED` and `shipped_at IS NULL` | the SPOD row's `created_at` (the state change has no timestamp of its own) | none |
 | `SHIPMENT_OVERDUE` | the job | `prepared_at` older than seven days and `shipped_at IS NULL`, any channel | `prepared_at` | none |
+| `SUPPLIER_WITHOUT_DESTINATION` | the supplier | no enabled destination of either channel; at once, also for a supplier that was just created | the scan's `now` (the `suppliers` table has no timestamp, and an open finding keeps its first `since`) | none |
 
 A delivery row exists from the split on, but a delivery cannot start before
 the document exists. Only deliveries of generated jobs are looked at, so a

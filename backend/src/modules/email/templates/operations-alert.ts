@@ -16,9 +16,11 @@ export type OperationsAlertKind =
   | 'PAYMENT_PAID_ORDER_UNPAID'
   | 'PRODUCTION_REQUEST_STALLED'
   | 'JOB_GENERATION_STALLED'
+  | 'JOB_WITHOUT_DESTINATION'
   | 'DELIVERY_STALLED'
   | 'SPOD_SUBMISSION_STALLED'
   | 'SHIPMENT_OVERDUE'
+  | 'SUPPLIER_WITHOUT_DESTINATION'
   | 'EMAIL_STALLED'
 
 /** One new finding of a scan, as the operations module recorded it. */
@@ -26,7 +28,7 @@ export interface OperationsAlertFinding {
   kind: OperationsAlertKind
   subjectType: string
   subjectId: number
-  /** `null` for a mail enqueued without an order; such a row has no timeline link. */
+  /** `null` for a mail enqueued without an order or a supplier; such a row has no timeline link. */
   orderId: number | null
   since: Date
   attemptCount: number | null
@@ -39,9 +41,11 @@ const KIND_NAMES: Record<OperationsAlertKind, string> = {
   PAYMENT_PAID_ORDER_UNPAID: 'Zahlung bezahlt, Bestellung aber nicht',
   PRODUCTION_REQUEST_STALLED: 'Produktionsanfrage wird nicht aufgeteilt',
   JOB_GENERATION_STALLED: 'Produktions-PDF wird nicht erzeugt',
+  JOB_WITHOUT_DESTINATION: 'Produktionsauftrag ohne Destination, wird nie übertragen',
   DELIVERY_STALLED: 'SFTP-Übertragung kommt nicht an',
   SPOD_SUBMISSION_STALLED: 'SPOD-Auftrag wird nicht angelegt',
   SHIPMENT_OVERDUE: 'Versand seit über sieben Tagen überfällig',
+  SUPPLIER_WITHOUT_DESTINATION: 'Lieferant ohne aktive Destination',
   EMAIL_STALLED: 'E-Mail wird nicht versendet',
 }
 

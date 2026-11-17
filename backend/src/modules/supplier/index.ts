@@ -8,8 +8,9 @@ import { createSupplierService } from './service'
 export type { SupplierSummary } from './repository'
 
 /**
- * The supplier module: its admin routes, and `find`, which labels the rows of other modules
- * (article, production) with supplier names without their touching the `suppliers` table.
+ * The supplier module: its admin routes, `find`, which labels the rows of other modules
+ * (article, production) with supplier names without their touching the `suppliers` table, and
+ * `ids`, which production's findings check for an enabled destination each.
  */
 export function createSupplierModule({
   db,
@@ -22,6 +23,7 @@ export function createSupplierModule({
   return {
     routes: supplierRoutes(createSupplierService(repository, countries.find)),
     find: repository.find,
+    ids: repository.ids,
   }
 }
 

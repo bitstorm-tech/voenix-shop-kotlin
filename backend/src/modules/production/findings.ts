@@ -4,20 +4,25 @@ import './schema'
 
 /**
  * A row of the pipeline that stands still: a request that does not split, an SFTP job without its
- * document, a delivery that does not arrive, a SPOD job that is not submitted, quarantined, or
- * flagged by the partner, and a prepared job nobody ships. The operations worker records them.
+ * document or without any delivery, a delivery that does not arrive, a SPOD job that is not
+ * submitted, quarantined, or flagged by the partner, and a prepared job nobody ships; and a supplier
+ * without an enabled destination, whose next order could not reach it. The operations worker records
+ * them.
  */
 export interface ProductionFinding {
   kind:
     | 'PRODUCTION_REQUEST_STALLED'
     | 'JOB_GENERATION_STALLED'
+    | 'JOB_WITHOUT_DESTINATION'
     | 'DELIVERY_STALLED'
     | 'SPOD_SUBMISSION_STALLED'
     | 'SPOD_QUARANTINED'
     | 'SPOD_REMOTE_ATTENTION'
     | 'SHIPMENT_OVERDUE'
-  subject: { type: 'REQUEST' | 'JOB' | 'DELIVERY'; id: number }
-  orderId: number
+    | 'SUPPLIER_WITHOUT_DESTINATION'
+  subject: { type: 'REQUEST' | 'JOB' | 'DELIVERY' | 'SUPPLIER'; id: number }
+  /** `null` for a supplier finding, which belongs to no order. */
+  orderId: number | null
   since: Date
   attemptCount: number | null
   lastErrorCode: string | null
@@ -30,12 +35,17 @@ const DAY = 24 * HOUR
 const STALLED_ATTEMPTS = 3
 
 /**
- * The production module's findings at `now`, one read transaction over its own tables. The SQL
+ * The production module's findings at `now`, one read transaction over its own tables; `supplierIds`
+ * are every supplier's, read by the supplier module. The SQL
  * narrows to the open rows (an unprocessed request, an unshipped or quarantined job, an undelivered
  * delivery of a generated job); the thresholds below decide which of them stand still, in the words
  * of the kinds table in the Operations package guide.
  */
-export function productionFindings(db: Kysely<Tables>, now: Date): Promise<ProductionFinding[]> {
+export function productionFindings(
+  db: Kysely<Tables>,
+  now: Date,
+  supplierIds: readonly number[],
+): Promise<ProductionFinding[]> {
   const olderThan = (at: Date, millis: number) => at.getTime() < now.getTime() - millis
   return read(db, async (trx) => {
     const findings: ProductionFinding[] = []
@@ -79,6 +89,16 @@ export function productionFindings(db: Kysely<Tables>, now: Date): Promise<Produ
         'o.last_error_code as spod_error_code',
         'o.created_at as spod_created_at',
       ])
+      .select((eb) =>
+        eb
+          .exists(
+            eb
+              .selectFrom('production_deliveries as d')
+              .select('d.id')
+              .whereRef('d.production_job_id', '=', 'j.id'),
+          )
+          .as('has_delivery'),
+      )
       .where((eb) =>
         eb.or([eb('j.shipped_at', 'is', null), eb('o.create_state', '=', 'OUTCOME_UNKNOWN')]),
       )
@@ -113,6 +133,11 @@ export function productionFindings(db: Kysely<Tables>, now: Date): Promise<Produ
           job.generation_attempt_count,
           job.last_generation_error_code,
         )
+      }
+      // The split creates an SFTP job's deliveries with it, so none means the supplier had no enabled
+      // destination then; one configured later does not reach this job (the split's snapshot).
+      if (job.fulfillment_channel === 'SFTP' && !job.has_delivery && job.shipped_at === null) {
+        jobFinding('JOB_WITHOUT_DESTINATION', job.created_at, null, null)
       }
       if (
         job.fulfillment_channel === 'SPOD' &&
@@ -163,6 +188,28 @@ export function productionFindings(db: Kysely<Tables>, now: Date): Promise<Produ
           since: delivery.generated_at,
           attemptCount: delivery.attempt_count,
           lastErrorCode: delivery.last_error_code,
+        })
+      }
+    }
+
+    // Any enabled destination, of either channel, lets the split route the supplier's next job.
+    const routed = await trx
+      .selectFrom('production_destinations')
+      .select('supplier_id')
+      .distinct()
+      .where('enabled', '=', true)
+      .execute()
+    const withDestination = new Set(routed.map((row) => row.supplier_id))
+    for (const supplierId of supplierIds) {
+      if (!withDestination.has(supplierId)) {
+        // The suppliers table keeps no timestamp; the first scan that sees it is the earliest fact.
+        findings.push({
+          kind: 'SUPPLIER_WITHOUT_DESTINATION',
+          subject: { type: 'SUPPLIER', id: supplierId },
+          orderId: null,
+          since: now,
+          attemptCount: null,
+          lastErrorCode: null,
         })
       }
     }

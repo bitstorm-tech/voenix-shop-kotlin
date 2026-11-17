@@ -69,7 +69,7 @@ export async function createProductionModule({
   db: Kysely<Tables>
   settings: Settings['production']
   email: Pick<EmailModule, 'outbox'>
-  suppliers: Pick<SupplierModule, 'find'>
+  suppliers: Pick<SupplierModule, 'find' | 'ids'>
   articleCatalog: Pick<ArticleCatalog, 'find'>
   spodCatalogSync: Pick<SpodCatalogSync, 'sync'>
   spod: SubmissionClient
@@ -123,7 +123,7 @@ export async function createProductionModule({
     routes,
     productionPdfGenerator: createProductionPdfGenerator(loadOrder),
     requestProduction,
-    findings: (now: Date) => productionFindings(db, now),
+    findings: async (now: Date) => productionFindings(db, now, await suppliers.ids()),
     /** The production section of one order's admin timeline: request, jobs, deliveries, SPOD. */
     ofOrder: (orderId: number) => productionOfOrder(db, orderId),
     /** How many paid orders still have something to ship (the admin menu's order badge). */
