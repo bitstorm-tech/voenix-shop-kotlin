@@ -1,4 +1,13 @@
 <script setup lang="ts">
+// The text tool's fonts, self-hosted: loading them from Google would send the visitor's IP there.
+import '@fontsource/abril-fatface'
+import '@fontsource/bebas-neue'
+import '@fontsource/caveat'
+import '@fontsource/dancing-script'
+import '@fontsource/lobster'
+import '@fontsource/pacifico'
+import '@fontsource/permanent-marker'
+import '@fontsource/playfair-display'
 import { computed, markRaw, ref, shallowRef, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -322,7 +331,7 @@ function createTextOverlay(): TextOverlay {
     text: t('editor.textTool.defaultText'),
     rx: 0.5,
     ry: 0.5,
-    fontFamily: 'Plus Jakarta Sans',
+    fontFamily: 'Plus Jakarta Sans Variable',
     fontSize: 64,
     color: 'oklch(0.99 0 0)',
     bold: false,

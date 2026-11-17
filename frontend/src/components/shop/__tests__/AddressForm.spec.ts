@@ -7,6 +7,7 @@ import type { Country } from '@/stores/shop/countries'
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
+    locale: { value: 'de' },
   }),
 }))
 
@@ -57,7 +58,10 @@ describe('AddressForm country field', () => {
     const wrapper = mountAddressForm()
 
     const select = wrapper.get('select')
-    expect(wrapper.findAll('option').map((option) => option.text())).toEqual(['Germany', 'France'])
+    expect(wrapper.findAll('option').map((option) => option.text())).toEqual([
+      'Deutschland',
+      'Frankreich',
+    ])
     // The label points at the trigger, which carries the field id.
     expect(wrapper.find('#shipping-country').exists()).toBe(true)
 

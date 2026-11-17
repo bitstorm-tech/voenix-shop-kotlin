@@ -76,12 +76,6 @@ const pageContent = computed(() => tm('footerPages.shipping.content') as unknown
               <PackageCheck class="size-4" />
               <span>{{ pageContent.cards[0]?.freeFrom }}</span>
             </div>
-            <div
-              class="inline-flex items-center gap-2 rounded-md border border-border bg-background-soft px-4 py-2 text-sm font-semibold text-foreground-soft"
-            >
-              <Globe class="size-4" />
-              <span>{{ pageContent.cards[1]?.freeFrom }}</span>
-            </div>
           </div>
         </div>
 

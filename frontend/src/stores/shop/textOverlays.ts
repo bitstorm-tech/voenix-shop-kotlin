@@ -19,7 +19,7 @@ const DEFAULTS: Omit<TextOverlay, 'id'> = {
   text: 'Your Text',
   rx: 0.5,
   ry: 0.5,
-  fontFamily: 'Plus Jakarta Sans',
+  fontFamily: 'Plus Jakarta Sans Variable',
   fontSize: 64,
   color: 'oklch(0.99 0 0)',
   bold: false,

@@ -15,6 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Voenix Shop',
         short_name: 'Voenix',
+        lang: 'de',
         start_url: '/',
         display: 'standalone',
         background_color: '#ffffff',
@@ -28,7 +29,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/images\//],
         runtimeCaching: [
@@ -46,14 +47,6 @@ export default defineConfig({
             options: {
               cacheName: 'image-cache',
               expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 },
-            },
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'font-cache',
-              expiration: { maxEntries: 20, maxAgeSeconds: 365 * 24 * 60 * 60 },
             },
           },
         ],
@@ -135,8 +128,7 @@ export default defineConfig({
         },
       },
     },
-    // Enable source maps for debugging
-    sourcemap: true,
+    sourcemap: false,
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
   },

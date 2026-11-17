@@ -6,7 +6,7 @@ Nummern = Priorität. A und B vor dem Go-live, C vor Werbung und echtem Traffic,
 
 ## A. Rechtliche Blocker
 
-- [ ] **1. Datenschutzerklärung fehlt** – `frontend/src/views/shop/PrivacyView.vue`
+- [x] **1. Datenschutzerklärung fehlt** – `frontend/src/views/shop/PrivacyView.vue`
   `/privacy` zeigt nur „Hier ergänzen wir bald …“. Die iubenda-Erklärung der alten Seite passt nicht (Stripe, Tag Manager, Facebook-Pixel).
   Fix: Text erstellen lassen und einbauen. Muss abdecken: Sliplane (Hosting), Mollie, Sweego (Mail), KI-Dienst (Foto-Upload, Drittland), SPOD und Tassen-Lieferant (Adressdaten), Cookies (Session, XSRF, Gast-Warenkorb), Kundenkonto.
 - [ ] **2. AGB fehlen auf der Seite** – `frontend/src/views/shop/TermsView.vue`, `frontend/src/views/shop/CheckoutView.vue:464`
@@ -22,7 +22,7 @@ Nummern = Priorität. A und B vor dem Go-live, C vor Werbung und echtem Traffic,
 - [ ] **5. Impressum unvollständig** – `frontend/src/views/shop/ImprintView.vue`
   Telefonnummer fehlt; E-Mail allein reicht im Fernabsatz nicht. `/contact` ist ein Platzhalter.
   Fix: Telefonnummer ergänzen.
-- [ ] **6. Google Fonts von Google-Servern** – `frontend/index.html:14-16`
+- [x] **6. Google Fonts von Google-Servern** – `frontend/index.html:14-16`
   Lädt `fonts.googleapis.com` und `fonts.gstatic.com` ohne Einwilligung (bekannter Abmahngrund).
   Fix: Schriften lokal ausliefern (woff2 + `@font-face`), die drei `<link>`-Zeilen löschen. Danach ist kein Cookie-Banner nötig: keine Tracker gefunden.
 - [ ] **7. Preisangaben ohne MwSt.- und Versandhinweis** – Produktkarten, `CartView.vue`, `CheckoutView.vue`
@@ -31,7 +31,7 @@ Nummern = Priorität. A und B vor dem Go-live, C vor Werbung und echtem Traffic,
 - [ ] **8. Kasse: wesentliche Merkmale und Lieferzeit fehlen** – `CheckoutView.vue:409`
   Die Bestellübersicht zeigt nur „Paris, altrosa × 1“.
   Fix: Produktart mit Kernangaben (z. B. „Keramiktasse 300 ml, personalisiert“), Motiv-Vorschau, Lieferzeit.
-- [ ] **9. Versandkosten widersprechen sich** – `backend/src/modules/cart/totals.ts:5-8`, `frontend/src/i18n/locales/de.json` (`footerPages.shipping.content.cards`), `en.json`
+- [x] **9. Versandkosten widersprechen sich** – `backend/src/modules/cart/totals.ts:5-8`, `frontend/src/i18n/locales/de.json` (`footerPages.shipping.content.cards`), `en.json`
   Versandseite: DE 4,95 €, EU 9,95 € (frei ab 75 €). Berechnet wird überall 4,90 €, frei ab 50 €.
   Fix: eine Regel festlegen und Seite oder Berechnung angleichen.
 - [ ] **10. Fest einprogrammierte Kundenstimmen** – `de.json:507`, `de.json:651`, `en.json`, `HomeView.vue`, `RoyalDogView.vue`
@@ -82,19 +82,19 @@ Nummern = Priorität. A und B vor dem Go-live, C vor Werbung und echtem Traffic,
 - [ ] **21. Keine Sicherheits-Header** – `backend/src/platform/http/app.ts`
   HSTS, `X-Content-Type-Options`, Clickjacking-Schutz und `Referrer-Policy` fehlen.
   Fix: Hono `secureHeaders()`.
-- [ ] **22. Source Maps öffentlich** – `frontend/vite.config.ts:139`
+- [x] **22. Source Maps öffentlich** – `frontend/vite.config.ts:139`
   `/assets/*.js.map` ist abrufbar.
   Fix: `sourcemap: false` oder `'hidden'`.
 - [ ] **23. Keine Kompression, Admin-Bundle für alle** – `backend/src/platform/http/app.ts`, `frontend/vite.config.ts:83`
   Rund 1,3 MB JavaScript unkomprimiert beim ersten Besuch, davon 446 KB Admin.
   Fix: Kompression (Hono `compress()` oder am Proxy) und `TODO.md` #17.
-- [ ] **24. Sprache und SEO**
+- [x] **24. Sprache und SEO**
   - `frontend/index.html:2`: `<html lang="">` leer; Meta-Description und OG-Tags fehlen.
   - Seitentitel englisch („Privacy Policy | Voenix“, „Cart“) – `frontend/src/router/shop.ts`.
   - 404-Seite englisch – `frontend/src/views/NotFoundView.vue`.
   - Ländernamen in der Kasse englisch („Germany“).
   - `manifest.webmanifest` mit `lang: en` – `frontend/vite.config.ts`.
-- [ ] **25. `robots.txt` und `sitemap.xml` fehlen** – `frontend/public/`
+- [x] **25. `robots.txt` und `sitemap.xml` fehlen** – `frontend/public/`
   Beide liefern die App-Seite; jede unbekannte URL antwortet mit Status 200.
   Fix: `robots.txt` anlegen. Testinstanz nach dem Go-live abschalten oder auf `noindex` setzen.
 

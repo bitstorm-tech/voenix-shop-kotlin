@@ -395,7 +395,7 @@
             "label": "Deutschland",
             "badge": "Standard",
             "carrier": "DHL Standardpaket",
-            "price": "4,95 €",
+            "price": "4,90 €",
             "freeFrom": "Kostenlos ab 50 €",
             "details": "Schneller Inlandsversand mit transparenter Preisstaffel."
           },
@@ -404,8 +404,8 @@
             "label": "EU (angegebene Länder)",
             "badge": "International",
             "carrier": "DHL International Shipping",
-            "price": "9,95 €",
-            "freeFrom": "Kostenlos ab 75 €",
+            "price": "4,90 €",
+            "freeFrom": "Kostenlos ab 50 €",
             "details": "Für Belgien, Frankreich, Italien, Niederlande, Schweden, Spanien und Österreich."
           }
         ],
@@ -1153,5 +1153,43 @@
         }
       }
     }
+  },
+  "pageTitles": {
+    "home": "Startseite",
+    "royal-dog": "Royal Dog",
+    "about": "Über uns",
+    "faq": "FAQ",
+    "contact": "Kontakt",
+    "support": "Hilfe",
+    "privacy": "Datenschutz",
+    "terms": "AGB",
+    "shipping": "Versand",
+    "returns": "Widerruf & Retouren",
+    "payment": "Zahlung",
+    "imprint": "Impressum",
+    "products": "Produkte",
+    "wizard": "Gestalten",
+    "editor": "Editor",
+    "magic-coins": "Magic Coins",
+    "cart": "Warenkorb",
+    "checkout": "Kasse",
+    "order-confirmation": "Bestellbestätigung",
+    "order-link": "Bestellung",
+    "profile": "Profil",
+    "orders": "Bestellungen",
+    "login": "Anmelden",
+    "forgot-password": "Passwort vergessen",
+    "reset-password": "Passwort zurücksetzen",
+    "set-password": "Passwort festlegen",
+    "register": "Registrieren",
+    "confirm-email": "E-Mail bestätigen",
+    "confirm-change-email": "E-Mail-Änderung bestätigen",
+    "not-found": "Seite nicht gefunden"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "text": "Diese Seite gibt es nicht oder sie ist umgezogen.",
+    "back": "Zurück",
+    "home": "Zur Startseite"
   }
 }

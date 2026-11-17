@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import '@fontsource-variable/fraunces/opsz.css';
+@import '@fontsource-variable/plus-jakarta-sans';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -275,9 +277,9 @@
   --animate-enter-scale: enter-scale 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-enter-pop: enter-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   --animate-skeleton-pulse: skeleton-pulse 1.5s ease-in-out infinite;
-  --font-display: 'Fraunces', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-display: 'Fraunces Variable', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
   --font-sans:
-    'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
     'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 
   @keyframes wizard-step-fade-in {

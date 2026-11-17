@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, shallowRef, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bold, Italic, Plus, RotateCw, Trash2, Underline } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -36,8 +36,8 @@ const textInputRef = useTemplateRef<InstanceType<typeof Input>>('textInput')
 const customColorHex = shallowRef('#000000')
 
 const FONTS = [
-  { value: 'Plus Jakarta Sans', label: 'Jakarta Sans' },
-  { value: 'Fraunces', label: 'Fraunces' },
+  { value: 'Plus Jakarta Sans Variable', label: 'Jakarta Sans' },
+  { value: 'Fraunces Variable', label: 'Fraunces' },
   { value: 'Pacifico', label: 'Pacifico' },
   { value: 'Permanent Marker', label: 'Permanent Marker' },
   { value: 'Playfair Display', label: 'Playfair Display' },
@@ -73,26 +73,6 @@ const rotationSliderValue = computed(() =>
   selectedOverlay.value ? [selectedOverlay.value.rotation] : [0],
 )
 
-async function loadFont(fontFamily: string) {
-  const builtIn = ['Plus Jakarta Sans', 'Fraunces']
-  if (builtIn.includes(fontFamily)) return
-
-  const id = `font-${fontFamily.replace(/\s+/g, '-').toLowerCase()}`
-  if (document.getElementById(id)) return
-
-  const link = document.createElement('link')
-  link.id = id
-  link.rel = 'stylesheet'
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontFamily)}&display=swap`
-  document.head.appendChild(link)
-
-  try {
-    await document.fonts?.load?.(`16px "${fontFamily}"`)
-  } catch {
-    // The browser can still use its fallback if a web font fails.
-  }
-}
-
 function addText() {
   emit('addOverlay')
   nextTick(() => {
@@ -121,7 +101,6 @@ function onTextInput(value: string | number) {
 function onFontChange(value: SelectAcceptableValue) {
   if (typeof value !== 'string') return
 
-  void loadFont(value)
   updateSelected({ fontFamily: value })
 }
 
@@ -152,18 +131,6 @@ function onCustomColor(hex: string) {
   customColorHex.value = hex
   setColor(hex)
 }
-
-onMounted(() => {
-  FONTS.forEach((font) => void loadFont(font.value))
-})
-
-watch(
-  () => selectedOverlay.value?.fontFamily,
-  (font) => {
-    if (font) void loadFont(font)
-  },
-  { immediate: true },
-)
 </script>
 
 <template>

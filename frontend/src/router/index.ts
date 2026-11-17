@@ -53,17 +53,10 @@ const router = createRouter({
   ],
 })
 
-// Global navigation guard: wait for auth check, then set page title
-router.beforeEach(async (to) => {
+// Global navigation guard: wait for auth check
+router.beforeEach(async () => {
   const authStore = useAuthStore()
   await authStore.authReadyPromise
-
-  const title = to.meta.title
-  if (title) {
-    document.title = `${title} | Voenix`
-  } else {
-    document.title = 'Voenix'
-  }
 })
 
 // Only the entry page of a visit decides whether the header logo leads to a campaign landing page.

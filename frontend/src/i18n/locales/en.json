@@ -395,7 +395,7 @@
             "label": "Germany",
             "badge": "Standard",
             "carrier": "DHL Standard Parcel",
-            "price": "€4.95",
+            "price": "€4.90",
             "freeFrom": "Free from €50",
             "details": "Fast domestic shipping with a clear price threshold."
           },
@@ -404,8 +404,8 @@
             "label": "EU (listed countries)",
             "badge": "International",
             "carrier": "DHL International Shipping",
-            "price": "€9.95",
-            "freeFrom": "Free from €75",
+            "price": "€4.90",
+            "freeFrom": "Free from €50",
             "details": "Available for Belgium, France, Italy, the Netherlands, Sweden, Spain, and Austria."
           }
         ],
@@ -1153,5 +1153,43 @@
         }
       }
     }
+  },
+  "pageTitles": {
+    "home": "Home",
+    "royal-dog": "Royal Dog",
+    "about": "About",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "support": "Support",
+    "privacy": "Privacy Policy",
+    "terms": "Terms & Conditions",
+    "shipping": "Shipping Information",
+    "returns": "Returns & Refunds",
+    "payment": "Payment",
+    "imprint": "Imprint",
+    "products": "Products",
+    "wizard": "Design",
+    "editor": "Editor",
+    "magic-coins": "Magic Coins",
+    "cart": "Cart",
+    "checkout": "Checkout",
+    "order-confirmation": "Order Confirmation",
+    "order-link": "Order",
+    "profile": "Profile",
+    "orders": "Orders",
+    "login": "Login",
+    "forgot-password": "Forgot Password",
+    "reset-password": "Reset Password",
+    "set-password": "Set Password",
+    "register": "Register",
+    "confirm-email": "Confirm Email",
+    "confirm-change-email": "Confirm Email Change",
+    "not-found": "Page Not Found"
+  },
+  "notFound": {
+    "title": "Page Not Found",
+    "text": "The page you're looking for doesn't exist or has been moved.",
+    "back": "Go Back",
+    "home": "Go Home"
   }
 }

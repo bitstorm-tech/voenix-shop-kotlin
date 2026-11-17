@@ -37,7 +37,10 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+/** The admin keeps one name per country; the shop shows it in the reader's language instead. */
+const regionNames = computed(() => new Intl.DisplayNames([locale.value], { type: 'region' }))
 
 const isSelectUnavailable = computed(() => props.mode === 'select' && props.options.length === 0)
 const errorId = computed(() => `${props.id}-error`)
@@ -78,7 +81,7 @@ function typeCountry(value: string) {
           :key="country.countryCode"
           :value="country.countryCode"
         >
-          {{ country.name }}
+          {{ regionNames.of(country.countryCode) ?? country.name }}
         </SelectItem>
       </SelectContent>
     </Select>
