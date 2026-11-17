@@ -101,7 +101,7 @@ describe('AdminSupplierLoginsDialog', () => {
 
     await createLoginThroughForm()
 
-    expect(dialogText()).toContain('already belongs to an account')
+    expect(dialogText()).toContain('already belongs to a supplier login')
   })
 
   it('shows a validation 400 at the e-mail field', async () => {
@@ -144,7 +144,7 @@ describe('AdminSupplierLoginsDialog', () => {
     deleteButton!.click()
     await flushPromises()
 
-    expect(dialogText()).toContain('revokes its access immediately')
+    expect(dialogText()).toContain('revokes the supplier access of packing@acme.example immediately')
 
     document.body
       .querySelector<HTMLButtonElement>('[data-testid="confirm-delete-supplier-login"]')

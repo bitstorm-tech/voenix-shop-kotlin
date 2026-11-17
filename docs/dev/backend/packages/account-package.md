@@ -19,7 +19,9 @@ protections stay in the platform and are reused, never reimplemented (see
 
 The package also owns the **supplier logins**: an administrator creates a
 login for one supplier, the invited person receives a mailed link and sets
-their own password, and deleting the login revokes the access again. That is
+their own password, and deleting the login revokes the access again. An
+address that already has an account (a customer's, say) gets no second
+account: that account is linked to the supplier instead. That is
 the account side of the supplier fulfillment feature; everything a supplier
 then *does* lives in the production module.
 
@@ -143,7 +145,8 @@ are indistinguishable. Validation failures on the same endpoints carry no
 
 | Failure | Status | `message` |
 | --- | --- | --- |
-| e-mail taken (register, change, confirm change, supplier login) | `409` | `Email already exists` |
+| e-mail taken (register, change, confirm change) | `409` | `Email already exists` |
+| address already a supplier login (of any supplier) | `409` | `Email already belongs to a supplier login` |
 | bad credentials | `401` | `Invalid email or password` |
 | unconfirmed address | `403` | `Email is not confirmed` |
 | locked out | `429` | `Too many failed login attempts` |
@@ -178,9 +181,9 @@ header):
 
 | Method and path | Success | Failure notes |
 | --- | --- | --- |
-| `POST /api/admin/supplier-logins` | `201` + `Location` + `SupplierLogin`, invitation mail sent | `400` invalid input **or** unknown supplier (as a `supplierId` field error `Supplier does not exist`), `409` e-mail exists, `502` the provider did not accept the invitation but *the login exists*, `500` |
+| `POST /api/admin/supplier-logins` | `201` + `Location` + `SupplierLogin`, invitation mail sent (none for a linked confirmed account) | `400` invalid input **or** unknown supplier (as a `supplierId` field error `Supplier does not exist`), `409` the address is already a supplier login, `502` the provider did not accept the invitation but *the login exists*, `500` |
 | `GET /api/admin/supplier-logins?supplierId=3` | `200`, a bare array of `SupplierLogin` | `400` `supplierId: ["A positive supplier id is required"]` |
-| `DELETE /api/admin/supplier-logins/{userId}` | `204` | `404` `Supplier login not found` for an unknown id, an id that is not a supplier login, **and** a malformed id |
+| `DELETE /api/admin/supplier-logins/{userId}` | `204`; a login with no other role is deleted, an account with another role only loses `supplier_id` and `SUPPLIER` | `404` `Supplier login not found` for an unknown id, an id that is not a supplier login, **and** a malformed id |
 
 `SupplierLogin` is `{ userId, email, supplierId, createdAt }`, with no
 credential or lockout state, because this surface manages *who* may sign in for
@@ -192,6 +195,16 @@ The path is deliberately **not** a child of `/api/admin/suppliers`. That
 subtree belongs to the supplier module and carries its own protection; a
 disjoint path keeps each module's protection exactly where that module put it.
 
+When the insert hits the unique e-mail index, the existing account is linked
+instead, provided it is no supplier login yet: `supplier_id` is set and the
+`SUPPLIER` role added in one transaction. A confirmed account keeps its
+password and gets no mail; its session carries the new role from its next
+login. An unconfirmed account is confirmed, its password replaced by a random
+one, and invited like a new login, because whoever registered it never proved
+the address and must not inherit supplier access. Deleting such a login
+removes only the link and the role, so the customer account and its orders
+stay.
+
 Two failures on `POST` are decided by the database rather than by a lookup: a
 `23505` on the unique e-mail index becomes the `409`, and a `23503` on the
 `users.supplier_id` foreign key becomes the `400` with the `supplierId` field
@@ -199,7 +212,8 @@ error. Neither response contains a constraint name.
 
 The `502` is the one status whose *message* matters: `The supplier login was
 created, but its invitation email could not be delivered`. The row and its
-token stay, so a second `POST` would answer `409` for the taken address. The
+token stay, so a second `POST` would answer `409`, because the address is now
+a supplier login. The
 invited person recovers through the normal "Passwort vergessen" flow, which
 replaces the stored reset token with a freshly mailed one.
 

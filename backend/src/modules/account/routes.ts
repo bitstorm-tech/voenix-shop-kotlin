@@ -309,8 +309,8 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
   admin.post('/', jsonBody(supplierLoginInput), async (c) => {
     const result = await accounts.createSupplierLogin(c.req.valid('json'))
     switch (result) {
-      case 'emailTaken':
-        return c.json(apiError('Email already exists'), 409)
+      case 'alreadySupplierLogin':
+        return c.json(apiError('Email already belongs to a supplier login'), 409)
       // The foreign key decided this; the caller learns the field, never a constraint name.
       case 'unknownSupplier':
         return c.json(

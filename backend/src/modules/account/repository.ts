@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { Kysely, Selectable, Transaction } from 'kysely'
+import { AuthRoles } from '@/platform/auth/auth'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
 import type { UsersTable } from './schema'
@@ -127,18 +128,83 @@ export function createAccountRepository(db: Kysely<Tables>) {
     },
 
     /**
-     * Hard-deletes a supplier login. `supplier_id IS NOT NULL` is what makes an id a supplier
-     * login, so a customer id answers `false` exactly like an unknown one. Roles and tokens
-     * cascade away with the row.
+     * Binds an existing account that is no supplier login yet to `supplierId` and adds the
+     * `SUPPLIER` role; answers `undefined` when no such account exists. An unconfirmed account is
+     * confirmed and gets `freshPasswordHash`: whoever registered it never proved the address, so
+     * only the invitation that follows may set its password.
      */
-    deleteSupplierLogin: async (userId: number): Promise<boolean> => {
-      const result = await db
-        .deleteFrom('users')
-        .where('id', '=', userId)
-        .where('supplier_id', 'is not', null)
-        .executeTakeFirst()
-      return result.numDeletedRows > 0n
-    },
+    linkSupplierLogin: (email: string, supplierId: number, freshPasswordHash: string) =>
+      executePostgresWrite({ foreignKeyViolation: 'unknownSupplier' }, () =>
+        write(db, async (trx) => {
+          const account = await trx
+            .selectFrom('users')
+            .select(['id', 'email_confirmed'])
+            .where((eb) => eb(eb.fn('lower', ['email']), '=', eb.fn('lower', [eb.val(email)])))
+            .where('supplier_id', 'is', null)
+            .forUpdate()
+            .executeTakeFirst()
+          if (account === undefined) return undefined
+          const row = await trx
+            .updateTable('users')
+            .set({
+              supplier_id: supplierId,
+              email_confirmed: true,
+              ...(account.email_confirmed ? {} : { password_hash: freshPasswordHash }),
+            })
+            .where('id', '=', account.id)
+            .returning(['email', 'created_at'])
+            .executeTakeFirstOrThrow()
+          await trx
+            .insertInto('user_roles')
+            .values({ user_id: account.id, role: AuthRoles.SUPPLIER })
+            .onConflict((oc) => oc.doNothing())
+            .execute()
+          const login: SupplierLogin = {
+            userId: account.id,
+            email: row.email,
+            supplierId,
+            createdAt: row.created_at,
+          }
+          return { login, needsInvitation: !account.email_confirmed }
+        }),
+      ),
+
+    /**
+     * Revokes a supplier login. `supplier_id IS NOT NULL` is what makes an id a supplier login, so
+     * a customer id answers `false` exactly like an unknown one. A login that is nothing but a
+     * supplier login is hard-deleted (roles and tokens cascade away); an account that also has
+     * another role, such as a linked customer account, only loses the link and the `SUPPLIER` role.
+     */
+    deleteSupplierLogin: (userId: number): Promise<boolean> =>
+      write(db, async (trx) => {
+        const otherRole = await trx
+          .selectFrom('user_roles')
+          .select('role')
+          .where('user_id', '=', userId)
+          .where('role', '!=', AuthRoles.SUPPLIER)
+          .executeTakeFirst()
+        if (otherRole === undefined) {
+          const deleted = await trx
+            .deleteFrom('users')
+            .where('id', '=', userId)
+            .where('supplier_id', 'is not', null)
+            .executeTakeFirst()
+          return deleted.numDeletedRows > 0n
+        }
+        const unlinked = await trx
+          .updateTable('users')
+          .set({ supplier_id: null })
+          .where('id', '=', userId)
+          .where('supplier_id', 'is not', null)
+          .executeTakeFirst()
+        if (unlinked.numUpdatedRows === 0n) return false
+        await trx
+          .deleteFrom('user_roles')
+          .where('user_id', '=', userId)
+          .where('role', '=', AuthRoles.SUPPLIER)
+          .execute()
+        return true
+      }),
 
     /**
      * Counts a failed login under `SELECT … FOR UPDATE`, so concurrent failures never lose an

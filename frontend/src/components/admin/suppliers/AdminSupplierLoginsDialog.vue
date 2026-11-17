@@ -105,7 +105,7 @@ async function handleCreateError(error: unknown) {
   }
 
   if (error instanceof SupplierLoginEmailTakenError) {
-    emailError.value = 'This e-mail address already belongs to an account.'
+    emailError.value = 'This e-mail address already belongs to a supplier login.'
     return
   }
 
@@ -176,6 +176,7 @@ function createdDate(login: SupplierLogin): string {
         <DialogDescription>
           Everybody listed here can sign in to the supplier portal and see this supplier's
           production jobs. A new login receives an invitation e-mail with a link to set its
+          password; an address that already has a confirmed account is linked and keeps its
           password.
         </DialogDescription>
       </DialogHeader>
@@ -244,7 +245,7 @@ function createdDate(login: SupplierLogin): string {
           </div>
           <p v-if="emailError" class="text-sm text-destructive">{{ emailError }}</p>
           <p v-else class="text-sm text-muted-foreground">
-            The address receives the invitation and is the user name of the login.
+            The address is the user name of the login. An existing account with it is linked.
           </p>
         </form>
       </div>
@@ -252,7 +253,7 @@ function createdDate(login: SupplierLogin): string {
       <ConfirmDeleteDialog
         v-model:open="isDeleteDialogOpen"
         title="Delete login?"
-        :description="`This permanently deletes the login ${loginToDelete?.email ?? ''} and revokes its access immediately — the next request it makes is refused. This action cannot be undone.`"
+        :description="`This revokes the supplier access of ${loginToDelete?.email ?? ''} immediately — the next request it makes is refused. A login that is only a supplier login is deleted permanently; an account that is also a customer account keeps that.`"
         confirm-label="Delete login"
         :deleting="isDeleting"
         confirm-test-id="confirm-delete-supplier-login"

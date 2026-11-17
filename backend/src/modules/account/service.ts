@@ -264,27 +264,42 @@ export function createAccountService({
      * it a confirmation and the login refuses unconfirmed addresses; the stored hash covers a
      * random value nobody knows. Token and invitation follow the transaction, so a provider
      * failure leaves a usable login behind instead of rolling one back.
+     *
+     * An address that already has an account which is no supplier login is linked instead: a
+     * confirmed account keeps its password and needs no mail; an unconfirmed one is invited like a
+     * new login.
      */
     createSupplierLogin: async ({
       supplierId,
       email,
     }: SupplierLoginInput): Promise<
-      SupplierLogin | 'emailTaken' | 'unknownSupplier' | 'invitationDeliveryFailed'
+      SupplierLogin | 'alreadySupplierLogin' | 'unknownSupplier' | 'invitationDeliveryFailed'
     > => {
       const createdAt = now()
+      const passwordHash = await passwords.hash(newAccountToken())
       const stored = await repository.insertUser({
         email,
-        passwordHash: await passwords.hash(newAccountToken()),
+        passwordHash,
         role: AuthRoles.SUPPLIER,
         createdAt,
         emailConfirmed: true,
         supplierId,
       })
-      if (stored === 'emailTaken' || stored === 'unknownSupplier') return stored
+      if (stored === 'unknownSupplier') return stored
+      let login: SupplierLogin
+      if (stored === 'emailTaken') {
+        const linked = await repository.linkSupplierLogin(email, supplierId, passwordHash)
+        if (linked === undefined) return 'alreadySupplierLogin'
+        if (linked === 'unknownSupplier') return linked
+        if (!linked.needsInvitation) return linked.login
+        login = linked.login
+      } else {
+        login = { userId: stored, email, supplierId, createdAt }
+      }
       // The invitation is a reset link: the invited person walks the set-password path.
-      const token = await issueToken(stored, 'RESET_PASSWORD', null)
-      return (await mails.sendSupplierInvitation(stored, email, token))
-        ? { userId: stored, email, supplierId, createdAt }
+      const token = await issueToken(login.userId, 'RESET_PASSWORD', null)
+      return (await mails.sendSupplierInvitation(login.userId, login.email, token))
+        ? login
         : 'invitationDeliveryFailed'
     },
 

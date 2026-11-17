@@ -16,7 +16,7 @@ export interface SupplierLogin {
   createdAt: string
 }
 
-/** `409`: the address already belongs to an account — a customer's or another supplier's. */
+/** `409`: the address already belongs to a supplier login — of this or another supplier. */
 export class SupplierLoginEmailTakenError extends Error {
   constructor(message: string) {
     super(message)

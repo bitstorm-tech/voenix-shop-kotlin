@@ -567,22 +567,71 @@ describe('/api/admin/supplier-logins', () => {
     expect((await remove(String(view.userId))).status).toBe(404)
   })
 
-  test('a taken address, an unknown supplier, and a non-supplier id are refused', async () => {
+  test('an existing account is linked, keeps its password, and only loses the link', async () => {
     const gamma = await supplier('Gamma')
     const customerId = await registerAndConfirm('kundin@example.com', 'password-1')
     expect(await accounts().supplierAccounts.supplierIdOf(customerId)).toBeNull()
+    const mailsBefore = sent.length
 
-    const duplicate = await create(gamma, 'KUNDIN@example.com')
-    expect(duplicate.status).toBe(409)
-    expect(await jsonOf(duplicate)).toEqual({ message: 'Email already exists', errors: {} })
-    expect(await listed(gamma)).toEqual([])
+    const linked = await create(gamma, 'KUNDIN@example.com')
+    expect(linked.status).toBe(201)
+    expect(((await jsonOf(linked)) as { userId: number }).userId).toBe(customerId)
+    expect(sent.length).toBe(mailsBefore)
+    expect(await listed(gamma)).toEqual(['kundin@example.com'])
+    expect(await accounts().supplierAccounts.supplierIdOf(customerId)).toBe(gamma)
+    const headers = await signIn('kundin@example.com', 'password-1')
+    const me = await app().request('/api/auth/me', { headers })
+    expect(((await jsonOf(me)) as { roles: string[] }).roles).toEqual(['CUSTOMER', 'SUPPLIER'])
 
-    const unknown = await create(4_711_000, 'zweite@lieferant.example')
-    expect(unknown.status).toBe(400)
-    expect(await jsonOf(unknown)).toEqual({
-      message: 'Validation failed',
-      errors: { supplierId: ['Supplier does not exist'] },
+    const again = await create(await supplier('Epsilon'), 'kundin@example.com')
+    expect(again.status).toBe(409)
+    expect(await jsonOf(again)).toEqual({
+      message: 'Email already belongs to a supplier login',
+      errors: {},
     })
+
+    expect((await remove(String(customerId))).status).toBe(204)
+    expect(await listed(gamma)).toEqual([])
+    expect(await accounts().supplierAccounts.supplierIdOf(customerId)).toBeNull()
+    const after = await signIn('kundin@example.com', 'password-1')
+    const meAfter = await app().request('/api/auth/me', { headers: after })
+    expect(((await jsonOf(meAfter)) as { roles: string[] }).roles).toEqual(['CUSTOMER'])
+  })
+
+  test('an unconfirmed account is linked like a new login and loses its old password', async () => {
+    const zeta = await supplier('Zeta')
+    expect(
+      (await post('/api/auth/register', { email: 'offen@example.com', password: 'password-1' }))
+        .status,
+    ).toBe(204)
+
+    expect((await create(zeta, 'offen@example.com')).status).toBe(201)
+    expect(sent.at(-1)?.kind).toBe('SUPPLIER_INVITATION')
+    expect(
+      (await post('/api/auth/login', { email: 'offen@example.com', password: 'password-1' }))
+        .status,
+    ).toBe(401)
+    const invitation = lastLink('/set-password')
+    const setPassword = await post('/api/auth/reset-password', {
+      email: param(invitation, 'email'),
+      token: param(invitation, 'token'),
+      newPassword: 'supplier-password-3',
+    })
+    expect(setPassword.status).toBe(204)
+    await signIn('offen@example.com', 'supplier-password-3')
+  })
+
+  test('an unknown supplier and a non-supplier id are refused', async () => {
+    const customerId = await registerAndConfirm('kunde@example.com', 'password-1')
+
+    for (const email of ['zweite@lieferant.example', 'kunde@example.com']) {
+      const unknown = await create(4_711_000, email)
+      expect(unknown.status).toBe(400)
+      expect(await jsonOf(unknown)).toEqual({
+        message: 'Validation failed',
+        errors: { supplierId: ['Supplier does not exist'] },
+      })
+    }
 
     for (const id of [String(customerId), '99999', 'not-a-number']) {
       const response = await remove(id)
