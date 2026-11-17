@@ -114,7 +114,9 @@ a way to edit it. The SPOD article editor has three of them:
 - *Spreadconnect* shows what the backoffice owns: the name, the descriptions,
   the partner's ids, and the time of the last sync.
 - *Print* shows the print frame the last sync measured from the Spreadconnect
-  hotspot: the rectangle drawn on the mockup of the default variant's colour,
+  hotspot: the dashed rectangle drawn on the mockup of the default variant's colour,
+  tinted where the product shows the design (all of it on a shirt, the round face
+  on a button, from `printMask`),
   with the hotspot's name and the four percentages as text beside it
   ([`AdminArticlePrintFrameViewer`](../../../frontend/src/components/admin/article/AdminArticlePrintFrameViewer.vue)).
   Nobody calibrates the frame by hand any more. When the sync could not measure

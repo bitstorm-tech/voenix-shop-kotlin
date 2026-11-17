@@ -472,6 +472,7 @@ function buildPayload(): SaveAdminSpodArticleRequest {
         >
           <AdminArticlePrintFrameViewer
             :frame="synced?.printFrame ?? null"
+            :mask="synced?.printMask ?? null"
             :hotspot="synced?.hotspot ?? null"
             :mockup-url="mockupUrl"
           />

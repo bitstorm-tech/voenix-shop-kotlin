@@ -105,7 +105,10 @@ it also carries `sizeMeasurements` (`{ size, measurements: { name, valueMm }[] }
 sizes of its active variants), which `components/shared/SpodSizeChart.vue` renders as a
 table in centimetres below the size chart picture in the wizard's and the editor's size
 chart dialog; the admin's `GET /api/admin/articles/spod/{id}` answers the same field for
-every variant size, and `SpodArticleEditView.vue` shows it with the same component. That merged
+every variant size, and `SpodArticleEditView.vue` shows it with the same component. Beside
+`printFrame` both answers carry `printMask`: the part of the frame the product shows, as a
+PNG data URL, or `null` when that is the whole frame. `ProductEditor.vue` stretches it over
+the frame as a CSS mask, so the design on a round button is cut to its face. That merged
 list is what the combined listing page `/products` renders since #217: one grid
 for both types, narrowed by its `category`, `subcategory`, and optional `type`
 query. It is also what the wizard's article step picks from. The optional
@@ -420,7 +423,7 @@ The SPOD article's `PUT` body is the shop-owned half of a synced article and
 nothing else: `active`, `categoryId`, `subcategoryId`, `defaultVariantId`, and
 `price`. Name, product type, descriptions, supplier, size chart with its
 `sizeMeasurements`, colours (`appearances`), the variant array (`spodVariants`), and the print frame with its
-`hotspot` are response-only — a sync run owns them, and a client that still
+`printMask` and `hotspot` are response-only — a sync run owns them, and a client that still
 sends them is ignored rather than rejected. The print frame is measured by the
 sync, never edited, so it is `null` when the sync could not measure it, and
 activating such an article answers `400` with a field error on `active`. There

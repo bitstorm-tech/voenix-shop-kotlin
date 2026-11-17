@@ -259,32 +259,46 @@ design sits: the editor in the shop shows the design inside it, and the partner
 prints it exactly there. Nobody types it. Every run measures it per product
 type — this is the *calibration* (SPOD sync decision 7):
 
-1. the run uploads one magenta square to the partner as a design;
+1. the run uploads one test design to the partner: a magenta square with a
+   green square of half its size in the middle;
 2. it asks the product type for its front hotspots and which of them accept
    that design;
-3. it lets the partner render a preview of the square on every one of them and
-   finds the magenta box in each picture;
-4. the **hotspot** with the largest box wins, and that hotspot and its box are
-   written into every article of the product type.
+3. it lets the partner render a preview of the design on every one of them and
+   compares each picture with the blank mockup: the green square says where
+   the whole design lies, and the pixels that changed say how much of it the
+   product shows;
+4. the **hotspot** that shows the most of the design wins, and that hotspot,
+   its frame, and what is visible of it are written into every article of the
+   product type.
+
+Most products show the whole frame: a tee prints the square as it is. A product
+that is not a rectangle does not. On a round button the all-over hotspot
+(`OVERALL_FRONT`) lays the design over the whole face and a little beyond its
+rim, so the frame is larger than the button and only the round face of it is
+printed visibly. The shop editor cuts the customer's design to exactly that
+shape. What is visible is what the partner prints, not the outline of the
+product: a star-shaped ornament that only offers `FULL_FRONT` gets a square in
+its middle.
 
 The result shows in two places: the report line names the hotspot, and the
-*Print* section of the article (5c) draws the box on the mockup with its four
-numbers. The numbers are percentages of the mockup picture: *Left* and *Top*
+*Print* section of the article (5c) draws the frame on the mockup as a dashed
+box with its four numbers, and tints the part of it that is visible. The numbers are percentages of the mockup picture: *Left* and *Top*
 are the distance of the box's upper left corner from the left and the top edge,
 *Width* and *Height* its size. A tee measured at `35.6 / 18.9 / 28.4 / 28.4 %`
 prints a square that starts a good third from the left and a fifth from the
 top, and covers a bit more than a quarter of the picture in each direction.
 The box is the same for every colour of the product type, and it is always a
 square: a SPOD article is always printed `1:1`, and the customer's image is
-generated in that shape.
+generated in that shape. On a round product the corners of that image are not
+printed, so a motif belongs in the middle.
 
 Every run measures again — nothing is remembered between runs. If the partner
 changes its mockup or its hotspots, the next run simply measures the new ones.
 An order that was placed before keeps the hotspot it was placed with: the
 order line stores it, and production prints at exactly that hotspot.
 
-**When the measurement fails.** A preview that shows no clean magenta rectangle
-is not trusted. The report then carries the warning `CALIBRATION_FAILED`, the
+**When the measurement fails.** A preview that does not show the green square
+whole and flat is not trusted. The report then carries the warning `CALIBRATION_FAILED`, the
 red alert names the article, and the article is written **without** a frame
 and a hotspot and is switched off. Its *Print* section shows *The last sync
 could not measure the print frame*, and activating it is refused. The warning's
@@ -294,9 +308,11 @@ detail says why, per hotspot that was tried:
 | --- | --- |
 | `NO_FRONT_VIEW` | the product type has no view named `FRONT` |
 | `NO_PRINTABLE_HOTSPOT` | none of the front hotspots accepts the design |
-| `NO_RECTANGLE` | the preview showed no magenta box, or one too small to be a print area |
-| `LOW_FILL` | the box has holes or a ragged edge — something covers part of the design |
-| `UNREADABLE_IMAGE` | the preview picture could not be read |
+| `NO_FRONT_MOCKUP` | the partner lists no blank front picture of the article's first colour to compare with |
+| `NO_RECTANGLE` | the preview showed no green square, or one too small to be a print area |
+| `LOW_FILL` | the green square has holes, a ragged edge, or is cut off — something covers the middle of the design |
+| `OUTSIDE_PICTURE` | the design is larger than the mockup picture shows |
+| `UNREADABLE_IMAGE` | the preview or the blank mockup could not be read, or they differ in size |
 | `PROVIDER_ANSWER_UNREADABLE` | the partner rendered the preview but answered no front picture for it |
 
 What to do: open the product type in the Spreadconnect backoffice and check
@@ -307,7 +323,7 @@ nothing to set in this shop: the frame comes from the partner or not at all.
 **When the partner does not answer.** `CALIBRATION_UNAVAILABLE` is a different
 thing from `CALIBRATION_FAILED`: the product type was not measured because the
 partner could not be reached — the views, the design upload, the hotspot check,
-or every preview was limited, not answered, or refused. That says nothing about
+the blank mockup, or every preview was limited, not answered, or refused. That says nothing about
 the product type, so the run does not touch the article at all: it is counted
 as **failed**, nothing of it is written or downloaded, and the article stays
 exactly as the last good run left it — still on sale if it was. The detail

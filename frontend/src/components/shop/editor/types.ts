@@ -74,6 +74,8 @@ export interface EditorSpodArticle extends EditorArticleBase {
   productTypeName: string
   /** Where the design sits on the mockup photo, in percent of the photo (measured by the sync). */
   printFrame: PrintFrameDto
+  /** What the product shows of the frame, as a mask image over it; `null` when all of it. */
+  printMask: string | null
   sizeChartImageFilename: string | null
   sizeMeasurements: SpodSizeMeasurementsDto[]
   variants: EditorSpodVariant[]
@@ -121,6 +123,7 @@ export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle 
     printArea: { aspectRatio: 1, documentFormatWidthMm: null, documentFormatHeightMm: null },
     productTypeName: article.productTypeName,
     printFrame: article.printFrame,
+    printMask: article.printMask,
     sizeChartImageFilename: article.sizeChartImageFilename,
     sizeMeasurements: article.sizeMeasurements,
     variants: article.variants.map((variant) => toEditorSpodVariant(article, variant)),

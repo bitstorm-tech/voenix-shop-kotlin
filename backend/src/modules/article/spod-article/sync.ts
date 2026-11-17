@@ -449,6 +449,7 @@ export function createSpodCatalogSync({
       productTypeName: (variants[0]?.productTypeName ?? '').trim().slice(0, NAME_MAX),
       hotspot: measured?.hotspot ?? null,
       printFrame: measured?.frame ?? null,
+      printMask: measured?.mask ?? null,
       sizeChart: preparedSizeChart,
       sizeMeasurements,
       purchasePriceCents: purchasePriceOf(variants),

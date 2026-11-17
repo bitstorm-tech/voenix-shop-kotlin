@@ -36,6 +36,8 @@ export interface PreparedSpodArticle {
   /** `null` with the frame: the run could not measure, and the stored frame is erased. */
   hotspot: string | null
   printFrame: PrintFrame | null
+  /** The visible part of the frame; `null` when all of it is, or without a frame. */
+  printMask: string | null
   /** `null` keeps the stored size chart: unchanged, or unavailable this run. */
   sizeChart: { url: string; filename: string } | null
   /**
@@ -370,6 +372,7 @@ async function updateArticle(
     existing.spod_product_type_name !== prepared.productTypeName ||
     existing.spod_hotspot !== prepared.hotspot ||
     !sameFrame(storedFrame, prepared.printFrame) ||
+    existing.print_mask !== prepared.printMask ||
     previousSizeChart !== sizeChartFilename ||
     existing.spod_size_chart_url !== sizeChartUrl
   const touched =
@@ -418,9 +421,10 @@ const sameFrame = (a: PrintFrame | null, b: PrintFrame | null) =>
       a.widthPct === b.widthPct &&
       a.heightPct === b.heightPct
 
-/** The measured hotspot and frame, or `NULL` in all five columns when the run could not measure. */
-const frameColumns = ({ hotspot, printFrame }: PreparedSpodArticle) => ({
+/** The measured hotspot, frame, and mask, or `NULL` in all six columns when the run could not measure. */
+const frameColumns = ({ hotspot, printFrame, printMask }: PreparedSpodArticle) => ({
   spod_hotspot: hotspot,
+  print_mask: printMask,
   print_frame_left_pct: printFrame?.leftPct ?? null,
   print_frame_top_pct: printFrame?.topPct ?? null,
   print_frame_width_pct: printFrame?.widthPct ?? null,

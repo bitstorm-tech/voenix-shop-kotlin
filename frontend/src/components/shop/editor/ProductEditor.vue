@@ -112,6 +112,8 @@ const mockupFrameStyle = computed(() => {
     top: `${topPct}%`,
     width: `${widthPct}%`,
     height: `${heightPct}%`,
+    // What a product that is no rectangle shows of the frame, such as the face of a round button.
+    '--print-mask': article.printMask === null ? 'none' : `url("${article.printMask}")`,
   }
 })
 
@@ -823,6 +825,13 @@ async function handleAddToCart() {
     color-mix(in srgb, var(--background-soft) 86%, var(--foreground) 8%),
     color-mix(in srgb, var(--background-soft) 94%, var(--brand) 6%)
   );
+}
+
+.editor-print-frame {
+  -webkit-mask-image: var(--print-mask, none);
+  mask-image: var(--print-mask, none);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 
 .editor-crop-workspace--active .editor-print-frame {

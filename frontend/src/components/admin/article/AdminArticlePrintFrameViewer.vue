@@ -7,11 +7,14 @@ import type { PrintFrameDto } from '@/stores/shop/catalog'
  * Shows the rectangle the generated design is printed in, as the last sync measured it from the
  * SPOD hotspot preview. Nothing here is editable: the frame is computed by the sync, never by an
  * admin, and the shop editor places the design at exactly these four percentages over exactly this
- * mockup — so what is drawn here is what a customer sees.
+ * mockup — so what is drawn here is what a customer sees. The dashed rectangle is the whole design;
+ * the tint is the part of it the product shows.
  */
 const props = defineProps<{
   /** `null` when the last sync could not measure the frame. */
   frame: PrintFrameDto | null
+  /** The part of the frame the product shows, as a mask image; `null` when all of it. */
+  mask: string | null
   /** The SPOD hotspot the frame was measured from; set exactly when `frame` is. */
   hotspot: string | null
   /** The plain product photo of the default colour, the backdrop of the shop editor. */
@@ -52,10 +55,19 @@ const rectangleStyle = computed(() =>
       />
       <div v-else class="aspect-square w-full" />
       <div
-        class="absolute border-2 border-dashed border-primary bg-primary/10"
+        class="absolute border-2 border-dashed border-primary"
         :style="rectangleStyle"
         data-testid="print-frame-rectangle"
-      />
+      >
+        <!-- Two pixels out on every side: the tint covers the frame up to the edge of its border. -->
+        <div
+          class="absolute -inset-0.5 bg-primary/10 [mask-image:var(--print-mask,none)] [mask-size:100%_100%]"
+          :style="{
+            '--print-mask': props.mask === null ? 'none' : `url(&quot;${props.mask}&quot;)`,
+          }"
+          data-testid="print-frame-visible"
+        />
+      </div>
     </div>
 
     <dl class="grid grid-cols-2 content-start gap-4" data-testid="print-frame-values">
@@ -78,6 +90,12 @@ const rectangleStyle = computed(() =>
       <div>
         <dt class="text-xs text-muted-foreground">Height</dt>
         <dd class="text-foreground">{{ props.frame.heightPct }} %</dd>
+      </div>
+      <div v-if="props.mask" class="col-span-2" data-testid="print-frame-masked">
+        <dt class="text-xs text-muted-foreground">Visible</dt>
+        <dd class="text-foreground">
+          Only the tinted part. The product cuts off the rest of the design.
+        </dd>
       </div>
     </dl>
   </div>

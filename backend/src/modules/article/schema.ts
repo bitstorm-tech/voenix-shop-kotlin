@@ -105,6 +105,8 @@ export interface ArticleSpodArticlesTable {
   print_frame_top_pct: FramePercent
   print_frame_width_pct: FramePercent
   print_frame_height_pct: FramePercent
+  /** The visible part of the frame as a PNG data URL (V37); `NULL` when all of it is. */
+  print_mask: string | null
   spod_destination_id: number
   spod_environment: string
   spod_article_id: string
