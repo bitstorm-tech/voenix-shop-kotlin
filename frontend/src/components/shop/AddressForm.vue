@@ -221,30 +221,34 @@ function updatePhoneNumber(number: string) {
         class="flex h-9 overflow-hidden rounded-md border bg-transparent shadow-sm transition-colors focus-within:ring-1 focus-within:ring-ring"
         :class="phoneError ? 'border-destructive' : 'border-input'"
       >
-        <Select
-          :model-value="selectedDialCode"
-          :disabled="dialCodeOptions.length === 0"
-          @update:model-value="updateDialCode(String($event))"
-        >
-          <SelectTrigger
-            :id="`${idPrefix}-phone-prefix`"
-            class="h-full w-[6.25rem] rounded-none border-0 border-r border-input px-2 shadow-none focus:ring-0"
+        <!-- Keeps the prefix select's hidden text out of password managers' label guess for the
+             phone input: Bitwarden read Vue's dev-only "teleport" anchor comment as "ort" (city). -->
+        <div class="contents">
+          <Select
+            :model-value="selectedDialCode"
+            :disabled="dialCodeOptions.length === 0"
+            @update:model-value="updateDialCode(String($event))"
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="option in dialCodeOptions"
-              :key="option.countryCode"
-              :value="option.dialCode"
+            <SelectTrigger
+              :id="`${idPrefix}-phone-prefix`"
+              class="h-full w-[6.25rem] rounded-none border-0 border-r border-input px-2 shadow-none focus:ring-0"
             >
-              <span class="inline-flex items-center gap-2">
-                <span aria-hidden="true">{{ option.flag }}</span>
-                <span>{{ option.label }}</span>
-              </span>
-            </SelectItem>
-          </SelectContent>
-        </Select>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="option in dialCodeOptions"
+                :key="option.countryCode"
+                :value="option.dialCode"
+              >
+                <span class="inline-flex items-center gap-2">
+                  <span aria-hidden="true">{{ option.flag }}</span>
+                  <span>{{ option.label }}</span>
+                </span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Input
           :id="`${idPrefix}-phone`"
           type="tel"
