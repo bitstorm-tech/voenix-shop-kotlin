@@ -1,7 +1,9 @@
 import { Hono, type MiddlewareHandler } from 'hono'
-import { guestCapable, type Auth } from '@/platform/auth/auth'
+import { readUploadedImage } from '@/modules/image'
+import { guestCapable, requireAdmin, type Auth } from '@/platform/auth/auth'
 import { apiError, formBody } from '@/platform/http/respond'
 import { assertNever } from '@/platform/operation'
+import { ALLOWED_IMAGE_CONTENT_TYPES, type BackgroundRemover } from './image-generator'
 import { magicCoinsOwner, type MagicCoins } from './magic-coins'
 import type { GeneratorService } from './service'
 import { readGenerationUpload } from './upload'
@@ -11,17 +13,20 @@ const INSUFFICIENT_COINS_CODE = 'INSUFFICIENT_MAGIC_COINS'
 
 /**
  * `POST /api/generator/generate` behind the guest-capable protection and then the per-IP rate
- * limit, so a request without a CSRF token spends no slot; and `GET /api/magic-coins/balance`. A
- * generated image is answered as its raw bytes in its own content type, no JSON envelope and no
- * `Content-Disposition`, because the frontend reads it as a `Blob`.
+ * limit, so a request without a CSRF token spends no slot; `GET /api/magic-coins/balance`; and the
+ * admin's `POST /api/admin/images/background-removal`, which reads the `file` part and stores
+ * nothing. A generated or cut-out image is answered as its raw bytes in its own content type, no
+ * JSON envelope and no `Content-Disposition`, because the frontend reads it as a `Blob`.
  */
 export function generatorRoutes({
   generator,
+  removeBackground,
   coins,
   guestTokens,
   rateLimit,
 }: {
   generator: GeneratorService
+  removeBackground: BackgroundRemover
   coins: MagicCoins
   guestTokens: Auth['guestTokens']
   rateLimit: MiddlewareHandler
@@ -50,8 +55,33 @@ export function generatorRoutes({
     }
   })
 
+  // Admin-only and therefore without a rate limit; every call costs fal.ai money all the same.
+  const backgroundRemoval = new Hono()
+  backgroundRemoval.use(requireAdmin)
+  backgroundRemoval.post('/', formBody, async (c) => {
+    const upload = await readUploadedImage(await c.req.formData())
+    const refuse = (message: string) =>
+      c.json(apiError('Validation failed', { file: [message] }), 400)
+    if (upload.kind === 'tooLarge') return refuse('Image must be at most 10 MiB')
+    if (upload.kind === 'missing' || upload.upload.bytes.length === 0) {
+      return refuse('An image file is required')
+    }
+    const contentType = upload.upload.contentType.trim().toLowerCase()
+    if (!ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+      return refuse('Image must be a JPEG, PNG, or WebP file')
+    }
+    // Copied, because the upload's bytes are typed without the plain `ArrayBuffer` a body needs.
+    const result = await removeBackground({
+      bytes: new Uint8Array(upload.upload.bytes),
+      contentType,
+    })
+    if (result === null) return c.json(apiError('Background removal failed'), 502)
+    return c.body(result.bytes, 200, { 'Content-Type': result.contentType })
+  })
+
   const routes = new Hono()
   routes.route('/api/generator', generation)
+  routes.route('/api/admin/images/background-removal', backgroundRemoval)
   routes.get('/api/magic-coins/balance', async (c) => {
     c.header('Cache-Control', 'no-store')
     return c.json({ balance: await coins.balance(await magicCoinsOwner(c, guestTokens)) })

@@ -15,6 +15,10 @@ POST /api/generator/generate    →  raw image bytes
 GET  /api/magic-coins/balance   →  {"balance": 9}
 ```
 
+The module also answers the admin's background removal (see
+[Background removal](#background-removal)), because it already owns the fal.ai
+key and the dummy switch.
+
 In the Kotlin backend the coins were a module of their own, `magic-coins`,
 exporting the `GenerationCoins` capability to its only consumer, the generator
 (#252). The port folds them into this module: the coins are an internal part
@@ -79,11 +83,13 @@ lives in `fal.ts`, and the service reaches the provider only through the
 generator/
 |- index.ts               createGeneratorModule({ db, settings, articleCatalog, promptCatalog,
 |                         guestTokens, rateLimit, fetch? }) → { routes }; picks the image generator
-|- routes.ts              generatorRoutes: the two routes, the protection order, outcome → status
+|- routes.ts              generatorRoutes: the three routes, the protection order, outcome → status
 |- upload.ts              readGenerationUpload, the part names, MAX_IMAGE_BYTES, MAX_FILE_PART_BYTES
 |- service.ts             createGeneratorService: the order of one generation; GenerationOutcome
-|- image-generator.ts     RawImage, ALLOWED_IMAGE_CONTENT_TYPES, ImageGenerator, dummyImageGenerator
-|- fal.ts                 createFalImageGenerator, FAL_EDIT_URL: the only code that knows fal.ai
+|- image-generator.ts     RawImage, ALLOWED_IMAGE_CONTENT_TYPES, ImageGenerator, dummyImageGenerator,
+|                         BackgroundRemover, dummyBackgroundRemover
+|- fal.ts                 createFalImageGenerator, createFalBackgroundRemover, FAL_EDIT_URL,
+|                         FAL_BACKGROUND_REMOVAL_URL: the only code that knows fal.ai
 |- magic-coins.ts         MagicCoinsOwner, magicCoinsOwner (the owner rule), describeOwner,
 |                         createMagicCoins (balance with the initial grant, the atomic spend)
 |- schema.ts              MagicCoinsTable, merged into the platform's Tables
@@ -421,6 +427,31 @@ amounts, an initial grant of 10 and a cost of 1, are the constants
 - **Ids are JavaScript numbers.** A `promptId` or `articleId` beyond
   `Number.MAX_SAFE_INTEGER` is refused as non-numeric, where Kotlin read any
   `Long`.
+
+## Background removal
+
+```text
+POST /api/admin/images/background-removal   (multipart, part `file`)  →  raw image bytes
+```
+
+The admin's image edit dialog sends the image it shows and gets the cut-out
+back. Nothing is stored; the dialog uploads the edited result through the
+owning module's ordinary example-image pre-upload.
+
+- **Admin only**, behind `requireAdmin` (session, role, CSRF pair). There is
+  no rate limit and no Magic Coin: only admins can call it, but every call
+  still costs fal.ai money.
+- **The upload** is read with the image module's `readUploadedImage`
+  (10 MiB). A missing or empty part, an oversized one, and a type outside
+  JPEG, PNG, and WebP are `400` on the `file` field.
+- **The model** is Bria RMBG 2.0 (`fal-ai/bria/background/remove`, $0.018 per
+  image). It was picked over BiRefNet because Bria is trained on licensed data,
+  which keeps commercial use clear. The call goes through the same `falCall`
+  as a generation, with every rule of the adapter above: no retry, no
+  redirect, `https`-only download, 10 MiB caps, nothing the provider wrote in
+  the log. A result type the shop does not serve becomes `image/png`.
+- **A provider failure** is `502 Background removal failed`.
+- **Dummy mode** answers the uploaded bytes unchanged and calls nobody.
 
 ## What is deliberately not here
 

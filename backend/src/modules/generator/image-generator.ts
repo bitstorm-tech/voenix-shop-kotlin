@@ -35,3 +35,9 @@ export type ImageGenerator = (
  * provider cost, it does not change what the endpoint does.
  */
 export const dummyImageGenerator: ImageGenerator = (image) => Promise.resolve(image)
+
+/** The admin's background removal: an image goes in, the cut-out comes out, `null` on failure. */
+export type BackgroundRemover = (image: RawImage) => Promise<RawImage | null>
+
+/** The background remover of a dummy-mode deployment: the image comes back unchanged. */
+export const dummyBackgroundRemover: BackgroundRemover = (image) => Promise.resolve(image)

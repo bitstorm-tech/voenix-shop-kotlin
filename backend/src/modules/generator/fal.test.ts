@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import pino from 'pino'
-import { createFalImageGenerator, FAL_EDIT_URL } from './fal'
+import {
+  createFalBackgroundRemover,
+  createFalImageGenerator,
+  FAL_BACKGROUND_REMOVAL_URL,
+  FAL_EDIT_URL,
+} from './fal'
 import type { RawImage } from './image-generator'
 import { MAX_IMAGE_BYTES } from './upload'
 
@@ -143,5 +148,66 @@ describe('the fal.ai adapter', () => {
     }
     const { generate } = harness(() => generation(RESULT_URL, ' IMAGE/WEBP '))
     expect((await generate(upload(), PROMPT, '1:1'))?.contentType).toBe('image/webp')
+  })
+})
+
+describe('the fal.ai background remover', () => {
+  const removal = (image: unknown) => json(JSON.stringify({ image, timings: {} }))
+
+  function removerHarness(answer: () => Response | Promise<Response>) {
+    const requests: { url: string; init: RequestInit }[] = []
+    const logged: string[] = []
+    const remove = createFalBackgroundRemover({
+      apiKey: API_KEY,
+      fetch: async (url, init) => {
+        requests.push({ url, init })
+        return url === FAL_BACKGROUND_REMOVAL_URL ? answer() : new Response(GENERATED)
+      },
+      logger: pino({ level: 'trace' }, { write: (line: string) => logged.push(line) }),
+    })
+    return { remove, requests, logged }
+  }
+
+  test('sends the image to Bria and answers the downloaded cut-out', async () => {
+    const { remove, requests, logged } = removerHarness(() =>
+      removal({ url: RESULT_URL, content_type: 'image/png' }),
+    )
+    expect(await remove(upload())).toEqual({ bytes: GENERATED, contentType: 'image/png' })
+    const [paid, download] = requests
+    expect(paid?.url).toBe('https://fal.run/fal-ai/bria/background/remove')
+    expect(paid?.init.redirect).toBe('manual')
+    expect(paid?.init.headers).toEqual({
+      Authorization: `Key ${API_KEY}`,
+      'Content-Type': 'application/json',
+    })
+    expect(JSON.parse(paid?.init.body as string)).toEqual({
+      image_url: 'data:image/png;base64,aGVsbG8=',
+    })
+    expect(download?.url).toBe(RESULT_URL)
+    expect(download?.init.headers).toBeUndefined()
+    expect(logged).toEqual([])
+  })
+
+  test('a result type this shop does not serve, or none, becomes PNG', async () => {
+    for (const reported of ['application/octet-stream', null]) {
+      const { remove } = removerHarness(() => removal({ url: RESULT_URL, content_type: reported }))
+      expect((await remove(upload()))?.contentType).toBe('image/png')
+    }
+  })
+
+  test('every disappointment is an absent image, logged without the provider text', async () => {
+    for (const answer of [
+      () => new Response(PROVIDER_BODY, { status: 500 }),
+      () => json('{}'),
+      () => json(`{ ${PROVIDER_BODY}`),
+      () => removal({ url: 'http://cdn.example.com/result.png' }),
+      () => Promise.reject(new TypeError(`connection reset ${PROVIDER_BODY}`)),
+    ]) {
+      const { remove, logged } = removerHarness(answer)
+      expect(await remove(upload())).toBeNull()
+      expect(logged).toHaveLength(1)
+      expect(logged.join('\n')).not.toContain(PROVIDER_BODY)
+      expect(logged.join('\n')).not.toContain(API_KEY)
+    }
   })
 })

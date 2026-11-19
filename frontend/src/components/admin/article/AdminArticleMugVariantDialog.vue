@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, shallowRef, watch } from 'vue'
+import AdminImageEditDialog from '@/components/admin/shared/AdminImageEditDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -59,6 +60,8 @@ const form = reactive<MugVariantFormValue>({
 const fieldErrors = reactive<FieldErrors>({})
 const imageError = shallowRef<string | null>(null)
 const isUploadingImage = shallowRef(false)
+const imageEditOpen = shallowRef(false)
+const imageEditSource = shallowRef<File | string | null>(null)
 
 // Invalidates in-flight uploads when the form is reset, so a slow response
 // cannot land in a dialog that has since been reopened for another variant.
@@ -91,22 +94,37 @@ function resetForm() {
   isUploadingImage.value = false
 }
 
-async function onExampleImageSelected(files: File[]) {
-  const file = files[0]
+function exampleImageProblem(file: File): string | null {
+  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+    return 'Example image must be a PNG, JPEG, or WebP file.'
+  }
+  return file.size > MAX_IMAGE_SIZE_BYTES ? 'Example image must be at most 10 MB.' : null
+}
 
+/** A chosen or pasted file goes through the edit dialog first; its "Apply" uploads the result. */
+function onExampleImageChosen(files: File[]) {
+  const file = files[0]
   if (!file) {
     return
   }
 
-  imageError.value = null
-
-  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-    imageError.value = 'Example image must be a PNG, JPEG, or WebP file.'
-    return
+  imageError.value = exampleImageProblem(file)
+  if (imageError.value === null) {
+    imageEditSource.value = file
+    imageEditOpen.value = true
   }
+}
 
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    imageError.value = 'Example image must be at most 10 MB.'
+function editExampleImage() {
+  if (form.exampleImageFilename) {
+    imageEditSource.value = variantExampleImageUrl('MUG', form.exampleImageFilename, 1600)
+    imageEditOpen.value = true
+  }
+}
+
+async function uploadEditedImage(file: File) {
+  imageError.value = exampleImageProblem(file)
+  if (imageError.value !== null) {
     return
   }
 
@@ -135,8 +153,8 @@ async function onExampleImageSelected(files: File[]) {
 }
 
 useClipboardImagePaste(
-  (file) => onExampleImageSelected([file]),
-  () => open.value && !isUploadingImage.value,
+  (file) => onExampleImageChosen([file]),
+  () => open.value && !isUploadingImage.value && !imageEditOpen.value,
 )
 
 function removeExampleImage() {
@@ -302,7 +320,7 @@ watch(
                 size="sm"
                 variant="outline"
                 :disabled="isUploadingImage"
-                @change="onExampleImageSelected"
+                @change="onExampleImageChosen"
               >
                 {{
                   isUploadingImage
@@ -318,6 +336,17 @@ watch(
                 variant="outline"
                 size="sm"
                 :disabled="isUploadingImage"
+                data-testid="variant-example-image-edit"
+                @click="editExampleImage"
+              >
+                Edit
+              </Button>
+              <Button
+                v-if="form.exampleImageFilename"
+                type="button"
+                variant="outline"
+                size="sm"
+                :disabled="isUploadingImage"
                 data-testid="variant-example-image-remove"
                 @click="removeExampleImage"
               >
@@ -326,6 +355,11 @@ watch(
             </div>
           </div>
           <p v-if="imageError" class="text-sm text-destructive">{{ imageError }}</p>
+          <AdminImageEditDialog
+            v-model:open="imageEditOpen"
+            :source="imageEditSource"
+            @apply="uploadEditedImage"
+          />
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">

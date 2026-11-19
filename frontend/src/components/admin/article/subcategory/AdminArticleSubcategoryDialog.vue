@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
-import { ImagePlus, Trash2 } from 'lucide-vue-next'
+import { ImagePlus, Pencil, Trash2 } from 'lucide-vue-next'
+import AdminImageEditDialog from '@/components/admin/shared/AdminImageEditDialog.vue'
 import ConfirmDeleteDialog from '@/components/admin/shared/ConfirmDeleteDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Alert } from '@/components/ui/alert'
@@ -87,6 +88,8 @@ const { fieldErrors, clearFieldErrors } = useFormErrors<
 const selectedExampleImage = shallowRef<File | null>(null)
 const selectedExampleImagePreviewUrl = shallowRef<string | null>(null)
 const removeExampleImage = shallowRef(false)
+const imageEditOpen = shallowRef(false)
+const imageEditSource = shallowRef<File | string | null>(null)
 
 const isEditMode = computed(() => props.subcategory !== null)
 const title = computed(() =>
@@ -223,9 +226,29 @@ function onExampleImageChange(files: File[]) {
   emit('clearErrors')
 }
 
+/** A chosen or pasted file goes through the edit dialog first; an invalid one is reported as before. */
+function onExampleImageChosen(files: File[]) {
+  const file = files[0]
+  if (file && validateExampleImage(file) === null) {
+    imageEditSource.value = file
+    imageEditOpen.value = true
+  } else {
+    onExampleImageChange(files)
+  }
+}
+
+/** Edits the image the preview shows: a chosen one not saved yet, or the stored one. */
+function editExampleImage() {
+  const filename = removeExampleImage.value ? null : props.subcategory?.exampleImageFilename
+  imageEditSource.value =
+    selectedExampleImage.value ??
+    (filename ? `/api/images/public/1600/articles/subcategory-example-images/${filename}` : null)
+  imageEditOpen.value = imageEditSource.value !== null
+}
+
 useClipboardImagePaste(
-  (file) => onExampleImageChange([file]),
-  () => open.value && !props.saving && !props.deleting,
+  (file) => onExampleImageChosen([file]),
+  () => open.value && !props.saving && !props.deleting && !imageEditOpen.value,
 )
 
 function removeImage() {
@@ -423,11 +446,23 @@ onBeforeUnmount(() => {
                 size="sm"
                 variant="outline"
                 :disabled="saving || deleting"
-                @change="onExampleImageChange"
+                @change="onExampleImageChosen"
               >
                 <ImagePlus class="size-4" />
                 {{ imageUploadLabel }}
               </FileInput>
+              <Button
+                v-if="exampleImagePreviewUrl"
+                type="button"
+                variant="outline"
+                size="sm"
+                :disabled="saving || deleting"
+                data-testid="subcategory-example-image-edit"
+                @click="editExampleImage"
+              >
+                <Pencil class="size-4" />
+                Edit
+              </Button>
               <Button
                 v-if="selectedExampleImage || currentExampleImageUrl"
                 type="button"
@@ -442,6 +477,11 @@ onBeforeUnmount(() => {
               </Button>
             </div>
           </div>
+          <AdminImageEditDialog
+            v-model:open="imageEditOpen"
+            :source="imageEditSource"
+            @apply="onExampleImageChange([$event])"
+          />
         </FormField>
 
         <DialogFooter class="gap-2 border-t border-border pt-5">

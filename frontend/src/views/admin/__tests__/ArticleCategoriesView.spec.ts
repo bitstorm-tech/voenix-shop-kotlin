@@ -4,6 +4,11 @@ import ArticleCategoriesView from '../ArticleCategoriesView.vue'
 import AdminArticleSubcategoryDialog from '@/components/admin/article/subcategory/AdminArticleSubcategoryDialog.vue'
 import type { AdminArticleCategoryDto } from '@/stores/admin/articleCategories'
 import type { AdminArticleSubcategoryDto } from '@/stores/admin/articleSubcategories'
+import { imageEditDialogStub } from '@/testing/imageEditDialogStub'
+
+vi.mock('@/components/admin/shared/AdminImageEditDialog.vue', async () => ({
+  default: (await import('@/testing/imageEditDialogStub')).imageEditDialogStub.component,
+}))
 
 const mocks = vi.hoisted(() => {
   class ArticleCategoryNotFoundError extends Error {
@@ -347,6 +352,7 @@ describe('ArticleCategoriesView', () => {
     document.body.innerHTML = ''
     mocks.toast.mockReset()
     resetStoreState()
+    imageEditDialogStub.reset()
   })
 
   it('loads article categories and subcategories grouped by category', async () => {
@@ -540,6 +546,39 @@ describe('ArticleCategoriesView', () => {
       'Article subcategory is used by articles and cannot be moved to another category',
     )
     expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('edits the stored example image from its largest delivered width', async () => {
+    mocks.categoriesState.categories = [mugCategory]
+    mocks.subcategoriesState.subcategories = [
+      subcategory({ exampleImageFilename: 'espresso.webp' }),
+    ]
+
+    await mountArticleCategoriesView()
+
+    await toggleCategorySubcategories('Mugs')
+    await clickBySelector('[aria-label="Edit article subcategory Espresso"]')
+    await clickBySelector('[data-testid="subcategory-example-image-edit"]')
+
+    expect(imageEditDialogStub.openings).toEqual([
+      '/api/images/public/1600/articles/subcategory-example-images/espresso.webp',
+    ])
+  })
+
+  it('keeps the form unchanged when the edit dialog of a chosen file is cancelled', async () => {
+    installObjectUrlMock()
+    imageEditDialogStub.autoApply = false
+    mocks.categoriesState.categories = [mugCategory]
+    const file = new File(['image'], 'latte.png', { type: 'image/png' })
+
+    await mountArticleCategoriesView()
+
+    await clickBySelector('[aria-label="Add subcategory to Mugs"]')
+    await setFileInput('[data-testid="subcategory-example-image-input"]', file)
+
+    expect(imageEditDialogStub.openings).toEqual([file])
+    expect(bodyText()).toContain('No example image')
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 
   it('sends a null file name when removing the current example image', async () => {

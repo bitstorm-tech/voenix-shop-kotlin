@@ -134,7 +134,7 @@ module with what it may import besides the platform:
 | `order` | `image`, `article`, `promotion`, `production`, `email` | Placed orders and their payment (the former `payment` module is a subfolder); exports one `orders` object with the reads other modules need |
 | `cart` | `image`, `article`, `prompt`, `promotion`, `order` | The cart, its lines, print images, reorder |
 | `checkout` | `cart`, `promotion`, `order`, `country`, `article` | The one buy journey, in two transactions |
-| `generator` | `article`, `prompt` | AI image generation and the Magic Coins it is paid with (the former `magic-coins` module is part of it) |
+| `generator` | `article`, `prompt`, `image` | AI image generation and the Magic Coins it is paid with (the former `magic-coins` module is part of it), and the admin's background removal |
 | `operations` | `order`, `production`, `email` | The one place that looks across the whole pipeline: records the findings each owning module reports about its own stalled rows, and lists them to admins. It imports the three modules' finding *types* and email's `renderOperationsAlert` for its alert mail; the composition root injects their `findings(now)` capabilities and the outbox's `enqueue`. Nothing imports it |
 
 The composition root and the test support may import every module.

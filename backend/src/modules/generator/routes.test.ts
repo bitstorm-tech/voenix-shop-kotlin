@@ -229,3 +229,88 @@ describe('GET /api/magic-coins/balance', () => {
     }
   })
 })
+
+describe('POST /api/admin/images/background-removal', () => {
+  const REMOVAL = '/api/admin/images/background-removal'
+  const CUT_OUT = new Uint8Array([9, 9, 9])
+
+  // Bun's multipart parser takes a part's type from its file name, so the name carries the type.
+  const form = (file?: Blob, name = 'photo.png') => {
+    const body = new FormData()
+    if (file !== undefined) body.append('file', file, name)
+    return body
+  }
+  const png = (bytes: Uint8Array = IMAGE) => new Blob([bytes], { type: 'image/png' })
+  const remove = (
+    target: ReturnType<typeof app>,
+    headers: Record<string, string>,
+    body = form(png()),
+  ) => target.request(REMOVAL, { method: 'POST', headers, body })
+
+  /** fal.ai answering a cut-out, with every request it received. */
+  const paidApp = (
+    answer = () =>
+      new Response(
+        JSON.stringify({
+          image: { url: 'https://cdn.example.com/cut.png', content_type: 'image/png' },
+        }),
+      ),
+  ) => {
+    const urls: string[] = []
+    const target = app({ dummyMode: false, apiKey: 'key' }, (url) => {
+      urls.push(url)
+      return Promise.resolve(
+        url === 'https://cdn.example.com/cut.png' ? new Response(CUT_OUT) : answer(),
+      )
+    })
+    return { target, urls }
+  }
+
+  test('is for admins only', async () => {
+    expect((await remove(app(), {})).status).toBe(401)
+    expect((await remove(app(), await signedInHeaders({ roles: ['CUSTOMER'] }))).status).toBe(403)
+  })
+
+  test('answers the cut-out from fal.ai as raw bytes', async () => {
+    const { target, urls } = paidApp()
+    const response = await remove(target, await signedInHeaders())
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/png')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(CUT_OUT)
+    expect(urls).toEqual([
+      'https://fal.run/fal-ai/bria/background/remove',
+      'https://cdn.example.com/cut.png',
+    ])
+  })
+
+  test('answers the image unchanged in dummy mode', async () => {
+    const response = await remove(app(), await signedInHeaders())
+    expect(response.status).toBe(200)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(IMAGE)
+  })
+
+  test('refuses a missing, empty, oversized, or non-image file on the file field', async () => {
+    const { target, urls } = paidApp()
+    for (const body of [
+      form(),
+      form(png(new Uint8Array())),
+      form(png(new Uint8Array(10 * 1024 * 1024 + 1))),
+      form(new Blob([IMAGE], { type: 'image/gif' }), 'photo.gif'),
+    ]) {
+      const response = await remove(target, await signedInHeaders(), body)
+      expect(response.status).toBe(400)
+      expect(await jsonOf(response)).toMatchObject({
+        message: 'Validation failed',
+        errors: { file: [expect.any(String)] },
+      })
+    }
+    expect(urls).toEqual([])
+  })
+
+  test('a provider failure is a 502', async () => {
+    const { target } = paidApp(() => new Response('nope', { status: 500 }))
+    const response = await remove(target, await signedInHeaders())
+    expect(response.status).toBe(502)
+    expect(await jsonOf(response)).toEqual({ message: 'Background removal failed', errors: {} })
+  })
+})

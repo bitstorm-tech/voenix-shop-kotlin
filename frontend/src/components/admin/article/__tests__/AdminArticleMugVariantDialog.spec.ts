@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminArticleMugVariantDialog from '../AdminArticleMugVariantDialog.vue'
 import type { MugVariantFormValue } from '../mugVariantForm'
 import { InvalidArticleRequestError } from '@/stores/admin/articles'
+import { imageEditDialogStub } from '@/testing/imageEditDialogStub'
+
+vi.mock('@/components/admin/shared/AdminImageEditDialog.vue', async () => ({
+  default: (await import('@/testing/imageEditDialogStub')).imageEditDialogStub.component,
+}))
 
 const mocks = vi.hoisted(() => ({
   uploadVariantExampleImage: vi.fn(),
@@ -87,6 +92,7 @@ describe('AdminArticleMugVariantDialog', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     mocks.uploadVariantExampleImage.mockReset()
+    imageEditDialogStub.reset()
   })
 
   it('uploads a selected image and stages the returned filename', async () => {
@@ -105,6 +111,33 @@ describe('AdminArticleMugVariantDialog', () => {
     expect(savedPayload(saveEvents).exampleImageFilename).toBe(
       '11111111-2222-3333-4444-555555555555.png',
     )
+  })
+
+  it('opens a chosen file in the edit dialog and uploads nothing when it is cancelled', async () => {
+    imageEditDialogStub.autoApply = false
+    const file = new File(['image'], 'mug.png', { type: 'image/png' })
+
+    await mountDialog(baseVariant)
+    await selectFile(file)
+
+    expect(imageEditDialogStub.openings).toEqual([file])
+    expect(mocks.uploadVariantExampleImage).not.toHaveBeenCalled()
+    expect(getPreviewSrc()).toBeNull()
+  })
+
+  it('edits the stored image from its largest delivered width', async () => {
+    await mountDialog({ ...baseVariant, exampleImageFilename: 'old.png' })
+
+    const editButton = document.querySelector(
+      '[data-testid="variant-example-image-edit"]',
+    ) as HTMLButtonElement | null
+    expect(editButton).not.toBeNull()
+    editButton!.click()
+    await flushPromises()
+
+    expect(imageEditDialogStub.openings).toEqual([
+      '/api/images/public/1600/articles/mugs/variant-example-images/old.png',
+    ])
   })
 
   it('saves color picker changes from shared color inputs', async () => {

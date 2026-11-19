@@ -18,6 +18,8 @@ const props = defineProps<{
   imageSrc: string
   mimeType: string
   initialCropState?: CropState | null
+  /** Holds the apply button back while a tool in the `tools` slot is still changing the image. */
+  applyDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -62,6 +64,22 @@ watch(
     if (open) {
       mode.value = 'idle'
       totalRotation.value = props.initialCropState?.rotation ?? 0
+    }
+  },
+)
+
+// A tool that swaps the image while the dialog is open (the admin's background removal) keeps the
+// same size, so the user's crop and rotation carry over to the new image.
+watch(
+  () => [props.imageSrc, props.open] as const,
+  ([src, open], [previousSrc, wasOpen]) => {
+    const ir = imageRect.value
+    if (src === previousSrc || !open || !wasOpen || ir.width === 0 || ir.height === 0) return
+    pendingRelCrop.value = {
+      rx: (crop.value.x - ir.x) / ir.width,
+      ry: (crop.value.y - ir.y) / ir.height,
+      rw: crop.value.width / ir.width,
+      rh: crop.value.height / ir.height,
     }
   },
 )
@@ -410,7 +428,7 @@ function close() {
       </div>
 
       <!-- Controls: Rotate buttons -->
-      <div class="flex items-center justify-center gap-3 px-5 py-3 sm:px-6">
+      <div class="flex flex-wrap items-center justify-center gap-3 px-5 py-3 sm:px-6">
         <Button variant="outline" size="sm" @click="rotate(-90)">
           <RotateCcw class="h-3.5 w-3.5" />
           {{ t('configurator.steps.uploadImage.cropDialog.rotateLeft') }}
@@ -419,13 +437,14 @@ function close() {
           <RotateCw class="h-3.5 w-3.5" />
           {{ t('configurator.steps.uploadImage.cropDialog.rotateRight') }}
         </Button>
+        <slot name="tools" />
       </div>
 
       <DialogFooter class="px-5 pb-5 sm:px-6 sm:pb-6">
         <Button variant="ghost" @click="close">
           {{ t('configurator.steps.uploadImage.cropDialog.cancel') }}
         </Button>
-        <Button @click="applyCrop">
+        <Button :disabled="applyDisabled" @click="applyCrop">
           {{ t('configurator.steps.uploadImage.cropDialog.apply') }}
         </Button>
       </DialogFooter>

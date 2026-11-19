@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef } from 'vue'
 import AdminPromptSlotVariantPicker from '@/components/admin/prompts/AdminPromptSlotVariantPicker.vue'
+import AdminImageEditDialog from '@/components/admin/shared/AdminImageEditDialog.vue'
 import FormField from '@/components/admin/shared/FormField.vue'
 import { Button } from '@/components/ui/button'
 import { CheckboxCard } from '@/components/ui/checkbox-card'
@@ -64,6 +65,8 @@ const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const imageError = shallowRef<string | null>(null)
 const imagePreviewFailed = shallowRef(false)
 const isUploadingImage = shallowRef(false)
+const imageEditOpen = shallowRef(false)
+const imageEditSource = shallowRef<File | string | null>(null)
 let uploadEpoch = 0
 
 const filteredSubcategories = computed(() => {
@@ -110,19 +113,37 @@ function setUploading(value: boolean) {
   emit('uploadingChange', value)
 }
 
-async function onExampleImageSelected(files: File[]) {
+function exampleImageProblem(file: File): string | null {
+  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+    return 'Example image must be a PNG, JPEG, or WebP file.'
+  }
+  return file.size > MAX_IMAGE_SIZE_BYTES ? 'Example image must be at most 10 MB.' : null
+}
+
+/** A chosen or pasted file goes through the edit dialog first; its "Apply" uploads the result. */
+function onExampleImageChosen(files: File[]) {
   const file = files[0]
   if (!file) {
     return
   }
 
-  imageError.value = null
-  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-    imageError.value = 'Example image must be a PNG, JPEG, or WebP file.'
-    return
+  imageError.value = exampleImageProblem(file)
+  if (imageError.value === null) {
+    imageEditSource.value = file
+    imageEditOpen.value = true
   }
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    imageError.value = 'Example image must be at most 10 MB.'
+}
+
+function editExampleImage() {
+  if (props.form.exampleImageFilename) {
+    imageEditSource.value = promptExampleImageUrl(props.form.exampleImageFilename, 1600)
+    imageEditOpen.value = true
+  }
+}
+
+async function uploadEditedImage(file: File) {
+  imageError.value = exampleImageProblem(file)
+  if (imageError.value !== null) {
     return
   }
 
@@ -148,8 +169,8 @@ async function onExampleImageSelected(files: File[]) {
 }
 
 useClipboardImagePaste(
-  (file) => onExampleImageSelected([file]),
-  () => !props.disabled && !isUploadingImage.value,
+  (file) => onExampleImageChosen([file]),
+  () => !props.disabled && !isUploadingImage.value && !imageEditOpen.value,
 )
 
 function removeExampleImage() {
@@ -227,7 +248,7 @@ onBeforeUnmount(() => {
               size="sm"
               variant="outline"
               :disabled="props.disabled || isUploadingImage"
-              @change="onExampleImageSelected"
+              @change="onExampleImageChosen"
             >
               {{
                 isUploadingImage
@@ -237,6 +258,17 @@ onBeforeUnmount(() => {
                     : 'Upload image'
               }}
             </FileInput>
+            <Button
+              v-if="props.form.exampleImageFilename"
+              type="button"
+              variant="outline"
+              size="sm"
+              :disabled="props.disabled || isUploadingImage"
+              data-testid="prompt-example-image-edit"
+              @click="editExampleImage"
+            >
+              Edit
+            </Button>
             <Button
               v-if="props.form.exampleImageFilename"
               type="button"
@@ -253,6 +285,11 @@ onBeforeUnmount(() => {
         <p v-if="exampleImageError" class="text-sm text-destructive" data-form-error>
           {{ exampleImageError }}
         </p>
+        <AdminImageEditDialog
+          v-model:open="imageEditOpen"
+          :source="imageEditSource"
+          @apply="uploadEditedImage"
+        />
       </div>
 
       <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2">

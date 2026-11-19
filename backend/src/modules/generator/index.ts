@@ -6,16 +6,17 @@ import type { Auth } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
 import type { Settings } from '@/platform/settings'
-import { createFalImageGenerator } from './fal'
-import { dummyImageGenerator } from './image-generator'
+import { createFalBackgroundRemover, createFalImageGenerator } from './fal'
+import { dummyBackgroundRemover, dummyImageGenerator } from './image-generator'
 import { createMagicCoins } from './magic-coins'
 import { generatorRoutes } from './routes'
 import { createGeneratorService } from './service'
 
 /**
- * The generator module with its Magic Coins: `POST /api/generator/generate` and
- * `GET /api/magic-coins/balance`. It exports no capability. Which image generator runs is decided
- * here, once: the dummy in dummy mode, fal.ai otherwise. `rateLimit` is the platform's per-IP
+ * The generator module with its Magic Coins: `POST /api/generator/generate`,
+ * `GET /api/magic-coins/balance`, and the admin's `POST /api/admin/images/background-removal`. It
+ * exports no capability. Which generator and background remover run is decided here, once: the
+ * dummies in dummy mode, fal.ai otherwise. `rateLimit` is the platform's per-IP
  * limiter middleware; `fetch` is the fal.ai adapter's HTTP client.
  */
 export function createGeneratorModule({
@@ -37,14 +38,16 @@ export function createGeneratorModule({
 }) {
   const logger = createLogger('generator')
   const coins = createMagicCoins(db)
+  const fal = { apiKey: settings.apiKey, fetch, logger }
   const generator = createGeneratorService({
     coins,
     articleCatalog,
     promptCatalog,
-    generateImage: settings.dummyMode
-      ? dummyImageGenerator
-      : createFalImageGenerator({ apiKey: settings.apiKey, fetch, logger }),
+    generateImage: settings.dummyMode ? dummyImageGenerator : createFalImageGenerator(fal),
     logger,
   })
-  return { routes: generatorRoutes({ generator, coins, guestTokens, rateLimit }) }
+  const removeBackground = settings.dummyMode
+    ? dummyBackgroundRemover
+    : createFalBackgroundRemover(fal)
+  return { routes: generatorRoutes({ generator, removeBackground, coins, guestTokens, rateLimit }) }
 }
