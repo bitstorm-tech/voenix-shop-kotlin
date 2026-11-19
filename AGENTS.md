@@ -13,9 +13,11 @@
 - Issues live on GitHub; use the `gh` CLI. A PR that finishes an issue says `Closes #<number>` in its body.
 - There are no ADRs. The reason for a design and the alternatives it beat are written into the `docs/dev` guide of the package it shapes (for example the numbered decisions in the SPOD fulfillment guide). Read the guides that touch the area you work in; when your proposal contradicts a recorded decision, say so explicitly instead of overriding it silently.
 
-## Council workflow
+## Planning and the council workflow
 
-Substantial tasks are planned with Joe in a normal conversation until the driving issue carries what the `council` skill expects as input (`.claude/skills/council/SKILL.md`). Implementation and verification then run autonomously with that skill: Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
+By default, clarify open decisions with Joe in the conversation, then implement directly. The decisions go into the PR description and, where they shape a design, into the `docs/dev` guide. No GitHub issue is needed for that.
+
+A driving issue and the council are for changes where a missed defect is expensive: database migrations, money (checkout, prices, payments), security, or a change across many modules — or whenever Joe asks for them. Only then is the plan written into a driving issue that carries what the `council` skill expects as input (`.claude/skills/council/SKILL.md`). Implementation and verification then run autonomously with that skill: Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
 
 ## Backend
 
