@@ -142,7 +142,7 @@ article/
 |  |- repository.ts      SpodArticle, SpodArticleListItem, PrintFrame; reads and the shop-owned write
 |  |- sync.ts            createSpodCatalogSync: one run; the report types
 |  |- sync-repository.ts the run's two transactions: upsert one article, sweep
-|  `- calibration.ts     the magenta design, measurePrintFrame (sharp), createCalibration
+|  `- calibration.ts     the marker design, measurePrintFrame (sharp), createCalibration
 |- test-fixtures.ts      test-only: the module on real pricing, supplier, image; SQL seeds; drawn previews
 `- *.test.ts             see Tests
 ```
@@ -322,7 +322,7 @@ There is no create and no upload (sync decision 1); the old
 **Two owners.** The sync owns the product: name, descriptions, product type
 name, colours with their pictures, the variant matrix, the size chart and its
 measurements, the
-supplier, the measured `printFrame` with its `hotspot`, and the purchase price
+supplier, the measured `printFrame` with its `printMask` and `hotspot`, and the purchase price
 (the highest variant `b2bPrice`, net; a new article gets a price with a sales
 total of zero on the default VAT). The shop owns `active` (a run only switches
 it off), the category path, the position, the sales side of the price (a run
@@ -348,7 +348,9 @@ The detail answer adds `appearances` (each colour with `mockupImageFilename`
 and its ordered `listingImageFilenames`), the flat `spodVariants` in the order
 of their colour then id (`name` is the composed `"Black / M"`, plus the three
 SPOD ids, `spodVariantId`, `sku`), `sizeMeasurements` (below), `printFrame`
-and `hotspot` (`null` until a run measured them), the embedded `price`, and
+and `hotspot` (`null` until a run measured them), `printMask` (the part of the
+frame the product shows, as a PNG data URL; `null` when that is all of it, see
+decision 7), the embedded `price`, and
 `sync: { spodArticleId, environment, syncedAt, missingSince }`. A list row is
 the mug row's twelve fields plus `syncedAt` and `missingAtSpreadconnect`; its
 picture is the first listing image of the default variant's colour. The delete
@@ -386,7 +388,7 @@ it, so the navigation never leads into an empty list.
   come from **one** `priceCatalog.find` per page; an empty page asks nothing.
 - A SPOD article answers `productTypeName`, `sizeChartImageFilename`,
   `sizeMeasurements` (the admin shape, active sizes only), the
-  `printFrame`, the colours that still have an active variant, and flat
+  `printFrame` and its `printMask`, the colours that still have an active variant, and flat
   variants `{ id, name, appearanceId, size, isDefault }`. **The three SPOD ids
   and the hotspot never appear**: the printer's vocabulary stays inside.
 - The navigation runs one `DISTINCT` query per article type and merges them,
@@ -481,7 +483,7 @@ when the ordered list of image ids or their file names differs, and variants are
 product triple and never deleted. The measurements are replaced as a whole
 (delete and insert) only when the answered set differs from the stored one,
 which makes the article `updated`; an answer without `sizes` deletes them, an
-unanswered size chart keeps them. The frame and hotspot are written as
+unanswered size chart keeps them. The frame, its mask, and the hotspot are written as
 measured every run — `NULL` when the measurement failed, which also takes
 `active` off. **A run never activates**: `active` stays only while it was on,
 a variant is still sellable, and a frame was measured. A reappearing article
@@ -492,8 +494,8 @@ nothing.
 
 **A second identical run** lands every article in `unchanged`, downloads no
 picture (one storage check per stored picture), and costs one `spod_synced_at` bump per article — plus the
-re-measurement (one design upload per run and `2 + candidates` paced calls per
-product type).
+re-measurement (one design upload per run, and `2 + candidates` paced calls and
+one blank mockup download per product type).
 
 ### The report and its warning codes
 
@@ -516,7 +518,7 @@ variantsDeactivated, hotspot, printFrame }`), and `warnings`
 | `COLOR_WITHOUT_IMAGE` | no listing image could be stored; variants inactive |
 | `IMAGE_DOWNLOAD_FAILED` | one listing image left out; the next run asks again |
 | `MOCKUP_UNAVAILABLE` | no storable front mockup; variants inactive, a stored one kept |
-| `CALIBRATION_FAILED` | no clean measurement; no frame, no hotspot, inactive; the detail names each hotspot's reason (`FULL_FRONT: LOW_FILL, …`) or `NO_FRONT_VIEW` / `NO_PRINTABLE_HOTSPOT` |
+| `CALIBRATION_FAILED` | no clean measurement; no frame, no hotspot, inactive; the detail names each hotspot's reason (`FULL_FRONT: LOW_FILL, …`) or `NO_FRONT_VIEW` / `NO_PRINTABLE_HOTSPOT` / `NO_FRONT_MOCKUP` |
 | `SIZE_CHART_UNAVAILABLE` | no storable size chart; a stored one kept |
 | `DEFAULT_VARIANT_REPLACED` | the default went inactive; the first active variant took over |
 | `EXAMPLE_IMAGE_REPLACED` | the article's list picture changed |
@@ -547,23 +549,66 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
 6. **Undocumented formats degrade, they never fail the run**: unreadable data
    makes a variant inactive with a warning; only a complete listing may sweep;
    an unanswered calibration or a duplicate colour name skips one article.
-7. **The print frame is measured from SPOD previews.** The run uploads a
-   2000 × 2000 opaque `#FF00FF` PNG (`calibration-1x1.png`, drawn with sharp)
-   once per run, reads the product type's front view, asks which of its
-   hotspots accept the design, renders one 1000 × 1000 preview per candidate on
-   the first article's first colour, downloads it as PNG (`,mediaType=png`),
-   and measures it with `measurePrintFrame`: a pixel counts when alpha ≥ 250
-   and every channel is within 24 of magenta; the frame is the bounding box in
-   percent with two decimals, half up, each edge rounded on its own (so
-   `left + width ≤ 100`); the box must span 2 % both ways and be 97 % magenta,
-   else `NO_RECTANGLE` / `LOW_FILL`. The largest box wins, ties go to the first
-   hotspot. Per product type, per run, stateless; only answers are cached.
+7. **The print frame and its mask are measured from SPOD previews.** The API
+   answers neither where a hotspot lies on a mockup nor which part of a design
+   a product shows. The run uploads a 2000 × 2000 opaque `#FF00FF` PNG with an
+   opaque `#00FF00` square of half its edge in the middle
+   (`calibration-1x1.png`, drawn with sharp) once per run, reads the product
+   type's front view, asks which of its hotspots accept the design, downloads
+   the blank front mockup of the first article's first colour as PNG, renders
+   one 1000 × 1000 preview per candidate on that colour, downloads it as PNG
+   (`,mediaType=png`), and measures it against the blank mockup with
+   `measurePrintFrame`:
+   - **The frame** is the green marker's bounding box doubled around its
+     middle, so it is the whole design even where the product cuts the rim of
+     the design off. A pixel is marker or design when alpha ≥ 250 and every
+     channel is within 24 of its colour; the frame is in percent with two
+     decimals, half up, each edge rounded on its own (so `left + width ≤ 100`).
+     The marker must span 1 % both ways, be 97 % green, and have design beyond
+     each of its four edges, else `NO_RECTANGLE` / `LOW_FILL`; a frame that
+     leaves the picture is `OUTSIDE_PICTURE`.
+   - **The mask** is the part of the frame the product shows: the pixels that
+     differ from the blank mockup by more than 40 over their four channels
+     (the renderer is deterministic, and shading that takes a rim pixel out of
+     the colour tolerance still leaves it changed). It is stored in the row
+     (`print_mask`) as a 256 × 256 PNG data URL of sixteen colours, about
+     2 kB, opaque where the design is seen and stretched over the frame by the
+     browser. It is `NULL` when 97 % of the frame is visible: then the frame is
+     what is printed, as on a shirt.
+   - **The hotspot that shows the most pixels of the design wins**, ties go to
+     the first hotspot.
+
+   Per product type, per run, stateless; only answers are cached.
    A measurement failure writes no frame (`CALIBRATION_FAILED`); a transport
    failure skips the article (`CALIBRATION_UNAVAILABLE`). The front view is the
    view carrying a `…_FRONT` hotspot, never matched by its name: `views` names
    the sides in the account's language (`Vorne`, `Hinten`), and matching
    `FRONT` made every product type fail with `NO_FRONT_VIEW`. The preview of
    that view is the image with the view's `viewId`.
+
+   *What this replaced, and why.* Until November 2026 the design was a flat
+   magenta square, its bounding box had to be a 97 % filled rectangle, and the
+   largest box won. The 56 mm button (product type 125) has two front
+   hotspots: `FULL_FRONT` prints a square of 49 % of the picture inside the
+   face, and `OVERALL_FRONT` lays the design over 77.4 % and shows the round
+   face of 68 % of it, about 6 % of the design per side lying beyond the rim.
+   A circle fills 78 % of its box, so `OVERALL_FRONT` failed as `LOW_FILL` and
+   the button could only be printed with a square in its middle. The bounding
+   box of the circle would have been wrong as well: it is smaller than the
+   design. Rejected: `printAreas` of `GET /productTypes/{id}` (millimetres
+   without a place or a shape, and staging does not answer the field); the
+   order's custom `position` (its units are undocumented, and `previews`
+   renders hotspots only, so a position cannot be measured); recognising a
+   circle (the mask holds any shape the partner cuts a print to); a mask file
+   in the image storage (a folder, a route, and a file lifecycle for 2 kB of
+   measured data that belongs to the four percentages beside it).
+
+   The mask shows what the partner prints, not the outline of the product: the
+   ceramic star (product type 5083) offers `FULL_FRONT` only, the partner
+   prints a square in its middle, and so its frame has no mask. One thing is
+   open: the partner's documentation lists ten hotspot names for an order, and
+   `OVERALL_FRONT` is not among them, although `views`, the hotspot check, and
+   `previews` answer and accept it. No order has been placed with it yet.
 8. **The name tripwire keeps firing on partner renames** (production's
    decision); accepted until the three ids are snapshotted.
 9. **Appearances and images are tables of their own**: a colour is a row, a
@@ -612,7 +657,10 @@ The tables are the Kotlin ones, migrated by
 [`V36`](../../../../backend/migrations/V36__article_spod_size_measurements.sql)
 (`article_spod_size_measurements`: one row per article, SPOD size id, and
 letter, `value_mm numeric(6,1)`, cascading with the article; the size label
-stays on the variants). `schema.ts` declares thirteen: `article_types` (the per-type ordering anchor and identity
+stays on the variants), and
+[`V37`](../../../../backend/migrations/V37__article_spod_print_mask.sql)
+(`article_spod_articles.print_mask`, the visible part of the frame as a data
+URL, allowed only next to a frame). `schema.ts` declares thirteen: `article_types` (the per-type ordering anchor and identity
 target, `MUG` and `SPOD`), `article_category_ordering` (the one-row category
 anchor), the two identity registries (`article_identities`,
 `article_variant_identities`, which never gain a column), the two category
@@ -687,8 +735,9 @@ writer outside the anchor changed — are retryable and leave nothing behind.
 - **Timestamps** (`syncedAt`, `missingSince`, the report's) carry milliseconds
   (`Date.toJSON`); Kotlin printed `Instant.toString()`.
 - **The print-frame measurement uses sharp** (`ensureAlpha().raw()`) instead of
-  ImageIO, with the same rule and constants; percentages are computed in
-  integer hundredths, so `left + width` stays exact without `BigDecimal`.
+  ImageIO; percentages are computed in integer hundredths, so `left + width`
+  stays exact without `BigDecimal`. The rule itself was replaced after the port
+  (decision 7).
 
 ## Tests
 
@@ -706,8 +755,8 @@ stubbed `fetch` behind the real `createSpodClient`.
 | `spod-article/routes.test.ts` | the five admin routes, the four write-path activation refusals, the measurements of every variant size with the lowest-id label, the delete with all three kinds of file and the measurements, the reorder and its `409`, no create and no t-shirt paths |
 | `storefront.test.ts` | the visibility matrix over mugs, SPOD articles, and the navigation; the whole public documents; the discounted price; no partner ids in the SPOD answer; the measurements of active sizes only; the empty catalog |
 | `catalog.test.ts` | `find`: purchasable, inactive, draft without price, discounted, unknown and cross-article pairs, the SPOD triple and hotspot, an unmeasured SPOD article; `printFormats` |
-| `spod-article/calibration.test.ts` | `measurePrintFrame` on drawn pictures: exact box, translucent rim, half-up edges ending at 100, `LOW_FILL`, `NO_RECTANGLE`, `UNREADABLE_IMAGE`, the design itself |
-| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, the size measurements (sold sizes only, unchanged without a rewrite, a changed value, unanswered, without `sizes`, the normalization), `busy` |
+| `spod-article/calibration.test.ts` | `measurePrintFrame` on drawn pictures: the frame from the marker, translucent rim, half-up edges ending at 100, a round product's whole frame and mask, `LOW_FILL` (a hole, a cut marker), `NO_RECTANGLE`, `OUTSIDE_PICTURE`, `UNREADABLE_IMAGE` (also a mockup of another size), the design itself |
+| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, the round all-over hotspot that beats the square inside it and stores its mask, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, the size measurements (sold sizes only, unchanged without a rewrite, a changed value, unanswered, without `sizes`, the normalization), `busy` |
 
 `test-fixtures.ts` holds what they share (the wired module, SQL seeds for VAT,
 suppliers, destinations, categories, synced SPOD articles, and the drawn

@@ -210,6 +210,7 @@ describe('the storefront documents', () => {
         sizeChartImageFilename: null,
         sizeMeasurements: [],
         printFrame: { leftPct: 35.6, topPct: 18.9, widthPct: 28.4, heightPct: 28.4 },
+        printMask: null,
         appearances: [
           {
             id: appearanceIds[0],

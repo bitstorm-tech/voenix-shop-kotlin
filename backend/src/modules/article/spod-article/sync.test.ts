@@ -9,20 +9,21 @@ import { pngBytes } from '@test-support/values'
 import type { SpodCatalogSource, SpodSyncReport } from '../index'
 import {
   articleTestModule,
+  blankMockupPng,
+  calibrationPreviewPng,
   grossPrice,
   insertCategory,
   insertSpodArticle,
   insertSpodDestination,
   insertSupplier,
   insertVat,
-  magentaBoxPng,
   resetArticles,
 } from '../test-fixtures'
 
 /**
  * Whole sync runs against PostgreSQL and a stubbed partner behind the real `SpodClient`: the
- * listing, the calibration calls (staging-like views, hotspots, and previews whose magenta box the
- * test draws), and the image CDN. Every request the partner received is recorded in `hits`.
+ * listing, the calibration calls (staging-like views, hotspots, and previews whose design the test
+ * draws on a blank mockup), and the image CDN. Every request the partner received is recorded in `hits`.
  */
 
 const database = testDatabase()
@@ -36,7 +37,7 @@ beforeEach(async () => {
 
 const CDN = 'https://cdn.example.test'
 const TEE = 812
-const TEE_FRAME = { leftPct: 28.5, topPct: 18.8, widthPct: 42.5, heightPct: 42.5 }
+const TEE_FRAME = { leftPct: 28.4, topPct: 18.8, widthPct: 42.4, heightPct: 42.4 }
 /** Sizes as the partner answers them: quoted ids, inch values, and a size the shirt does not sell. */
 const sizeOf = (sizeId: number, name: string, a: number, b: number) => ({
   sizeId: String(sizeId),
@@ -52,6 +53,8 @@ interface Partner {
   /** The listing pages, by offset; a function so a test can change the catalog between runs. */
   listing: (offset: number) => Response
   holed?: boolean
+  /** The product type also offers an all-over hotspot, and shows a circle of that print. */
+  round?: boolean
   viewsRefused?: boolean
   failingDownloads?: Set<string>
   /** The size chart answer: a body, or a whole response; the tee chart below by default. */
@@ -72,13 +75,23 @@ function fakePartner(partner: Partner) {
       if (partner.failingDownloads?.has(pathname)) return new Response('', { status: 404 })
       if (pathname.startsWith('/previews/')) {
         const hotspot = pathname.split('/')[3]?.split(',')[0]
-        const box =
-          hotspot === 'FULL_FRONT'
-            ? { x: 285, y: 188, width: 425, height: 425 }
-            : { x: 356, y: 189, width: 284, height: 284 }
-        return new Response(await magentaBoxPng(box, { holed: partner.holed ?? false }), {
-          headers: { 'Content-Type': 'image/png' },
-        })
+        const preview =
+          hotspot === 'OVERALL_FRONT'
+            ? calibrationPreviewPng(
+                { x: 150, y: 100, width: 700, height: 700 },
+                { visibleRadius: 300 },
+              )
+            : calibrationPreviewPng(
+                hotspot === 'FULL_FRONT'
+                  ? { x: 284, y: 188, width: 424, height: 424 }
+                  : { x: 356, y: 188, width: 284, height: 284 },
+                { holed: partner.holed ?? false },
+              )
+        return new Response(await preview, { headers: { 'Content-Type': 'image/png' } })
+      }
+      // The calibration asks for the mockup as PNG to compare the previews with it.
+      if (pathname.endsWith(',mediaType=png')) {
+        return new Response(await blankMockupPng(), { headers: { 'Content-Type': 'image/png' } })
       }
       return new Response(await pngBytes(), { headers: { 'Content-Type': 'image/png' } })
     }
@@ -103,7 +116,12 @@ function fakePartner(partner: Partner) {
           {
             id: '1',
             name: 'Vorne',
-            hotspots: [{ name: 'FULL_FRONT' }, { name: 'MEDIUM_FRONT' }, { name: 'LEFT_CHEST' }],
+            hotspots: [
+              { name: 'FULL_FRONT' },
+              { name: 'MEDIUM_FRONT' },
+              { name: 'LEFT_CHEST' },
+              { name: 'OVERALL_FRONT' },
+            ],
             images: [5, 6].map((appearance) => ({
               appearanceId: String(appearance),
               image: `${CDN}/mockups/${productType}/${String(appearance)}.png`,
@@ -114,7 +132,13 @@ function fakePartner(partner: Partner) {
       })
     }
     if (pathname.includes('/hotspots/design/')) {
-      return json({ hotspots: [{ name: 'FULL_FRONT' }, { name: 'MEDIUM_FRONT' }] })
+      return json({
+        hotspots: [
+          { name: 'FULL_FRONT' },
+          { name: 'MEDIUM_FRONT' },
+          ...(partner.round === true ? [{ name: 'OVERALL_FRONT' }] : []),
+        ],
+      })
     }
     if (pathname.endsWith('/previews')) {
       const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as {
@@ -205,8 +229,9 @@ async function syncWith(partner: Partner) {
 
 const storedArticle = () =>
   database.db.selectFrom('article_spod_articles').selectAll().executeTakeFirstOrThrow()
+/** The pictures a run stored; the calibration's previews and blank mockup are asked for as PNG. */
 const downloads = (hits: string[]) =>
-  hits.filter((hit) => hit.startsWith('cdn:') && !hit.startsWith('cdn:/previews/'))
+  hits.filter((hit) => hit.startsWith('cdn:') && !hit.endsWith(',mediaType=png'))
 
 describe('a first run', () => {
   test('creates the article with its colours, pictures, measured frame, and inactive', async () => {
@@ -236,8 +261,9 @@ describe('a first run', () => {
       category_id: null,
       price_id: null,
       spod_hotspot: 'FULL_FRONT',
-      print_frame_left_pct: '28.50',
-      print_frame_width_pct: '42.50',
+      print_frame_left_pct: '28.40',
+      print_frame_width_pct: '42.40',
+      print_mask: null,
       spod_product_type_name: "Men's T-Shirt",
       spod_size_chart_url: `${CDN}/chart-1.png`,
     })
@@ -343,7 +369,7 @@ describe('an identical second run', () => {
       active: true,
       category_id: category,
       spod_hotspot: 'FULL_FRONT',
-      print_frame_left_pct: '28.50',
+      print_frame_left_pct: '28.40',
     })
   })
 })
@@ -582,6 +608,22 @@ describe('a listing that cannot be read to the end', () => {
 })
 
 describe('the calibration', () => {
+  test('an all-over print on a round product beats the square inside it and stores its mask', async () => {
+    const { run } = await syncWith({ listing: page([shirt()]), round: true })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    expect(report.created).toMatchObject([
+      {
+        hotspot: 'OVERALL_FRONT',
+        printFrame: { leftPct: 15, topPct: 10, widthPct: 70, heightPct: 70 },
+      },
+    ])
+    const stored = await storedArticle()
+    expect(stored.spod_hotspot).toBe('OVERALL_FRONT')
+    expect(stored.print_mask).toStartWith('data:image/png;base64,')
+    expect((await run()).unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
+  })
+
   test('a box with a hole writes the article without frame and hotspot under CALIBRATION_FAILED', async () => {
     const report = await (await syncWith({ listing: page([shirt()]), holed: true })).run()
     expect(report.created).toMatchObject([{ hotspot: null, printFrame: null }])

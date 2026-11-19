@@ -70,6 +70,7 @@ export function createDevEditorSpodArticle(): SpodArticleDto {
     sizeChartImageFilename: null,
     sizeMeasurements: [],
     printFrame: { leftPct: 30, topPct: 26, widthPct: 40, heightPct: 40 },
+    printMask: null,
     appearances,
     variants: appearances.flatMap((appearance, colorIndex) =>
       ['S', 'M', 'L'].map((size, sizeIndex) => ({

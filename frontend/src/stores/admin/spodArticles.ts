@@ -77,7 +77,8 @@ export interface AdminSpodArticleSyncDto {
  * The Spreadconnect backoffice owns the product: the name, the product type, the descriptions, the
  * supplier behind the destination it was synced from, the size chart, the colours, and the whole
  * variant array. The sync measures `printFrame` from the hotspot `hotspot` names; both are `null`
- * together when it could not, and such an article cannot be activated. The admin sees all of this
+ * together when it could not, and such an article cannot be activated. `printMask` is the part of
+ * the frame the product shows, `null` when that is all of it. The admin sees all of this
  * and writes none of it; what it may write is [SaveAdminSpodArticleRequest].
  */
 export interface AdminSpodArticleDto {
@@ -95,6 +96,7 @@ export interface AdminSpodArticleDto {
   /** One entry per size of any of its variants, active or not, that has a measurement. */
   sizeMeasurements: SpodSizeMeasurementsDto[]
   printFrame: PrintFrameDto | null
+  printMask: string | null
   hotspot: string | null
   appearances: AdminSpodAppearanceDto[]
   spodVariants: AdminSpodVariantDto[]

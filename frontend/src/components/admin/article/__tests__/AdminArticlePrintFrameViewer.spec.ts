@@ -7,6 +7,7 @@ describe('AdminArticlePrintFrameViewer', () => {
     const wrapper = mount(AdminArticlePrintFrameViewer, {
       props: {
         frame: { leftPct: 12.5, topPct: 20, widthPct: 40, heightPct: 22.5 },
+        mask: null,
         hotspot: 'front',
         mockupUrl: '/mockup.webp',
       },
@@ -27,11 +28,33 @@ describe('AdminArticlePrintFrameViewer', () => {
     expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.find('button').exists()).toBe(false)
     expect(wrapper.find('[data-testid="print-frame-missing"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="print-frame-masked"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="print-frame-visible"]').attributes('style')).toContain(
+      '--print-mask: none',
+    )
+  })
+
+  it('tints only the part of the frame a product that is no rectangle shows', () => {
+    const wrapper = mount(AdminArticlePrintFrameViewer, {
+      props: {
+        frame: { leftPct: 19.65, topPct: 20.75, widthPct: 77.4, heightPct: 77.4 },
+        mask: 'data:image/png;base64,AAAA',
+        hotspot: 'OVERALL_FRONT',
+        mockupUrl: '/mockup.webp',
+      },
+    })
+
+    expect(wrapper.get('[data-testid="print-frame-visible"]').attributes('style')).toContain(
+      '--print-mask: url("data:image/png;base64,AAAA")',
+    )
+    expect(wrapper.get('[data-testid="print-frame-masked"]').text()).toContain(
+      'Only the tinted part',
+    )
   })
 
   it('explains an unmeasured frame instead of drawing one', () => {
     const wrapper = mount(AdminArticlePrintFrameViewer, {
-      props: { frame: null, hotspot: null, mockupUrl: '/mockup.webp' },
+      props: { frame: null, mask: null, hotspot: null, mockupUrl: '/mockup.webp' },
     })
 
     expect(wrapper.get('[data-testid="print-frame-missing"]').text()).toContain(

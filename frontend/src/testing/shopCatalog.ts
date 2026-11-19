@@ -133,6 +133,7 @@ function createShopSpodArticle(
     sizeChartImageFilename: null,
     sizeMeasurements: [],
     printFrame: { leftPct: 25, topPct: 20, widthPct: 50, heightPct: 40.5 },
+    printMask: null,
     appearances,
     variants: spodVariantsOf(id, appearances, sizes),
     ...overrides,

@@ -131,6 +131,11 @@ export interface SpodArticleDto extends ShopArticleBase {
   /** One entry per size with an active variant and at least one measurement, in no set order. */
   sizeMeasurements: SpodSizeMeasurementsDto[]
   printFrame: PrintFrameDto
+  /**
+   * The part of the frame the product shows, as a PNG data URL stretched over the frame: opaque
+   * where the design is seen (the face of a round button). `null` when the whole frame is.
+   */
+  printMask: string | null
   appearances: SpodAppearanceDto[]
   variants: SpodVariantDto[]
 }

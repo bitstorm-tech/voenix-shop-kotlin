@@ -301,34 +301,58 @@ export interface Box {
 
 /**
  * A preview as the partner renders the calibration design: an opaque magenta box on a grey
- * garment. `holed` leaves a 100 × 100 patch of garment in the middle; `antiAliased` draws a
- * translucent one-pixel rim around the box.
+ * garment with the green marker of half its edge in the middle. `holed` leaves a 100 × 100 patch
+ * of garment in the middle; `antiAliased` draws a translucent one-pixel rim around the box;
+ * `visibleRadius` shows only what lies that close to the box's middle, as a round product does.
  */
-export async function magentaBoxPng(
+export async function calibrationPreviewPng(
   box: Box,
-  { edge = 1000, holed = false, antiAliased = false } = {},
+  { edge = 1000, holed = false, antiAliased = false, visibleRadius = Infinity } = {},
 ): Promise<Buffer> {
   const pixels = Buffer.alloc(edge * edge * 4)
-  const paint = (x: number, y: number, rgba: readonly number[]) => {
-    if (x < 0 || y < 0 || x >= edge || y >= edge) return
-    pixels.set(rgba, (y * edge + x) * 4)
-  }
-  for (let y = 0; y < edge; y++) for (let x = 0; x < edge; x++) paint(x, y, [200, 200, 200, 255])
-  if (antiAliased) {
-    for (let y = box.y - 1; y <= box.y + box.height; y++) {
-      for (let x = box.x - 1; x <= box.x + box.width; x++) paint(x, y, [255, 0, 255, 128])
+  const fill = (area: Box, rgba: readonly number[]) => {
+    for (let y = Math.max(area.y, 0); y < Math.min(area.y + area.height, edge); y++) {
+      for (let x = Math.max(area.x, 0); x < Math.min(area.x + area.width, edge); x++) {
+        const visible =
+          Math.hypot(x + 0.5 - box.x - box.width / 2, y + 0.5 - box.y - box.height / 2) <=
+          visibleRadius
+        if (visible || rgba === GARMENT) pixels.set(rgba, (y * edge + x) * 4)
+      }
     }
   }
-  for (let y = box.y; y < box.y + box.height; y++) {
-    for (let x = box.x; x < box.x + box.width; x++) paint(x, y, [255, 0, 255, 255])
+  const middle = (size: number) => ({
+    x: box.x + Math.floor((box.width - size) / 2),
+    y: box.y + Math.floor((box.height - size) / 2),
+    width: size,
+    height: size,
+  })
+  fill({ x: 0, y: 0, width: edge, height: edge }, GARMENT)
+  if (antiAliased) {
+    fill(
+      { x: box.x - 1, y: box.y - 1, width: box.width + 2, height: box.height + 2 },
+      [255, 0, 255, 128],
+    )
   }
-  if (holed) {
-    const left = box.x + Math.floor(box.width / 2) - 50
-    const top = box.y + Math.floor(box.height / 2) - 50
-    for (let y = top; y < top + 100; y++)
-      for (let x = left; x < left + 100; x++) paint(x, y, [200, 200, 200, 255])
-  }
+  fill(box, [255, 0, 255, 255])
+  fill(
+    {
+      x: box.x + box.width / 4,
+      y: box.y + box.height / 4,
+      width: box.width / 2,
+      height: box.height / 2,
+    },
+    [0, 255, 0, 255],
+  )
+  if (holed) fill(middle(100), GARMENT)
   return sharp(pixels, { raw: { width: edge, height: edge, channels: 4 } })
     .png()
     .toBuffer()
 }
+
+/** The mockup a preview is compared with: the grey garment alone. */
+export const blankMockupPng = (edge = 1000): Promise<Buffer> =>
+  sharp({ create: { width: edge, height: edge, channels: 4, background: '#c8c8c8' } })
+    .png()
+    .toBuffer()
+
+const GARMENT = [200, 200, 200, 255] as const

@@ -131,6 +131,7 @@ function spodArticle(overrides: Partial<AdminSpodArticleDto> = {}): AdminSpodArt
     sizeChartImageFilename: 'chart.webp',
     sizeMeasurements: [],
     printFrame: { leftPct: 20, topPct: 15, widthPct: 60, heightPct: 30 },
+    printMask: null,
     hotspot: 'front',
     appearances: [
       {

@@ -63,6 +63,8 @@ export interface PublicSpodArticle {
   /** Only the sizes of active variants. */
   sizeMeasurements: SpodSizeMeasurements[]
   printFrame: PrintFrame
+  /** The part of the frame the product shows, as a PNG data URL; `null` when all of it. */
+  printMask: string | null
   appearances: PublicSpodAppearance[]
   variants: PublicSpodVariant[]
 }
@@ -277,6 +279,7 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
           sizeChartImageFilename: article.size_chart_image_filename,
           sizeMeasurements: measurements.get(article.id) ?? [],
           printFrame,
+          printMask: article.print_mask,
           appearances: appearanceIds.map((appearanceId) => {
             const variant = own.find((candidate) => candidate.appearance_id === appearanceId)
             return {

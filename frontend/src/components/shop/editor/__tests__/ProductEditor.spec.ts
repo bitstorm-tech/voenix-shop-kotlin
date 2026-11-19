@@ -208,7 +208,17 @@ describe('ProductEditor', () => {
     expect(frameStyle).toContain('top: 24%')
     expect(frameStyle).toContain('width: 40%')
     expect(frameStyle).toContain('height: 22.5%')
+    expect(frameStyle).toContain('--print-mask: none')
     expect(frameStyle).not.toContain('aspect-ratio')
+  })
+
+  it('cuts the design to what a product that is no rectangle shows of the frame', () => {
+    const button = toEditorSpodArticle({ ...shopTee, printMask: 'data:image/png;base64,AAAA' })
+    const wrapper = mountProductEditor(createDraft(), {}, { article: button, variant: spodVariant })
+
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
+      '--print-mask: url("data:image/png;base64,AAAA")',
+    )
   })
 
   it('swaps the mockup and keeps the frame when the colour changes', async () => {

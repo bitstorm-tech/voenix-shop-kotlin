@@ -20,7 +20,9 @@ type Trx = Transaction<Tables>
 
 /**
  * The rectangle of the mockup the design is placed in, in percent of the mockup. A sync run
- * measures it (SPOD sync decision 7); nobody types it. Stored as `numeric(5, 2)`.
+ * measures it (SPOD sync decision 7); nobody types it. Stored as `numeric(5, 2)`. The product may
+ * show less than all of it: `printMask` beside it is that part as a PNG data URL stretched over
+ * the frame, opaque where the design is seen, and `null` when the whole frame is.
  */
 export interface PrintFrame {
   leftPct: number
@@ -86,6 +88,7 @@ export interface SpodArticle {
   sizeChartImageFilename: string | null
   sizeMeasurements: SpodSizeMeasurements[]
   printFrame: PrintFrame | null
+  printMask: string | null
   hotspot: string | null
   appearances: SpodAppearance[]
   spodVariants: SpodVariant[]
@@ -465,6 +468,7 @@ async function findArticle(
         width: row.print_frame_width_pct,
         height: row.print_frame_height_pct,
       }),
+      printMask: row.print_mask,
       hotspot: row.spod_hotspot,
       appearances: appearanceRows.map((appearance) => ({
         id: appearance.id,
