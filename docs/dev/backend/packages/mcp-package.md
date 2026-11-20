@@ -24,7 +24,7 @@ and master data the way an admin does in the dashboard. The operator's side
 ## What this package does
 
 - `ALL /api/mcp`, an MCP server over Streamable HTTP, behind
-  `requireAdminOrToken`: an admin's
+  `requireAdminOrToken` with a bearer header required: an admin's
   [access token](../conventions/authentication-and-authorization.md#access-tokens)
   gets in, nobody else does;
 - three generic tools, `admin_endpoints`, `admin_read`, and `admin_write`,
@@ -39,7 +39,7 @@ and master data the way an admin does in the dashboard. The operator's side
 flowchart LR
     Client["AI client<br/>Authorization: Bearer vnx_…"]
     Origin["Origin check<br/>403 for a foreign browser origin"]
-    Guard["requireAdminOrToken<br/>401 · 403"]
+    Guard["bearer header required<br/>requireAdminOrToken<br/>401 · 403"]
     Sdk["createMcpHandler<br/>a fresh McpServer per request"]
     Tools["admin_endpoints · admin_read · admin_write"]
     Routes["app.routes<br/>which endpoints are open"]
@@ -70,7 +70,7 @@ backend/src/modules/mcp/
 | Request | Answer |
 | --- | --- |
 | `POST /api/mcp` with an admin's token | the MCP answer (JSON or an event stream, as the SDK decides) |
-| any method without a token or session | `401` |
+| any method without a bearer token, an admin session cookie included | `401`: the tools forward only the `Authorization` header, so a session could call none of them |
 | a token of a user without `ADMIN` | `403` |
 | an `Origin` header other than the origin of `FRONTEND_BASE_URL` | `403 Origin not allowed`, before anything else |
 | `GET` or `DELETE` with a valid token | `405` from the SDK: the endpoint is stateless and offers no stream |

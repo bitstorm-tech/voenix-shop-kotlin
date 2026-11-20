@@ -7,7 +7,7 @@ import { requireAdmin, requireAdminOrToken } from '@/platform/auth/auth'
 import { httpLog } from '@/platform/http/app'
 import { formBody } from '@/platform/http/respond'
 import { testDatabase } from '@test-support/database'
-import { revokeToken, testApp, tokenHeaders } from '@test-support/http'
+import { revokeToken, signedInHeaders, testApp, tokenHeaders } from '@test-support/http'
 import { mcpLog } from './routes'
 
 const database = testDatabase()
@@ -92,10 +92,11 @@ describe('the MCP endpoint', () => {
     expect(client.getInstructions()).toContain('Call admin_endpoints first')
   })
 
-  test('refuses a missing token, a non-admin token, a foreign origin, and a GET', async () => {
+  test('refuses a missing token, an admin session, a non-admin token, a foreign origin, and a GET', async () => {
     const app = mcpApp()
     const ping = { jsonrpc: '2.0', id: 1, method: 'ping' }
     expect((await rawPost(app, {}, ping)).status).toBe(401)
+    expect((await rawPost(app, await signedInHeaders(), ping)).status).toBe(401)
     expect(
       (await rawPost(app, tokenHeaders({ userId: 12, roles: ['CUSTOMER'] }), ping)).status,
     ).toBe(403)
