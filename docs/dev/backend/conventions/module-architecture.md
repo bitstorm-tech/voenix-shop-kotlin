@@ -58,10 +58,11 @@ flowchart TD
     Checkout["checkout"]
     Generator["generator<br/>generation · magic coins"]
     Operations["operations<br/>findings · worker"]
+    Mcp["mcp<br/>AI admin endpoint"]
     TestSupport["test-support"]
 
     Root --> Platform
-    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Legal & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator & Operations
+    Root --> Country & Email & Image & Supplier & Pricing & Spod & Promotion & Legal & Account & Article & Prompt & Production & Order & Cart & Checkout & Generator & Operations & Mcp
     Country --> Platform
     Email --> Platform
     Image --> Platform
@@ -111,6 +112,7 @@ flowchart TD
     Operations --> Order
     Operations --> Production
     Operations --> Email
+    Mcp --> Platform
     TestSupport --> Platform
 ```
 
@@ -136,6 +138,7 @@ module with what it may import besides the platform:
 | `checkout` | `cart`, `promotion`, `order`, `country`, `article` | The one buy journey, in two transactions |
 | `generator` | `article`, `prompt`, `image` | AI image generation and the Magic Coins it is paid with (the former `magic-coins` module is part of it), and the admin's background removal |
 | `operations` | `order`, `production`, `email` | The one place that looks across the whole pipeline: records the findings each owning module reports about its own stalled rows, and lists them to admins. It imports the three modules' finding *types* and email's `renderOperationsAlert` for its alert mail; the composition root injects their `findings(now)` capabilities and the outbox's `enqueue`. Nothing imports it |
+| `mcp` | — | `/api/mcp`, where an AI client administers the catalog and master data with an access token through three generic tools over the admin routes that opt in with `requireAdminOrToken`. Owns no table; reads the composed `app`'s routes and calls them in-process. Its tests alone may import every module's index, to run the tools on a real admin module (see the [MCP package guide](../packages/mcp-package.md)) |
 
 The composition root and the test support may import every module.
 
@@ -290,8 +293,12 @@ order the capabilities allow, with no late binding anywhere:
    the production module reads a table while it is created, and every module
    must see the schema it was written for. Then `createDatabase` for the one
    pool.
-2. `createAuth(settings.auth)` and `createApp(auth)`: the error answer, the body
-   limit, the authentication middleware, the antiforgery route.
+2. `createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })` and
+   `createApp(auth)`: the error answer, the body limit, the authentication
+   middleware, the antiforgery route. The access token lookup is the account
+   module's, created on its own before the auth, like the cart's
+   `createPrintImageReads(db)`: the account module needs the auth, the auth
+   needs the lookup.
 3. The modules, each created after the modules it consumes and handed their
    capabilities: country, pricing, supplier, email, image, the one SPOD client,
    promotion, article, prompt, account, generator (with the platform's per-IP
@@ -302,7 +309,9 @@ order the capabilities allow, with no late binding anywhere:
    and the email outbox), cart, legal, and last the checkout.
 4. The sub-apps, mounted with `app.route('/', x.routes)` in that order, plus
    the two routes that need a later module: `order.adminPdfRoutes(production.productionPdfGenerator)`
-   and `image.guestImageRoute(cart.guestImageResolver)`.
+   and `image.guestImageRoute(cart.guestImageResolver)`. Then, after every
+   other route, `createMcpModule({ app, frontendBaseUrl })`: its tools read the
+   admin routes from `app` itself.
 5. When `settings.frontend.distPath` is set, the built frontend behind every
    route (see [the full-stack image](../getting-started/full-stack-image.md)).
 
@@ -333,7 +342,8 @@ every module test copies:
   `beforeAll` and drops it in `afterAll`.
 - `testApp(...routes)` is `createApp` with the test auth and the given sub-apps
   mounted; `signedInHeaders({ userId, roles })` and `guestHeaders()` mint the
-  cookies and the CSRF header a request needs.
+  cookies and the CSRF header a request needs, and `tokenHeaders(principal)`
+  registers an access token with the test auth and answers its bearer header.
 
 Production code never imports the test support; the lint rule allows it from
 `*.test.ts` files only.

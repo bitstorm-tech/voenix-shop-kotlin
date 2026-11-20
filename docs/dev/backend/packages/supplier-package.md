@@ -29,7 +29,7 @@ flowchart TB
 
     subgraph Platform["Platform"]
         App["createApp<br/>onError · body limit · auth middleware"]
-        Auth["requireAdmin<br/>session · ADMIN role · CSRF"]
+        Auth["requireAdminOrToken<br/>session or access token · ADMIN role · CSRF"]
         Respond["jsonBody · integerParam · respondResult"]
     end
 

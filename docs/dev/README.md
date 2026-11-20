@@ -73,7 +73,7 @@ the alternatives it beat, are written into the guide of the package it shapes.
 | [Request size limits](backend/conventions/request-size-limits.md) | The 30,000,000-byte transfer bound, how Hono applies it, and the webhook caveat. |
 | [Rate limiting](backend/conventions/rate-limiting.md) | The per-IP limit of the image generation. |
 | [Logging](backend/conventions/logging.md) | `errorDetails` instead of an error's message, the request id, crashes. |
-| [Authentication and authorization](backend/conventions/authentication-and-authorization.md) | Sealed cookies, the principal, the four protections, CSRF, guests. |
+| [Authentication and authorization](backend/conventions/authentication-and-authorization.md) | Sealed cookies, the principal, the five protections, access tokens and which admin routes they open, CSRF, guests. |
 
 ## Backend: packages
 
@@ -101,6 +101,7 @@ package guide and the conventions it links.
 | [The SPOD package](backend/packages/spod-package.md) | `spod` | The shared client of the print-on-demand partner: the ten calls, the pacer, the bounded errors, the catalog and calibration answers. |
 | [The Email package](backend/packages/email-package.md) | `email` | Direct user emails and the durable outbox of rendered mails. |
 | [The Operations package](backend/packages/operations-package.md) | `operations` | The findings: each module's stalled rows, recorded by a worker every five minutes and listed on the admin Operations page; the admin order list and the timeline of one order with its history, and the two admin actions that replace hand-typed SQL, the payment recheck and the release of a quarantined SPOD job. |
+| [The MCP package](backend/packages/mcp-package.md) | `mcp` | `/api/mcp`: the MCP endpoint an AI client administers the catalog and master data through, with an access token and three generic tools over the open admin routes. |
 
 ## Frontend
 
@@ -117,6 +118,7 @@ package guide and the conventions it links.
 
 | Guide | What it answers |
 | --- | --- |
+| [Administering the shop with an AI client](guides/administering-the-shop-with-an-ai-client.md) | Create an access token, connect Claude Code or another MCP client, what the three tools do, what the AI cannot reach, and how to revoke the token. |
 | [Configuring a SPOD article](guides/configuring-spod-articles.md) | The operator's manual for print-on-demand products (t-shirt, tote bag, …): partner account, destination, sync, the measured print frame, and activation. |
 
 ## Kotlin backend (removed)

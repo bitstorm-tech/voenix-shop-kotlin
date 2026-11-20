@@ -11,6 +11,7 @@ import { createEmailModule } from '@/modules/email'
 import { createGeneratorModule } from '@/modules/generator'
 import { createImageModule } from '@/modules/image'
 import { createLegalModule } from '@/modules/legal'
+import { createMcpModule } from '@/modules/mcp'
 import { createOperationsModule } from '@/modules/operations'
 import { createOrderModule, type MolliePayments } from '@/modules/order'
 import { createPricingModule } from '@/modules/pricing'
@@ -171,6 +172,8 @@ export async function createApplication(
     ]) {
       app.route('/', routes)
     }
+    // Last: the MCP tools read the admin routes mounted above from `app` itself.
+    app.route('/', createMcpModule({ app, frontendBaseUrl }).routes)
     // The frontend itself, when this deployment carries one: the full-stack image sets
     // FRONTEND_DIST_PATH; in development it stays unset and Vite serves the frontend.
     if (settings.frontend.distPath !== null) serveFrontend(app, settings.frontend.distPath)

@@ -25,6 +25,7 @@ const moduleDependencies: Record<string, string[]> = {
   checkout: ['cart', 'promotion', 'order', 'country', 'article'],
   generator: ['article', 'prompt', 'image'],
   operations: ['order', 'production', 'email'],
+  mcp: [],
 }
 
 /** Another module is reachable through its `index.ts` only. */
@@ -78,6 +79,14 @@ export default defineConfig(
             {
               from: { element: { type: 'test-support' } },
               allow: { to: { element: [{ type: 'platform' }, anyModuleIndex] } },
+            },
+            // The MCP tests run the tools against a real admin module.
+            {
+              from: {
+                element: { type: 'module', captured: { name: 'mcp' } },
+                file: { categories: 'test' },
+              },
+              allow: { to: { element: [anyModuleIndex] } },
             },
             // Test code may build the whole application: the composition root is the only way to
             // run a journey that spans several modules.

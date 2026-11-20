@@ -60,6 +60,11 @@ export function tokenHeaders(
   return { Authorization: `Bearer ${token}` }
 }
 
+/** Revokes the access token of headers `tokenHeaders` answered. */
+export function revokeToken(headers: Record<string, string>): void {
+  testAccessTokens.delete((headers.Authorization ?? '').replace(/^Bearer /, ''))
+}
+
 /** The headers of a guest that fetched an antiforgery token: a CSRF cookie and header minted for nobody. */
 export async function guestHeaders(): Promise<Record<string, string>> {
   const token = newToken()

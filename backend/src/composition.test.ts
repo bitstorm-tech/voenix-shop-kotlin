@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -143,6 +144,46 @@ describe('an access token', () => {
       '/api/admin/access-tokens',
     ]) {
       expect((await request(path, { headers })).status).toBe(401)
+    }
+  })
+})
+
+describe('the MCP endpoint', () => {
+  test('lists every open endpoint with a convertible schema and none of the locked ones', async () => {
+    const token = await adminToken('composed-mcp@voenix.example')
+    const client = new Client({ name: 'composed-test', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL('http://localhost/api/mcp'), {
+        fetch: async (url, init) => request(url.toString(), init),
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    )
+    try {
+      const endpoints = await client.callTool({
+        name: 'admin_endpoints',
+        arguments: { path: '/api/admin/' },
+      })
+      expect(endpoints.isError).toBe(false)
+      const text = JSON.stringify(endpoints.content)
+      expect(text).toContain('GET /api/admin/operations/findings')
+      expect(text).toContain('POST /api/admin/countries json')
+      for (const locked of [
+        '/api/admin/orders',
+        '/api/admin/production',
+        '/api/admin/supplier-logins',
+        '/api/admin/access-tokens',
+        '/api/admin/images/background-removal',
+      ]) {
+        expect(text).not.toContain(locked)
+      }
+      const read = await client.callTool({
+        name: 'admin_read',
+        arguments: { path: '/api/admin/countries' },
+      })
+      expect(read.isError).toBe(false)
+      expect(JSON.stringify(read.content)).toContain('HTTP 200')
+    } finally {
+      await client.close()
     }
   })
 })
