@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import type { SupplierInput, SupplierService } from './service'
 
@@ -58,7 +58,7 @@ const supplierId = integerParam('id', 'Invalid supplier id')
 
 export function supplierRoutes(suppliers: SupplierService): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.get('/', async (c) => c.json(await suppliers.list()))
   admin.post('/', jsonBody(supplierInput), async (c) => {
     const result = await suppliers.create(c.req.valid('json'))

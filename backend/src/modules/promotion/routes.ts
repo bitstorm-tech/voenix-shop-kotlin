@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import type { PromotionInput, PromotionRepository } from './repository'
 
@@ -119,7 +119,7 @@ const promotionId = integerParam('id', 'Invalid promotion id')
 
 export function promotionRoutes(promotions: PromotionRepository): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.get('/', async (c) => c.json(await promotions.list()))
   admin.post('/', jsonBody(promotionInput), async (c) => {
     const result = await promotions.create(c.req.valid('json'))

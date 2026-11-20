@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { Hono } from 'hono'
 import { sql } from 'kysely'
-import { createAccountModule } from '@/modules/account'
+import { createAccessTokens, createAccountModule } from '@/modules/account'
 import { EmailDeliveryError, type RenderedEmail, type UserEmailKind } from '@/modules/email'
-import { testDatabase } from '@test-support/database'
+import { createAuth, requireAdminOrToken } from '@/platform/auth/auth'
+import { createApp } from '@/platform/http/app'
+import { seedUser, testDatabase } from '@test-support/database'
 import {
   cookieHeader,
   jsonOf,
   setCookies,
   signedInHeaders,
+  TEST_SESSION_SECRET,
   testApp,
   testAuth,
 } from '@test-support/http'
@@ -679,5 +684,183 @@ describe('/api/admin/supplier-logins', () => {
       message: 'Validation failed',
       errors: { supplierId: ['A positive supplier id is required'] },
     })
+  })
+})
+
+describe('/api/admin/access-tokens', () => {
+  /** The account routes and a probe behind `requireAdminOrToken`, with the real token lookup. */
+  const tokenApp = () => {
+    const auth = createAuth({
+      sessionSecret: TEST_SESSION_SECRET,
+      secureCookies: false,
+      accessTokens: createAccessTokens(database.db),
+    })
+    const probe = new Hono()
+    probe.use(requireAdminOrToken)
+    probe.on(['GET', 'POST'], '/', (c) => c.text(`admin ${String(c.var.principal?.userId)}`))
+    const app = createApp(auth)
+    app.route('/', accounts().routes)
+    app.route('/probe', probe)
+    return app
+  }
+  const seedAdmin = async (email: string) => {
+    const id = await seedUser(database.db, email)
+    await database.db.insertInto('user_roles').values({ user_id: id, role: 'ADMIN' }).execute()
+    return id
+  }
+  const call = async (
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    body?: unknown,
+  ) =>
+    tokenApp().request(path, {
+      method,
+      headers: { ...headers, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+  const create = async (adminId: number, name: unknown) =>
+    call('POST', '/api/admin/access-tokens', await signedInHeaders({ userId: adminId }), { name })
+  const createToken = async (adminId: number, name: string) => {
+    const response = await create(adminId, name)
+    expect(response.status).toBe(201)
+    return (await response.json()) as { id: number; token: string }
+  }
+  const bearer = (token: string) => ({ Authorization: `Bearer ${token}` })
+  const list = async (adminId: number) => {
+    const response = await call(
+      'GET',
+      '/api/admin/access-tokens',
+      await signedInHeaders({ userId: adminId }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    return (await response.json()) as Record<string, unknown>[]
+  }
+
+  test('a created token is answered once and only its hash is stored', async () => {
+    const adminId = await seedAdmin('tokens@voenix.example')
+    const response = await create(adminId, '  Claude Code  ')
+    expect(response.status).toBe(201)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    const created = (await response.json()) as Record<string, unknown> & {
+      id: number
+      token: string
+    }
+    expect(created).toEqual({
+      id: created.id,
+      name: 'Claude Code',
+      userEmail: 'tokens@voenix.example',
+      createdAt: expect.any(String),
+      lastUsedAt: null,
+      token: created.token,
+    })
+    expect(created.token).toMatch(/^vnx_[A-Za-z0-9_-]{43}$/)
+    const rows = await database.db
+      .selectFrom('access_tokens')
+      .select(['user_id', 'name', 'token_hash'])
+      .where('id', '=', created.id)
+      .execute()
+    expect(rows).toEqual([
+      {
+        user_id: adminId,
+        name: 'Claude Code',
+        token_hash: createHash('sha256').update(created.token).digest('hex'),
+      },
+    ])
+    const second = await createToken(adminId, 'Codex')
+    const listed = await list(adminId)
+    expect(listed.slice(0, 2).map((token) => token.id)).toEqual([second.id, created.id])
+    expect(listed[1]).toEqual({
+      id: created.id,
+      name: 'Claude Code',
+      userEmail: 'tokens@voenix.example',
+      createdAt: created.createdAt,
+      lastUsedAt: null,
+    })
+  })
+
+  test('the name is required, at most 100 characters, and the only property', async () => {
+    const adminId = await seedAdmin('names@voenix.example')
+    for (const [name, message] of [
+      ['   ', 'Name is required'],
+      [undefined, 'Name is required'],
+      ['x'.repeat(101), 'Name must be at most 100 characters'],
+    ] as const) {
+      const response = await create(adminId, name)
+      expect(response.status).toBe(400)
+      expect(await jsonOf(response)).toEqual({
+        message: 'Validation failed',
+        errors: { name: [message] },
+      })
+    }
+    const extra = await call(
+      'POST',
+      '/api/admin/access-tokens',
+      await signedInHeaders({ userId: adminId }),
+      { name: 'ok', userId: 1 },
+    )
+    expect(extra.status).toBe(400)
+  })
+
+  test('a token opens a requireAdminOrToken route, without a CSRF pair, and stamps its use', async () => {
+    const adminId = await seedAdmin('use@voenix.example')
+    const { id, token } = await createToken(adminId, 'In use')
+    for (const method of ['GET', 'POST']) {
+      const response = await tokenApp().request('/probe', { method, headers: bearer(token) })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe(`admin ${String(adminId)}`)
+    }
+    const used = (await list(adminId)).find((row) => row.id === id)
+    expect(used?.lastUsedAt).toEqual(expect.any(String))
+    // A token is worth nothing on the token routes themselves.
+    expect((await call('GET', '/api/admin/access-tokens', bearer(token))).status).toBe(401)
+    expect(
+      (await call('POST', '/api/admin/access-tokens', bearer(token), { name: 'second' })).status,
+    ).toBe(401)
+  })
+
+  test('a removed role counts from the very next request', async () => {
+    const adminId = await seedAdmin('demoted@voenix.example')
+    const { token } = await createToken(adminId, 'Demoted')
+    expect((await tokenApp().request('/probe', { headers: bearer(token) })).status).toBe(200)
+    await database.db.deleteFrom('user_roles').where('user_id', '=', adminId).execute()
+    expect((await tokenApp().request('/probe', { headers: bearer(token) })).status).toBe(403)
+  })
+
+  test('a revoked token is refused at once, and only a stored id can be revoked', async () => {
+    const adminId = await seedAdmin('revoke@voenix.example')
+    const otherAdmin = await seedAdmin('other@voenix.example')
+    const { id, token } = await createToken(adminId, 'Revoked')
+    const remove = async (path: string) =>
+      call(
+        'DELETE',
+        `/api/admin/access-tokens/${path}`,
+        await signedInHeaders({ userId: otherAdmin }),
+      )
+    const revoked = await remove(String(id))
+    expect(revoked.status).toBe(204)
+    expect(revoked.headers.get('Cache-Control')).toBe('no-store')
+    expect((await tokenApp().request('/probe', { headers: bearer(token) })).status).toBe(401)
+    const again = await remove(String(id))
+    expect(again.status).toBe(404)
+    expect(await jsonOf(again)).toEqual({ message: 'Access token not found', errors: {} })
+    const malformed = await remove('abc')
+    expect(malformed.status).toBe(400)
+    expect(await jsonOf(malformed)).toEqual({ message: 'Invalid access token id', errors: {} })
+  })
+
+  test('deleting the user deletes their tokens', async () => {
+    const adminId = await seedAdmin('cascade@voenix.example')
+    const { token } = await createToken(adminId, 'Cascade')
+    await database.db.deleteFrom('users').where('id', '=', adminId).execute()
+    expect(
+      await database.db
+        .selectFrom('access_tokens')
+        .select('id')
+        .where('user_id', '=', adminId)
+        .execute(),
+    ).toEqual([])
+    expect((await tokenApp().request('/probe', { headers: bearer(token) })).status).toBe(401)
   })
 })

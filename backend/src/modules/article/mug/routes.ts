@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { exampleImageUpload } from '@/modules/image'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import {
   formBody,
   integerParam,
@@ -123,7 +123,7 @@ const mugId = integerParam('id', 'Invalid article id')
  */
 export function mugRoutes(mugs: MugService): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.get('/', async (c) => c.json(await mugs.list()))
   admin.post('/', jsonBody(mugArticleInput), async (c) => {
     const result = await mugs.create(c.req.valid('json'))

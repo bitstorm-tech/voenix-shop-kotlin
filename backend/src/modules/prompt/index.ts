@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Kysely } from 'kysely'
 import type { ImageModule, PublicImageReferences } from '@/modules/image'
 import type { PriceCatalog } from '@/modules/pricing'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { read, type Tables } from '@/platform/db/database'
 import { createLogger } from '@/platform/logging'
 import { categoryRoutes, subcategoryRoutes } from './category/routes'
@@ -44,7 +44,7 @@ export function createPromptModule({
 
   // The sub-paths go first: `/:id` of the prompts would otherwise answer `/categories`.
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.route('/slots', slotRoutes(slots))
   admin.route('/slot-variants', slotVariantRoutes(slots))
   admin.route('/categories', categoryRoutes(categories))

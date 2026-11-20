@@ -2,7 +2,7 @@ import { statSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import type { Hono } from 'hono'
 import { getConnInfo, serveStatic } from '@hono/bun'
-import { createAccountModule } from '@/modules/account'
+import { createAccessTokens, createAccountModule } from '@/modules/account'
 import { createArticleModule } from '@/modules/article'
 import { createCartModule, createPrintImageReads } from '@/modules/cart'
 import { createCheckoutModule } from '@/modules/checkout'
@@ -48,7 +48,7 @@ export async function createApplication(
   const db = createDatabase(settings.database)
   const fetch = overrides.fetch ?? globalThis.fetch
   try {
-    const auth = createAuth(settings.auth)
+    const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
     const app = createApp(auth)
     const { guestTokens } = auth
     const frontendBaseUrl = settings.frontend.baseUrl

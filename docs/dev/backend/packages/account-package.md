@@ -42,7 +42,7 @@ flowchart TB
     end
 
     subgraph Account["Account module"]
-        Routes["routes.ts<br/>Zod schemas · /api/auth · /api/admin/supplier-logins"]
+        Routes["routes.ts<br/>Zod schemas · /api/auth · /api/admin/supplier-logins · /api/admin/access-tokens"]
         Service["service.ts<br/>flows · lockout · token issue"]
         Mails["mails.ts<br/>links · required vs best effort"]
         Credentials["credentials.ts<br/>PBKDF2 · random tokens"]
@@ -50,7 +50,7 @@ flowchart TB
     end
 
     Email["email module<br/>userEmails.send · render…"]
-    Tables[("PostgreSQL<br/>users · user_roles · account_tokens")]
+    Tables[("PostgreSQL<br/>users · user_roles · account_tokens · access_tokens")]
 
     Client --> App --> Routes
     Routes -.->|"installs"| Protect
@@ -77,7 +77,7 @@ account/
 |- mails.ts              createAccountMails(…): the links and the mail failure policy
 |- credentials.ts        createPasswordHasher(iterations), newAccountToken(), tokenHashOf(token)
 |- repository.ts         createAccountRepository(db); Address, UserAccount, SupplierLogin, TokenPurpose
-|- schema.ts             UsersTable, UserRolesTable, AccountTokensTable, merged into Tables
+|- schema.ts             UsersTable, UserRolesTable, AccountTokensTable, AccessTokensTable, merged into Tables
 |- routes.test.ts        the flows over HTTP against the real database
 |- credentials.test.ts   the hash encoding, including a hash made by the Kotlin hasher
 `- validation.test.ts    the schemas' field names and messages
@@ -190,6 +190,17 @@ credential or lockout state, because this surface manages *who* may sign in for
 a supplier, not how that login is doing. A malformed `userId` answers `404`
 rather than the platform's `400` for malformed ids: it can never name a
 supplier login, so it gets the same answer as an id that names a customer.
+
+Access token endpoints (`requireAdmin`, never a token itself; every answer
+`Cache-Control: no-store`). A token is the bearer credential of an AI client
+on the MCP endpoint; see
+[Access tokens](../conventions/authentication-and-authorization.md#access-tokens).
+
+| Method and path | Success | Failure notes |
+| --- | --- | --- |
+| `GET /api/admin/access-tokens` | `200`, every admin's tokens, newest first: `{ id, name, userEmail, createdAt, lastUsedAt }[]` | — |
+| `POST /api/admin/access-tokens` with `{ name }` (trimmed, 1 to 100 characters) | `201`, the same shape plus `token` (`vnx_…`), the only answer that ever carries it; the owner is the calling admin | `400` `name: ["Name is required"]` or `["Name must be at most 100 characters"]`, `400 Unknown property` |
+| `DELETE /api/admin/access-tokens/{id}` | `204`; every admin may revoke every token | `404 Access token not found`, `400 Invalid access token id` |
 
 The path is deliberately **not** a child of `/api/admin/suppliers`. That
 subtree belongs to the supplier module and carries its own protection; a
@@ -334,6 +345,14 @@ creates the three tables `schema.ts` declares:
 - `account_tokens`: SHA-256 token hash, purpose, optional pending new e-mail,
   expiry; unique per `(user_id, purpose)`.
 
+Migration
+[`V38__create_access_tokens.sql`](../../../../backend/migrations/V38__create_access_tokens.sql)
+adds `access_tokens`: `user_id` (`ON DELETE CASCADE`, so deleting a user
+deletes their tokens), a non-empty `name` of at most 100 characters, the
+unique SHA-256 `token_hash`, `created_at`, and the nullable `last_used_at`
+that every successful use stamps. There is no expiry; deleting the row
+revokes the token.
+
 The repository is the only code that queries these tables. As everywhere in
 this backend, the database is the authority for uniqueness:
 `executePostgresWrite` maps `23505` to `'emailTaken'` and the supplier foreign
@@ -420,6 +439,18 @@ app.route('/', accounts.routes)
 // later: requireSupplier(accounts.supplierAccounts) in the production routes
 ```
 
+The token lookup is created on its own, before the auth, because the module
+needs the auth and the auth needs the lookup (the pattern of the cart's
+`createPrintImageReads(db)`):
+
+```ts
+const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
+```
+
+`createAccessTokens(db).principalOf(token)` hashes the token, stamps
+`last_used_at`, and answers the user with the roles read from `user_roles` on
+this request, or `null` for an unknown token.
+
 `supplierAccounts` implements the platform's `SupplierAccounts` interface:
 `supplierIdOf(userId)` answers the `users.supplier_id` of that user, or `null`
 for a customer, an admin, and a user that does not exist. `requireSupplier`
@@ -448,7 +479,7 @@ always taken from the recorded mails, never from the token table.
 
 | Test | What it states |
 | --- | --- |
-| [`routes.test.ts`](../../../../backend/src/modules/account/routes.test.ts) | A happy path per route; register duplicate `409`, normal and concurrent; the confirm, reset, and change-e-mail links incl. reuse, replacement, `INVALID_LINK`, and the 24-hour expiry; uniform `401`, `403`, the lockout and its release; session cookie set at login and cleared at logout, no guest cookie on either; a hash stored by Kotlin signs in; the `502`/`500` mail policy; wrong current password; the late `409` at confirm-change-email; the supplier login lifecycle with `supplierIdOf`, the duplicate, the unknown supplier, the `404` matrix, and the `502` that keeps the login |
+| [`routes.test.ts`](../../../../backend/src/modules/account/routes.test.ts) | A happy path per route; register duplicate `409`, normal and concurrent; the confirm, reset, and change-e-mail links incl. reuse, replacement, `INVALID_LINK`, and the 24-hour expiry; uniform `401`, `403`, the lockout and its release; session cookie set at login and cleared at logout, no guest cookie on either; a hash stored by Kotlin signs in; the `502`/`500` mail policy; wrong current password; the late `409` at confirm-change-email; the supplier login lifecycle with `supplierIdOf`, the duplicate, the unknown supplier, the `404` matrix, and the `502` that keeps the login; the access tokens: the stored hash, the list, the name rules, a real token on a real `requireAdminOrToken` route without a CSRF pair, `last_used_at`, role removal, revocation, the cascade, and a token refused on its own routes |
 | [`credentials.test.ts`](../../../../backend/src/modules/account/credentials.test.ts) | The hash encoding: a fixture produced by the JDK's PBKDF2 exactly as the Kotlin hasher calls it, the round trip, iterations read from the encoding, and every malformed encoding refused |
 | [`validation.test.ts`](../../../../backend/src/modules/account/validation.test.ts) | Every request schema's field names and messages, and the address normalization |
 

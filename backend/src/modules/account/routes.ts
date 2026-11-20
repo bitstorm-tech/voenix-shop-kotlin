@@ -1,9 +1,15 @@
 import { zValidator } from '@hono/zod-validator'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { requireAdmin, requireAuthenticated, type Auth } from '@/platform/auth/auth'
-import { apiError, jsonBody, validationFailed } from '@/platform/http/respond'
-import type { Address } from './repository'
+import {
+  ACCESS_TOKEN_PREFIX,
+  requireAdmin,
+  requireAuthenticated,
+  type Auth,
+} from '@/platform/auth/auth'
+import { apiError, integerParam, jsonBody, validationFailed } from '@/platform/http/respond'
+import { newAccountToken, tokenHashOf } from './credentials'
+import type { AccountRepository, Address } from './repository'
 import type {
   AccountService,
   ChangeEmailInput,
@@ -164,6 +170,14 @@ export const supplierLoginQuery = z.object({
     .regex(/^\d+$/, { error: POSITIVE_SUPPLIER_ID, abort: true })
     .transform(Number)
     .pipe(z.int({ error: POSITIVE_SUPPLIER_ID }).positive(POSITIVE_SUPPLIER_ID)),
+})
+
+export const accessTokenInput = z.strictObject({
+  name: z
+    .string({ error: 'Name is required' })
+    .trim()
+    .min(1, 'Name is required')
+    .max(100, 'Name must be at most 100 characters'),
 })
 
 function cleaned(value: string | null | undefined): string | null {
@@ -355,3 +369,40 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
 
 const authenticationRequired = (c: Context) => c.json(apiError('Authentication required'), 401)
 const userNotFound = (c: Context) => c.json(apiError('User not found'), 401)
+
+/**
+ * The access tokens under `/api/admin/access-tokens`: list, create, revoke. They stay behind
+ * `requireAdmin`, so a token can neither mint a second token that outlives its revocation nor
+ * revoke one. Every answer is `no-store`; the create answer carries the plain token, once.
+ */
+export function accessTokenRoutes(repository: AccountRepository): Hono {
+  const admin = new Hono()
+  admin.use(requireAdmin, async (c, next) => {
+    c.header('Cache-Control', 'no-store')
+    await next()
+  })
+
+  admin.get('/', async (c) => c.json(await repository.listAccessTokens()))
+
+  admin.post('/', jsonBody(accessTokenInput), async (c) => {
+    const userId = c.var.principal?.userId
+    if (userId === undefined) return authenticationRequired(c)
+    const token = `${ACCESS_TOKEN_PREFIX}${newAccountToken()}`
+    const stored = await repository.insertAccessToken({
+      userId,
+      name: c.req.valid('json').name,
+      tokenHash: tokenHashOf(token),
+    })
+    return c.json({ ...stored, token }, 201)
+  })
+
+  admin.delete('/:id', integerParam('id', 'Invalid access token id'), async (c) =>
+    (await repository.deleteAccessToken(c.req.valid('param').id))
+      ? c.body(null, 204)
+      : c.json(apiError('Access token not found'), 404),
+  )
+
+  const routes = new Hono()
+  routes.route('/api/admin/access-tokens', admin)
+  return routes
+}

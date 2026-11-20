@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { apiError, jsonBody, respondResult } from '@/platform/http/respond'
 import {
   PRICE_CALCULATION_MODES,
@@ -118,7 +118,7 @@ const PRICE_RESPONSES = { notFound: 'Price not found', conflict: null }
 
 export function priceRoutes(prices: PriceService): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.post('/calculate', jsonBody(priceInput), async (c) =>
     respondResult(c, await prices.prepare(c.req.valid('json')), PRICE_RESPONSES),
   )

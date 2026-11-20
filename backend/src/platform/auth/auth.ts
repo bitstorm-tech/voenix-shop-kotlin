@@ -23,9 +23,26 @@ export interface UserPrincipal {
   roles: string[]
 }
 
+/** The prefix of every access token; a bearer value without it is refused without a lookup. */
+export const ACCESS_TOKEN_PREFIX = 'vnx_'
+
+/**
+ * Answers who an access token acts for, with the roles read on this very request, or `null` for
+ * an unknown or revoked token. The account module owns the tokens and implements this.
+ */
+export interface AccessTokens {
+  principalOf(token: string): Promise<UserPrincipal | null>
+}
+
 declare module 'hono' {
   interface ContextVariableMap {
+    /** The session cookie's identity; never a bearer token's. */
     principal: UserPrincipal | null
+    /**
+     * The bearer token's identity: `undefined` without an `Authorization: Bearer` header, `null`
+     * for a value that is no valid token. Only `requireAdminOrToken` reads it.
+     */
+    tokenPrincipal: UserPrincipal | null | undefined
     csrfSession: CsrfSession | null
     /** Set by `requireSupplier`: the supplier the caller acts for. */
     supplierId: number
@@ -42,10 +59,12 @@ export type Auth = ReturnType<typeof createAuth>
 export function createAuth({
   sessionSecret,
   secureCookies,
+  accessTokens,
 }: {
   sessionSecret: string
   /** `Secure` on every cookie; from the settings, never the request, which a proxy or client sets. */
   secureCookies: boolean
+  accessTokens: AccessTokens
 }) {
   const cookies = authCookies(sessionSecret)
   /** Browser-session cookies: no Max-Age. */
@@ -66,6 +85,16 @@ export function createAuth({
     const valid = session !== null && session.expiresAtEpochSeconds > now ? session : null
     c.set('principal', valid === null ? null : { userId: valid.userId, roles: valid.roles })
     c.set('csrfSession', await cookies.csrf.open(getCookie(c, CSRF_COOKIE)))
+    const bearer = /^Bearer(?:\s+(.*))?$/i.exec(c.req.header('authorization') ?? '')
+    const token = bearer?.[1]?.trim() ?? ''
+    c.set(
+      'tokenPrincipal',
+      bearer === null
+        ? undefined
+        : token.startsWith(ACCESS_TOKEN_PREFIX)
+          ? await accessTokens.principalOf(token)
+          : null,
+    )
     // Sliding renewal: once more than half of the lifetime has elapsed, any request renews it.
     if (valid !== null && now - valid.issuedAtEpochSeconds > valid.expiresAtEpochSeconds - now) {
       await writeSession(c, {
@@ -164,6 +193,22 @@ export const requireAdmin = failClosed((c) => {
   if (!c.var.principal.roles.includes(AuthRoles.ADMIN))
     return authRefusal(c, 403, 'Admin access required')
   return null
+})
+
+/**
+ * The exact role `ADMIN`, from an access token or a session. A request that presents a bearer
+ * token is decided by that token alone, never by its cookies: an invalid token answers `401`, a
+ * token of a non-admin `403`, and a valid one becomes `c.var.principal` and needs no CSRF pair,
+ * because a browser never attaches a bearer token on its own. Without a bearer header this is
+ * `requireAdmin`. A route opts in only under the rule of the authentication guide.
+ */
+export const requireAdminOrToken = createMiddleware(async (c, next) => {
+  const token = c.var.tokenPrincipal
+  if (token === undefined) return requireAdmin(c, next)
+  if (token === null) return authRefusal(c, 401, 'Authentication required')
+  if (!token.roles.includes(AuthRoles.ADMIN)) return authRefusal(c, 403, 'Admin access required')
+  c.set('principal', token)
+  await next()
 })
 
 /**

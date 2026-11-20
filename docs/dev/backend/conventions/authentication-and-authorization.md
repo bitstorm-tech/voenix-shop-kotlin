@@ -14,7 +14,9 @@ install a protection and never implement security themselves.
 - [What `createAuth` builds](#what-createauth-builds)
 - [The sealed cookies](#the-sealed-cookies)
 - [The identity of one request](#the-identity-of-one-request)
-- [The four route protections](#the-four-route-protections)
+- [The five route protections](#the-five-route-protections)
+- [Access tokens](#access-tokens)
+- [Which admin routes a token opens](#which-admin-routes-a-token-opens)
 - [How CSRF protection works](#how-csrf-protection-works)
 - [Cookie settings and session lifetime](#cookie-settings-and-session-lifetime)
 - [Guest identity](#guest-identity)
@@ -70,17 +72,17 @@ a malformed id receives `400 Invalid country id` without the body being read.
 ## What `createAuth` builds
 
 [`auth.ts`](../../../../backend/src/platform/auth/auth.ts) exports one
-factory. `createAuth({ sessionSecret })` returns:
+factory. `createAuth({ sessionSecret, secureCookies, accessTokens })` returns:
 
 | Member | What it does |
 | --- | --- |
-| `middleware` | Runs on every request (installed by `createApp`): opens the two cookies into `c.var.principal` and `c.var.csrfSession`, and renews a session past half its life. |
+| `middleware` | Runs on every request (installed by `createApp`): opens the two cookies into `c.var.principal` and `c.var.csrfSession`, renews a session past half its life, and resolves an `Authorization: Bearer` header into `c.var.tokenPrincipal`. |
 | `routes` | `GET /api/antiforgery/token`, which mints a CSRF token. |
 | `signIn(c, userId, roles)` | Writes a fresh 24-hour session cookie. |
 | `signOut(c)` | Clears it. |
 | `guestTokens.tryGet(c)`, `guestTokens.getOrCreate(c)` | The guest identity below. |
 
-The four route protections are plain exports of the same file, because they
+The five route protections are plain exports of the same file, because they
 read only what the middleware stored on the request.
 
 ## The sealed cookies
@@ -118,20 +120,28 @@ export interface UserPrincipal {
 
 `principal` is `null` for an anonymous request, for a tampered cookie, and for
 an expired session alike. A cookie contains a **claim**; the principal is the
-application's **validated identity for this request**.
+application's **validated identity for this request**. `principal` and
+`csrfSession` come from the cookies only.
 
-## The four route protections
+A third variable, `c.var.tokenPrincipal`, carries the identity of an
+[access token](#access-tokens): `undefined` when the request presents no
+`Authorization: Bearer` header, `null` when it presents one that is no valid
+token, and a `UserPrincipal` otherwise. Only `requireAdminOrToken` reads it.
+
+## The five route protections
 
 A protection is a Hono middleware installed on a sub-app with
-`admin.use(requireAdmin)`, which protects every route below it. All four share
-the same fail-closed core: a rejected request is answered before the handler,
-and for `POST`, `PUT`, `PATCH`, and `DELETE` the CSRF check runs after the
-authorization.
+`admin.use(requireAdmin)`, which protects every route below it. All share the
+same fail-closed core: a rejected request is answered before the handler, and
+for `POST`, `PUT`, `PATCH`, and `DELETE` the CSRF check runs after the
+authorization. The one exception is a request that `requireAdminOrToken`
+admits by its bearer token: it needs no CSRF pair.
 
 | Protection | Who passes | Refusals |
 | --- | --- | --- |
 | `requireAuthenticated` | any signed-in user | `401` |
 | `requireAdmin` | the exact role `ADMIN` (case-sensitive; other roles may be present) | `401`, `403 Admin access required` |
+| `requireAdminOrToken` | with a bearer header: a valid access token whose user holds `ADMIN` now; without one: exactly `requireAdmin` | `401` invalid token (also next to a valid session cookie), `403 Admin access required`, or the refusals of `requireAdmin` |
 | `guestCapable` | everyone; a mutating request needs a CSRF pair, and a signed-in user needs one minted for that user | `400 Invalid CSRF token` |
 | `requireSupplier(accounts)` | the exact role `SUPPLIER` **and** a live link: `accounts.supplierIdOf(userId)` must answer a supplier on this very request; handlers read it as `c.var.supplierId` | `401`, `403 Supplier access required` for both halves |
 
@@ -145,6 +155,84 @@ The supplier protection asks the account module on every request because a
 role in a cookie is frozen until the next login, while a revoked supplier login
 must lose access with the very next request. `SupplierAccounts` is the one
 interface the platform declares for another module to implement.
+
+## Access tokens
+
+An access token is the second way to authenticate, made for an AI client on
+the MCP endpoint (see the [MCP package guide](../packages/mcp-package.md)). An
+admin creates a named token in the dashboard (`/admin/access-tokens`), and the
+client sends it as `Authorization: Bearer <token>`.
+
+- A token is `vnx_` followed by 32 random bytes in base64url. The middleware
+  answers `null` for a bearer value without the prefix without asking the
+  database.
+- Only its SHA-256 hash is stored, in the account module's `access_tokens`
+  table. The plain token leaves the server once, in the answer that creates
+  it.
+- A token has no expiry. Deleting its row revokes it with the next request.
+- It acts as the admin who created it. `AccessTokens.principalOf`, declared
+  here and implemented by the account module like `SupplierAccounts`, reads
+  the user's roles from `user_roles` **on every request** and stamps
+  `last_used_at`. A role in a session cookie is frozen until the next login; a
+  token's role is not, so removing `ADMIN` turns the very next request into a
+  `403`.
+
+**A token counts only where a route opts in.** `requireAdmin`,
+`requireAuthenticated`, `guestCapable`, and `requireSupplier` never read
+`c.var.tokenPrincipal`; on their routes a request that carries only a token is
+anonymous. Only `requireAdminOrToken` accepts one. When a request presents a
+bearer header there, the token is the only credential that counts: an invalid
+one answers `401` even when a valid admin session cookie travels along, and a
+valid one becomes `c.var.principal`, so handlers read the acting admin as
+always.
+
+**Why a token needs no CSRF pair.** CSRF exists because a browser attaches
+cookies to a request a foreign page triggers. A browser never attaches an
+`Authorization` header on its own, so a foreign page cannot ride on a token.
+
+**Why not every protected route.** A stolen token on every route could change
+the admin's own account or mint new credentials. The token routes themselves
+(`/api/admin/access-tokens`) stay behind `requireAdmin`, so a token can neither
+create a second token that outlives its revocation nor revoke one.
+
+## Which admin routes a token opens
+
+The rule for choosing: an admin route is locked (`requireAdmin`) by default.
+It may switch to `requireAdminOrToken` only when all of this holds:
+
+1. it does not belong to orders or production,
+2. none of its answers can contain text a customer entered, and
+3. it creates no login or credential.
+
+A new admin route is therefore not reachable for an AI client until its author
+decides so, and the MCP endpoint list follows the protection by itself.
+Opening every route and keeping a list of locked ones lost because a new route
+that answers customer text would be open until someone remembers to lock it.
+
+| open for a token (`requireAdminOrToken`) | module |
+| --- | --- |
+| `/api/admin/countries` | country |
+| `/api/admin/prices`, `/api/admin/vat` | pricing |
+| `/api/admin/promotions` | promotion |
+| `/api/admin/suppliers` | supplier |
+| `/api/admin/prompts` (with categories and slots) | prompt |
+| `/api/admin/articles/mugs`, `/spod`, `/categories`, `/subcategories` | article |
+| `/api/admin/operations` (findings, menu counts, last scan) | operations, its `admin` sub-app only |
+| `/api/admin/images/orphans` | image |
+| `/api/mcp` | mcp |
+
+| locked (`requireAdmin`) | why |
+| --- | --- |
+| `/api/admin/orders` (list, timeline, payment recheck, production PDFs) | orders; e-mail, names, addresses |
+| `/api/admin/production/jobs` (list, PDF, ship, SPOD release) | production; names, addresses |
+| `/api/admin/production/destinations` | production; sets the SFTP and SPOD credentials |
+| `/api/admin/supplier-logins` | creates logins; lists e-mail addresses a supplier can change |
+| `/api/admin/access-tokens` | creates credentials |
+| `/api/admin/images/background-removal` | multipart and binary only, so MCP cannot use it; every call costs money |
+
+The open routes answer admin-written master data, the partner's catalog text
+(SPOD articles), fixed error codes and numeric ids (findings), and generated
+image file names (orphans).
 
 ## How CSRF protection works
 
@@ -217,6 +305,9 @@ routes.route('/api/admin/widgets', admin)
 ```
 
 Install the protection once on the sub-app, mount the sub-app at its path.
+Use `requireAdmin` unless the route meets the
+[rule for choosing](#which-admin-routes-a-token-opens) and you decided to open
+it for access tokens.
 Because the protection applies to the whole subtree, a non-canonical path below
 it (`/api/admin/widgets/` with a trailing slash) is refused with `401` for an
 anonymous caller and `404` for an authorized one, where Ktor answered `404` to
@@ -225,8 +316,12 @@ both; the subtree still fails closed.
 ## Tests
 
 [`auth.test.ts`](../../../../backend/src/platform/auth/auth.test.ts) pins
-every rule of this guide on probe routes: the four protections and their
-refusals, CSRF accepted and rejected, the token binding, expiry and sliding
+every rule of this guide on probe routes: the five protections and their
+refusals, the bearer token on every protection (also next to a session
+cookie), CSRF accepted and rejected, the token binding, expiry and sliding
 renewal, the cookie flags with `Secure` on and off, sign-in and sign-out, and the guest
-cookie. Module tests use `signedInHeaders({ userId, roles })` and
-`guestHeaders()` from `@test-support/http` and never repeat these cases.
+cookie. Module tests use `signedInHeaders({ userId, roles })`,
+`tokenHeaders(principal)` (a token registered with the in-memory lookup of
+`testAuth`), and `guestHeaders()` from `@test-support/http` and never repeat
+these cases. The account module's tests run a real token against a real
+`requireAdminOrToken` route.

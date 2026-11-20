@@ -10,9 +10,9 @@ import {
   WEBHOOK_SECRET,
   type ComposedApplication,
 } from '@/test-fixtures'
-import { testDatabase } from '@test-support/database'
+import { seedUser, testDatabase } from '@test-support/database'
 import { CSRF_COOKIE } from '@/platform/auth/cookies'
-import { guestHeaders, jsonOf, setCookies } from '@test-support/http'
+import { guestHeaders, jsonOf, setCookies, signedInHeaders } from '@test-support/http'
 
 /**
  * The composition root against the test database: every module's routes are mounted (one smoke
@@ -109,6 +109,41 @@ describe('createApplication', () => {
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     )
     expect(failure).toContain('there is no index.html in it')
+  })
+})
+
+/** A real access token of a new admin, created through the token route. */
+async function adminToken(email: string): Promise<string> {
+  const adminId = await seedUser(database.db, email)
+  await database.db.insertInto('user_roles').values({ user_id: adminId, role: 'ADMIN' }).execute()
+  const response = await request('/api/admin/access-tokens', {
+    method: 'POST',
+    headers: {
+      ...(await signedInHeaders({ userId: adminId })),
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ name: 'Composed test' }),
+  })
+  expect(response.status).toBe(201)
+  return ((await response.json()) as { token: string }).token
+}
+
+describe('an access token', () => {
+  test('opens the catalog and master data routes and none of the locked ones', async () => {
+    const headers = { Authorization: `Bearer ${await adminToken('composed-token@voenix.example')}` }
+    for (const path of ['/api/admin/countries', '/api/admin/operations/findings']) {
+      expect((await request(path, { headers })).status).toBe(200)
+    }
+    for (const path of [
+      '/api/admin/orders',
+      '/api/admin/orders/1/timeline',
+      '/api/admin/production/jobs',
+      '/api/admin/production/destinations',
+      '/api/admin/supplier-logins?supplierId=1',
+      '/api/admin/access-tokens',
+    ]) {
+      expect((await request(path, { headers })).status).toBe(401)
+    }
   })
 })
 

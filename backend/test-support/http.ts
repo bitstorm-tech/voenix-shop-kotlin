@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
-import { createAuth } from '@/platform/auth/auth'
+import { ACCESS_TOKEN_PREFIX, createAuth, type UserPrincipal } from '@/platform/auth/auth'
 import {
   authCookies,
   CSRF_COOKIE,
@@ -13,8 +13,15 @@ import { createApp } from '@/platform/http/app'
 
 export const TEST_SESSION_SECRET = 'test-session-secret-with-at-least-32-bytes'
 
+/** The access tokens `testAuth` knows: token → principal, registered by `tokenHeaders`. */
+const testAccessTokens = new Map<string, UserPrincipal>()
+
 /** The one auth instance every test app and every minted cookie share. */
-export const testAuth = createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: false })
+export const testAuth = createAuth({
+  sessionSecret: TEST_SESSION_SECRET,
+  secureCookies: false,
+  accessTokens: { principalOf: (token) => Promise.resolve(testAccessTokens.get(token) ?? null) },
+})
 const cookies = authCookies(TEST_SESSION_SECRET)
 
 /** The application with the platform middleware and the given module sub-apps mounted. */
@@ -42,6 +49,15 @@ export async function signedInHeaders({
   const token = newToken()
   const csrf = await cookies.csrf.seal({ token, userId })
   return { Cookie: `${SESSION_COOKIE}=${session}; ${CSRF_COOKIE}=${csrf}`, [CSRF_HEADER]: token }
+}
+
+/** Registers a fresh access token for `principal` with `testAuth` and answers its bearer header. */
+export function tokenHeaders(
+  principal: UserPrincipal = { userId: 11, roles: ['ADMIN'] },
+): Record<string, string> {
+  const token = `${ACCESS_TOKEN_PREFIX}${newToken()}`
+  testAccessTokens.set(token, principal)
+  return { Authorization: `Bearer ${token}` }
 }
 
 /** The headers of a guest that fetched an antiforgery token: a CSRF cookie and header minted for nobody. */
