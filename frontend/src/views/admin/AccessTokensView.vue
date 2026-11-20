@@ -58,7 +58,6 @@ const confirmOpen = computed({
 async function createToken() {
   nameError.value = null
   createError.value = null
-  createdToken.value = null
   try {
     const created = await tokensStore.createToken(name.value)
     createdToken.value = created.token
