@@ -199,21 +199,22 @@ onMounted(reload)
     <Alert v-if="revokeError" variant="destructive">{{ revokeError }}</Alert>
     <Alert v-if="listError" variant="destructive">{{ listError }}</Alert>
 
+    <!-- The table does not hang on the load failure: a token created after it still shows. -->
     <Card
-      v-else-if="tokensStore.isLoading && tokensStore.tokens.length === 0"
+      v-if="tokensStore.isLoading && tokensStore.tokens.length === 0"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
       Loading access tokens...
     </Card>
 
     <Card
-      v-else-if="tokensStore.tokens.length === 0"
+      v-else-if="tokensStore.tokens.length === 0 && !listError"
       class="px-4 py-12 text-center text-sm text-muted-foreground"
     >
       There is no access token.
     </Card>
 
-    <Card v-else class="overflow-hidden">
+    <Card v-else-if="tokensStore.tokens.length > 0" class="overflow-hidden">
       <div class="overflow-x-auto">
         <Table>
           <TableHeader>

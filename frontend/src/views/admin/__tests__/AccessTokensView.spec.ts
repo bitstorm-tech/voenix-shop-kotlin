@@ -117,6 +117,21 @@ describe('AccessTokensView', () => {
     expect(wrapper.get('[data-testid="created-token"]').text()).toContain('vnx_secret')
   })
 
+  it('shows a token created after a failed load next to the load failure', async () => {
+    tokensState.error = new Error('Internal server error')
+    tokensState.createToken = vi.fn(async () => {
+      tokensState.tokens = [unused]
+      return { ...unused, token: 'vnx_secret' }
+    })
+    const wrapper = await mountView()
+    expect(wrapper.text()).not.toContain('There is no access token.')
+
+    await create(wrapper, 'Claude Code')
+
+    expect(wrapper.text()).toContain('Internal server error')
+    expect(wrapper.findAll('[data-testid="access-token"]')).toHaveLength(1)
+  })
+
   it('shows the backend field error of a refused name at the field', async () => {
     tokensState.createToken = vi.fn(async () => {
       throw new ApiError('Validation failed', 400, { errors: { name: ['Name is required'] } })
