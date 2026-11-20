@@ -350,7 +350,7 @@ Migration
 adds `access_tokens`: `user_id` (`ON DELETE CASCADE`, so deleting a user
 deletes their tokens), a non-empty `name` of at most 100 characters, the
 unique SHA-256 `token_hash`, `created_at`, and the nullable `last_used_at`
-that every successful use stamps. There is no expiry; deleting the row
+that a successful use stamps, at most once a minute. There is no expiry; deleting the row
 revokes the token.
 
 The repository is the only code that queries these tables. As everywhere in
@@ -447,9 +447,12 @@ needs the auth and the auth needs the lookup (the pattern of the cart's
 const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
 ```
 
-`createAccessTokens(db).principalOf(token)` hashes the token, stamps
-`last_used_at`, and answers the user with the roles read from `user_roles` on
-this request, or `null` for an unknown token.
+`createAccessTokens(db).principalOf(token)` hashes the token and answers the
+user with the roles read from `user_roles` on this request, or `null` for an
+unknown token; it writes nothing. `markUsed(token)` stamps `last_used_at`
+unless it is less than a minute old. `requireAdminOrToken` calls it only once
+the token passed the `ADMIN` check, so a refused request never writes, and the
+minute keeps an MCP tool call, which passes the token twice, at one stamp.
 
 `supplierAccounts` implements the platform's `SupplierAccounts` interface:
 `supplierIdOf(userId)` answers the `users.supplier_id` of that user, or `null`

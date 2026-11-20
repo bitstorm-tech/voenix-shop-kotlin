@@ -400,17 +400,16 @@ export function createAccountRepository(db: Kysely<Tables>) {
     },
 
     /**
-     * The user and current roles of the token with this hash, stamping its `last_used_at`, or
-     * `null` when no such token exists. The roles are read here on every use, never stored with
-     * the token, so a removed role counts from the next request on.
+     * The user and current roles of the token with this hash, or `null` when no such token exists.
+     * The roles are read here on every use, never stored with the token, so a removed role counts
+     * from the next request on.
      */
     accessTokenPrincipal: (tokenHash: string) =>
-      write(db, async (trx) => {
+      read(db, async (trx) => {
         const token = await trx
-          .updateTable('access_tokens')
-          .set({ last_used_at: sql<Date>`now()` })
+          .selectFrom('access_tokens')
+          .select('user_id')
           .where('token_hash', '=', tokenHash)
-          .returning('user_id')
           .executeTakeFirst()
         if (token === undefined) return null
         const roles = await trx
@@ -420,6 +419,24 @@ export function createAccountRepository(db: Kysely<Tables>) {
           .execute()
         return { userId: token.user_id, roles: roles.map((row) => row.role) }
       }),
+
+    /**
+     * Stamps `last_used_at`, at most once a minute: an MCP tool call passes the token twice (the
+     * endpoint, then the admin route it dispatches to) and stamps once.
+     */
+    markAccessTokenUsed: async (tokenHash: string): Promise<void> => {
+      await db
+        .updateTable('access_tokens')
+        .set({ last_used_at: sql<Date>`now()` })
+        .where('token_hash', '=', tokenHash)
+        .where((eb) =>
+          eb.or([
+            eb('last_used_at', 'is', null),
+            eb('last_used_at', '<', sql<Date>`now() - interval '1 minute'`),
+          ]),
+        )
+        .execute()
+    },
 
     updatePasswordHash: async (userId: number, passwordHash: string): Promise<void> => {
       await db

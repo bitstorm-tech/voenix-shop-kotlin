@@ -172,10 +172,15 @@ client sends it as `Authorization: Bearer <token>`.
 - A token has no expiry. Deleting its row revokes it with the next request.
 - It acts as the admin who created it. `AccessTokens.principalOf`, declared
   here and implemented by the account module like `SupplierAccounts`, reads
-  the user's roles from `user_roles` **on every request** and stamps
-  `last_used_at`. A role in a session cookie is frozen until the next login; a
-  token's role is not, so removing `ADMIN` turns the very next request into a
-  `403`.
+  the user's roles from `user_roles` **on every request** and writes nothing.
+  A role in a session cookie is frozen until the next login; a token's role
+  is not, so removing `ADMIN` turns the very next request into a `403`.
+- `last_used_at` is stamped by `requireAdminOrToken` through
+  `AccessTokens.markUsed`, only after the token passed the `ADMIN` check. A
+  refused request, a token on a route that does not accept one, and an
+  anonymous `Bearer vnx_…` write nothing. The account module stamps at most
+  once a minute, so an MCP tool call, which passes the token on `/api/mcp` and
+  again on the admin route it dispatches to, stamps once.
 
 **A token counts only where a route opts in.** `requireAdmin`,
 `requireAuthenticated`, `guestCapable`, and `requireSupplier` never read

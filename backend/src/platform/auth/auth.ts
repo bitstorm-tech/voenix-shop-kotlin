@@ -28,10 +28,19 @@ export const ACCESS_TOKEN_PREFIX = 'vnx_'
 
 /**
  * Answers who an access token acts for, with the roles read on this very request, or `null` for
- * an unknown or revoked token. The account module owns the tokens and implements this.
+ * an unknown or revoked token, and stamps a token's use. The account module owns the tokens and
+ * implements this.
  */
 export interface AccessTokens {
+  /** Reads only; a refused or anonymous request never writes. */
   principalOf(token: string): Promise<UserPrincipal | null>
+  /** Stamps the token's last use; `requireAdminOrToken` calls it once the token passed. */
+  markUsed(token: string): Promise<void>
+}
+
+/** A bearer token's identity, with the stamp of its use. */
+export interface TokenPrincipal extends UserPrincipal {
+  markUsed(): Promise<void>
 }
 
 declare module 'hono' {
@@ -42,7 +51,7 @@ declare module 'hono' {
      * The bearer token's identity: `undefined` without an `Authorization: Bearer` header, `null`
      * for a value that is no valid token. Only `requireAdminOrToken` reads it.
      */
-    tokenPrincipal: UserPrincipal | null | undefined
+    tokenPrincipal: TokenPrincipal | null | undefined
     csrfSession: CsrfSession | null
     /** Set by `requireSupplier`: the supplier the caller acts for. */
     supplierId: number
@@ -87,13 +96,15 @@ export function createAuth({
     c.set('csrfSession', await cookies.csrf.open(getCookie(c, CSRF_COOKIE)))
     const bearer = /^Bearer(?:\s+(.*))?$/i.exec(c.req.header('authorization') ?? '')
     const token = bearer?.[1]?.trim() ?? ''
-    c.set(
-      'tokenPrincipal',
+    const tokenPrincipal =
       bearer === null
         ? undefined
         : token.startsWith(ACCESS_TOKEN_PREFIX)
           ? await accessTokens.principalOf(token)
-          : null,
+          : null
+    c.set(
+      'tokenPrincipal',
+      tokenPrincipal && { ...tokenPrincipal, markUsed: () => accessTokens.markUsed(token) },
     )
     // Sliding renewal: once more than half of the lifetime has elapsed, any request renews it.
     if (valid !== null && now - valid.issuedAtEpochSeconds > valid.expiresAtEpochSeconds - now) {
@@ -211,7 +222,7 @@ export const requireAdmin = failClosed((c) => {
 /**
  * The exact role `ADMIN`, from an access token or a session. A request that presents a bearer
  * token is decided by that token alone, never by its cookies: an invalid token answers `401`, a
- * token of a non-admin `403`, and a valid one becomes `c.var.principal` and needs no CSRF pair,
+ * token of a non-admin `403`, and a valid one is stamped as used, becomes `c.var.principal`, and needs no CSRF pair,
  * because a browser never attaches a bearer token on its own. Without a bearer header this is
  * `requireAdmin`. A route opts in only under the rule of the authentication guide.
  */
@@ -220,6 +231,7 @@ export const requireAdminOrToken = createMiddleware(async (c, next) => {
   if (token === undefined) return requireAdmin(c, next)
   if (token === null) return authRefusal(c, 401, 'Authentication required')
   if (!token.roles.includes(AuthRoles.ADMIN)) return authRefusal(c, 403, 'Admin access required')
+  await token.markUsed()
   c.set('principal', token)
   await next()
 })

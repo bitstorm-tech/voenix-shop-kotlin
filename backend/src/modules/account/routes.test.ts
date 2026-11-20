@@ -806,18 +806,22 @@ describe('/api/admin/access-tokens', () => {
   test('a token opens a requireAdminOrToken route, without a CSRF pair, and stamps its use', async () => {
     const adminId = await seedAdmin('use@voenix.example')
     const { id, token } = await createToken(adminId, 'In use')
-    for (const method of ['GET', 'POST']) {
-      const response = await tokenApp().request('/probe', { method, headers: bearer(token) })
-      expect(response.status).toBe(200)
-      expect(await response.text()).toBe(`admin ${String(adminId)}`)
-    }
-    const used = (await list(adminId)).find((row) => row.id === id)
-    expect(used?.lastUsedAt).toEqual(expect.any(String))
-    // A token is worth nothing on the token routes themselves.
+    const lastUsedAt = async () => (await list(adminId)).find((row) => row.id === id)?.lastUsedAt
+    // A token is worth nothing on the token routes themselves, and such a refusal stamps nothing.
     expect((await call('GET', '/api/admin/access-tokens', bearer(token))).status).toBe(401)
     expect(
       (await call('POST', '/api/admin/access-tokens', bearer(token), { name: 'second' })).status,
     ).toBe(401)
+    expect(await lastUsedAt()).toBeNull()
+    const stamps: unknown[] = []
+    for (const method of ['GET', 'POST']) {
+      const response = await tokenApp().request('/probe', { method, headers: bearer(token) })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe(`admin ${String(adminId)}`)
+      stamps.push(await lastUsedAt())
+    }
+    // Stamped by the first use; the second within the same minute leaves it.
+    expect(stamps).toEqual([expect.any(String), stamps[0]])
   })
 
   test('a removed role counts from the very next request', async () => {

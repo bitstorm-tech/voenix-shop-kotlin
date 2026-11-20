@@ -20,7 +20,10 @@ const testAccessTokens = new Map<string, UserPrincipal>()
 export const testAuth = createAuth({
   sessionSecret: TEST_SESSION_SECRET,
   secureCookies: false,
-  accessTokens: { principalOf: (token) => Promise.resolve(testAccessTokens.get(token) ?? null) },
+  accessTokens: {
+    principalOf: (token) => Promise.resolve(testAccessTokens.get(token) ?? null),
+    markUsed: () => Promise.resolve(),
+  },
 })
 const cookies = authCookies(TEST_SESSION_SECRET)
 

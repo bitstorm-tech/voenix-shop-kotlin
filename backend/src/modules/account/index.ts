@@ -50,5 +50,8 @@ export function createAccountModule({
  */
 export function createAccessTokens(db: Kysely<Tables>): AccessTokens {
   const repository = createAccountRepository(db)
-  return { principalOf: (token) => repository.accessTokenPrincipal(tokenHashOf(token)) }
+  return {
+    principalOf: (token) => repository.accessTokenPrincipal(tokenHashOf(token)),
+    markUsed: (token) => repository.markAccessTokenUsed(tokenHashOf(token)),
+  }
 }

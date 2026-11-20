@@ -113,7 +113,7 @@ const csrfOnly = (headers: Record<string, string>) => ({
 const now = () => Math.floor(Date.now() / 1000)
 const FORBIDDEN = { success: false, message: 'Admin access required', code: null }
 
-/** An auth whose token lookup records every token it is asked about and knows one admin token. */
+/** An auth whose token lookup records every token it is asked about, and every stamp as `used <token>`. */
 function recordingAuth(asked: string[], known: Record<string, UserPrincipal> = {}) {
   return createAuth({
     sessionSecret: TEST_SESSION_SECRET,
@@ -123,10 +123,14 @@ function recordingAuth(asked: string[], known: Record<string, UserPrincipal> = {
         asked.push(token)
         return Promise.resolve(known[token] ?? null)
       },
+      markUsed: (token) => {
+        asked.push(`used ${token}`)
+        return Promise.resolve()
+      },
     },
   })
 }
-const accessTokens = { principalOf: () => Promise.resolve(null) }
+const accessTokens = { principalOf: () => Promise.resolve(null), markUsed: () => Promise.resolve() }
 
 describe('the authenticated protection', () => {
   test('an anonymous request is refused with the auth answer', async () => {
@@ -285,6 +289,25 @@ describe('the admin-or-token protection', () => {
     const customer = await signedInHeaders({ userId: 22, roles: ['CUSTOMER'] })
     const withSession = await app.request('/probe/admin', { headers: { ...customer, ...token } })
     expect(withSession.status).toBe(403)
+  })
+
+  test('stamps a token only once it passed, never on a refusal', async () => {
+    const asked: string[] = []
+    const app = probeApp(
+      [],
+      recordingAuth(asked, {
+        vnx_admin: { userId: 35, roles: ['ADMIN'] },
+        vnx_customer: { userId: 36, roles: ['CUSTOMER'] },
+      }),
+    )
+    const request = (path: string, token: string) =>
+      app.request(path, { headers: { Authorization: `Bearer ${token}` } })
+    expect((await request('/probe/token-admin', 'vnx_customer')).status).toBe(403)
+    expect((await request('/probe/token-admin', 'vnx_x')).status).toBe(401)
+    expect((await request('/probe/admin', 'vnx_admin')).status).toBe(401)
+    expect(asked).toEqual(['vnx_customer', 'vnx_x', 'vnx_admin'])
+    expect((await request('/probe/token-admin', 'vnx_admin')).status).toBe(200)
+    expect(asked.slice(3)).toEqual(['vnx_admin', 'used vnx_admin'])
   })
 
   test('a session protection below an open one stays closed to the token', async () => {
