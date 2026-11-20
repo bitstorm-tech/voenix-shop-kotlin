@@ -21,7 +21,7 @@ defineProps<{
       <p class="text-sm font-semibold text-foreground-muted">{{ resultLabel }}</p>
     </div>
 
-    <nav class="scrollbar-hide flex gap-2 overflow-x-auto pb-2" aria-label="Mug category filters">
+    <nav class="flex flex-wrap gap-2 pb-2" aria-label="Mug category filters">
       <RouterLink
         v-for="filter in filters"
         :key="filter.id ?? 'all'"
