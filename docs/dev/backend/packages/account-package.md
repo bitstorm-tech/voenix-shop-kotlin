@@ -191,21 +191,6 @@ a supplier, not how that login is doing. A malformed `userId` answers `404`
 rather than the platform's `400` for malformed ids: it can never name a
 supplier login, so it gets the same answer as an id that names a customer.
 
-Access token endpoints (`requireAdmin`, never a token itself; every answer
-`Cache-Control: no-store`). A token is the bearer credential of an AI client
-on the MCP endpoint; see
-[Access tokens](../conventions/authentication-and-authorization.md#access-tokens).
-
-| Method and path | Success | Failure notes |
-| --- | --- | --- |
-| `GET /api/admin/access-tokens` | `200`, every admin's tokens, newest first: `{ id, name, userEmail, createdAt, lastUsedAt }[]` | — |
-| `POST /api/admin/access-tokens` with `{ name }` (trimmed, 1 to 100 characters) | `201`, the same shape plus `token` (`vnx_…`), the only answer that ever carries it; the owner is the calling admin | `400` `name: ["Name is required"]` or `["Name must be at most 100 characters"]`, `400 Unknown property` |
-| `DELETE /api/admin/access-tokens/{id}` | `204`; every admin may revoke every token | `404 Access token not found`, `400 Invalid access token id` |
-
-The path is deliberately **not** a child of `/api/admin/suppliers`. That
-subtree belongs to the supplier module and carries its own protection; a
-disjoint path keeps each module's protection exactly where that module put it.
-
 When the insert hits the unique e-mail index, the existing account is linked
 instead, provided it is no supplier login yet: `supplier_id` is set and the
 `SUPPLIER` role added in one transaction. A confirmed account keeps its
@@ -228,8 +213,23 @@ a supplier login. The
 invited person recovers through the normal "Passwort vergessen" flow, which
 replaces the stored reset token with a freshly mailed one.
 
-None of these routes sets `Cache-Control`; the Kotlin account routes did not
+None of the routes above sets `Cache-Control`; the Kotlin account routes did not
 either (only the order and checkout routes answer `no-store`).
+
+Access token endpoints (`requireAdmin`, never a token itself; every answer
+`Cache-Control: no-store`). A token is the bearer credential of an AI client
+on the MCP endpoint; see
+[Access tokens](../conventions/authentication-and-authorization.md#access-tokens).
+
+| Method and path | Success | Failure notes |
+| --- | --- | --- |
+| `GET /api/admin/access-tokens` | `200`, every admin's tokens, newest first: `{ id, name, userEmail, createdAt, lastUsedAt }[]` | — |
+| `POST /api/admin/access-tokens` with `{ name }` (trimmed, 1 to 100 characters) | `201`, the same shape plus `token` (`vnx_…`), the only answer that ever carries it; the owner is the calling admin | `400` `name: ["Name is required"]` or `["Name must be at most 100 characters"]`, `400 Unknown property` |
+| `DELETE /api/admin/access-tokens/{id}` | `204`; every admin may revoke every token | `404 Access token not found`, `400 Invalid access token id` |
+
+The path is deliberately **not** a child of `/api/admin/suppliers`. That
+subtree belongs to the supplier module and carries its own protection; a
+disjoint path keeps each module's protection exactly where that module put it.
 
 ## Request validation
 
