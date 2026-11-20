@@ -595,31 +595,16 @@
     "products": {
       "kicker": "Catalog",
       "title": "Your art on real products",
-      "subtitle": "Quality materials, professional print. Start with our best sellers.",
-      "soon": "Soon",
-      "items": {
-        "taxIncluded": "incl. VAT",
-        "ceramic": {
-          "title": "Ceramic mug",
-          "text": "330ml, dishwasher safe",
-          "price": "from €19.99"
-        },
-        "thermo": {
-          "title": "Thermo mug",
-          "text": "350ml stainless steel, 6h warm",
-          "price": "from €24.99"
-        },
-        "poster": {
-          "title": "Poster",
-          "text": "250g premium paper",
-          "price": "from €14.99"
-        },
-        "shirt": {
-          "title": "T-Shirts",
-          "text": "Organic cotton, Fair Trade",
-          "price": "from €29.99"
-        }
-      }
+      "subtitle": "Quality materials, professional print. Choose your product and get started.",
+      "previous": "Show previous products",
+      "next": "Show more products",
+      "page": "Show products page {page} of {total}",
+      "loading": "Products are loading.",
+      "empty": "No products are available right now.",
+      "noImage": "Example image coming soon",
+      "error": "Products could not be loaded.",
+      "retry": "Try again",
+      "openSubcategory": "View {title}"
     },
     "trust": {
       "craft": {

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends { id: number }">
 import {
   computed,
   nextTick,
@@ -11,14 +11,17 @@ import {
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
-import LandingStyleCard from './LandingStyleCard.vue'
-import type { PromptDto } from '@/stores/shop/prompts'
 
 const props = defineProps<{
-  prompts: PromptDto[]
+  items: T[]
   isLoading: boolean
   error: string | null
-  getImageUrl: (filename: string) => string
+  /** The i18n prefix of the state, navigation, and pagination copy, e.g. `landing.styles`. */
+  i18nKey: string
+}>()
+
+defineSlots<{
+  item(props: { item: T }): unknown
 }>()
 
 const emit = defineEmits<{
@@ -37,12 +40,8 @@ let resizeObserver: ResizeObserver | null = null
 
 const dots = computed(() => Array.from({ length: pageCount.value }, (_, index) => index))
 const showPagination = computed(
-  () => !props.isLoading && !props.error && props.prompts.length > 0 && pageCount.value > 1,
+  () => !props.isLoading && !props.error && props.items.length > 0 && pageCount.value > 1,
 )
-
-function getPromptImageUrl(prompt: PromptDto) {
-  return prompt.exampleImageFilename ? props.getImageUrl(prompt.exampleImageFilename) : undefined
-}
 
 function getPageOffsets(viewportWidth: number, maxScrollLeft: number) {
   if (maxScrollLeft <= 1) return [0]
@@ -122,7 +121,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.prompts.length, props.isLoading, props.error],
+  () => [props.items.length, props.isLoading, props.error],
   () => {
     void nextTick(updateCarouselState)
   },
@@ -131,21 +130,21 @@ watch(
 </script>
 
 <template>
-  <div class="landing-styles-carousel relative">
+  <div class="landing-carousel relative">
     <div
       v-if="isLoading"
-      class="landing-styles-carousel__track scrollbar-hide flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-4 pt-0.5 [scroll-padding-inline:0.1rem]"
+      class="landing-carousel__track scrollbar-hide flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-4 pt-0.5 [scroll-padding-inline:0.1rem]"
       aria-live="polite"
     >
-      <span class="landing-styles-carousel__sr sr-only">{{ t('landing.styles.loading') }}</span>
+      <span class="landing-carousel__sr sr-only">{{ t(`${i18nKey}.loading`) }}</span>
       <div
         v-for="item in skeletonCards"
         :key="item"
-        class="landing-styles-carousel__item landing-styles-carousel__skeleton shrink-0 grow-0 basis-[82%] snap-start overflow-hidden rounded-lg border bg-card sm:basis-[calc((100%_-_1.6rem)/3)] lg:basis-[calc((100%_-_2.4rem)/4)]"
+        class="landing-carousel__item landing-carousel__skeleton shrink-0 grow-0 basis-[82%] snap-start overflow-hidden rounded-lg border bg-card sm:basis-[calc((100%_-_1.6rem)/3)] lg:basis-[calc((100%_-_2.4rem)/4)]"
         data-testid="style-skeleton"
       >
-        <div class="landing-styles-carousel__skeleton-media aspect-square bg-muted" />
-        <div class="landing-styles-carousel__skeleton-body grid min-h-[4.5rem] gap-2 p-3">
+        <div class="landing-carousel__skeleton-media aspect-square bg-muted" />
+        <div class="landing-carousel__skeleton-body grid min-h-[4.5rem] gap-2 p-3">
           <span class="block h-3 w-[78%] rounded-full bg-muted" />
           <span class="block h-3 w-[48%] rounded-full bg-muted" />
         </div>
@@ -154,57 +153,57 @@ watch(
 
     <div
       v-else-if="error"
-      class="landing-styles-carousel__state grid justify-items-center gap-3 rounded-lg border border-dashed bg-background-soft px-4 py-8 text-center"
+      class="landing-carousel__state grid justify-items-center gap-3 rounded-lg border border-dashed bg-background-soft px-4 py-8 text-center"
       role="status"
     >
-      <p class="text-sm font-bold text-foreground-muted">{{ t('landing.styles.error') }}</p>
+      <p class="text-sm font-bold text-foreground-muted">{{ t(`${i18nKey}.error`) }}</p>
       <Button
         type="button"
         variant="outline"
         size="sm"
-        class="landing-styles-carousel__retry"
+        class="landing-carousel__retry"
         @click="retry"
       >
         <RefreshCw aria-hidden="true" />
-        {{ t('landing.styles.retry') }}
+        {{ t(`${i18nKey}.retry`) }}
       </Button>
     </div>
 
     <div
-      v-else-if="prompts.length === 0"
-      class="landing-styles-carousel__state grid justify-items-center gap-3 rounded-lg border border-dashed bg-background-soft px-4 py-8 text-center"
+      v-else-if="items.length === 0"
+      class="landing-carousel__state grid justify-items-center gap-3 rounded-lg border border-dashed bg-background-soft px-4 py-8 text-center"
       role="status"
     >
-      <p class="text-sm font-bold text-foreground-muted">{{ t('landing.styles.empty') }}</p>
+      <p class="text-sm font-bold text-foreground-muted">{{ t(`${i18nKey}.empty`) }}</p>
     </div>
 
-    <div v-else class="landing-styles-carousel__shell relative">
-      <div class="landing-styles-carousel__viewport relative">
+    <div v-else class="landing-carousel__shell relative">
+      <div class="landing-carousel__viewport relative">
         <div
           ref="track"
-          class="landing-styles-carousel__track scrollbar-hide flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-4 pt-0.5 [scroll-padding-inline:0.1rem]"
+          class="landing-carousel__track scrollbar-hide flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-4 pt-0.5 [scroll-padding-inline:0.1rem]"
           data-testid="style-carousel-track"
           @scroll.passive="updateCarouselState"
         >
-          <LandingStyleCard
-            v-for="prompt in prompts"
-            :key="prompt.id"
-            class="landing-styles-carousel__item shrink-0 grow-0 basis-[82%] snap-start sm:basis-[calc((100%_-_1.6rem)/3)] lg:basis-[calc((100%_-_2.4rem)/4)]"
-            :prompt="prompt"
-            :image-url="getPromptImageUrl(prompt)"
-          />
+          <div
+            v-for="item in items"
+            :key="item.id"
+            class="landing-carousel__item flex shrink-0 grow-0 basis-[82%] snap-start sm:basis-[calc((100%_-_1.6rem)/3)] lg:basis-[calc((100%_-_2.4rem)/4)]"
+          >
+            <slot name="item" :item="item" />
+          </div>
         </div>
 
         <div
-          class="landing-styles-carousel__controls pointer-events-none absolute bottom-4 left-1 right-1 top-0 z-10 flex items-center justify-between gap-2 sm:left-0 sm:right-0"
+          class="landing-carousel__controls pointer-events-none absolute bottom-4 left-1 right-1 top-0 z-10 flex items-center justify-between gap-2 sm:left-0 sm:right-0"
           aria-hidden="false"
         >
           <Button
             type="button"
             variant="icon"
             size="icon"
-            class="landing-styles-carousel__arrow landing-styles-carousel__arrow--prev pointer-events-auto size-10 rounded-lg border-0 bg-card text-primary shadow-xl shadow-black/20 hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:text-foreground-faint disabled:opacity-60 sm:-translate-x-1/2 sm:hover:-translate-x-1/2 motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none"
-            :aria-label="t('landing.styles.previous')"
+            class="landing-carousel__arrow landing-carousel__arrow--prev pointer-events-auto size-10 rounded-lg border-0 bg-card text-primary shadow-xl shadow-black/20 hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:text-foreground-faint disabled:opacity-60 sm:-translate-x-1/2 sm:hover:-translate-x-1/2 motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none"
+            :aria-label="t(`${i18nKey}.previous`)"
             :disabled="!canScrollPrev"
             @click="scrollByPage(-1)"
           >
@@ -214,8 +213,8 @@ watch(
             type="button"
             variant="icon"
             size="icon"
-            class="landing-styles-carousel__arrow landing-styles-carousel__arrow--next pointer-events-auto size-10 rounded-lg border-0 bg-card text-primary shadow-xl shadow-black/20 hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:text-foreground-faint disabled:opacity-60 sm:translate-x-1/2 sm:hover:translate-x-1/2 motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none"
-            :aria-label="t('landing.styles.next')"
+            class="landing-carousel__arrow landing-carousel__arrow--next pointer-events-auto size-10 rounded-lg border-0 bg-card text-primary shadow-xl shadow-black/20 hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:text-foreground-faint disabled:opacity-60 sm:translate-x-1/2 sm:hover:translate-x-1/2 motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none"
+            :aria-label="t(`${i18nKey}.next`)"
             :disabled="!canScrollNext"
             @click="scrollByPage(1)"
           >
@@ -224,23 +223,20 @@ watch(
         </div>
       </div>
 
-      <div
-        v-if="showPagination"
-        class="landing-styles-carousel__dots mt-1 flex justify-center gap-2"
-      >
+      <div v-if="showPagination" class="landing-carousel__dots mt-1 flex justify-center gap-2">
         <Button
           v-for="page in dots"
           :key="page"
           type="button"
           variant="ghost"
-          class="landing-styles-carousel__dot h-[0.45rem] min-w-[0.45rem] rounded-full border-0 px-0 py-0 transition-all duration-200 hover:bg-primary/70 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none"
+          class="landing-carousel__dot h-[0.45rem] min-w-[0.45rem] rounded-full border-0 px-0 py-0 transition-all duration-200 hover:bg-primary/70 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none"
           :class="
             page === activePage
-              ? 'landing-styles-carousel__dot--active w-5 bg-primary opacity-100'
+              ? 'landing-carousel__dot--active w-5 bg-primary opacity-100'
               : 'w-[0.45rem] bg-foreground-faint/40 opacity-70'
           "
           :aria-label="
-            t('landing.styles.page', {
+            t(`${i18nKey}.page`, {
               page: page + 1,
               total: pageCount,
             })

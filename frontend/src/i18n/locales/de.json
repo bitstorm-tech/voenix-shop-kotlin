@@ -595,31 +595,16 @@
     "products": {
       "kicker": "Sortiment",
       "title": "Deine Kunst auf echten Produkten",
-      "subtitle": "Hochwertige Materialien, professioneller Druck. Starte mit unseren Bestsellern.",
-      "soon": "Bald",
-      "items": {
-        "taxIncluded": "inkl. MwSt.",
-        "ceramic": {
-          "title": "Keramiktasse",
-          "text": "330ml, spülmaschinenfest",
-          "price": "ab 19,99 €"
-        },
-        "thermo": {
-          "title": "Thermobecher",
-          "text": "350ml Edelstahl, 6h warm",
-          "price": "ab 24,99 €"
-        },
-        "poster": {
-          "title": "Poster",
-          "text": "250g Premium-Papier",
-          "price": "ab 14,99 €"
-        },
-        "shirt": {
-          "title": "T-Shirts",
-          "text": "Bio-Baumwolle, Fair Trade",
-          "price": "ab 29,99 €"
-        }
-      }
+      "subtitle": "Hochwertige Materialien, professioneller Druck. Wähle dein Produkt und starte direkt.",
+      "previous": "Vorherige Produkte anzeigen",
+      "next": "Weitere Produkte anzeigen",
+      "page": "Produktseite {page} von {total} anzeigen",
+      "loading": "Produkte werden geladen.",
+      "empty": "Aktuell sind keine Produkte verfügbar.",
+      "noImage": "Beispielbild folgt",
+      "error": "Produkte konnten nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "openSubcategory": "{title} ansehen"
     },
     "trust": {
       "craft": {

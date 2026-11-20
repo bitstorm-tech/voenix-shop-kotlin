@@ -2,86 +2,56 @@
 import GenCardImage from '@/assets/landing/gen-card.jpg'
 import GenDesignImage from '@/assets/landing/gen-design.jpg'
 import GenPhotoImage from '@/assets/landing/gen-photo.jpg'
-import GenPosterImage from '@/assets/landing/gen-poster.jpg'
-import GenThermoImage from '@/assets/landing/gen-thermo.jpg'
 import GenTshirtImage from '@/assets/landing/gen-tshirt.jpg'
-import GenTshirt2Image from '@/assets/landing/gen-tshirt2.jpg'
-import LandingStylesCarousel from '@/components/shop/landing/LandingStylesCarousel.vue'
+import LandingCarousel from '@/components/shop/landing/LandingCarousel.vue'
+import LandingCarouselCard from '@/components/shop/landing/LandingCarouselCard.vue'
 import ImageComparisonSlider from '@/components/shared/ImageComparisonSlider.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import Mug2Image from '@/assets/landing/mug2.png'
-import Mug3Image from '@/assets/landing/mug3.png'
 import { ArrowRight, BadgeCheck, CheckCircle, ShieldCheck, Star, Truck } from 'lucide-vue-next'
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { usePromptsStore } from '@/stores/shop/prompts'
+import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
+import { usePromptsStore, type PromptDto } from '@/stores/shop/prompts'
 import { promptExampleImageUrl } from '@/lib/promptExampleImage'
 
 const { t } = useI18n()
 const promptsStore = usePromptsStore()
+const categoriesStore = useArticleCategoriesStore()
 
-function styleImageUrl(filename: string) {
-  return promptExampleImageUrl(filename, 400)
+function styleImageUrl(prompt: PromptDto) {
+  return prompt.exampleImageFilename
+    ? promptExampleImageUrl(prompt.exampleImageFilename, 400)
+    : undefined
 }
 
-interface ProductItem {
-  key: 'ceramic' | 'thermo' | 'poster' | 'shirt'
-  thumbClass: string
-  imageClass: string
-  to?: string
-  soon?: boolean
-  image: string
-  imageWidth: number
-  imageHeight: number
+function styleMeta(prompt: PromptDto) {
+  return [prompt.category?.name, prompt.subcategory?.name].filter(Boolean).join(' / ')
 }
 
-const productItems: ProductItem[] = [
-  {
-    key: 'ceramic',
-    thumbClass: 'bg-background-warm p-2',
-    imageClass: 'object-contain',
-    to: '/products',
-    image: Mug3Image,
-    imageWidth: 494,
-    imageHeight: 651,
-  },
-  {
-    key: 'thermo',
-    thumbClass: 'bg-background-soft p-2',
-    imageClass: 'object-contain rounded-md',
-    to: '/products',
-    image: GenThermoImage,
-    imageWidth: 512,
-    imageHeight: 512,
-  },
-  {
-    key: 'poster',
-    thumbClass: 'bg-muted p-2',
-    imageClass: 'object-contain rounded-md',
-    to: '/wizard',
-    image: GenPosterImage,
-    imageWidth: 512,
-    imageHeight: 512,
-  },
-  {
-    key: 'shirt',
-    thumbClass: 'bg-background-soft',
-    imageClass: 'object-cover',
-    to: '/products?type=SPOD',
-    image: GenTshirt2Image,
-    imageWidth: 512,
-    imageHeight: 512,
-  },
-]
+/** Every subcategory of the shop navigation, which lists only those visible articles use. */
+const subcategories = computed(() =>
+  categoriesStore.categories.flatMap((category) =>
+    category.subcategories.map((subcategory) => ({
+      ...subcategory,
+      categoryId: category.id,
+      categoryName: category.name,
+      imageUrl: subcategory.exampleImageFilename
+        ? `/api/images/public/400/articles/subcategory-example-images/${subcategory.exampleImageFilename}`
+        : undefined,
+    })),
+  ),
+)
 
 const reviews = ['markus', 'sarah', 'julia'] as const
 const heroMetaItems = ['noAccount', 'preview', 'shipping'] as const
 
 onMounted(() => {
   void promptsStore.fetchPrompts()
+  void categoriesStore.fetchCategories()
 })
 </script>
 
@@ -278,56 +248,27 @@ onMounted(() => {
           </p>
         </header>
 
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <component
-            :is="item.to && !item.soon ? RouterLink : 'article'"
-            v-for="item in productItems"
-            :key="item.key"
-            v-bind="item.to && !item.soon ? { to: item.to } : {}"
-            class="group block overflow-hidden rounded-lg border bg-card text-inherit no-underline shadow-sm transition-all duration-200"
-            :class="
-              item.to && !item.soon
-                ? 'hover:-translate-y-0.5 hover:shadow-[var(--shadow-elevated-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
-                : ''
-            "
-          >
-            <div
-              class="relative flex aspect-square items-center justify-center overflow-hidden"
-              :class="item.thumbClass"
-            >
-              <img
-                :src="item.image"
-                :alt="t(`landing.products.items.${item.key}.title`)"
-                class="block size-full"
-                :class="item.imageClass"
-                :width="item.imageWidth"
-                :height="item.imageHeight"
-                loading="lazy"
-                decoding="async"
-              />
-              <Badge
-                v-if="item.soon"
-                class="absolute right-2 top-2 rounded bg-surface-inverse px-2 py-0.5 text-[10px] text-surface-inverse-foreground"
-              >
-                {{ t('landing.products.soon') }}
-              </Badge>
-            </div>
-            <div class="p-3">
-              <h3 class="text-sm font-bold text-foreground">
-                {{ t(`landing.products.items.${item.key}.title`) }}
-              </h3>
-              <p class="mt-1 text-xs text-foreground-muted">
-                {{ t(`landing.products.items.${item.key}.text`) }}
-              </p>
-              <p class="mt-2 text-sm font-bold text-primary">
-                {{ t(`landing.products.items.${item.key}.price`) }}
-                <span class="font-normal text-foreground-faint">
-                  {{ t('landing.products.items.taxIncluded') }}
-                </span>
-              </p>
-            </div>
-          </component>
-        </div>
+        <LandingCarousel
+          :items="subcategories"
+          :is-loading="categoriesStore.isLoading"
+          :error="categoriesStore.error"
+          i18n-key="landing.products"
+          @retry="categoriesStore.fetchCategories()"
+        >
+          <template #item="{ item }">
+            <LandingCarouselCard
+              :to="{
+                name: 'products',
+                query: { category: String(item.categoryId), subcategory: String(item.id) },
+              }"
+              :title="item.name"
+              :meta="item.categoryName"
+              :image-url="item.imageUrl"
+              :aria-label="t('landing.products.openSubcategory', { title: item.name })"
+              :no-image-label="t('landing.products.noImage')"
+            />
+          </template>
+        </LandingCarousel>
 
         <div class="mt-10 grid grid-cols-1 gap-4 border-y py-8 sm:grid-cols-3">
           <div class="text-center">
@@ -363,13 +304,24 @@ onMounted(() => {
           </p>
         </header>
 
-        <LandingStylesCarousel
-          :prompts="promptsStore.prompts"
+        <LandingCarousel
+          :items="promptsStore.prompts"
           :is-loading="promptsStore.isLoading"
           :error="promptsStore.error"
-          :get-image-url="styleImageUrl"
+          i18n-key="landing.styles"
           @retry="promptsStore.fetchPrompts()"
-        />
+        >
+          <template #item="{ item }">
+            <LandingCarouselCard
+              :to="{ name: 'wizard', query: { promptId: String(item.id) } }"
+              :title="item.title"
+              :meta="styleMeta(item)"
+              :image-url="styleImageUrl(item)"
+              :aria-label="t('landing.styles.openStyle', { title: item.title })"
+              :no-image-label="t('landing.styles.noImage')"
+            />
+          </template>
+        </LandingCarousel>
       </div>
     </section>
 

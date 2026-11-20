@@ -1,7 +1,8 @@
 import { mount, RouterLinkStub } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
-import LandingStylesCarousel from '@/components/shop/landing/LandingStylesCarousel.vue'
+import { h, nextTick } from 'vue'
+import LandingCarousel from '@/components/shop/landing/LandingCarousel.vue'
+import LandingCarouselCard from '@/components/shop/landing/LandingCarouselCard.vue'
 import type { PromptDto } from '@/stores/shop/prompts'
 import { createShopPrompt } from '@/testing/shopCatalog'
 
@@ -29,14 +30,25 @@ function makePrompt(overrides: Partial<PromptDto> = {}): PromptDto {
   })
 }
 
-function mountCarousel(props: Partial<InstanceType<typeof LandingStylesCarousel>['$props']> = {}) {
-  return mount(LandingStylesCarousel, {
-    props: {
-      prompts: [makePrompt()],
-      isLoading: false,
-      error: null,
-      getImageUrl: (filename: string) => `/api/images/public/400/prompt-example-images/${filename}`,
-      ...props,
+function mountCarousel(
+  props: { prompts?: PromptDto[]; isLoading?: boolean; error?: string | null } = {},
+) {
+  const { prompts = [makePrompt()], isLoading = false, error = null } = props
+  return mount(LandingCarousel<PromptDto>, {
+    props: { items: prompts, isLoading, error, i18nKey: 'landing.styles' },
+    slots: {
+      // The landing page's own wiring of a style card, so the tests read what a shopper sees.
+      item: ({ item }: { item: PromptDto }) =>
+        h(LandingCarouselCard, {
+          to: { name: 'wizard', query: { promptId: String(item.id) } },
+          title: item.title,
+          meta: [item.category?.name, item.subcategory?.name].filter(Boolean).join(' / '),
+          imageUrl: item.exampleImageFilename
+            ? `/api/images/public/400/prompt-example-images/${item.exampleImageFilename}`
+            : undefined,
+          'aria-label': item.title,
+          noImageLabel: 'landing.styles.noImage',
+        }),
     },
     global: {
       stubs: {
@@ -46,7 +58,7 @@ function mountCarousel(props: Partial<InstanceType<typeof LandingStylesCarousel>
   })
 }
 
-describe('LandingStylesCarousel', () => {
+describe('LandingCarousel', () => {
   it('renders real prompt titles and category metadata without landing-only dummy copy or prices', () => {
     const wrapper = mountCarousel({
       prompts: [
@@ -88,7 +100,7 @@ describe('LandingStylesCarousel', () => {
       ],
     })
 
-    expect(wrapper.findAll('.landing-style-card__title').map((title) => title.text())).toEqual([
+    expect(wrapper.findAll('.landing-carousel-card__title').map((title) => title.text())).toEqual([
       'First API Prompt',
       'Second API Prompt',
       'Third API Prompt',
@@ -112,7 +124,7 @@ describe('LandingStylesCarousel', () => {
     })
 
     expect(wrapper.text()).toContain('landing.styles.error')
-    await wrapper.get('.landing-styles-carousel__retry').trigger('click')
+    await wrapper.get('.landing-carousel__retry').trigger('click')
 
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
@@ -162,7 +174,7 @@ describe('LandingStylesCarousel', () => {
     await track.trigger('scroll')
     await nextTick()
 
-    const dots = wrapper.findAll('.landing-styles-carousel__dot')
+    const dots = wrapper.findAll('.landing-carousel__dot')
     expect(dots).toHaveLength(4)
 
     const finalDot = dots[3]
@@ -183,7 +195,7 @@ describe('LandingStylesCarousel', () => {
     await track.trigger('scroll')
     await nextTick()
 
-    const activeFinalDot = wrapper.findAll('.landing-styles-carousel__dot')[3]
+    const activeFinalDot = wrapper.findAll('.landing-carousel__dot')[3]
     if (!activeFinalDot) throw new Error('Expected final carousel dot')
 
     expect(activeFinalDot.attributes('aria-current')).toBe('page')
