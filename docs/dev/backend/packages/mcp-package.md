@@ -124,8 +124,12 @@ never answers it, and the Vite proxy forwards it in development.
   mounted, whose base is the endpoint's path or a prefix of it at a `/`; or
 - an entry with the same method and path, an inline protection.
 
-The comparison is by function identity. A locked route never appears, and
-neither does a route whose protection the list cannot recognize. The body kind
+It is left out again when a session protection covers it the same way
+(`requireAdmin`, `requireAuthenticated`, `guestCapable`, `requireSupplier`,
+recognized by `isSessionProtection`): such a protection refuses a token even
+below an open sub-app. The comparison is by function identity. A locked route
+never appears, and neither does a route whose protection the list cannot
+recognize. The body kind
 comes from the route's own middleware: `jsonBody(schema)` carries its schema as
 the property `bodySchema`; a route with `formBody` is `multipart`. Lines are
 sorted by path, then method; path parameters keep Hono's form
@@ -214,7 +218,8 @@ to `/api/mcp` through the SDK's `Client` with `StreamableHTTPClientTransport`,
 whose `fetch` is bound to `app.request` and whose `requestInit` carries the
 bearer header from `tokenHeaders`. The app mounts the real country module and
 a probe below `/api/admin/` (a `formBody` route, a binary and a text answer, a
-locked sub-app, a locked inline route, an unprotected route). It covers the
+locked sub-app, a locked inline route, both also below the open sub-app, an
+unprotected route). It covers the
 tool list and hints, the refusals of the endpoint, a raw 2025-06-18 client,
 the endpoint list and the country schema, read and write through the real
 routes, the field errors, a locked route's `401`, the path rule, binary

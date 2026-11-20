@@ -15,8 +15,8 @@ const FRONTEND = 'http://localhost:5173'
 
 /**
  * The country module, a probe sub-app below `/api/admin/` that opts in (a multipart route, a
- * binary and a text answer), routes behind `requireAdmin` (a sub-app and an inline one), an
- * unprotected one, and the MCP module over all of them.
+ * binary and a text answer), routes behind `requireAdmin` (a sub-app and an inline one, each also
+ * below the open sub-app), an unprotected one, and the MCP module over all of them.
  */
 function mcpApp(): Hono {
   const open = new Hono()
@@ -26,12 +26,14 @@ function mcpApp(): Hono {
     c.body(new Uint8Array([37, 80, 68, 70]), 200, { 'Content-Type': 'application/pdf' }),
   )
   open.get('/note', (c) => c.text('a plain note'))
+  open.get('/inline-locked', requireAdmin, (c) => c.json(['locked']))
   const locked = new Hono()
   locked.use(requireAdmin)
   locked.get('/', (c) => c.json(['locked']))
   const probe = new Hono()
   probe.route('/api/admin/probe', open)
   probe.route('/api/admin/locked', locked)
+  probe.route('/api/admin/probe/locked', locked)
   probe.get('/api/admin/locked-inline', requireAdmin, (c) => c.json(['locked']))
   probe.get('/api/admin/unprotected', (c) => c.json(['nobody checks']))
   const app = testApp(createCountryModule({ db: database.db }).routes, probe)

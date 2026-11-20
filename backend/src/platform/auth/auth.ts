@@ -160,13 +160,18 @@ const epochSeconds = () => Math.floor(Date.now() / 1000)
 
 /**
  * A protection answers before the route handler and fails closed: the handler runs only when
- * `authorize` passed and, for a mutating method, the CSRF check passed as well.
+ * `authorize` passed and, for a mutating method, the CSRF check passed as well. A principal that
+ * `requireAdminOrToken` took from a bearer token counts as anonymous here, so a session protection
+ * below an open one (a nested sub-app, an inline guard) stays closed to the token.
  */
 function failClosed(
   authorize: (c: Context) => Promise<Response | null> | Response | null,
   csrfValid: (c: Context) => boolean = userCsrfValid,
 ) {
-  return createMiddleware(async (c, next) => {
+  const protection = createMiddleware(async (c, next) => {
+    if (c.var.principal !== null && c.var.principal === c.var.tokenPrincipal) {
+      return authRefusal(c, 401, 'Authentication required')
+    }
     const refusal = await authorize(c)
     if (refusal !== null) return refusal
     if (MUTATING_METHODS.has(c.req.method) && !csrfValid(c)) {
@@ -174,7 +179,15 @@ function failClosed(
     }
     await next()
   })
+  sessionProtections.add(protection)
+  return protection
 }
+
+/** Every protection `failClosed` built: each one is closed to an access token. */
+const sessionProtections = new WeakSet<object>()
+
+/** Whether a route handler is a protection that refuses an access token; the MCP endpoint list reads it. */
+export const isSessionProtection = (handler: object) => sessionProtections.has(handler)
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

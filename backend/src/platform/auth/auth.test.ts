@@ -64,7 +64,13 @@ function probeApp(lookups: number[] = [], auth = testAuth) {
   tokenAdmin.use(requireAdminOrToken)
   tokenAdmin.get('/', (c) => c.text(`admin ${String(c.var.principal?.userId)}`))
   tokenAdmin.on(MUTATING, '/', (c) => c.text(`written by ${String(c.var.principal?.userId)}`))
+  tokenAdmin.get('/inline', requireAdmin, (c) => c.text('inline admin'))
   routes.route('/probe/token-admin', tokenAdmin)
+  // A locked sub-app below the open one: the open `use` runs first on its requests too.
+  const lockedBelow = new Hono()
+  lockedBelow.use(requireAdmin)
+  lockedBelow.get('/', (c) => c.text('locked admin'))
+  routes.route('/probe/token-admin/locked', lockedBelow)
 
   const guest = new Hono()
   guest.use(guestCapable)
@@ -279,6 +285,18 @@ describe('the admin-or-token protection', () => {
     const customer = await signedInHeaders({ userId: 22, roles: ['CUSTOMER'] })
     const withSession = await app.request('/probe/admin', { headers: { ...customer, ...token } })
     expect(withSession.status).toBe(403)
+  })
+
+  test('a session protection below an open one stays closed to the token', async () => {
+    const app = probeApp()
+    const token = tokenHeaders({ userId: 34, roles: ['ADMIN'] })
+    const admin = await signedInHeaders({ userId: 34 })
+    for (const path of ['/probe/token-admin/locked', '/probe/token-admin/inline']) {
+      const response = await app.request(path, { headers: token })
+      expect(response.status).toBe(401)
+      expect(await jsonOf(response)).toEqual(UNAUTHORIZED)
+      expect((await app.request(path, { headers: admin })).status).toBe(200)
+    }
   })
 })
 

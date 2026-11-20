@@ -184,7 +184,10 @@ anonymous. Only `requireAdminOrToken` accepts one. When a request presents a
 bearer header there, the token is the only credential that counts: an invalid
 one answers `401` even when a valid admin session cookie travels along, and a
 valid one becomes `c.var.principal`, so handlers read the acting admin as
-always.
+always. That principal stays the token's: every other protection refuses a
+principal that is `c.var.tokenPrincipal` with `401`, so a `requireAdmin`
+below an open sub-app (a nested sub-app or an inline guard) stays locked for
+the token instead of seeing an admin.
 
 **Why a token needs no CSRF pair.** CSRF exists because a browser attaches
 cookies to a request a foreign page triggers. A browser never attaches an
@@ -318,8 +321,8 @@ both; the subtree still fails closed.
 [`auth.test.ts`](../../../../backend/src/platform/auth/auth.test.ts) pins
 every rule of this guide on probe routes: the five protections and their
 refusals, the bearer token on every protection (also next to a session
-cookie), CSRF accepted and rejected, the token binding, expiry and sliding
-renewal, the cookie flags with `Secure` on and off, sign-in and sign-out, and the guest
+cookie, and below an open sub-app), CSRF accepted and rejected, the token
+binding, expiry and sliding renewal, the cookie flags with `Secure` on and off, sign-in and sign-out, and the guest
 cookie. Module tests use `signedInHeaders({ userId, roles })`,
 `tokenHeaders(principal)` (a token registered with the in-memory lookup of
 `testAuth`), and `guestHeaders()` from `@test-support/http` and never repeat
