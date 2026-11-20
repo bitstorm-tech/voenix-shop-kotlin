@@ -32,6 +32,7 @@ function createAdminNavigationRouter() {
       { path: '/admin/orders', component: { template: '<div />' } },
       { path: '/admin/operations', component: { template: '<div />' } },
       { path: '/admin/images/orphans', component: { template: '<div />' } },
+      { path: '/admin/access-tokens', component: { template: '<div />' } },
     ],
   })
 }
@@ -197,6 +198,20 @@ describe('AdminNavigation', () => {
       '/admin/operations',
     ])
     expect(wrapper.text()).not.toContain('Completed Orders')
+  })
+
+  it('renders Access tokens as the last top-level link, after Orphaned images', async () => {
+    const { wrapper } = await mountNavigation('/admin/access-tokens')
+
+    const topLevelLinks = wrapper.findAll('[data-nav-link]:not([data-nav-child-link])')
+
+    expect(topLevelLinks.slice(-2).map((link) => link.text())).toEqual([
+      'Orphaned images',
+      'Access tokens',
+    ])
+    expect(topLevelLinks.at(-1)?.attributes('href')).toBe('/admin/access-tokens')
+    expect(topLevelLinks.at(-1)?.find('svg').exists()).toBe(true)
+    expect(getActiveLinkTexts(wrapper)).toEqual(['Access tokens'])
   })
 
   it('shows the menu counts as badges on Orders and Operations, zero included', async () => {

@@ -87,6 +87,14 @@ describe('adminRoutes', () => {
     }
   })
 
+  it('registers the access tokens page behind the admin guard', () => {
+    const resolved = createRouterWithNotFound().resolve('/admin/access-tokens')
+
+    expect(resolved.name).toBe('admin-access-tokens')
+    expect(resolved.meta.title).toBe('Access tokens')
+    expect(resolved.matched[0]?.beforeEnter).toBeDefined()
+  })
+
   it('registers Promotions and redirects the retired Coupons URL', () => {
     const router = createRouterWithNotFound()
     const couponsRecord = getAdminChildRoutes().find((route) => route.path === 'coupons')

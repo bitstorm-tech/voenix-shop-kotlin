@@ -208,6 +208,14 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: 'Orphaned images',
         },
       },
+      {
+        path: 'access-tokens',
+        name: 'admin-access-tokens',
+        component: () => import('@/views/admin/AccessTokensView.vue'),
+        meta: {
+          title: 'Access tokens',
+        },
+      },
     ],
   },
 ]
