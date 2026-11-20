@@ -34,21 +34,24 @@ function mountCarousel(
   props: { prompts?: PromptDto[]; isLoading?: boolean; error?: string | null } = {},
 ) {
   const { prompts = [makePrompt()], isLoading = false, error = null } = props
-  return mount(LandingCarousel<PromptDto>, {
+  return mount(LandingCarousel, {
     props: { items: prompts, isLoading, error, i18nKey: 'landing.styles' },
     slots: {
       // The landing page's own wiring of a style card, so the tests read what a shopper sees.
-      item: ({ item }: { item: PromptDto }) =>
-        h(LandingCarouselCard, {
-          to: { name: 'wizard', query: { promptId: String(item.id) } },
-          title: item.title,
-          meta: [item.category?.name, item.subcategory?.name].filter(Boolean).join(' / '),
-          imageUrl: item.exampleImageFilename
-            ? `/api/images/public/400/prompt-example-images/${item.exampleImageFilename}`
+      // The slot's item is typed by the carousel's `{ id: number }` bound; these items are prompts.
+      item: ({ item }: { item: { id: number } }) => {
+        const prompt = item as PromptDto
+        return h(LandingCarouselCard, {
+          to: { name: 'wizard', query: { promptId: String(prompt.id) } },
+          title: prompt.title,
+          meta: [prompt.category?.name, prompt.subcategory?.name].filter(Boolean).join(' / '),
+          imageUrl: prompt.exampleImageFilename
+            ? `/api/images/public/400/prompt-example-images/${prompt.exampleImageFilename}`
             : undefined,
-          'aria-label': item.title,
+          'aria-label': prompt.title,
           noImageLabel: 'landing.styles.noImage',
-        }),
+        })
+      },
     },
     global: {
       stubs: {
