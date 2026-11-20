@@ -42,7 +42,7 @@ Nummern = Priorität. A und B vor dem Go-live, C vor Werbung und echtem Traffic,
   - Poster („ab 14,99 €“) und Karten („Als Karte“) sind nicht im Sortiment.
   - „ab“-Preise falsch: T-Shirts „ab 29,99 €“ (real 19,99 €), Keramiktasse „ab 19,99 €“ (real 15,95 €), Thermobecher „ab 24,99 €“ (real 23,95 €).
   - „Bio-Baumwolle, Fair Trade“ pauschal für alle T-Shirts; nur eines ist Bio. Umweltaussagen ohne Beleg sind seit 27.09.2026 verboten.
-  - Zahlungslogos im Footer (Visa, Mastercard, Apple Pay, PayPal, Amex, Klarna) und „Sichere Bezahlung mit Klarna, PayPal & Kreditkarte“ müssen zu den in Mollie aktivierten Zahlarten passen.
+  - PayPal in Mollie aktivieren: Footer-Logo und „Sichere Bezahlung mit … PayPal …“ zeigen es bereits.
   - „Versand in 3–5 Tagen“ muss zur Lieferzeit in den AGB passen.
 - [ ] **12. Stilnamen mit fremden Rechten** – Admin → Prompts
   „Hundertwasser“ und „Picasso“ (beide noch geschützt, Rechteinhaber verfolgen die Namensnutzung), „Funky Pop Toy Style“, „Instagramm Beauty“.

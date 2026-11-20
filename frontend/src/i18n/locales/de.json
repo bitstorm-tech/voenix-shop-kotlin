@@ -780,7 +780,7 @@
     "reload": "Warenkorb neu laden",
     "summaryTitle": "Bestellübersicht",
     "aiDesign": "KI-Design",
-    "securePayment": "Sichere Bezahlung mit Klarna, PayPal & Kreditkarte",
+    "securePayment": "Sichere Bezahlung mit Karte, PayPal, Apple Pay, Google Pay, Klarna & sofortiger Überweisung",
     "promotion": {
       "title": "Aktionscode",
       "codeLabel": "Aktionscode eingeben",

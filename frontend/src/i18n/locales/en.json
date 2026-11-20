@@ -780,7 +780,7 @@
     "reload": "Reload cart",
     "summaryTitle": "Order Summary",
     "aiDesign": "AI design",
-    "securePayment": "Secure payment with Klarna, PayPal & credit card",
+    "securePayment": "Secure payment with card, PayPal, Apple Pay, Google Pay, Klarna & Pay by Bank",
     "promotion": {
       "title": "Promotion Code",
       "codeLabel": "Enter a Promotion Code",
