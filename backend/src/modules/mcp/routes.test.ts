@@ -196,6 +196,23 @@ describe('admin_read and admin_write', () => {
     expect(gone.text).toStartWith('HTTP 404\n')
   })
 
+  test('a body sent as a JSON string is refused before any dispatch', async () => {
+    const client = await connect(mcpApp())
+    const dispatched = spyOn(mcpLog, 'info')
+    try {
+      const refused = await call(client, 'admin_write', {
+        method: 'POST',
+        path: '/api/admin/countries',
+        body: JSON.stringify({ name: 'Stringland', countryCode: 'SQ' }),
+      })
+      expect(refused.isError).toBe(true)
+      expect(refused.text).not.toStartWith('HTTP')
+      expect(dispatched).not.toHaveBeenCalled()
+    } finally {
+      dispatched.mockRestore()
+    }
+  })
+
   test('a body the route refuses answers its field errors as an error', async () => {
     const refused = await call(await connect(mcpApp()), 'admin_write', {
       method: 'POST',

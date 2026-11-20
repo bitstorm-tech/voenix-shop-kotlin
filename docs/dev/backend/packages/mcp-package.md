@@ -84,7 +84,7 @@ never answers it, and the Vite proxy forwards it in development.
 | --- | --- | --- |
 | `admin_endpoints` | `{ path?: string }` | `readOnlyHint` |
 | `admin_read` | `{ path: string }` | `readOnlyHint` |
-| `admin_write` | `{ method: 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE', path: string, body?: unknown }` | `destructiveHint` |
+| `admin_write` | `{ method: 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE', path: string, body?: object \| unknown[] }` | `destructiveHint` |
 
 - **`admin_endpoints`** answers one line per open endpoint, `METHOD path`,
   followed by `json` or `multipart` when the route reads such a body. With
@@ -98,7 +98,8 @@ never answers it, and the Vite proxy forwards it in development.
   answers a tool error and dispatches nothing. A query string is allowed.
 - **The dispatch** sends the method, the resolved path with its query, the
   MCP request's `Authorization` header, and for a body
-  `Content-Type: application/json` with the serialized body, through
+  `Content-Type: application/json` with the serialized body (an object or an
+  array; the input schema refuses a string, which would be encoded twice), through
   `app.request(…)`. A locked route therefore answers `HTTP 401` from the
   route itself.
 - **The result** is one text block: `HTTP <status>`, a line break, and the

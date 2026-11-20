@@ -110,7 +110,8 @@ function adminServer(app: Hono, caller: Caller): McpServer {
       inputSchema: z.object({
         method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']),
         path: z.string(),
-        body: z.unknown().optional(),
+        // An object or array, never a string: dispatch serializes it, so a string would be encoded twice.
+        body: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
       }),
       annotations: { destructiveHint: true },
     },
