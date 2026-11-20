@@ -2,12 +2,12 @@
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-// Payment icons
+// Payment icons: keep in sync with the methods activated in the Mollie profile
 import VisaIcon from '@/assets/images/payments/visa.svg'
 import MastercardIcon from '@/assets/images/payments/mastercard.svg'
 import ApplePayIcon from '@/assets/images/payments/apple-pay.svg'
+import GooglePayIcon from '@/assets/images/payments/google-pay.svg'
 import PaypalIcon from '@/assets/images/payments/paypal.svg'
-import AmexIcon from '@/assets/images/payments/amex.svg'
 import KlarnaIcon from '@/assets/images/payments/klarna.svg'
 
 // Shipping icon
@@ -46,8 +46,8 @@ const paymentMethods: PaymentMethod[] = [
   { alt: 'Visa', src: VisaIcon },
   { alt: 'Mastercard', src: MastercardIcon },
   { alt: 'Apple Pay', src: ApplePayIcon },
+  { alt: 'Google Pay', src: GooglePayIcon },
   { alt: 'PayPal', src: PaypalIcon },
-  { alt: 'American Express', src: AmexIcon },
   { alt: 'Klarna', src: KlarnaIcon },
 ]
 </script>
