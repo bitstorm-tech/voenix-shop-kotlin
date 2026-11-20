@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { exampleImageUpload } from '@/modules/image'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import {
   formBody,
   integerParam,
@@ -60,7 +60,7 @@ const subcategoryId = integerParam('id', 'Invalid article subcategory id')
 /** The admin category and subcategory routes; `/order` is registered before `/:id`. */
 export function categoryRoutes(service: CategoryService): Hono {
   const categories = new Hono()
-  categories.use(requireAdmin)
+  categories.use(requireAdminOrToken)
   categories.get('/', async (c) => c.json(await service.listCategories()))
   categories.post('/', jsonBody(articleCategoryInput), async (c) => {
     const result = await service.createCategory(c.req.valid('json'))
@@ -89,7 +89,7 @@ export function categoryRoutes(service: CategoryService): Hono {
   })
 
   const subcategories = new Hono()
-  subcategories.use(requireAdmin)
+  subcategories.use(requireAdminOrToken)
   subcategories.get('/', async (c) => c.json(await service.listSubcategories()))
   subcategories.post('/', jsonBody(articleSubcategoryInput), async (c) => {
     const result = await service.createSubcategory(c.req.valid('json'))

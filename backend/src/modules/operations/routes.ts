@@ -2,7 +2,7 @@ import { zValidator } from '@hono/zod-validator'
 import { Hono, type Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdmin, requireAdminOrToken } from '@/platform/auth/auth'
 import { apiError, jsonBody, respondResult, validationFailed } from '@/platform/http/respond'
 import type { FindingRepository } from './repository'
 import type { OperationsService } from './service'
@@ -81,7 +81,7 @@ const orderListQuery = z.object({
  */
 export function operationsRoutes(findings: FindingRepository, service: OperationsService): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin, noStore)
+  admin.use(requireAdminOrToken, noStore)
   admin.get('/findings', async (c) => {
     const resolved = c.req.query('resolved') === 'true'
     const rows = await findings.list(resolved)

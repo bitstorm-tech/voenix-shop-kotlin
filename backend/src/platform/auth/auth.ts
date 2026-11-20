@@ -23,9 +23,35 @@ export interface UserPrincipal {
   roles: string[]
 }
 
+/** The prefix of every access token; a bearer value without it is refused without a lookup. */
+export const ACCESS_TOKEN_PREFIX = 'vnx_'
+
+/**
+ * Answers who an access token acts for, with the roles read on this very request, or `null` for
+ * an unknown or revoked token, and stamps a token's use. The account module owns the tokens and
+ * implements this.
+ */
+export interface AccessTokens {
+  /** Reads only; a refused or anonymous request never writes. */
+  principalOf(token: string): Promise<UserPrincipal | null>
+  /** Stamps the token's last use; `requireAdminOrToken` calls it once the token passed. */
+  markUsed(token: string): Promise<void>
+}
+
+/** A bearer token's identity, with the stamp of its use. */
+export interface TokenPrincipal extends UserPrincipal {
+  markUsed(): Promise<void>
+}
+
 declare module 'hono' {
   interface ContextVariableMap {
+    /** The session cookie's identity; never a bearer token's. */
     principal: UserPrincipal | null
+    /**
+     * The bearer token's identity: `undefined` without an `Authorization: Bearer` header, `null`
+     * for a value that is no valid token. Only `requireAdminOrToken` reads it.
+     */
+    tokenPrincipal: TokenPrincipal | null | undefined
     csrfSession: CsrfSession | null
     /** Set by `requireSupplier`: the supplier the caller acts for. */
     supplierId: number
@@ -42,10 +68,12 @@ export type Auth = ReturnType<typeof createAuth>
 export function createAuth({
   sessionSecret,
   secureCookies,
+  accessTokens,
 }: {
   sessionSecret: string
   /** `Secure` on every cookie; from the settings, never the request, which a proxy or client sets. */
   secureCookies: boolean
+  accessTokens: AccessTokens
 }) {
   const cookies = authCookies(sessionSecret)
   /** Browser-session cookies: no Max-Age. */
@@ -66,6 +94,18 @@ export function createAuth({
     const valid = session !== null && session.expiresAtEpochSeconds > now ? session : null
     c.set('principal', valid === null ? null : { userId: valid.userId, roles: valid.roles })
     c.set('csrfSession', await cookies.csrf.open(getCookie(c, CSRF_COOKIE)))
+    const bearer = /^Bearer(?:\s+(.*))?$/i.exec(c.req.header('authorization') ?? '')
+    const token = bearer?.[1]?.trim() ?? ''
+    const tokenPrincipal =
+      bearer === null
+        ? undefined
+        : token.startsWith(ACCESS_TOKEN_PREFIX)
+          ? await accessTokens.principalOf(token)
+          : null
+    c.set(
+      'tokenPrincipal',
+      tokenPrincipal && { ...tokenPrincipal, markUsed: () => accessTokens.markUsed(token) },
+    )
     // Sliding renewal: once more than half of the lifetime has elapsed, any request renews it.
     if (valid !== null && now - valid.issuedAtEpochSeconds > valid.expiresAtEpochSeconds - now) {
       await writeSession(c, {
@@ -131,13 +171,18 @@ const epochSeconds = () => Math.floor(Date.now() / 1000)
 
 /**
  * A protection answers before the route handler and fails closed: the handler runs only when
- * `authorize` passed and, for a mutating method, the CSRF check passed as well.
+ * `authorize` passed and, for a mutating method, the CSRF check passed as well. A principal that
+ * `requireAdminOrToken` took from a bearer token counts as anonymous here, so a session protection
+ * below an open one (a nested sub-app, an inline guard) stays closed to the token.
  */
 function failClosed(
   authorize: (c: Context) => Promise<Response | null> | Response | null,
   csrfValid: (c: Context) => boolean = userCsrfValid,
 ) {
-  return createMiddleware(async (c, next) => {
+  const protection = createMiddleware(async (c, next) => {
+    if (c.var.principal !== null && c.var.principal === c.var.tokenPrincipal) {
+      return authRefusal(c, 401, 'Authentication required')
+    }
     const refusal = await authorize(c)
     if (refusal !== null) return refusal
     if (MUTATING_METHODS.has(c.req.method) && !csrfValid(c)) {
@@ -145,7 +190,15 @@ function failClosed(
     }
     await next()
   })
+  sessionProtections.add(protection)
+  return protection
 }
+
+/** Every protection `failClosed` built: each one is closed to an access token. */
+const sessionProtections = new WeakSet<object>()
+
+/** Whether a route handler is a protection that refuses an access token; the MCP endpoint list reads it. */
+export const isSessionProtection = (handler: object) => sessionProtections.has(handler)
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
@@ -164,6 +217,23 @@ export const requireAdmin = failClosed((c) => {
   if (!c.var.principal.roles.includes(AuthRoles.ADMIN))
     return authRefusal(c, 403, 'Admin access required')
   return null
+})
+
+/**
+ * The exact role `ADMIN`, from an access token or a session. A request that presents a bearer
+ * token is decided by that token alone, never by its cookies: an invalid token answers `401`, a
+ * token of a non-admin `403`, and a valid one is stamped as used, becomes `c.var.principal`, and needs no CSRF pair,
+ * because a browser never attaches a bearer token on its own. Without a bearer header this is
+ * `requireAdmin`. A route opts in only under the rule of the authentication guide.
+ */
+export const requireAdminOrToken = createMiddleware(async (c, next) => {
+  const token = c.var.tokenPrincipal
+  if (token === undefined) return requireAdmin(c, next)
+  if (token === null) return authRefusal(c, 401, 'Authentication required')
+  if (!token.roles.includes(AuthRoles.ADMIN)) return authRefusal(c, 403, 'Admin access required')
+  await token.markUsed()
+  c.set('principal', token)
+  await next()
 })
 
 /**

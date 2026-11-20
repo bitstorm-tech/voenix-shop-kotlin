@@ -2,7 +2,7 @@ import { statSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import type { Hono } from 'hono'
 import { getConnInfo, serveStatic } from '@hono/bun'
-import { createAccountModule } from '@/modules/account'
+import { createAccessTokens, createAccountModule } from '@/modules/account'
 import { createArticleModule } from '@/modules/article'
 import { createCartModule, createPrintImageReads } from '@/modules/cart'
 import { createCheckoutModule } from '@/modules/checkout'
@@ -11,6 +11,7 @@ import { createEmailModule } from '@/modules/email'
 import { createGeneratorModule } from '@/modules/generator'
 import { createImageModule } from '@/modules/image'
 import { createLegalModule } from '@/modules/legal'
+import { createMcpModule } from '@/modules/mcp'
 import { createOperationsModule } from '@/modules/operations'
 import { createOrderModule, type MolliePayments } from '@/modules/order'
 import { createPricingModule } from '@/modules/pricing'
@@ -48,7 +49,7 @@ export async function createApplication(
   const db = createDatabase(settings.database)
   const fetch = overrides.fetch ?? globalThis.fetch
   try {
-    const auth = createAuth(settings.auth)
+    const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
     const app = createApp(auth)
     const { guestTokens } = auth
     const frontendBaseUrl = settings.frontend.baseUrl
@@ -171,6 +172,8 @@ export async function createApplication(
     ]) {
       app.route('/', routes)
     }
+    // Last: the MCP tools read the admin routes mounted above from `app` itself.
+    app.route('/', createMcpModule({ app, frontendBaseUrl }).routes)
     // The frontend itself, when this deployment carries one: the full-stack image sets
     // FRONTEND_DIST_PATH; in development it stays unset and Vite serves the frontend.
     if (settings.frontend.distPath !== null) serveFrontend(app, settings.frontend.distPath)

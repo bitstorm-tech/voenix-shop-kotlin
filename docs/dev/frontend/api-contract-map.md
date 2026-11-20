@@ -60,7 +60,7 @@ they shaped almost every store:
    The check is that each of them points at an existing row, not that each gets
    its own.
 
-That currently yields **142 rows** and **7** backend routes that no
+That currently yields **156 rows** and **7** backend routes that no
 frontend file calls, each dispositioned at the bottom of this file. A row is not
 always a literal: where a URL is built once in a helper, the helper's notable
 consumers get rows of their own, because what a reader looks for is the screen,
@@ -574,6 +574,25 @@ preview through `/api/images/{public|private}/400/{path}` (linked to the
 the store drops the `deleted` ones from the list, and when the backend `kept`
 some (in use again, or gone), the page says so and reloads.
 
+## Admin: access tokens
+
+| Frontend file | Call | Backend route | Closed by |
+| --- | --- | --- | --- |
+| `stores/admin/accessTokens.ts` | `GET /api/admin/access-tokens` | same | #293 |
+| `stores/admin/accessTokens.ts` | `POST /api/admin/access-tokens` | same | #293 |
+| `stores/admin/accessTokens.ts` | `DELETE /api/admin/access-tokens/{id}` | same | #293 |
+| `views/admin/AccessTokensView.vue` | none: shows `window.location.origin` + `/api/mcp` for the AI client | `ALL /api/mcp` | #293 |
+
+The page `/admin/access-tokens` lists every admin's tokens (name, owner, created,
+last used or `never`) and creates one from a name. The create answer is the only
+one that carries the token: the view keeps it in component state, shows it once
+with the endpoint URL and the `claude mcp add` command, and the store keeps only
+the row. A `400` puts the backend's `name` field error at the field. Revoking
+asks for confirmation; a `404` (revoked by another admin) reloads the list. The
+backend side is in
+[the Account package](../backend/packages/account-package.md#http-api) and
+[the MCP package](../backend/packages/mcp-package.md).
+
 ## Admin: production jobs and supplier logins
 
 | Frontend file | Call | Backend route | Closed by |
@@ -694,7 +713,7 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 142 |
+| Frontend rows, all matching | 156 |
 | Backend routes with no caller, all dispositioned | 7 |
 | Call sites with an open contract gap | 0 |
 
@@ -712,5 +731,7 @@ route to `GET /api/articles/spod` and added the mockup folder of
 `spodMockupImageUrl`, which is how 140 became 141. The TypeScript port (#262)
 changed no row; it removed the three standalone price routes nobody called
 (#251), which is how the uncalled routes went from 10 to 7. The Operations page
-(#282) added the findings list, which is how 141 became 142. Keep it that way: a
+(#282) added the findings list, which is how 141 became 142. A recount for the
+access tokens page (#293) found 152 rows before its four, which is how the score
+became 156. Keep it that way: a
 new `/api/…` literal belongs in this file in the same commit that introduces it.

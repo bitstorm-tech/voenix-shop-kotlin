@@ -41,7 +41,7 @@ flowchart TB
     Consumer["Cart · Checkout · Order"]
 
     subgraph Platform["Platform"]
-        App["createApp · requireAdmin"]
+        App["createApp · requireAdminOrToken"]
         Respond["jsonBody · integerParam · respondResult"]
     end
 

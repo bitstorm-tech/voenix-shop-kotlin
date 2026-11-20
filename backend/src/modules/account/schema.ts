@@ -51,10 +51,24 @@ export interface AccountTokensTable {
   expires_at: Date
 }
 
+/**
+ * The `access_tokens` table (V38): the SHA-256 hash of an admin's named bearer token. No expiry;
+ * deleting the row revokes the token, deleting the user deletes it.
+ */
+export interface AccessTokensTable {
+  id: Generated<number>
+  user_id: number
+  name: string
+  token_hash: string
+  created_at: Generated<Date>
+  last_used_at: Date | null
+}
+
 declare module '@/platform/db/database' {
   interface Tables {
     users: UsersTable
     user_roles: UserRolesTable
     account_tokens: AccountTokensTable
+    access_tokens: AccessTokensTable
   }
 }

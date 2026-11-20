@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getCountryCallingCode, isSupportedCountry } from 'libphonenumber-js'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import type { Country, CountryInput, CountryRepository } from './repository'
 
@@ -37,7 +37,7 @@ function toPublicCountry({ name, countryCode }: Country) {
 
 export function countryRoutes(countries: CountryRepository): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.get('/', async (c) => c.json(await countries.list()))
   admin.post('/', jsonBody(countryInput), async (c) => {
     const result = await countries.create(c.req.valid('json'))

@@ -4,8 +4,10 @@ import {
   createAuth,
   guestCapable,
   requireAdmin,
+  requireAdminOrToken,
   requireAuthenticated,
   requireSupplier,
+  type UserPrincipal,
 } from '@/platform/auth/auth'
 import {
   CSRF_COOKIE,
@@ -22,6 +24,7 @@ import {
   signedInHeaders,
   TEST_SESSION_SECRET,
   testAuth,
+  tokenHeaders,
 } from '@test-support/http'
 import { createApp } from '@/platform/http/app'
 
@@ -56,6 +59,18 @@ function probeApp(lookups: number[] = [], auth = testAuth) {
   admin.get('/', (c) => c.text('admin'))
   admin.on(MUTATING, '/', (c) => c.text('written'))
   routes.route('/probe/admin', admin)
+
+  const tokenAdmin = new Hono()
+  tokenAdmin.use(requireAdminOrToken)
+  tokenAdmin.get('/', (c) => c.text(`admin ${String(c.var.principal?.userId)}`))
+  tokenAdmin.on(MUTATING, '/', (c) => c.text(`written by ${String(c.var.principal?.userId)}`))
+  tokenAdmin.get('/inline', requireAdmin, (c) => c.text('inline admin'))
+  routes.route('/probe/token-admin', tokenAdmin)
+  // A locked sub-app below the open one: the open `use` runs first on its requests too.
+  const lockedBelow = new Hono()
+  lockedBelow.use(requireAdmin)
+  lockedBelow.get('/', (c) => c.text('locked admin'))
+  routes.route('/probe/token-admin/locked', lockedBelow)
 
   const guest = new Hono()
   guest.use(guestCapable)
@@ -96,6 +111,26 @@ const csrfOnly = (headers: Record<string, string>) => ({
   [CSRF_HEADER]: headers[CSRF_HEADER] ?? '',
 })
 const now = () => Math.floor(Date.now() / 1000)
+const FORBIDDEN = { success: false, message: 'Admin access required', code: null }
+
+/** An auth whose token lookup records every token it is asked about, and every stamp as `used <token>`. */
+function recordingAuth(asked: string[], known: Record<string, UserPrincipal> = {}) {
+  return createAuth({
+    sessionSecret: TEST_SESSION_SECRET,
+    secureCookies: false,
+    accessTokens: {
+      principalOf: (token) => {
+        asked.push(token)
+        return Promise.resolve(known[token] ?? null)
+      },
+      markUsed: (token) => {
+        asked.push(`used ${token}`)
+        return Promise.resolve()
+      },
+    },
+  })
+}
+const accessTokens = { principalOf: () => Promise.resolve(null), markUsed: () => Promise.resolve() }
 
 describe('the authenticated protection', () => {
   test('an anonymous request is refused with the auth answer', async () => {
@@ -166,6 +201,124 @@ describe('the admin protection', () => {
         (await app.request('/probe/admin', { method, headers: sessionOnly(headers) })).status,
       ).toBe(400)
       expect((await app.request('/probe/admin', { method, headers })).status).toBe(200)
+    }
+  })
+})
+
+describe('the admin-or-token protection', () => {
+  test('a valid admin token reads and writes without a CSRF pair and acts as its user', async () => {
+    const app = probeApp()
+    const headers = tokenHeaders({ userId: 31, roles: ['CUSTOMER', 'ADMIN'] })
+    const read = await app.request('/probe/token-admin', { headers })
+    expect(read.status).toBe(200)
+    expect(await read.text()).toBe('admin 31')
+    for (const method of MUTATING) {
+      const write = await app.request('/probe/token-admin', { method, headers })
+      expect(write.status).toBe(200)
+      expect(await write.text()).toBe('written by 31')
+    }
+  })
+
+  test('a token of a user without the role ADMIN is forbidden', async () => {
+    const response = await probeApp().request('/probe/token-admin', {
+      headers: tokenHeaders({ userId: 32, roles: ['CUSTOMER'] }),
+    })
+    expect(response.status).toBe(403)
+    expect(await jsonOf(response)).toEqual(FORBIDDEN)
+  })
+
+  test('an invalid bearer value is refused, even next to a valid admin session', async () => {
+    const asked: string[] = []
+    const app = probeApp([], recordingAuth(asked))
+    const session = await signedInHeaders()
+    for (const authorization of ['Bearer vnx_unknown', 'Bearer not-ours', 'Bearer', 'bearer  ']) {
+      for (const method of ['GET', 'POST']) {
+        const response = await app.request('/probe/token-admin', {
+          method,
+          headers: { ...session, Authorization: authorization },
+        })
+        expect(response.status).toBe(401)
+        expect(await jsonOf(response)).toEqual(UNAUTHORIZED)
+      }
+    }
+    // Only a value with the prefix reaches the lookup.
+    expect(asked).toEqual(['vnx_unknown', 'vnx_unknown'])
+  })
+
+  test('without a bearer header it is the admin protection', async () => {
+    const asked: string[] = []
+    const app = probeApp([], recordingAuth(asked))
+    expect((await app.request('/probe/token-admin')).status).toBe(401)
+    const customer = await app.request('/probe/token-admin', {
+      headers: await signedInHeaders({ roles: ['CUSTOMER'] }),
+    })
+    expect(customer.status).toBe(403)
+    const admin = await signedInHeaders({ userId: 33 })
+    const basic = { ...admin, Authorization: 'Basic dXNlcjpwYXNz' }
+    expect(await (await app.request('/probe/token-admin', { headers: basic })).text()).toBe(
+      'admin 33',
+    )
+    for (const method of MUTATING) {
+      const withoutPair = await app.request('/probe/token-admin', {
+        method,
+        headers: sessionOnly(admin),
+      })
+      expect(withoutPair.status).toBe(400)
+      expect(await jsonOf(withoutPair)).toEqual(CSRF_PROBLEM)
+      expect((await app.request('/probe/token-admin', { method, headers: admin })).status).toBe(200)
+    }
+    expect(asked).toEqual([])
+  })
+
+  test('a valid admin token is worth nothing on every other protection', async () => {
+    const lookups: number[] = []
+    const app = probeApp(lookups)
+    const token = tokenHeaders({ userId: 21, roles: ['ADMIN', 'SUPPLIER', 'CUSTOMER'] })
+    for (const path of ['/probe/admin', '/probe/account', '/probe/supplier']) {
+      for (const method of ['GET', 'POST']) {
+        const response = await app.request(path, { method, headers: token })
+        expect(response.status).toBe(401)
+      }
+    }
+    expect(lookups).toEqual([])
+    expect((await app.request('/probe/guest', { headers: token })).status).toBe(200)
+    const write = await app.request('/probe/guest', { method: 'POST', headers: token })
+    expect(write.status).toBe(400)
+    expect(await jsonOf(write)).toEqual(CSRF_PROBLEM)
+    // Next to a customer session the session decides, exactly as without the header.
+    const customer = await signedInHeaders({ userId: 22, roles: ['CUSTOMER'] })
+    const withSession = await app.request('/probe/admin', { headers: { ...customer, ...token } })
+    expect(withSession.status).toBe(403)
+  })
+
+  test('stamps a token only once it passed, never on a refusal', async () => {
+    const asked: string[] = []
+    const app = probeApp(
+      [],
+      recordingAuth(asked, {
+        vnx_admin: { userId: 35, roles: ['ADMIN'] },
+        vnx_customer: { userId: 36, roles: ['CUSTOMER'] },
+      }),
+    )
+    const request = (path: string, token: string) =>
+      app.request(path, { headers: { Authorization: `Bearer ${token}` } })
+    expect((await request('/probe/token-admin', 'vnx_customer')).status).toBe(403)
+    expect((await request('/probe/token-admin', 'vnx_x')).status).toBe(401)
+    expect((await request('/probe/admin', 'vnx_admin')).status).toBe(401)
+    expect(asked).toEqual(['vnx_customer', 'vnx_x', 'vnx_admin'])
+    expect((await request('/probe/token-admin', 'vnx_admin')).status).toBe(200)
+    expect(asked.slice(3)).toEqual(['vnx_admin', 'used vnx_admin'])
+  })
+
+  test('a session protection below an open one stays closed to the token', async () => {
+    const app = probeApp()
+    const token = tokenHeaders({ userId: 34, roles: ['ADMIN'] })
+    const admin = await signedInHeaders({ userId: 34 })
+    for (const path of ['/probe/token-admin/locked', '/probe/token-admin/inline']) {
+      const response = await app.request(path, { headers: token })
+      expect(response.status).toBe(401)
+      expect(await jsonOf(response)).toEqual(UNAUTHORIZED)
+      expect((await app.request(path, { headers: admin })).status).toBe(200)
     }
   })
 })
@@ -329,7 +482,7 @@ describe('the session cookie', () => {
     for (const secure of [false, true]) {
       const app = probeApp(
         [],
-        createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: secure }),
+        createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: secure, accessTokens }),
       )
       // The scheme and host of the request do not matter: TLS ends at the proxy.
       for (const origin of ['http://localhost', 'https://localhost', 'http://shop.example.com']) {

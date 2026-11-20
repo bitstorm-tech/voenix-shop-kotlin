@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireAdmin } from '@/platform/auth/auth'
+import { requireAdminOrToken } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import { articlePrice, optionalId, reorderInput } from '../routes'
 import type { SpodArticleInput, SpodArticleService } from './service'
@@ -48,7 +48,7 @@ const articleId = integerParam('id', 'Invalid article id')
  */
 export function spodArticleRoutes(articles: SpodArticleService): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin)
+  admin.use(requireAdminOrToken)
   admin.get('/', async (c) => c.json(await articles.list()))
   admin.put('/order', jsonBody(reorderInput), async (c) => {
     const { sourceId, targetId } = c.req.valid('json')

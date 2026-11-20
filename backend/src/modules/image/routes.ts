@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { requireAdmin, requireAuthenticated, type Auth } from '@/platform/auth/auth'
+import { requireAdminOrToken, requireAuthenticated, type Auth } from '@/platform/auth/auth'
 import { apiError, jsonBody, respondFailure } from '@/platform/http/respond'
 import type { OperationResult } from '@/platform/operation'
 import type { OrphanImages } from './orphans'
@@ -99,12 +99,12 @@ const deleteInput = z.strictObject({
 /**
  * The admin orphan routes: `GET /api/admin/images/orphans` lists every original no module refers
  * to, oldest first, and `POST /api/admin/images/orphans/delete` deletes those of the named ones that
- * are still orphans, answering `{ deleted, kept }`. `requireAdmin` checks the CSRF pair of the
+ * are still orphans, answering `{ deleted, kept }`. `requireAdminOrToken` checks the CSRF pair of the
  * `POST`.
  */
 export function orphanImageRoutes(orphans: OrphanImages): Hono {
   const admin = new Hono()
-  admin.use(requireAdmin, async (c, next) => {
+  admin.use(requireAdminOrToken, async (c, next) => {
     c.header('Cache-Control', 'no-store')
     await next()
   })

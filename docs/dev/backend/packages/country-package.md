@@ -26,7 +26,7 @@ flowchart TB
 
     subgraph Platform["Platform"]
         App["createApp<br/>onError · body limit · auth middleware"]
-        Auth["requireAdmin<br/>session · ADMIN role · CSRF"]
+        Auth["requireAdminOrToken<br/>session or access token · ADMIN role · CSRF"]
         Respond["jsonBody · integerParam · respondResult"]
     end
 
@@ -140,8 +140,10 @@ unknown property answers `Unknown property` under its name. See
 An admin posts `{"name":" Denmark ","countryCode":" dk "}`:
 
 1. `createApp`'s middleware opens the `voenix.auth` and `XSRF-TOKEN` cookies.
-2. `requireAdmin` on the admin sub-app checks the principal, the role, and, for
-   a `POST`, the `X-XSRF-TOKEN` header.
+2. `requireAdminOrToken` on the admin sub-app checks the principal, the role,
+   and, for a `POST`, the `X-XSRF-TOKEN` header. An AI client's access token
+   passes it too, without a CSRF pair (see
+   [access tokens](../conventions/authentication-and-authorization.md#access-tokens)).
 3. `jsonBody(countryInput)` checks the content type, parses the body, and runs
    the schema; the handler receives `{ name: 'Denmark', countryCode: 'dk' }`
    from `c.req.valid('json')`.

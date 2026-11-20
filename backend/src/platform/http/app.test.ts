@@ -65,6 +65,10 @@ describe('a JSON body', () => {
     expect(await jsonOf(response)).toEqual({ label: 'green' })
   })
 
+  test('the middleware carries its schema for the MCP endpoint list', () => {
+    expect(jsonBody(widgetInput).bodySchema).toBe(widgetInput)
+  })
+
   test('a rejected body answers 400 Validation failed with one entry per field', async () => {
     const response = await postJson(probeApp(), '/probe/widgets', '{"label":"","size":{}}')
     expect(response.status).toBe(400)

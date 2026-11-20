@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
-import type { Kysely, Selectable, Transaction } from 'kysely'
+import { sql, type Kysely, type Selectable, type Transaction } from 'kysely'
 import { AuthRoles } from '@/platform/auth/auth'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
@@ -41,6 +41,15 @@ export interface SupplierLogin {
   email: string
   supplierId: number
   createdAt: Date
+}
+
+/** An access token as the admin surface shows it, never its hash; also its JSON. */
+export interface AccessToken {
+  id: number
+  name: string
+  userEmail: string
+  createdAt: Date
+  lastUsedAt: Date | null
 }
 
 /** Confirmation, reset (also the supplier invitation), and e-mail change links. */
@@ -345,6 +354,89 @@ export function createAccountRepository(db: Kysely<Tables>) {
           .executeTakeFirst()
         return result.numUpdatedRows === 0n ? undefined : findAccount(trx, userId)
       }),
+
+    /** Every admin's access tokens, newest first. */
+    listAccessTokens: (): Promise<AccessToken[]> =>
+      read(db, (trx) =>
+        trx
+          .selectFrom('access_tokens')
+          .innerJoin('users', 'users.id', 'access_tokens.user_id')
+          .select([
+            'access_tokens.id',
+            'access_tokens.name',
+            'users.email as userEmail',
+            'access_tokens.created_at as createdAt',
+            'access_tokens.last_used_at as lastUsedAt',
+          ])
+          .orderBy('access_tokens.created_at', 'desc')
+          .orderBy('access_tokens.id', 'desc')
+          .execute(),
+      ),
+
+    insertAccessToken: (token: { userId: number; name: string; tokenHash: string }) =>
+      write(db, async (trx): Promise<AccessToken> => {
+        const row = await trx
+          .insertInto('access_tokens')
+          .values({ user_id: token.userId, name: token.name, token_hash: token.tokenHash })
+          .returning(['id', 'name', 'created_at', 'last_used_at'])
+          .executeTakeFirstOrThrow()
+        const user = await trx
+          .selectFrom('users')
+          .select('email')
+          .where('id', '=', token.userId)
+          .executeTakeFirstOrThrow()
+        return {
+          id: row.id,
+          name: row.name,
+          userEmail: user.email,
+          createdAt: row.created_at,
+          lastUsedAt: row.last_used_at,
+        }
+      }),
+
+    deleteAccessToken: async (id: number): Promise<boolean> => {
+      const deleted = await db.deleteFrom('access_tokens').where('id', '=', id).executeTakeFirst()
+      return deleted.numDeletedRows > 0n
+    },
+
+    /**
+     * The user and current roles of the token with this hash, or `null` when no such token exists.
+     * The roles are read here on every use, never stored with the token, so a removed role counts
+     * from the next request on.
+     */
+    accessTokenPrincipal: (tokenHash: string) =>
+      read(db, async (trx) => {
+        const token = await trx
+          .selectFrom('access_tokens')
+          .select('user_id')
+          .where('token_hash', '=', tokenHash)
+          .executeTakeFirst()
+        if (token === undefined) return null
+        const roles = await trx
+          .selectFrom('user_roles')
+          .select('role')
+          .where('user_id', '=', token.user_id)
+          .execute()
+        return { userId: token.user_id, roles: roles.map((row) => row.role) }
+      }),
+
+    /**
+     * Stamps `last_used_at`, at most once a minute: an MCP tool call passes the token twice (the
+     * endpoint, then the admin route it dispatches to) and stamps once.
+     */
+    markAccessTokenUsed: async (tokenHash: string): Promise<void> => {
+      await db
+        .updateTable('access_tokens')
+        .set({ last_used_at: sql<Date>`now()` })
+        .where('token_hash', '=', tokenHash)
+        .where((eb) =>
+          eb.or([
+            eb('last_used_at', 'is', null),
+            eb('last_used_at', '<', sql<Date>`now() - interval '1 minute'`),
+          ]),
+        )
+        .execute()
+    },
 
     updatePasswordHash: async (userId: number, passwordHash: string): Promise<void> => {
       await db

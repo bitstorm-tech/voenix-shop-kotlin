@@ -1,5 +1,13 @@
 import type { Component } from 'vue'
-import { Bot, CircleAlert, Database, FileText, ImageOff, ShoppingCart } from 'lucide-vue-next'
+import {
+  Bot,
+  CircleAlert,
+  Database,
+  FileText,
+  ImageOff,
+  KeyRound,
+  ShoppingCart,
+} from 'lucide-vue-next'
 
 export interface AdminNavLinkItem {
   type: 'link'
@@ -136,6 +144,12 @@ export const adminNavigationItems: AdminNavItem[] = [
     title: 'Orphaned images',
     to: '/admin/images/orphans',
     icon: ImageOff,
+  },
+  {
+    type: 'link',
+    title: 'Access tokens',
+    to: '/admin/access-tokens',
+    icon: KeyRound,
   },
 ]
 

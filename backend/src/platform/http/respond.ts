@@ -49,7 +49,8 @@ function fieldName(path: readonly PropertyKey[]): string {
  * Validates a JSON request body against `schema` and makes it available as `c.req.valid('json')`.
  * Answers `415` for a content type other than `application/json`, `400 Malformed request body`
  * for a body that is not JSON, and `400 Validation failed` with the field errors otherwise.
- * Declare schemas with `z.strictObject`, so an unknown property is an error.
+ * Declare schemas with `z.strictObject`, so an unknown property is an error. The middleware carries
+ * `schema` as `bodySchema`, so the MCP endpoint list can describe the body a route reads.
  */
 export function jsonBody<S extends z.ZodType>(schema: S) {
   const validate = zValidator('json', schema, (result, c): Response | undefined =>
@@ -67,7 +68,7 @@ export function jsonBody<S extends z.ZodType>(schema: S) {
     }
     return validate(c, next)
   }
-  return validateJson
+  return Object.assign(validateJson, { bodySchema: schema })
 }
 
 /**

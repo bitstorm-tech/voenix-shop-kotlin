@@ -80,7 +80,7 @@ flowchart TB
 ```text
 prompt/
 |- index.ts              createPromptModule({ db, priceCatalog, exampleImages }) → { routes, promptCatalog, imageReferences };
-|                        the admin sub-app with requireAdmin and the mount order; the example-image folder
+|                        the admin sub-app with requireAdminOrToken and the mount order; the example-image folder
 |- schema.ts             the seven table interfaces, merged into the platform's Tables
 |- fields.ts             Zod fragments every request schema shares: requiredName, optionalText, reorderInput
 |- ordering.ts           lockSequence (the three anchors), lockCategories (ascending ids), moved (find,
@@ -145,7 +145,7 @@ The exported surface of `index.ts`:
 | `.promptCatalog.findSalesGrossPriceCents(promptIds)` | `Promise<Map<number, number>>`, takes any `Iterable<number>` |
 | types | `PromptModule`, `PromptCatalog` |
 
-`index.ts` installs `requireAdmin` once on the admin sub-app and mounts the four
+`index.ts` installs `requireAdminOrToken` once on the admin sub-app and mounts the four
 sub-path groups (`/slots`, `/slot-variants`, `/categories`, `/subcategories`)
 **before** the prompts themselves: Hono runs matching handlers in registration
 order, and `GET /:id` of the prompts would otherwise answer

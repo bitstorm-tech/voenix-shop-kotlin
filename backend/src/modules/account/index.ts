@@ -1,17 +1,17 @@
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
-import type { Auth, SupplierAccounts } from '@/platform/auth/auth'
+import type { AccessTokens, Auth, SupplierAccounts } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
-import { createPasswordHasher, DEFAULT_PBKDF2_ITERATIONS } from './credentials'
+import { createPasswordHasher, DEFAULT_PBKDF2_ITERATIONS, tokenHashOf } from './credentials'
 import { createAccountMails } from './mails'
 import { createAccountRepository } from './repository'
-import { accountRoutes } from './routes'
+import { accessTokenRoutes, accountRoutes } from './routes'
 import { createAccountService } from './service'
 
 /**
  * The account module: registration, login (the one production caller of `auth.signIn`), profile,
- * the mailed links, and the administrator's supplier logins. It exports one capability,
- * `supplierAccounts`, which the composition root hands to `requireSupplier`.
+ * the mailed links, the administrator's supplier logins and access tokens. It exports one
+ * capability, `supplierAccounts`, which the composition root hands to `requireSupplier`.
  *
  * `frontendBaseUrl` is `settings.frontend.baseUrl`, the base of every mailed link. `now` and
  * `pbkdf2Iterations` exist for the tests: a clock they can move, and a cheap work factor.
@@ -39,5 +39,19 @@ export function createAccountModule({
     now,
   })
   const supplierAccounts: SupplierAccounts = { supplierIdOf: repository.findSupplierId }
-  return { routes: accountRoutes(service, auth), supplierAccounts }
+  const routes = accountRoutes(service, auth)
+  routes.route('/', accessTokenRoutes(repository))
+  return { routes, supplierAccounts }
+}
+
+/**
+ * The lookup `createAuth` resolves a bearer token with. It is created on its own, before the auth
+ * and therefore before this module, which needs the auth.
+ */
+export function createAccessTokens(db: Kysely<Tables>): AccessTokens {
+  const repository = createAccountRepository(db)
+  return {
+    principalOf: (token) => repository.accessTokenPrincipal(tokenHashOf(token)),
+    markUsed: (token) => repository.markAccessTokenUsed(tokenHashOf(token)),
+  }
 }
