@@ -17,6 +17,7 @@ migrate-prod-to-local.sh
 backend/.env.local
 backend/node_modules/
 backend/data/
+spod-mcp/node_modules/
 
 # Local overrides for docker-compose.yaml.
 .env*
