@@ -225,7 +225,21 @@ export function imageFrameMaskUrl(frame: ImageFrame, aspectRatio: number): strin
 
 /** Inline style that masks an element - stretched to its full box - with the frame. */
 export function imageFrameMaskStyle(frame: ImageFrame, aspectRatio: number) {
-  const image = `url("${imageFrameMaskUrl(frame, aspectRatio)}")`
+  return maskUrlStyle(imageFrameMaskUrl(frame, aspectRatio))
+}
+
+/**
+ * Inline style for a product's measured print mask (a PNG data URL). Returns `undefined` when
+ * absent (`null`, `undefined`, or empty) so a stale cached response without the field never sets
+ * `url("undefined")` and hides the design.
+ */
+export function printMaskStyle(mask: string | null | undefined) {
+  if (!mask) return undefined
+  return maskUrlStyle(mask)
+}
+
+function maskUrlStyle(url: string) {
+  const image = `url("${url}")`
   return {
     maskImage: image,
     WebkitMaskImage: image,

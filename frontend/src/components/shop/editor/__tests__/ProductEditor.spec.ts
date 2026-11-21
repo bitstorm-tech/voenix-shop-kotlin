@@ -208,17 +208,34 @@ describe('ProductEditor', () => {
     expect(frameStyle).toContain('top: 24%')
     expect(frameStyle).toContain('width: 40%')
     expect(frameStyle).toContain('height: 22.5%')
-    expect(frameStyle).toContain('--print-mask: none')
     expect(frameStyle).not.toContain('aspect-ratio')
+    expect(wrapper.get('[data-testid="editor-print-mask"]').attributes('style')).toBeUndefined()
   })
 
-  it('cuts the design to what a product that is no rectangle shows of the frame', () => {
+  it('cuts the design to what a product that is no rectangle shows of the frame, even if the mockup fails to load', async () => {
     const button = toEditorSpodArticle({ ...shopTee, printMask: 'data:image/png;base64,AAAA' })
     const wrapper = mountProductEditor(createDraft(), {}, { article: button, variant: spodVariant })
 
-    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
-      '--print-mask: url("data:image/png;base64,AAAA")',
+    const maskStyle = () =>
+      wrapper.get('[data-testid="editor-print-mask"]').attributes('style') ?? ''
+    expect(maskStyle()).toContain('url("data:image/png;base64,AAAA")')
+    expect(maskStyle()).toContain('mask-repeat: no-repeat')
+    expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).not.toContain(
+      'mask-image',
     )
+
+    await wrapper.get('[data-testid="editor-mockup-image"]').trigger('error')
+    expect(maskStyle()).toContain('url("data:image/png;base64,AAAA")')
+  })
+
+  it('keeps the design visible when printMask is undefined from a stale cached payload', () => {
+    const stale = toEditorSpodArticle({
+      ...shopTee,
+      printMask: undefined as unknown as string | null,
+    })
+    const wrapper = mountProductEditor(createDraft(), {}, { article: stale, variant: spodVariant })
+
+    expect(wrapper.get('[data-testid="editor-print-mask"]').attributes('style')).toBeUndefined()
   })
 
   it('swaps the mockup and keeps the frame when the colour changes', async () => {

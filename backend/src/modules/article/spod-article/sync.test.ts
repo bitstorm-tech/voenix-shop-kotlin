@@ -9,7 +9,6 @@ import { pngBytes } from '@test-support/values'
 import type { SpodCatalogSource, SpodSyncReport } from '../index'
 import {
   articleTestModule,
-  blankMockupPng,
   calibrationPreviewPng,
   grossPrice,
   insertCategory,
@@ -37,7 +36,8 @@ beforeEach(async () => {
 
 const CDN = 'https://cdn.example.test'
 const TEE = 812
-const TEE_FRAME = { leftPct: 28.4, topPct: 18.8, widthPct: 42.4, heightPct: 42.4 }
+// 416 = 32 * 13: exact integer stripe widths in the 13-unit calibration ruler.
+const TEE_FRAME = { leftPct: 28.4, topPct: 18.8, widthPct: 41.6, heightPct: 41.6 }
 /** Sizes as the partner answers them: quoted ids, inch values, and a size the shirt does not sell. */
 const sizeOf = (sizeId: number, name: string, a: number, b: number) => ({
   sizeId: String(sizeId),
@@ -52,9 +52,12 @@ const TEE_SIZES = [sizeOf(1, 'M', 720, 500), sizeOf(2, 'L', 740, 530), sizeOf(3,
 interface Partner {
   /** The listing pages, by offset; a function so a test can change the catalog between runs. */
   listing: (offset: number) => Response
-  holed?: boolean
+  /** Rotates previews by 25° so calibration rejects the product type as distorted. */
+  distorted?: boolean
   /** The product type also offers an all-over hotspot, and shows a circle of that print. */
   round?: boolean
+  /** Omits the mockup of the first appearance (5) from views to prove fallback to appearance 6. */
+  missingFirstMockup?: boolean
   viewsRefused?: boolean
   failingDownloads?: Set<string>
   /** The size chart answer: a body, or a whole response; the tee chart below by default. */
@@ -68,30 +71,28 @@ const json = (body: unknown) =>
 
 function fakePartner(partner: Partner) {
   const hits: string[] = []
+  let uploads = 0
   const fetch = async (url: string, init: RequestInit): Promise<Response> => {
     const { hostname, pathname } = new URL(url)
     hits.push(hostname === 'cdn.example.test' ? `cdn:${pathname}` : pathname)
     if (hostname === 'cdn.example.test') {
       if (partner.failingDownloads?.has(pathname)) return new Response('', { status: 404 })
       if (pathname.startsWith('/previews/')) {
-        const hotspot = pathname.split('/')[3]?.split(',')[0]
+        const [, , , hotspot, designSegment] = pathname.split('/')
+        const variant = (designSegment?.split(',')[0] ?? 'a') === 'b' ? 'b' : 'a'
         const preview =
           hotspot === 'OVERALL_FRONT'
-            ? calibrationPreviewPng(
-                { x: 150, y: 100, width: 700, height: 700 },
-                { visibleRadius: 300 },
-              )
+            ? calibrationPreviewPng({ x: 150, y: 100, width: 702, height: 702 }, variant, {
+                visibleRadius: 300,
+              })
             : calibrationPreviewPng(
                 hotspot === 'FULL_FRONT'
-                  ? { x: 284, y: 188, width: 424, height: 424 }
-                  : { x: 356, y: 188, width: 284, height: 284 },
-                { holed: partner.holed ?? false },
+                  ? { x: 284, y: 188, width: 416, height: 416 }
+                  : { x: 356, y: 188, width: 286, height: 286 },
+                variant,
+                { rotationDeg: partner.distorted === true ? 25 : 0 },
               )
         return new Response(await preview, { headers: { 'Content-Type': 'image/png' } })
-      }
-      // The calibration asks for the mockup as PNG to compare the previews with it.
-      if (pathname.endsWith(',mediaType=png')) {
-        return new Response(await blankMockupPng(), { headers: { 'Content-Type': 'image/png' } })
       }
       return new Response(await pngBytes(), { headers: { 'Content-Type': 'image/png' } })
     }
@@ -99,7 +100,10 @@ function fakePartner(partner: Partner) {
       await partner.gate
       return partner.listing(Number(new URL(url).searchParams.get('offset')))
     }
-    if (pathname === '/designs/upload') return json({ designId: 'design-1' })
+    if (pathname === '/designs/upload') {
+      uploads++
+      return json({ designId: uploads % 2 === 1 ? 'design-a' : 'design-b' })
+    }
     const productType = pathname.split('/')[2] ?? ''
     if (pathname.endsWith('/size-chart')) {
       const answer = partner.sizeChart?.() ?? {
@@ -110,6 +114,7 @@ function fakePartner(partner: Partner) {
     }
     if (pathname.endsWith('/views')) {
       if (partner.viewsRefused === true) return new Response('', { status: 500 })
+      const appearances = partner.missingFirstMockup === true ? [6] : [5, 6]
       // The views answer names its sides in the account's language; the previews answer does not.
       return json({
         views: [
@@ -122,7 +127,7 @@ function fakePartner(partner: Partner) {
               { name: 'LEFT_CHEST' },
               { name: 'OVERALL_FRONT' },
             ],
-            images: [5, 6].map((appearance) => ({
+            images: appearances.map((appearance) => ({
               appearanceId: String(appearance),
               image: `${CDN}/mockups/${productType}/${String(appearance)}.png`,
             })),
@@ -142,13 +147,18 @@ function fakePartner(partner: Partner) {
     }
     if (pathname.endsWith('/previews')) {
       const body = JSON.parse(typeof init.body === 'string' ? init.body : '{}') as {
-        configurations: { hotspot: string }[]
+        configurations: { designId: string; hotspot: string }[]
       }
       const hotspot = body.configurations[0]?.hotspot ?? ''
+      const variant = body.configurations[0]?.designId === 'design-b' ? 'b' : 'a'
       return json({
         images: [
-          { url: `${CDN}/previews/${productType}/${hotspot}`, viewId: '1', viewName: 'FRONT' },
-          { url: `${CDN}/previews/${productType}/back`, viewId: '2', viewName: 'BACK' },
+          {
+            url: `${CDN}/previews/${productType}/${hotspot}/${variant}`,
+            viewId: '1',
+            viewName: 'FRONT',
+          },
+          { url: `${CDN}/previews/${productType}/back/${variant}`, viewId: '2', viewName: 'BACK' },
         ],
       })
     }
@@ -262,7 +272,7 @@ describe('a first run', () => {
       price_id: null,
       spod_hotspot: 'FULL_FRONT',
       print_frame_left_pct: '28.40',
-      print_frame_width_pct: '42.40',
+      print_frame_width_pct: '41.60',
       print_mask: null,
       spod_product_type_name: "Men's T-Shirt",
       spod_size_chart_url: `${CDN}/chart-1.png`,
@@ -287,7 +297,7 @@ describe('a first run', () => {
       { size_label: 'L', is_default: false, active: true },
       { size_label: 'M', is_default: false, active: true },
     ])
-    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(1)
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
     expect(hits.filter((hit) => hit.endsWith('/size-chart'))).toHaveLength(1)
     expect(downloads(hits)).toHaveLength(6)
   })
@@ -304,7 +314,7 @@ describe('an identical second run', () => {
     expect(report.unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
     expect(report.warnings).toEqual([])
     expect(downloads(hits)).toEqual([])
-    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(1)
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
   })
 
   test('downloads again every picture whose file is gone, and refers only to stored files', async () => {
@@ -615,7 +625,7 @@ describe('the calibration', () => {
     expect(report.created).toMatchObject([
       {
         hotspot: 'OVERALL_FRONT',
-        printFrame: { leftPct: 15, topPct: 10, widthPct: 70, heightPct: 70 },
+        printFrame: { leftPct: 15, topPct: 10, widthPct: 70.2, heightPct: 70.2 },
       },
     ])
     const stored = await storedArticle()
@@ -624,13 +634,21 @@ describe('the calibration', () => {
     expect((await run()).unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
   })
 
-  test('a box with a hole writes the article without frame and hotspot under CALIBRATION_FAILED', async () => {
-    const report = await (await syncWith({ listing: page([shirt()]), holed: true })).run()
+  test('a missing mockup on the first colour still calibrates the product type using another colour', async () => {
+    const report = await (
+      await syncWith({ listing: page([shirt()]), missingFirstMockup: true })
+    ).run()
+    expect(report.created).toMatchObject([{ hotspot: 'FULL_FRONT', printFrame: TEE_FRAME }])
+    expect(report.warnings.map((warning) => warning.code)).toEqual(['MOCKUP_UNAVAILABLE'])
+  })
+
+  test('a distorted preview writes the article without frame and hotspot under CALIBRATION_FAILED', async () => {
+    const report = await (await syncWith({ listing: page([shirt()]), distorted: true })).run()
     expect(report.created).toMatchObject([{ hotspot: null, printFrame: null }])
     expect(report.warnings).toContainEqual({
       code: 'CALIBRATION_FAILED',
       spodArticleId: 'a-1',
-      detail: `The print frame of product type ${String(TEE)} could not be measured (FULL_FRONT: LOW_FILL, MEDIUM_FRONT: LOW_FILL)`,
+      detail: `The print frame of product type ${String(TEE)} could not be measured (FULL_FRONT: DISTORTED_PRINT, MEDIUM_FRONT: DISTORTED_PRINT)`,
     })
     expect(await storedArticle()).toMatchObject({ spod_hotspot: null, print_frame_left_pct: null })
   })

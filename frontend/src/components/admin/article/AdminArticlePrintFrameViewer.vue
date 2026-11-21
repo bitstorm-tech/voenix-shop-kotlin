@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Alert } from '@/components/ui/alert'
+import { printMaskStyle } from '@/lib/imageFrames'
 import type { PrintFrameDto } from '@/stores/shop/catalog'
 
 /**
@@ -31,6 +32,7 @@ const rectangleStyle = computed(() =>
       }
     : null,
 )
+const visibleMaskStyle = computed(() => printMaskStyle(props.mask))
 </script>
 
 <template>
@@ -61,10 +63,8 @@ const rectangleStyle = computed(() =>
       >
         <!-- Two pixels out on every side: the tint covers the frame up to the edge of its border. -->
         <div
-          class="absolute -inset-0.5 bg-primary/10 [mask-image:var(--print-mask,none)] [mask-size:100%_100%]"
-          :style="{
-            '--print-mask': props.mask === null ? 'none' : `url(&quot;${props.mask}&quot;)`,
-          }"
+          class="absolute -inset-0.5 bg-primary/10"
+          :style="visibleMaskStyle"
           data-testid="print-frame-visible"
         />
       </div>

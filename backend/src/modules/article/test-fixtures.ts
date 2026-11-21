@@ -9,6 +9,7 @@ import { createSpodClient, type SpodClient } from '@/modules/spod'
 import { createSupplierModule } from '@/modules/supplier'
 import type { Auth } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
+import { calibrationColorAt } from './spod-article/calibration'
 import { createArticleModule } from './index'
 
 /**
@@ -299,60 +300,139 @@ export interface Box {
   height: number
 }
 
+export interface CalibrationPreviewOptions {
+  edge?: number
+  garmentRgb?: readonly [number, number, number]
+  visibleRadius?: number
+  /** Alpha in `[0, 1]` for pixel `(x, y)` inside `box`; defaults to `1` (or `visibleRadius`). */
+  visibleAt?: (x: number, y: number, box: Box) => number
+  /** Multiplicative lighting/shading `[r, g, b]` applied on top of both garment and print. */
+  shadingAt?: (x: number, y: number) => readonly [number, number, number]
+  /** Additive specular highlight `[0..255]` applied on top of both garment and print. */
+  highlightAt?: (x: number, y: number) => number
+  /** Gamma applied during compositing (`1` = linear, `2.2` = sRGB-like). */
+  gamma?: number
+  /** Rotates the printed pattern around the box centre (degrees), to test distorted mockups. */
+  rotationDeg?: number
+  /** Transparent outer border whose RGB bytes differ between preview A and preview B. */
+  transparentBorder?: number
+  /** Draws a single-pixel noise speck outside the print area on preview B. */
+  noiseSpeck?: boolean
+}
+
 /**
- * A preview as the partner renders the calibration design: an opaque magenta box on a grey
- * garment with the green marker of half its edge in the middle. `holed` leaves a 100 × 100 patch
- * of garment in the middle; `antiAliased` draws a translucent one-pixel rim around the box;
- * `visibleRadius` shows only what lies that close to the box's middle, as a round product does.
+ * Renders one complementary calibration preview (`variant: 'a' | 'b'`) of `box` on a garment.
+ * Supports shading, specular highlights, arbitrary garment colours, gamma, circular/custom masks,
+ * rotation, transparent borders with differing RGB, and canvas overhang.
  */
 export async function calibrationPreviewPng(
   box: Box,
-  { edge = 1000, holed = false, antiAliased = false, visibleRadius = Infinity } = {},
+  variant: 'a' | 'b',
+  options: CalibrationPreviewOptions = {},
 ): Promise<Buffer> {
+  const edge = options.edge ?? 1000
+  const garmentRgb = options.garmentRgb ?? GARMENT_RGB
+  const visibleRadius = options.visibleRadius ?? Infinity
+  const gamma = options.gamma ?? 1
+  const rad = ((options.rotationDeg ?? 0) * Math.PI) / 180
+  const cosR = Math.cos(rad)
+  const sinR = Math.sin(rad)
+  const border = options.transparentBorder ?? 0
   const pixels = Buffer.alloc(edge * edge * 4)
-  const fill = (area: Box, rgba: readonly number[]) => {
-    for (let y = Math.max(area.y, 0); y < Math.min(area.y + area.height, edge); y++) {
-      for (let x = Math.max(area.x, 0); x < Math.min(area.x + area.width, edge); x++) {
-        const visible =
-          Math.hypot(x + 0.5 - box.x - box.width / 2, y + 0.5 - box.y - box.height / 2) <=
-          visibleRadius
-        if (visible || rgba === GARMENT) pixels.set(rgba, (y * edge + x) * 4)
+
+  const toLin = (value: number) =>
+    gamma === 1 ? value : Math.pow(Math.max(0, Math.min(1, value)), gamma)
+  const fromLin = (value: number) =>
+    gamma === 1 ? value : Math.pow(Math.max(0, Math.min(1, value)), 1 / gamma)
+
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  for (let y = 0; y < edge; y++) {
+    for (let x = 0; x < edge; x++) {
+      const offset = (y * edge + x) * 4
+      if (x < border || x >= edge - border || y < border || y >= edge - border) {
+        const transparentRgb = variant === 'a' ? 0 : 255
+        pixels[offset] = transparentRgb
+        pixels[offset + 1] = transparentRgb
+        pixels[offset + 2] = transparentRgb
+        pixels[offset + 3] = 0
+        continue
       }
+
+      const shade = options.shadingAt ? options.shadingAt(x, y) : ([1, 1, 1] as const)
+      const highlight = options.highlightAt ? options.highlightAt(x, y) : 0
+      const bg = [
+        Math.min(255, Math.round(garmentRgb[0] * shade[0] + highlight)),
+        Math.min(255, Math.round(garmentRgb[1] * shade[1] + highlight)),
+        Math.min(255, Math.round(garmentRgb[2] * shade[2] + highlight)),
+      ] as const
+
+      let alpha = 0
+      let u = -1
+      let v = -1
+      if (box.width > 0 && box.height > 0) {
+        const dx = x + 0.5 - cx
+        const dy = y + 0.5 - cy
+        const rx = rad === 0 ? dx : dx * cosR + dy * sinR
+        const ry = rad === 0 ? dy : -dx * sinR + dy * cosR
+        u = rx / box.width + 0.5
+        v = ry / box.height + 0.5
+        if (u >= 0 && u <= 1 && v >= 0 && v <= 1) {
+          if (options.visibleAt) {
+            alpha = options.visibleAt(x, y, box)
+          } else if (Number.isFinite(visibleRadius)) {
+            const dist = Math.hypot(dx, dy)
+            alpha = Math.max(0, Math.min(1, visibleRadius - dist + 0.5))
+          } else {
+            alpha = 1
+          }
+        }
+      }
+
+      if (alpha <= 0) {
+        pixels[offset] = bg[0]
+        pixels[offset + 1] = bg[1]
+        pixels[offset + 2] = bg[2]
+        pixels[offset + 3] = 255
+        continue
+      }
+
+      const design = calibrationColorAt(u, v, variant)
+      for (let channel = 0; channel < 3; channel++) {
+        const dLin = toLin((design[channel] ?? 0) / 255)
+        const bLin = toLin((bg[channel] ?? 0) / 255)
+        const lit = dLin * (shade[channel] ?? 1) + highlight / 255
+        const out = fromLin(bLin * (1 - alpha) + lit * alpha)
+        pixels[offset + channel] = Math.max(0, Math.min(255, Math.round(out * 255)))
+      }
+      pixels[offset + 3] = 255
     }
   }
-  const middle = (size: number) => ({
-    x: box.x + Math.floor((box.width - size) / 2),
-    y: box.y + Math.floor((box.height - size) / 2),
-    width: size,
-    height: size,
-  })
-  fill({ x: 0, y: 0, width: edge, height: edge }, GARMENT)
-  if (antiAliased) {
-    fill(
-      { x: box.x - 1, y: box.y - 1, width: box.width + 2, height: box.height + 2 },
-      [255, 0, 255, 128],
-    )
+
+  if (options.noiseSpeck === true && variant === 'b' && edge > 10) {
+    const speck = (5 * edge + 5) * 4
+    pixels[speck] = 255
+    pixels[speck + 1] = 255
+    pixels[speck + 2] = 255
+    pixels[speck + 3] = 255
   }
-  fill(box, [255, 0, 255, 255])
-  fill(
-    {
-      x: box.x + box.width / 4,
-      y: box.y + box.height / 4,
-      width: box.width / 2,
-      height: box.height / 2,
-    },
-    [0, 255, 0, 255],
-  )
-  if (holed) fill(middle(100), GARMENT)
+
   return sharp(pixels, { raw: { width: edge, height: edge, channels: 4 } })
     .png()
     .toBuffer()
 }
 
-/** The mockup a preview is compared with: the grey garment alone. */
-export const blankMockupPng = (edge = 1000): Promise<Buffer> =>
-  sharp({ create: { width: edge, height: edge, channels: 4, background: '#c8c8c8' } })
-    .png()
-    .toBuffer()
+/** Renders both complementary previews (`a` and `b`) for one synthetic calibration scenario. */
+export async function calibrationPreviewPair(
+  box: Box,
+  options: CalibrationPreviewOptions = {},
+): Promise<{ a: Buffer; b: Buffer }> {
+  const [a, b] = await Promise.all([
+    calibrationPreviewPng(box, 'a', options),
+    calibrationPreviewPng(box, 'b', options),
+  ])
+  return { a, b }
+}
 
-const GARMENT = [200, 200, 200, 255] as const
+const GARMENT_RGB = [200, 200, 200] as const

@@ -29,9 +29,7 @@ describe('AdminArticlePrintFrameViewer', () => {
     expect(wrapper.find('button').exists()).toBe(false)
     expect(wrapper.find('[data-testid="print-frame-missing"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="print-frame-masked"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="print-frame-visible"]').attributes('style')).toContain(
-      '--print-mask: none',
-    )
+    expect(wrapper.get('[data-testid="print-frame-visible"]').attributes('style')).toBeUndefined()
   })
 
   it('tints only the part of the frame a product that is no rectangle shows', () => {
@@ -44,9 +42,10 @@ describe('AdminArticlePrintFrameViewer', () => {
       },
     })
 
-    expect(wrapper.get('[data-testid="print-frame-visible"]').attributes('style')).toContain(
-      '--print-mask: url("data:image/png;base64,AAAA")',
-    )
+    const visibleStyle =
+      wrapper.get('[data-testid="print-frame-visible"]').attributes('style') ?? ''
+    expect(visibleStyle).toContain('url("data:image/png;base64,AAAA")')
+    expect(visibleStyle).toContain('mask-repeat: no-repeat')
     expect(wrapper.get('[data-testid="print-frame-masked"]').text()).toContain(
       'Only the tinted part',
     )

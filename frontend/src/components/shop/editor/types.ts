@@ -123,7 +123,7 @@ export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle 
     printArea: { aspectRatio: 1, documentFormatWidthMm: null, documentFormatHeightMm: null },
     productTypeName: article.productTypeName,
     printFrame: article.printFrame,
-    printMask: article.printMask,
+    printMask: article.printMask ?? null,
     sizeChartImageFilename: article.sizeChartImageFilename,
     sizeMeasurements: article.sizeMeasurements,
     variants: article.variants.map((variant) => toEditorSpodVariant(article, variant)),

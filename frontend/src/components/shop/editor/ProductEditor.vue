@@ -30,7 +30,7 @@ import { composeImage } from '@/lib/composeImage'
 import { spodMockupImageUrl } from '@/lib/variantExampleImage'
 import { CLIPART_DEFAULT_SIZE, type ClipartId } from '@/lib/cliparts'
 import { clampCropTransform } from '@/lib/cropTransform'
-import { imageFrameMaskStyle, type ImageFrame } from '@/lib/imageFrames'
+import { imageFrameMaskStyle, printMaskStyle, type ImageFrame } from '@/lib/imageFrames'
 import type { Rect } from '@/lib/geometry'
 import { CartAddError, useCartStore } from '@/stores/shop/cart'
 import type { CropFrameTransform } from '@/stores/shop/cropFrame'
@@ -112,10 +112,17 @@ const mockupFrameStyle = computed(() => {
     top: `${topPct}%`,
     width: `${widthPct}%`,
     height: `${heightPct}%`,
-    // What a product that is no rectangle shows of the frame, such as the face of a round button.
-    '--print-mask': article.printMask === null ? 'none' : `url("${article.printMask}")`,
   }
 })
+
+/**
+ * What a product that is no rectangle shows of the frame (such as a round button or heart puzzle).
+ * Applied on an inner wrapper so the crop outline on `.editor-print-frame` is never clipped and
+ * the mask still holds when the mockup photo fails to load.
+ */
+const productPrintMaskStyle = computed(() =>
+  props.article.type === 'SPOD' ? printMaskStyle(props.article.printMask) : undefined,
+)
 
 const textOverlays = computed(() => currentImage.value?.edits.textOverlays ?? [])
 const cliparts = computed(() => currentImage.value?.edits.cliparts ?? [])
@@ -481,10 +488,13 @@ async function handleAddToCart() {
       imageFrame: image.edits.imageFrame,
     })
 
+    // Encode as WebP so 4000 × 4000 print images stay well below the 10 MiB cart upload cap;
+    // browsers without WebP canvas encoding fall back to PNG per the HTML spec.
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (result) => (result ? resolve(result) : reject(new Error('Canvas toBlob failed'))),
-        'image/png',
+        'image/webp',
+        0.92,
       )
     })
 
@@ -559,6 +569,7 @@ async function handleAddToCart() {
             <div
               data-testid="editor-print-stage"
               class="editor-print-stage relative z-[1] w-full min-w-0"
+              :class="{ 'overflow-hidden': hasMockupPreview }"
             >
               <img
                 v-if="hasMockupPreview && mockupImageUrl"
@@ -578,38 +589,44 @@ async function handleAddToCart() {
                 :style="printFrameStyle"
               >
                 <div
-                  class="editor-print-image-mask absolute inset-0"
-                  data-testid="editor-print-image-mask"
-                  :style="imageFrameStyle"
+                  class="editor-print-mask-surface absolute inset-0"
+                  data-testid="editor-print-mask"
+                  :style="productPrintMaskStyle"
                 >
-                  <img
-                    ref="imageRef"
-                    :src="currentImage.url"
-                    :alt="t('editor.imageAlt')"
-                    class="editor-print-image absolute block max-w-none select-none"
-                    data-testid="editor-print-image"
-                    draggable="false"
-                    :style="printImageStyle"
+                  <div
+                    class="editor-print-image-mask absolute inset-0"
+                    data-testid="editor-print-image-mask"
+                    :style="imageFrameStyle"
+                  >
+                    <img
+                      ref="imageRef"
+                      :src="currentImage.url"
+                      :alt="t('editor.imageAlt')"
+                      class="editor-print-image absolute block max-w-none select-none"
+                      data-testid="editor-print-image"
+                      draggable="false"
+                      :style="printImageStyle"
+                    />
+                  </div>
+                  <ClipartLayer
+                    v-if="cliparts.length > 0"
+                    :frame-rect="editFrameRect"
+                    :interactive="activeTool === 'cliparts'"
+                    :cliparts="cliparts"
+                    :selected-id="selectedClipartId"
+                    @select="selectClipartFromLayer"
+                    @update-clipart="updateClipart"
+                  />
+                  <TextOverlayLayer
+                    v-if="textOverlays.length > 0"
+                    :image-rect="editFrameRect"
+                    :interactive="activeTool === 'text'"
+                    :overlays="textOverlays"
+                    :selected-id="selectedTextOverlayId"
+                    @select="selectTextOverlayFromLayer"
+                    @update-overlay="updateTextOverlay"
                   />
                 </div>
-                <ClipartLayer
-                  v-if="cliparts.length > 0"
-                  :frame-rect="editFrameRect"
-                  :interactive="activeTool === 'cliparts'"
-                  :cliparts="cliparts"
-                  :selected-id="selectedClipartId"
-                  @select="selectClipartFromLayer"
-                  @update-clipart="updateClipart"
-                />
-                <TextOverlayLayer
-                  v-if="textOverlays.length > 0"
-                  :image-rect="editFrameRect"
-                  :interactive="activeTool === 'text'"
-                  :overlays="textOverlays"
-                  :selected-id="selectedTextOverlayId"
-                  @select="selectTextOverlayFromLayer"
-                  @update-overlay="updateTextOverlay"
-                />
               </div>
             </div>
             <CropFrameLayer
@@ -825,13 +842,6 @@ async function handleAddToCart() {
     color-mix(in srgb, var(--background-soft) 86%, var(--foreground) 8%),
     color-mix(in srgb, var(--background-soft) 94%, var(--brand) 6%)
   );
-}
-
-.editor-print-frame {
-  -webkit-mask-image: var(--print-mask, none);
-  mask-image: var(--print-mask, none);
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
 }
 
 .editor-crop-workspace--active .editor-print-frame {

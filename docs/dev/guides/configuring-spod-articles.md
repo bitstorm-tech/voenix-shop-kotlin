@@ -259,14 +259,16 @@ design sits: the editor in the shop shows the design inside it, and the partner
 prints it exactly there. Nobody types it. Every run measures it per product
 type — this is the *calibration* (SPOD sync decision 7):
 
-1. the run uploads one test design to the partner: a magenta square with a
-   green square of half its size in the middle;
+1. the run uploads two complementary 4000 × 4000 test designs to the partner
+   (encoding a uniform visibility channel and a self-synchronizing binary ruler
+   along X and Y);
 2. it asks the product type for its front hotspots and which of them accept
    that design;
-3. it lets the partner render a preview of the design on every one of them and
-   compares each picture with the blank mockup: the green square says where
-   the whole design lies, and the pixels that changed say how much of it the
-   product shows;
+3. it lets the partner render both designs on every front hotspot and compares
+   the pair against itself (no blank mockup needed): pixels that differ between
+   the pair show what is visibly printed, and the ruler's zero-crossings locate
+   the exact 1:1 design frame even under shading, glare, arbitrary product
+   colours, cutouts, or full-bleed edge overhang;
 4. the **hotspot** that shows the most of the design wins, and that hotspot,
    its frame, and what is visible of it are written into every article of the
    product type.
@@ -306,13 +308,12 @@ detail says why, per hotspot that was tried:
 
 | Detail | Meaning |
 | --- | --- |
-| `NO_FRONT_VIEW` | the product type has no view named `FRONT` |
-| `NO_PRINTABLE_HOTSPOT` | none of the front hotspots accepts the design |
-| `NO_FRONT_MOCKUP` | the partner lists no blank front picture of the article's first colour to compare with |
-| `NO_RECTANGLE` | the preview showed no green square, or one too small to be a print area |
-| `LOW_FILL` | the green square has holes, a ragged edge, or is cut off — something covers the middle of the design |
-| `OUTSIDE_PICTURE` | the design is larger than the mockup picture shows |
-| `UNREADABLE_IMAGE` | the preview or the blank mockup could not be read, or they differ in size |
+| `NO_FRONT_VIEW` | the product type has no front view (no view carrying a `…_FRONT` hotspot) |
+| `NO_PRINTABLE_HOTSPOT` | none of the front hotspots accepts the 4000 × 4000 design |
+| `NO_PRINT_AREA` | the preview pair showed no measurable print area, or one smaller than 2 % of the picture |
+| `DISTORTED_PRINT` | the rendered pattern is too strongly rotated or warped to represent a flat 2D print frame |
+| `OUTSIDE_PICTURE` | the design frame exceeds the stored overhang bounds or does not overlap the mockup picture |
+| `UNREADABLE_IMAGE` | one of the previews could not be decoded, or the pair differs in size |
 | `PROVIDER_ANSWER_UNREADABLE` | the partner rendered the preview but answered no front picture for it |
 
 What to do: open the product type in the Spreadconnect backoffice and check
@@ -339,11 +340,11 @@ fix its front hotspots in the backoffice*.
 
 The partner allows 60 API requests per minute for the whole account, and the
 shop paces every call to stay below that. A run costs, **per product type** it
-meets, two calls plus one preview per accepted front hotspot (at most five), and
-once per run one design upload; the picture downloads do not count. Twenty tees
+meets, two calls plus two complementary previews per accepted front hotspot, and
+once per run two design uploads; the picture downloads do not count. Twenty tees
 of one product type therefore cost as much calibration as one tee. Each paced
 call takes a little over a second, so ten different product types with two
-front hotspots each add about forty seconds to a run. The run works in the
+front hotspots each add about a minute to a run. The run works in the
 background; the screen polls it until it is done.
 
 ### 5c. Complete the shop's half in the article editor

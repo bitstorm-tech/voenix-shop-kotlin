@@ -5,6 +5,7 @@ import {
   imageFrameMaskStyle,
   imageFrameMaskSvg,
   imageFrameMaskUrl,
+  printMaskStyle,
 } from '@/lib/imageFrames'
 
 function viewBox(svg: string) {
@@ -118,5 +119,19 @@ describe('imageFrames', () => {
     expect(style.maskSize).toBe('100% 100%')
     expect(style.maskRepeat).toBe('no-repeat')
     expect(decodeURIComponent(imageFrameMaskUrl(full('oval'), 1))).toContain('<ellipse')
+  })
+
+  it('returns undefined for an absent print mask and stretched non-repeating styles when present', () => {
+    expect(printMaskStyle(null)).toBeUndefined()
+    expect(printMaskStyle(undefined)).toBeUndefined()
+    expect(printMaskStyle('')).toBeUndefined()
+    expect(printMaskStyle('data:image/png;base64,AAAA')).toEqual({
+      maskImage: 'url("data:image/png;base64,AAAA")',
+      WebkitMaskImage: 'url("data:image/png;base64,AAAA")',
+      maskSize: '100% 100%',
+      WebkitMaskSize: '100% 100%',
+      maskRepeat: 'no-repeat',
+      WebkitMaskRepeat: 'no-repeat',
+    })
   })
 })

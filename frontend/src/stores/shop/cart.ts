@@ -182,7 +182,8 @@ export const useCartStore = defineStore('cart', () => {
   /** Step one of an add: stores the print image and answers the id the line references. */
   async function uploadPrintImage(imageBlob: Blob): Promise<number> {
     const formData = new FormData()
-    formData.append('file', imageBlob, 'design.png')
+    const filename = imageBlob.type === 'image/webp' ? 'design.webp' : 'design.png'
+    formData.append('file', imageBlob, filename)
 
     const { id } = await fetchForm<PrintImageId>('/api/cart/images', formData)
     return id

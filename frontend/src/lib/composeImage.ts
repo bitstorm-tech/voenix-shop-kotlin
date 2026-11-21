@@ -26,7 +26,7 @@ export async function composeImage(options: {
     textOverlays,
     cliparts,
     imageFrame,
-    outputWidth = 2048,
+    outputWidth = 4000,
   } = options
 
   const img = await loadImage(imageUrl)
