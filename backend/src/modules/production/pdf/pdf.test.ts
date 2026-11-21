@@ -256,6 +256,14 @@ describe('printImagePng', () => {
     })
   })
 
+  test('upscales a print image when minimumPixels requires more than 4096 px (large poster)', async () => {
+    const square = await writeImage(directory, 'poster.webp', 'webp', 400, 400)
+    const upscaled = await printImagePng(square, undefined, { width: 4850, height: 4850 })
+    if (upscaled.kind !== 'converted') throw new Error(upscaled.error)
+    const meta = await sharp(upscaled.png).metadata()
+    expect([meta.width, meta.height]).toEqual([4850, 4850])
+  })
+
   test('a missing image and an unreadable file are bounded codes', async () => {
     const broken = join(directory, 'broken.webp')
     await writeFile(broken, 'RIFF but not really')

@@ -259,22 +259,23 @@ design sits: the editor in the shop shows the design inside it, and the partner
 prints it exactly there. Nobody types it. Every run measures it per product
 type — this is the *calibration* (SPOD sync decision 7):
 
-1. the run uploads two complementary 4000 × 4000 test designs to the partner
-   (encoding a uniform visibility channel and a self-synchronizing binary ruler
-   along X and Y);
-2. it asks the product type for its front hotspots and which of them accept
-   that design;
-3. it lets the partner render both designs on every front hotspot and compares
-   the pair against itself (no blank mockup needed): pixels that differ between
-   the pair show what is visibly printed, and the ruler's zero-crossings locate
-   the exact design frame even under shading, glare, arbitrary product colours,
-   cutouts, or full-bleed edge overhang;
-4. the **hotspot** that shows the most of the design wins, and the run checks
-   whether that hotspot accepts a wider or taller print area (probing `2:1` /
-   `1:2` on rectangular hotspots or the visible mask's aspect ratio on tall/wide
-   all-over products) so landscape items like a 3:2 pencil case and portrait
-   items like a 3:4 tee or 1:2 phone case get their full physical width and
-   height;
+1. the run reads the product type's print area and required DPI
+   (`GET /productTypes/{id}`) and uploads a complementary test design pair
+   matched to that aspect ratio and DPI (at least 4000 px on the longest edge,
+   up to 8000 px for large posters or 400 DPI puzzles; identical sizes are
+   uploaded once per run and cached);
+2. it picks the product type's primary printable view (preferring a front view
+   with a `…_FRONT` hotspot, or falling back to a back-only view such as
+   `FULL_BACK` on a dog t-shirt) and asks which hotspots accept the design;
+3. it lets the partner render both designs on every accepted hotspot and
+   compares the pair against itself (no blank mockup needed): pixels that
+   differ between the pair show what is visibly printed, and the ruler's
+   zero-crossings locate the exact design frame even under shading, glare,
+   arbitrary product colours, cutouts, or full-bleed edge overhang;
+4. the **hotspot** that shows the most of the design wins; if the product is a
+   clipped all-over shape whose visible mask differs from the design's ratio
+   (or if `printAreas` was unavailable), the run refines once at the exact
+   aspect ratio;
 5. that hotspot, its frame, and what is visible of it are written into every
    article of the product type.
 

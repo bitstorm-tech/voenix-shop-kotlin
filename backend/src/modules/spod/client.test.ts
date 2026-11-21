@@ -736,6 +736,32 @@ describe('the image download', () => {
     })
   })
 
+  test('productType reads printAreas and printType dpi with safe defaults', async () => {
+    const spod = harness(() =>
+      jsonAnswer(
+        JSON.stringify({
+          id: '1300',
+          printType: [{ id: '24', dpi: 200 }],
+          printAreas: [
+            { view: 'FRONT', widthMm: 604, heightMm: 604, widthInch: 23.78, heightInch: 23.78 },
+          ],
+        }),
+      ),
+    )
+
+    expect(await spod.client.productType(access(), 1300)).toEqual({
+      kind: 'answered',
+      value: {
+        printType: [{ dpi: 200 }],
+        printAreas: [
+          { view: 'FRONT', widthMm: 604, heightMm: 604, widthInch: 23.78, heightInch: 23.78 },
+        ],
+      },
+    })
+    expect(spod.request().url).toBe('https://rest.spod-staging.com/productTypes/1300')
+    expect(spod.request().method).toBe('GET')
+  })
+
   test('a download logs the host and nothing of the path, the query, or the user info', async () => {
     const spod = harness((request) =>
       request.url.endsWith('timeout')

@@ -453,10 +453,12 @@ caller is a human waiting for the report.
    A count of zero with no items is a complete, empty catalog. On a failure
    nothing is written and nothing is swept.
 2. **Reconcile each article in one transaction of its own.** Variants without
-   all three product ids are dropped, duplicates of the triple too. The
-   article is skipped (into `failed`) for several product types, no printable
-   variant, an id longer than its 64-character column, or two colours of one
-   name. Then its product type is **calibrated**, once per run (decision 7);
+   all three product ids or with an empty `appearanceName` (retired colours the
+   partner still lists without name or colour value) are dropped, duplicates of
+   the triple too. The article is skipped (into `failed`) for several product
+   types, no printable variant, an id longer than its 64-character column, or
+   two named colours of one name. Then its product type is **calibrated**, once
+   per run (decision 7);
    a partner that does not answer the calibration skips the article
    (`CALIBRATION_UNAVAILABLE`) before any picture is downloaded. Then the
    colours are resolved in first-appearance order: the colour value is parsed
@@ -587,29 +589,41 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
      (`[-300 %, 400 %]`, overlapping `[0 %, 100 %]`), else `OUTSIDE_PICTURE`.
    - **The hotspot that shows the most pixels of the design wins**, ties go to
      the first hotspot.
+   - **Print-area sizing and back-only products (`GET /productTypes/{id}`):**
+     Before uploading calibration designs for a product type, the run reads
+     `GET /productTypes/{id}` (best-effort, cached per run) for `printAreas`
+     (physical width/height per view) and `printType[].dpi`. Sizing the
+     calibration pair directly to the print area's aspect ratio and
+     `max(4000, ceil(maxInch * dpi * 1.05))` (up to `8000 px`) satisfies both
+     high-DPI / large-format items (such as the 60 × 60 cm poster at 200 DPI →
+     `5000 × 5000` or the 28 × 19 cm puzzle at 400 DPI → `4750 × 3250`) and
+     aspect-strict items (framed posters, bumper stickers) on the first call,
+     skipping the `2:1`/`1:2` rectangular probes. When metadata is absent or
+     rejected, calibration falls back to the `4000 × 4000` baseline plus
+     probing. For products with no `…_FRONT` hotspot (such as a dog t-shirt
+     printed only on `FULL_BACK`), calibration and mockup selection fall back
+     to the first view that has any hotspot, and order submission maps
+     `*_BACK` / `BACK_COLLAR` hotspots to `view: 'BACK'`.
    - **Arbitrary non-square print areas are discovered automatically** without
      a fixed aspect-ratio enum; only the measured frame's `widthPct` and
-     `heightPct` (and `print_mask`) are stored. After the `1:1` baseline picks
-     the winning hotspot:
+     `heightPct` (and `print_mask`) are stored. After the baseline picks the
+     winning hotspot:
      - *Masked / clipped all-over (`mask !== null`)*: if the visible mask's
-       bounding box differs from `1:1` by more than 5 % (for example a `1:2`
-       phone case), the winning hotspot is re-measured once with a calibration
-       pair sized to that visible aspect ratio (longest edge 4000 px) and kept
-       when coverage stays ≥ 95 % with a tighter fill or more visible pixels.
-       Nearly square masks (round button, heart puzzle) trigger no extra calls.
-     - *Unmasked rectangular hotspot (`mask === null`)*: the run probes `2:1`
-       (`4000 × 2000`, uploaded and cached once per run). If the measured width
-       grows by > 5 % (landscape, e.g. a `3:2` pencil case), it escalates to
-       `3:1` when `2:1` still touches top and bottom, derives the exact
-       `targetRatio = bestWide.widthPct / base.heightPct`, and measures once at
-       that ratio. Otherwise it probes `1:2` (`2000 × 4000`, cached per run)
-       and symmetrically handles portrait frames (e.g. a `3:4` tee). Any
-       refused or unmeasurable probe falls back cleanly to the best valid
-       measurement so far.
+       bounding box differs from the measured design's ratio by more than 5 %
+       (for example a `1:2` phone case), the winning hotspot is re-measured
+       once at that visible aspect ratio and kept when coverage stays ≥ 95 %
+       with a tighter fill or more visible pixels.
+     - *Unmasked rectangular hotspot (`mask === null`)*: when the initial
+       measurement came from `1:1` fallback (no `printAreas`), the run probes
+       `2:1`/`3:1` or `1:2`/`1:3`, derives the exact `targetRatio`, and
+       measures once at that ratio. Any refused or unmeasurable probe falls
+       back cleanly to the best valid measurement so far.
      - *Frontend & AI generation*: the editor derives `printArea.aspectRatio`
        from `widthPct / heightPct` (SPOD mockups are square `1000 × 1000`) and
-       `composeImage` caps the longest edge at `4000 px`. AI image generation
-       (`printFormats`) stays decoupled at `1:1` for now.
+       `composeImage` caps the longest edge at `4000 px` (order submission
+       upscales via `printImagePng` when a large/high-DPI product type requires
+       more than `4096 px`). AI image generation (`printFormats`) stays
+       decoupled at `1:1` for now.
 
    Per product type, per run, stateless; only answers are cached.
    A measurement failure writes no frame (`CALIBRATION_FAILED`); a transport

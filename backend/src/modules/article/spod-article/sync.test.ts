@@ -59,6 +59,21 @@ interface Partner {
   round?: boolean
   /** The product type offers an all-over hotspot with a tall 1:2 phone-case cutout. */
   phoneCase?: boolean
+  /** Back-only product type (like a dog t-shirt): front has no hotspots, back has `FULL_BACK`. */
+  backOnly?: boolean
+  /** Optional `GET /productTypes/{id}` metadata (`printAreas` + `printType`). */
+  productTypeMeta?: {
+    printType?: { dpi?: number }[]
+    printAreas?: {
+      view: string
+      widthMm?: number
+      heightMm?: number
+      widthInch?: number
+      heightInch?: number
+    }[]
+  }
+  /** Rejects designs whose longest edge is smaller than this in `/hotspots/design/{id}`. */
+  minDesignEdge?: number
   /** Overrides the rectangular FULL_FRONT print area (px on a 1000×1000 mockup) to test non-1:1 discovery. */
   fullFrontBox?: { x: number; y: number; width: number; height: number }
   /** Omits the mockup of the first appearance (5) from views to prove fallback to appearance 6. */
@@ -101,7 +116,7 @@ function fitCover(box: { x: number; y: number; width: number; height: number }, 
 function fakePartner(partner: Partner) {
   const hits: string[] = []
   let uploads = 0
-  const uploadedDesigns = new Map<string, { variant: 'a' | 'b'; ratio: number }>()
+  const uploadedDesigns = new Map<string, { variant: 'a' | 'b'; ratio: number; maxEdge: number }>()
   const previewCache = new Map<string, Promise<Buffer>>()
   const fullFrontBox = partner.fullFrontBox ?? { x: 284, y: 188, width: 416, height: 416 }
   const mediumFrontBox = partner.fullFrontBox
@@ -148,7 +163,8 @@ function fakePartner(partner: Partner) {
               { visibleRadius: 300 },
             )
           } else {
-            const box = hotspot === 'FULL_FRONT' ? fullFrontBox : mediumFrontBox
+            const box =
+              hotspot === 'FULL_FRONT' || hotspot === 'FULL_BACK' ? fullFrontBox : mediumFrontBox
             preview = calibrationPreviewPng(fitContain(box, design.ratio), design.variant, {
               rotationDeg: partner.distorted === true ? 25 : 0,
             })
@@ -174,10 +190,17 @@ function fakePartner(partner: Partner) {
       const variant =
         file instanceof File && file.name.endsWith('-b.png') ? 'b' : uploads % 2 === 1 ? 'a' : 'b'
       const designId = `design-${String(uploads)}`
-      uploadedDesigns.set(designId, { variant, ratio: width / height })
+      uploadedDesigns.set(designId, {
+        variant,
+        ratio: width / height,
+        maxEdge: Math.max(width, height),
+      })
       return json({ designId })
     }
     const productType = pathname.split('/')[2] ?? ''
+    if (pathname === `/productTypes/${productType}` && partner.productTypeMeta !== undefined) {
+      return json(partner.productTypeMeta)
+    }
     if (pathname.endsWith('/size-chart')) {
       const answer = partner.sizeChart?.() ?? {
         sizeImageUrl: `${CDN}/chart-1.png`,
@@ -188,6 +211,18 @@ function fakePartner(partner: Partner) {
     if (pathname.endsWith('/views')) {
       if (partner.viewsRefused === true) return new Response('', { status: 500 })
       const appearances = partner.missingFirstMockup === true ? [6] : [5, 6]
+      const mockupImages = appearances.map((appearance) => ({
+        appearanceId: String(appearance),
+        image: `${CDN}/mockups/${productType}/${String(appearance)}.png`,
+      }))
+      if (partner.backOnly === true) {
+        return json({
+          views: [
+            { id: '2', name: 'Hinten', hotspots: [{ name: 'FULL_BACK' }], images: mockupImages },
+            { id: '1', name: 'Vorne', hotspots: [], images: mockupImages },
+          ],
+        })
+      }
       // The views answer names its sides in the account's language; the previews answer does not.
       return json({
         views: [
@@ -200,16 +235,21 @@ function fakePartner(partner: Partner) {
               { name: 'LEFT_CHEST' },
               { name: 'OVERALL_FRONT' },
             ],
-            images: appearances.map((appearance) => ({
-              appearanceId: String(appearance),
-              image: `${CDN}/mockups/${productType}/${String(appearance)}.png`,
-            })),
+            images: mockupImages,
           },
           { id: '2', name: 'Hinten', hotspots: [{ name: 'FULL_BACK' }], images: [] },
         ],
       })
     }
     if (pathname.includes('/hotspots/design/')) {
+      const designId = pathname.split('/').at(-1) ?? ''
+      const design = uploadedDesigns.get(designId)
+      if (partner.minDesignEdge !== undefined && (design?.maxEdge ?? 0) < partner.minDesignEdge) {
+        return json({ hotspots: [] })
+      }
+      if (partner.backOnly === true) {
+        return json({ hotspots: [{ name: 'FULL_BACK' }] })
+      }
       return json({
         hotspots: [
           { name: 'FULL_FRONT' },
@@ -226,6 +266,17 @@ function fakePartner(partner: Partner) {
       }
       const hotspot = body.configurations[0]?.hotspot ?? ''
       const designId = body.configurations[0]?.designId ?? 'design-1'
+      if (partner.backOnly === true) {
+        return json({
+          images: [
+            {
+              url: `${CDN}/previews/${productType}/${hotspot}/${designId}`,
+              viewId: '2',
+              viewName: 'BACK',
+            },
+          ],
+        })
+      }
       return json({
         images: [
           {
@@ -760,6 +811,46 @@ describe('the calibration', () => {
     expect((await storedArticle()).print_mask).toStartWith('data:image/png;base64,')
   })
 
+  test('uses productTypes printAreas and DPI to calibrate large-format posters above 4000 px', async () => {
+    const { run, hits } = await syncWith({
+      listing: page([shirt()]),
+      productTypeMeta: {
+        printType: [{ dpi: 200 }],
+        printAreas: [
+          { view: 'FRONT', widthMm: 604, heightMm: 604, widthInch: 23.78, heightInch: 23.78 },
+        ],
+      },
+      minDesignEdge: 4756,
+    })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    expect(report.created).toMatchObject([{ hotspot: 'FULL_FRONT', printFrame: TEE_FRAME }])
+    // Only the 5000x5000 pair is uploaded (no 2:1 / 1:2 probes needed when printAreas is known).
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
+  })
+
+  test('falls back to a back-only view (e.g. dog t-shirt) for calibration and mockups', async () => {
+    const { run } = await syncWith({
+      listing: page([shirt()]),
+      backOnly: true,
+      fullFrontBox: { x: 344, y: 180, width: 312, height: 416 },
+      productTypeMeta: {
+        printType: [{ dpi: 200 }],
+        printAreas: [
+          { view: 'BACK', widthMm: 120, heightMm: 160, widthInch: 4.72, heightInch: 6.3 },
+        ],
+      },
+    })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    expect(report.created).toMatchObject([
+      {
+        hotspot: 'FULL_BACK',
+        printFrame: { leftPct: 34.4, topPct: 18, widthPct: 31.2, heightPct: 41.6 },
+      },
+    ])
+  })
+
   test('a missing mockup on the first colour still calibrates the product type using another colour', async () => {
     const report = await (
       await syncWith({ listing: page([shirt()]), missingFirstMockup: true })
@@ -843,6 +934,34 @@ describe('degraded partner data', () => {
       'ARTICLE_WITHOUT_VARIANTS',
     ])
     expect(report.created.map((line) => line.spodArticleId)).toEqual(['a-1'])
+  })
+
+  test('drops retired appearances with empty names so valid colours sync and all-retired articles fail as empty', async () => {
+    const hoodie = shirt({
+      id: 'hoodie',
+      variants: [
+        variant('v-1', 5, 'Black', '#000000', 1, 'M'),
+        variant('v-r1', 101, '', '', 1, 'M'),
+        variant('v-r2', 102, '   ', '', 1, 'M'),
+      ],
+    })
+    const retiredBib = shirt({
+      id: 'retired-bib',
+      variants: [
+        variant('v-b1', 201, '', '', 1, 'One size'),
+        variant('v-b2', 202, '', '', 1, 'One size'),
+      ],
+    })
+    const report = await (await syncWith({ listing: page([hoodie, retiredBib]) })).run()
+    expect(report.created.map((line) => line.spodArticleId)).toEqual(['hoodie'])
+    expect(report.failed.map((line) => line.spodArticleId)).toEqual(['retired-bib'])
+    expect(report.warnings).toEqual([
+      {
+        code: 'ARTICLE_WITHOUT_VARIANTS',
+        spodArticleId: 'retired-bib',
+        detail: 'No printable variant',
+      },
+    ])
   })
 })
 

@@ -3,10 +3,18 @@ import sharp from 'sharp'
 
 /** The partner scales a design onto the garment; beyond this many pixels nothing improves. */
 export const MAX_EDGE_PIXELS = 4096
+/** Upper cap when upscaling for large-format or high-DPI items (e.g. 60 × 60 cm poster at 200 DPI). */
+export const MAX_LARGE_EDGE_PIXELS = 8000
 /** 9.5 MiB: below the partner's 10 MB limit, with room for the multipart envelope. */
 export const MAX_PNG_BYTES = 9_961_472
 /** Three halvings take a 4096 px edge to 512 px; anything beyond that is not a print image. */
 export const MAX_SHRINK_ATTEMPTS = 3
+
+/** Minimum width and height in pixels required by a large-format / high-DPI product type. */
+export interface MinimumPrintPixels {
+  width: number
+  height: number
+}
 
 /** The bounded print-image problems; the values are persisted error codes. */
 export type PrintImageError =
@@ -19,14 +27,15 @@ export type PrintImageError =
 
 /**
  * The PNG the partner's design upload accepts, made from a stored print image (WebP). The longest
- * edge is capped at `MAX_EDGE_PIXELS`; while the PNG is over `maxBytes` the image is halved and
- * encoded again, at most `MAX_SHRINK_ATTEMPTS` times. PNG is lossless, so making it smaller means
- * making the image smaller, and the bound keeps a pathological image from looping forever.
- * Transparency is kept. `maxBytes` is a parameter so a test can pin the loop with a small image.
+ * edge is capped at `MAX_EDGE_PIXELS` by default, or raised to satisfy `minimumPixels` (up to
+ * `MAX_LARGE_EDGE_PIXELS`) for large-format/high-DPI items such as 60 × 60 cm posters or 400 DPI
+ * puzzles. While the PNG is over `maxBytes` the image is halved and encoded again, at most
+ * `MAX_SHRINK_ATTEMPTS` times. Transparency is kept.
  */
 export async function printImagePng(
   path: string | null,
   maxBytes = MAX_PNG_BYTES,
+  minimumPixels?: MinimumPrintPixels,
 ): Promise<{ kind: 'converted'; png: Buffer } | { kind: 'failed'; error: PrintImageError }> {
   const isFile =
     path !== null &&
@@ -36,10 +45,40 @@ export async function printImagePng(
     ))
   if (path === null || !isFile) return { kind: 'failed', error: 'PRINT_IMAGE_MISSING' }
   try {
-    let png = await sharp(path)
-      .resize(MAX_EDGE_PIXELS, MAX_EDGE_PIXELS, { fit: 'inside', withoutEnlargement: true })
-      .png()
-      .toBuffer({ resolveWithObject: true })
+    const minW =
+      minimumPixels === undefined
+        ? 0
+        : Math.min(MAX_LARGE_EDGE_PIXELS, Math.max(0, Math.ceil(minimumPixels.width)))
+    const minH =
+      minimumPixels === undefined
+        ? 0
+        : Math.min(MAX_LARGE_EDGE_PIXELS, Math.max(0, Math.ceil(minimumPixels.height)))
+
+    let pipeline = sharp(path)
+    if (minW > 0 || minH > 0) {
+      const meta = await pipeline.metadata()
+      const srcW = meta.width
+      const srcH = meta.height
+      const ceiling = Math.max(MAX_EDGE_PIXELS, minW, minH)
+      if (srcW > 0 && srcH > 0 && (srcW < minW || srcH < minH)) {
+        const scale = Math.max(minW / srcW, minH / srcH)
+        const targetW = Math.min(MAX_LARGE_EDGE_PIXELS, Math.ceil(srcW * scale))
+        const targetH = Math.min(MAX_LARGE_EDGE_PIXELS, Math.ceil(srcH * scale))
+        pipeline = sharp(path).resize(targetW, targetH, { fit: 'fill' })
+      } else {
+        pipeline = sharp(path).resize(ceiling, ceiling, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+      }
+    } else {
+      pipeline = pipeline.resize(MAX_EDGE_PIXELS, MAX_EDGE_PIXELS, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+    }
+
+    let png = await pipeline.png().toBuffer({ resolveWithObject: true })
     for (let shrinks = 0; png.data.length > maxBytes; shrinks++) {
       if (shrinks === MAX_SHRINK_ATTEMPTS) return { kind: 'failed', error: 'PRINT_IMAGE_TOO_LARGE' }
       png = await sharp(png.data)

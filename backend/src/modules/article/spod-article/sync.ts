@@ -540,7 +540,11 @@ export function createSpodCatalogSync({
   ) => {
     const variants = distinctProducts(
       article.variants.filter(
-        (variant) => variant.productTypeId > 0 && variant.appearanceId > 0 && variant.sizeId > 0,
+        (variant) =>
+          variant.productTypeId > 0 &&
+          variant.appearanceId > 0 &&
+          variant.sizeId > 0 &&
+          variant.appearanceName.trim() !== '',
       ),
     )
     const first = variants[0]

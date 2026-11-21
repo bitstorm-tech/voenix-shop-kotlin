@@ -29,6 +29,23 @@ const spodPreviewImage = z.object({
 
 export const spodPreviews = z.object({ images: z.array(spodPreviewImage).default([]) })
 
+const spodPrintType = z.object({
+  dpi: z.number().nullable().optional(),
+})
+
+const spodPrintArea = z.object({
+  view: z.string().default(''),
+  widthMm: z.number().nullable().optional(),
+  heightMm: z.number().nullable().optional(),
+  widthInch: z.number().nullable().optional(),
+  heightInch: z.number().nullable().optional(),
+})
+
+export const spodProductType = z.object({
+  printType: z.array(spodPrintType).default([]),
+  printAreas: z.array(spodPrintArea).default([]),
+})
+
 /** A placement as the partner names it, for example `MEDIUM_FRONT`. */
 export type SpodHotspotName = z.output<typeof spodHotspotName>
 /** The mockup of one view in one colour, as a URL on the partner's image server. */
@@ -39,6 +56,10 @@ export type SpodViews = z.output<typeof spodViews>
 export type SpodPreviewImage = z.output<typeof spodPreviewImage>
 /** The rendered previews, one image per view the configured placements appear on. */
 export type SpodPreviews = z.output<typeof spodPreviews>
+export type SpodPrintType = z.output<typeof spodPrintType>
+export type SpodPrintArea = z.output<typeof spodPrintArea>
+/** Print metadata of a product type: physical print areas per view and required print DPI. */
+export type SpodProductType = z.output<typeof spodProductType>
 
 export interface SpodPreviewConfiguration {
   designId: string

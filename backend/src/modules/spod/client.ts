@@ -11,9 +11,11 @@ import {
 } from './catalog'
 import {
   spodPreviews,
+  spodProductType,
   spodViews,
   type SpodPreviewRequest,
   type SpodPreviews,
+  type SpodProductType,
   type SpodViews,
 } from './previews'
 
@@ -345,6 +347,19 @@ export function createSpodClient({
         `/productTypes/${String(productTypeId)}/size-chart`,
         { method: 'GET' },
         json(spodSizeChart),
+      ),
+
+    /** Product type metadata: print areas (physical dimensions per view) and required print DPI. */
+    productType: (
+      access: SpodAccess,
+      productTypeId: number,
+    ): Promise<SpodResult<SpodProductType>> =>
+      call(
+        access,
+        'reading a product type',
+        `/productTypes/${String(productTypeId)}`,
+        { method: 'GET' },
+        json(spodProductType),
       ),
 
     /** The views of one product type: each side's placement names and mockup per colour. */

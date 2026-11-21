@@ -162,6 +162,14 @@ describe('the SPOD submission', () => {
     expect(await alerts()).toEqual([])
   })
 
+  test('derives the order view from a back hotspot (e.g. FULL_BACK on a dog t-shirt)', async () => {
+    await order([shirt({ spodHotspot: 'FULL_BACK' })])
+    await kit.worker.runOnce()
+    expect(partner.orders[0]?.oneTimeItems[0]?.configurations).toEqual([
+      { image: { designId: 'd1' }, view: 'BACK', hotspot: 'FULL_BACK' },
+    ])
+  })
+
   test('one image shared by two lines is one design; two hotspots are two order entries', async () => {
     kit.catalog.set(
       { articleId: 10, variantId: 101 },

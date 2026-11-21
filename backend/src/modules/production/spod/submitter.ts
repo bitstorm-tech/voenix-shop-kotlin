@@ -1,15 +1,30 @@
 import type { SpodProductRef } from '@/modules/article'
-import type { SpodAccess, SpodClient, SpodOneTimeItem, SpodOrderRequest } from '@/modules/spod'
+import type {
+  SpodAccess,
+  SpodClient,
+  SpodOneTimeItem,
+  SpodOrderRequest,
+  SpodProductType,
+} from '@/modules/spod'
 import { createLogger, errorDetails } from '@/platform/logging'
 import { type OrderLoader, type ProductionItem, type ProductionOrder } from '../orders'
-import { printImagePng } from './print-image'
+import { MAX_EDGE_PIXELS, printImagePng, type MinimumPrintPixels } from './print-image'
 import type { SpodOrderRepository } from './repository'
 
 /** The calls of the partner's client the submission makes. */
 export type SubmissionClient = Pick<
   SpodClient,
   'uploadDesign' | 'createOrder' | 'getOrder' | 'confirmOrder'
->
+> &
+  Partial<Pick<SpodClient, 'productType'>>
+
+/** Derives the SPOD order view side (`FRONT`, `BACK`, `LEFT`, `RIGHT`) from a hotspot constant. */
+export function viewOfHotspot(hotspot: string): string {
+  if (hotspot.endsWith('_BACK') || hotspot === 'BACK_COLLAR') return 'BACK'
+  if (hotspot === 'LEFT') return 'LEFT'
+  if (hotspot === 'RIGHT') return 'RIGHT'
+  return 'FRONT'
+}
 
 /** `ORD-{orderId}-JOB-{jobId}`: the reference both this shop and the partner's backoffice show. */
 export const spodOrderReference = (orderId: number, jobId: number): string =>
@@ -91,12 +106,45 @@ export function createSubmissionStage({
   }
 
   /**
+   * Resolves minimum required pixel dimensions for large-format / high-DPI product types (such as
+   * 60 × 60 cm posters at 200 DPI or 28 × 19 cm puzzles at 400 DPI) whose SPOD minimum exceeds
+   * `MAX_EDGE_PIXELS`. Best-effort: returns `undefined` when metadata is unavailable or standard
+   * resolution already suffices.
+   */
+  const minimumPixelsForGroup = async (
+    access: SpodAccess,
+    group: readonly SpodLine[],
+    cache: Map<number, SpodProductType | null>,
+  ): Promise<MinimumPrintPixels | undefined> => {
+    if (client.productType === undefined) return undefined
+    let maxW = 0
+    let maxH = 0
+    for (const line of group) {
+      const { productTypeId } = line.product
+      let meta = cache.get(productTypeId)
+      if (meta === undefined) {
+        const answer = await client.productType(access, productTypeId)
+        meta = answer.kind === 'answered' ? answer.value : null
+        cache.set(productTypeId, meta)
+      }
+      if (meta === null) continue
+      const required = minimumPixelsForProductType(meta, line.hotspot)
+      if (required !== undefined) {
+        maxW = Math.max(maxW, required.width)
+        maxH = Math.max(maxH, required.height)
+      }
+    }
+    return Math.max(maxW, maxH) > MAX_EDGE_PIXELS ? { width: maxW, height: maxH } : undefined
+  }
+
+  /**
    * The design id of every line, uploading what no earlier scan uploaded, one upload per distinct
    * print image. What was uploaded is recorded even when a later upload fails.
    */
   const uploadDesigns = async (job: OpenSpodJob, access: SpodAccess, lines: SpodLine[]) => {
     const designs = await orders.designs(job.id)
     const uploaded = new Map<number, string>()
+    const productTypes = new Map<number, SpodProductType | null>()
     const pending = Map.groupBy(
       lines.filter((line) => !designs.has(line.position)),
       (line) => line.item.imagePath,
@@ -105,7 +153,8 @@ export function createSubmissionStage({
     for (const [path, group] of pending) {
       const first = group[0]
       if (first === undefined) continue
-      const converted = await printImagePng(path)
+      const minimumPixels = await minimumPixelsForGroup(access, group, productTypes)
+      const converted = await printImagePng(path, undefined, minimumPixels)
       if (converted.kind === 'failed') {
         failure = converted.error
         break
@@ -236,7 +285,9 @@ function request(
     const entry = items.get(key) ?? {
       productTypeId: line.product.productTypeId,
       quantityItems: [],
-      configurations: [{ image: { designId }, view: 'FRONT', hotspot: line.hotspot }],
+      configurations: [
+        { image: { designId }, view: viewOfHotspot(line.hotspot), hotspot: line.hotspot },
+      ],
       customerPricePerItem: { amount: unitPriceCents / 100, currency: 'EUR' },
     }
     entry.quantityItems.push({
@@ -264,4 +315,41 @@ function request(
     },
     oneTimeItems: [...items.values()],
   }
+}
+
+/**
+ * Computes minimum pixel dimensions for a product type + hotspot from `printAreas` + `printType.dpi`
+ * with a 2 % rounding margin. Returns `undefined` when standard `MAX_EDGE_PIXELS` already suffices.
+ */
+function minimumPixelsForProductType(
+  productType: SpodProductType,
+  hotspot: string,
+): MinimumPrintPixels | undefined {
+  const side = viewOfHotspot(hotspot)
+  const area =
+    productType.printAreas.find((candidate) => candidate.view.toUpperCase() === side) ??
+    productType.printAreas[0]
+  if (area === undefined) return undefined
+  const widthInch =
+    area.widthInch != null && area.widthInch > 0
+      ? area.widthInch
+      : area.widthMm != null && area.widthMm > 0
+        ? area.widthMm / 25.4
+        : 0
+  const heightInch =
+    area.heightInch != null && area.heightInch > 0
+      ? area.heightInch
+      : area.heightMm != null && area.heightMm > 0
+        ? area.heightMm / 25.4
+        : 0
+  const maxDpi = Math.max(
+    0,
+    ...productType.printType
+      .map((entry) => entry.dpi ?? 0)
+      .filter((dpi) => Number.isFinite(dpi) && dpi > 0),
+  )
+  if (!(widthInch > 0) || !(heightInch > 0) || !(maxDpi > 0)) return undefined
+  const width = Math.ceil(widthInch * maxDpi * 1.02)
+  const height = Math.ceil(heightInch * maxDpi * 1.02)
+  return Math.max(width, height) > MAX_EDGE_PIXELS ? { width, height } : undefined
 }

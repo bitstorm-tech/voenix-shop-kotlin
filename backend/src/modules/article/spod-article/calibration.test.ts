@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import sharp from 'sharp'
 import { calibrationPreviewPair, type Box, type CalibrationPreviewOptions } from '../test-fixtures'
-import { calibrationDesignPngs, dimensionsForAspectRatio, measurePrintFrame } from './calibration'
+import {
+  calibrationDesignPngs,
+  calibrationSpecFromProductType,
+  dimensionsForAspectRatio,
+  measurePrintFrame,
+} from './calibration'
 
 /** The measurement rule, held to preview pairs this test draws itself; no partner, no database. */
 
@@ -205,7 +210,7 @@ describe('measurePrintFrame', () => {
   test('measures non-square designs (3:2 pencil case, 1:2 phone case) and reports visibleBounds', async () => {
     expect(dimensionsForAspectRatio(1.5)).toEqual({ width: 4000, height: 2667 })
     expect(dimensionsForAspectRatio(0.75)).toEqual({ width: 3000, height: 4000 })
-    expect(dimensionsForAspectRatio(0.1)).toEqual({ width: 1000, height: 4000 })
+    expect(dimensionsForAspectRatio(0.1)).toEqual({ width: 667, height: 4000 })
 
     // 3:2 landscape pencil case (390 × 260 px, exact 13-unit multiples)
     const pencilCase = await measure({ x: 305, y: 450, width: 390, height: 260 }, {}, 1.5)
@@ -240,5 +245,71 @@ describe('measurePrintFrame', () => {
     )
     if (phoneMask.kind !== 'measured') throw new Error('Expected phone case measurement')
     expect(phoneMask.visibleBounds).toEqual({ widthPct: 32, heightPct: 64 })
+  })
+
+  test('calibrationSpecFromProductType sizes large/high-DPI and wide/back-only products accurately', () => {
+    // Poster 60x60 cm @ 200 DPI needs >= 4756 px -> rounds up to 5000x5000.
+    expect(
+      calibrationSpecFromProductType(
+        {
+          printType: [{ dpi: 200 }],
+          printAreas: [
+            { view: 'FRONT', widthMm: 604, heightMm: 604, widthInch: 23.78, heightInch: 23.78 },
+          ],
+        },
+        'FRONT',
+      ),
+    ).toMatchObject({ width: 5000, height: 5000, maxEdge: 5000 })
+
+    // Rectangular puzzle 28x19 cm @ 400 DPI needs >= 4492 px -> 4750x3250.
+    expect(
+      calibrationSpecFromProductType(
+        {
+          printType: [{ dpi: 400 }],
+          printAreas: [
+            {
+              view: 'FRONT',
+              widthMm: 285.15,
+              heightMm: 195.07,
+              widthInch: 11.23,
+              heightInch: 7.68,
+            },
+          ],
+        },
+        'FRONT',
+      ),
+    ).toMatchObject({ width: 4750, height: 3249, maxEdge: 4750 })
+
+    // Bumper sticker 29.2x7.6 cm @ 200 DPI (3.82:1 ratio) stays at 4000 px max edge.
+    expect(
+      calibrationSpecFromProductType(
+        {
+          printType: [{ dpi: 200 }],
+          printAreas: [
+            {
+              view: 'FRONT',
+              widthMm: 292.12,
+              heightMm: 76.54,
+              widthInch: 11.5,
+              heightInch: 3.01,
+            },
+          ],
+        },
+        'FRONT',
+      ),
+    ).toMatchObject({ width: 4000, height: 1048, maxEdge: 4000 })
+
+    // Back-only dog t-shirt selects the BACK printArea.
+    expect(
+      calibrationSpecFromProductType(
+        {
+          printType: [{ dpi: 120 }, { dpi: 200 }],
+          printAreas: [
+            { view: 'BACK', widthMm: 110.36, heightMm: 150.79, widthInch: 4.35, heightInch: 5.94 },
+          ],
+        },
+        'BACK',
+      ),
+    ).toMatchObject({ width: 2928, height: 4000, maxEdge: 4000 })
   })
 })
