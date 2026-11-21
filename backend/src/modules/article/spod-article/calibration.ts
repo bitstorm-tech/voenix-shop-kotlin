@@ -87,25 +87,58 @@ export function calibrationColorAt(
   return [255, greenPositive ? 0 : 255, bluePositive ? 0 : 255]
 }
 
-let cachedDefaultDesigns: Promise<{ a: Buffer; b: Buffer }> | undefined
-
 /**
- * Generates the complementary calibration PNG pair (`a` and `b`) at `edge × edge` pixels (default
- * `4000 × 4000`, the partner's maximum upload dimension so high-DPI non-apparel and large poster
- * hotspots accept the design). Built from the 13 × 13 unit grid with nearest-neighbour upscaling
- * so encoding takes milliseconds and each paletted PNG compresses to a few kilobytes.
+ * Computes pixel dimensions for a calibration design of aspect ratio `ratio = width / height`,
+ * capping the longest edge at `maxEdge` (default `4000`, the partner's maximum upload size).
  */
-export function calibrationDesignPngs(
-  edge = CALIBRATION_EDGE_PIXELS,
-): Promise<{ a: Buffer; b: Buffer }> {
-  if (edge === CALIBRATION_EDGE_PIXELS) {
-    cachedDefaultDesigns ??= buildCalibrationDesignPngs(edge)
-    return cachedDefaultDesigns
-  }
-  return buildCalibrationDesignPngs(edge)
+export function dimensionsForAspectRatio(
+  ratio: number,
+  maxEdge = CALIBRATION_EDGE_PIXELS,
+): { width: number; height: number } {
+  const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 1
+  const clamped = Math.max(
+    1 / MAX_PROBED_ASPECT_RATIO,
+    Math.min(MAX_PROBED_ASPECT_RATIO, safeRatio),
+  )
+  return clamped >= 1
+    ? { width: maxEdge, height: Math.max(MIN_DESIGN_SHORT_EDGE, Math.round(maxEdge / clamped)) }
+    : { width: Math.max(MIN_DESIGN_SHORT_EDGE, Math.round(maxEdge * clamped)), height: maxEdge }
 }
 
-async function buildCalibrationDesignPngs(edge: number): Promise<{ a: Buffer; b: Buffer }> {
+const cachedStandardDesigns = new Map<string, Promise<{ a: Buffer; b: Buffer }>>()
+const STANDARD_DESIGN_CACHE_KEYS = new Set([
+  '4000x4000',
+  '4000x2000',
+  '2000x4000',
+  '4000x1333',
+  '1333x4000',
+])
+
+/**
+ * Generates the complementary calibration PNG pair (`a` and `b`) at `width × height` pixels
+ * (default `4000 × 4000`, the partner's maximum upload dimension so high-DPI non-apparel and large
+ * poster hotspots accept the design). Built from the 13 × 13 unit grid with nearest-neighbour
+ * upscaling so encoding takes milliseconds and each paletted PNG compresses to a few kilobytes.
+ */
+export function calibrationDesignPngs(
+  width = CALIBRATION_EDGE_PIXELS,
+  height = width,
+): Promise<{ a: Buffer; b: Buffer }> {
+  const key = `${String(width)}x${String(height)}`
+  if (STANDARD_DESIGN_CACHE_KEYS.has(key)) {
+    const cached = cachedStandardDesigns.get(key)
+    if (cached !== undefined) return cached
+    const created = buildCalibrationDesignPngs(width, height)
+    cachedStandardDesigns.set(key, created)
+    return created
+  }
+  return buildCalibrationDesignPngs(width, height)
+}
+
+async function buildCalibrationDesignPngs(
+  width: number,
+  height: number,
+): Promise<{ a: Buffer; b: Buffer }> {
   const build = (variant: 'a' | 'b') => {
     const grid = Buffer.allocUnsafe(RULER_TOTAL * RULER_TOTAL * 3)
     const red = variant === 'a' ? 0 : 255
@@ -120,7 +153,7 @@ async function buildCalibrationDesignPngs(edge: number): Promise<{ a: Buffer; b:
       }
     }
     return sharp(grid, { raw: { width: RULER_TOTAL, height: RULER_TOTAL, channels: 3 } })
-      .resize(edge, edge, { kernel: 'nearest', fit: 'fill' })
+      .resize(width, height, { kernel: 'nearest', fit: 'fill' })
       .png({ palette: true, colours: 8 })
       .toBuffer()
   }
@@ -135,18 +168,32 @@ export type MeasurementFailure =
   | 'DISTORTED_PRINT'
   | 'OUTSIDE_PICTURE'
 
+/** Bounding box dimensions of the actually visible pixels inside the frame, in percent of the preview. */
+export interface VisibleBounds {
+  widthPct: number
+  heightPct: number
+}
+
 export type PrintFrameMeasurement =
-  | { kind: 'measured'; frame: PrintFrame; mask: string | null; visiblePixels: number }
+  | {
+      kind: 'measured'
+      frame: PrintFrame
+      mask: string | null
+      visiblePixels: number
+      visibleBounds: VisibleBounds
+    }
   | { kind: 'failed'; reason: MeasurementFailure }
 
 /**
- * Measures where the full 1:1 design lies in a preview pair and which part of it the product shows.
+ * Measures where the full design lies in a preview pair and which part of it the product shows.
+ * `expectedAspectRatio` is `designWidth / designHeight` (default `1` for square designs), used to
+ * reject wildly skewed or warped renders.
  *
  * Both previews are decoded with premultiplied alpha so transparent pixels always compare equal.
  * The pixel difference `B - A` isolates the printed pixels (`max(max(dR, 0), |dG|, |dB|) > 12`),
  * removes isolated single-pixel speckles, and projects `dG` (columns) and `dB` (rows) to locate
  * sub-pixel zero-crossings of the 13-unit binary ruler. Matching those crossings to the known
- * transitions and refining by ordinary least squares recovers the full square frame, which is then
+ * transitions and refining by ordinary least squares recovers the full design frame, which is then
  * verified in 2D across every interior visible pixel.
  *
  * `mask` is the visible part of the frame as a 256 × 256 PNG data URL with smooth anti-aliased
@@ -156,6 +203,7 @@ export type PrintFrameMeasurement =
 export async function measurePrintFrame(
   previewA: Uint8Array,
   previewB: Uint8Array,
+  expectedAspectRatio = 1,
 ): Promise<PrintFrameMeasurement> {
   let imageA
   let imageB
@@ -261,9 +309,10 @@ export async function measurePrintFrame(
     return { kind: 'failed', reason: 'NO_PRINT_AREA' }
   }
 
-  // The calibration design is 1:1; reject wildly skewed or warped fits.
-  const aspectRatio = frameWidth / width / (frameHeight / height)
-  if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) {
+  // Compare the fitted frame's aspect ratio against the uploaded design's ratio to reject warped fits.
+  const measuredAspect = frameWidth / width / (frameHeight / height)
+  const ratioDrift = measuredAspect / expectedAspectRatio
+  if (ratioDrift < MIN_ASPECT_RATIO || ratioDrift > MAX_ASPECT_RATIO) {
     return { kind: 'failed', reason: 'DISTORTED_PRINT' }
   }
 
@@ -305,6 +354,10 @@ export async function measurePrintFrame(
 
   const maskPixels = Buffer.alloc(boxWidth * boxHeight * 4)
   let visiblePixels = 0
+  let minVisX = width
+  let maxVisX = -1
+  let minVisY = height
+  let maxVisY = -1
   for (let y = 0; y < boxHeight; y++) {
     const srcY = boxTop + y
     if (srcY < 0 || srcY >= height) continue
@@ -315,10 +368,18 @@ export async function measurePrintFrame(
       if (visible[srcIndex] !== 1) continue
       const alpha = boundaryAwareAlpha(visible, signal, width, height, srcX, srcY)
       maskPixels[(y * boxWidth + x) * 4 + 3] = alpha
-      if (alpha >= 128) visiblePixels++
+      if (alpha >= 128) {
+        visiblePixels++
+        if (srcX < minVisX) minVisX = srcX
+        if (srcX > maxVisX) maxVisX = srcX
+        if (srcY < minVisY) minVisY = srcY
+        if (srcY > maxVisY) maxVisY = srcY
+      }
     }
   }
-  if (visiblePixels === 0) return { kind: 'failed', reason: 'NO_PRINT_AREA' }
+  if (visiblePixels === 0 || maxVisX < minVisX || maxVisY < minVisY) {
+    return { kind: 'failed', reason: 'NO_PRINT_AREA' }
+  }
 
   const whollyInside = leftPct >= 0 && topPct >= 0 && rightPct <= 10_000 && bottomPct <= 10_000
   const mask =
@@ -339,6 +400,10 @@ export async function measurePrintFrame(
     },
     mask: mask === null ? null : `data:image/png;base64,${mask.toString('base64')}`,
     visiblePixels,
+    visibleBounds: {
+      widthPct: ((maxVisX - minVisX + 1) * 100) / width,
+      heightPct: ((maxVisY - minVisY + 1) * 100) / height,
+    },
   }
 }
 
@@ -642,18 +707,28 @@ export type SpodCalibration = ReturnType<typeof createCalibration>
 interface UploadedCalibrationDesigns {
   a: string
   b: string
+  width: number
+  height: number
+  aspectRatio: number
+}
+
+type MeasuredMeasurement = Extract<PrintFrameMeasurement, { kind: 'measured' }>
+
+interface MeasuredAttempt {
+  hotspot: string
+  measurement: MeasuredMeasurement
+  aspectRatio: number
 }
 
 /**
- * The calibration half of one run; one instance lives exactly as long as the run. The two
- * complementary designs are uploaded once, on the first product type that needs them, and every
- * product type is measured once, on its first article. Only answers are cached: a refused call is
- * asked again by the next article that needs it, so one hiccup costs one article. Per product type
- * that is `2 + 2 * candidates` paced calls (views, hotspot check, two complementary previews per
- * candidate) plus the unpaced downloads of those previews.
+ * The calibration half of one run; one instance lives exactly as long as the run. Calibration
+ * design pairs are cached per pixel size (`4000×4000`, `4000×2000`, `2000×4000`, plus any custom
+ * non-square ratio discovered for a product type) so identical pairs are uploaded at most once per
+ * run. Every product type is measured once, on its first article; only answers are cached so one
+ * transport hiccup costs one article.
  */
 export function createCalibration(client: SpodClient, access: SpodAccess) {
-  let uploadedDesigns: UploadedCalibrationDesigns | undefined
+  const uploadedBySize = new Map<string, UploadedCalibrationDesigns>()
   const views = new Map<number, SpodViews>()
   const calibrations = new Map<number, Calibration>()
 
@@ -665,15 +740,36 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     return answer
   }
 
-  const designIds = async (): Promise<SpodResult<UploadedCalibrationDesigns>> => {
-    if (uploadedDesigns !== undefined) return { kind: 'answered', value: uploadedDesigns }
-    const pngs = await calibrationDesignPngs()
-    const answerA = await client.uploadDesign(access, CALIBRATION_DESIGN_A_FILE_NAME, pngs.a)
+  /** Uploads a complementary calibration pair for `width × height` once per run and caches its ids. */
+  const designIdsFor = async (
+    width: number,
+    height: number,
+  ): Promise<SpodResult<UploadedCalibrationDesigns>> => {
+    const key = `${String(width)}x${String(height)}`
+    const cached = uploadedBySize.get(key)
+    if (cached !== undefined) return { kind: 'answered', value: cached }
+    const pngs = await calibrationDesignPngs(width, height)
+    const fileA =
+      width === CALIBRATION_EDGE_PIXELS && height === CALIBRATION_EDGE_PIXELS
+        ? CALIBRATION_DESIGN_A_FILE_NAME
+        : `calibration-${key}-a.png`
+    const fileB =
+      width === CALIBRATION_EDGE_PIXELS && height === CALIBRATION_EDGE_PIXELS
+        ? CALIBRATION_DESIGN_B_FILE_NAME
+        : `calibration-${key}-b.png`
+    const answerA = await client.uploadDesign(access, fileA, pngs.a)
     if (answerA.kind === 'failed') return answerA
-    const answerB = await client.uploadDesign(access, CALIBRATION_DESIGN_B_FILE_NAME, pngs.b)
+    const answerB = await client.uploadDesign(access, fileB, pngs.b)
     if (answerB.kind === 'failed') return answerB
-    uploadedDesigns = { a: answerA.value, b: answerB.value }
-    return { kind: 'answered', value: uploadedDesigns }
+    const uploaded: UploadedCalibrationDesigns = {
+      a: answerA.value,
+      b: answerB.value,
+      width,
+      height,
+      aspectRatio: width / height,
+    }
+    uploadedBySize.set(key, uploaded)
+    return { kind: 'answered', value: uploaded }
   }
 
   /** Renders one calibration design on `hotspot` and downloads its front view as PNG. */
@@ -711,7 +807,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
 
   /**
    * One hotspot rendered with both complementary designs at 1000 × 1000 and measured against each
-   * other. `visiblePixels` is what the hotspots of a type are compared by.
+   * other.
    */
   const preview = async (
     productTypeId: number,
@@ -719,31 +815,151 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     front: SpodView,
     designs: UploadedCalibrationDesigns,
     hotspot: string,
-  ): Promise<{ calibration: Calibration; visiblePixels?: number }> => {
+  ): Promise<
+    | { kind: 'measured'; attempt: MeasuredAttempt }
+    | { kind: 'failed'; detail: string }
+    | { kind: 'unavailable'; detail: string }
+  > => {
     const renderedA = await renderPreview(productTypeId, appearanceId, front, designs.a, hotspot)
-    if (renderedA.kind !== 'image') return { calibration: renderedA }
+    if (renderedA.kind !== 'image') return renderedA
     const renderedB = await renderPreview(productTypeId, appearanceId, front, designs.b, hotspot)
-    if (renderedB.kind !== 'image') return { calibration: renderedB }
-    const measurement = await measurePrintFrame(renderedA.bytes, renderedB.bytes)
+    if (renderedB.kind !== 'image') return renderedB
+    const measurement = await measurePrintFrame(
+      renderedA.bytes,
+      renderedB.bytes,
+      designs.aspectRatio,
+    )
     return measurement.kind === 'measured'
-      ? {
-          calibration: {
-            kind: 'measured',
-            hotspot,
-            frame: measurement.frame,
-            mask: measurement.mask,
-          },
-          visiblePixels: measurement.visiblePixels,
-        }
-      : { calibration: { kind: 'failed', detail: `${hotspot}: ${measurement.reason}` } }
+      ? { kind: 'measured', attempt: { hotspot, measurement, aspectRatio: designs.aspectRatio } }
+      : { kind: 'failed', detail: `${hotspot}: ${measurement.reason}` }
   }
 
   /**
-   * Every front hotspot that accepts the calibration design, previewed with both complementary
+   * Best-effort probe of `hotspot` at a non-square aspect ratio. Returns `null` whenever the
+   * partner rejects the design size for that hotspot or the preview cannot be measured, so
+   * aspect-ratio refinement can only improve on the baseline `1:1` measurement and never break it.
+   */
+  const probeRatio = async (
+    productTypeId: number,
+    appearanceId: string,
+    front: SpodView,
+    hotspot: string,
+    ratio: number,
+  ): Promise<MeasuredAttempt | null> => {
+    const { width, height } = dimensionsForAspectRatio(ratio)
+    const designs = await designIdsFor(width, height)
+    if (designs.kind === 'failed') return null
+    const available = await client.availableHotspots(access, productTypeId, designs.value.a)
+    if (available.kind === 'failed' || !available.value.includes(hotspot)) return null
+    const result = await preview(productTypeId, appearanceId, front, designs.value, hotspot)
+    return result.kind === 'measured' ? result.attempt : null
+  }
+
+  /**
+   * Discovers the true physical aspect ratio of `winner.hotspot` when the print area is not square:
+   * - Clipped all-over prints (`mask !== null`) already reveal their visible ratio `visW / visH`;
+   *   when that deviates from `1:1` (e.g. a tall phone case), we re-measure at `visW / visH` and
+   *   keep it when it shows the same visible area with less wasted bleed.
+   * - Unmasked rectangular hotspots (`mask === null`) fit `1:1` to their shorter side. Probing
+   *   `2:1` (and `3:1` if still height-clamped) or `1:2` (and `1:3` if still width-clamped)
+   *   reveals the longer side, from which we compute the exact physical ratio and measure once at
+   *   that ratio so the stored `printFrame` and `printMask` cover the full print area.
+   */
+  const refineAspectRatio = async (
+    productTypeId: number,
+    appearanceId: string,
+    front: SpodView,
+    winner: MeasuredAttempt,
+  ): Promise<MeasuredAttempt> => {
+    const { hotspot, measurement } = winner
+
+    if (measurement.mask !== null) {
+      const visRatio = measurement.visibleBounds.widthPct / measurement.visibleBounds.heightPct
+      if (visRatio >= 1 / RATIO_CHANGE_THRESHOLD && visRatio <= RATIO_CHANGE_THRESHOLD) {
+        return winner
+      }
+      const refined = await probeRatio(productTypeId, appearanceId, front, hotspot, visRatio)
+      if (refined === null) return winner
+      const baseFill = visibleFillFraction(measurement)
+      const refinedFill = visibleFillFraction(refined.measurement)
+      const keepsCoverage = refined.measurement.visiblePixels >= measurement.visiblePixels * 0.95
+      const improvesFit =
+        refined.measurement.visiblePixels > measurement.visiblePixels ||
+        (keepsCoverage && refinedFill > baseFill * 1.03)
+      return improvesFit ? refined : winner
+    }
+
+    const baseW = measurement.frame.widthPct
+    const baseH = measurement.frame.heightPct
+    const bestOf = (candidates: readonly (MeasuredAttempt | null)[]): MeasuredAttempt => {
+      let best = winner
+      for (const candidate of candidates) {
+        if (
+          candidate !== null &&
+          candidate.measurement.visiblePixels > best.measurement.visiblePixels
+        ) {
+          best = candidate
+        }
+      }
+      return best
+    }
+
+    // Probe landscape (2:1, escalating to 3:1 when 2:1 still touches top & bottom).
+    const wide = await probeRatio(productTypeId, appearanceId, front, hotspot, 2)
+    if (wide !== null && wide.measurement.frame.widthPct > baseW * RATIO_CHANGE_THRESHOLD) {
+      let bestWide = wide
+      if (wide.measurement.frame.heightPct >= baseH * 0.97) {
+        const wide3 = await probeRatio(productTypeId, appearanceId, front, hotspot, 3)
+        if (
+          wide3 !== null &&
+          wide3.measurement.frame.widthPct >
+            wide.measurement.frame.widthPct * RATIO_CHANGE_THRESHOLD
+        ) {
+          bestWide = wide3
+        }
+      }
+      const targetRatio = bestWide.measurement.frame.widthPct / baseH
+      const alreadyClose =
+        Math.abs(targetRatio - bestWide.aspectRatio) / bestWide.aspectRatio <= EXACT_RATIO_TOLERANCE
+      const exact = alreadyClose
+        ? null
+        : await probeRatio(productTypeId, appearanceId, front, hotspot, targetRatio)
+      return bestOf([bestWide, exact])
+    }
+
+    // Not landscape: probe portrait (1:2, escalating to 1:3 when 1:2 still touches left & right).
+    const tall = await probeRatio(productTypeId, appearanceId, front, hotspot, 0.5)
+    if (tall !== null && tall.measurement.frame.heightPct > baseH * RATIO_CHANGE_THRESHOLD) {
+      let bestTall = tall
+      if (tall.measurement.frame.widthPct >= baseW * 0.97) {
+        const tall3 = await probeRatio(productTypeId, appearanceId, front, hotspot, 1 / 3)
+        if (
+          tall3 !== null &&
+          tall3.measurement.frame.heightPct >
+            tall.measurement.frame.heightPct * RATIO_CHANGE_THRESHOLD
+        ) {
+          bestTall = tall3
+        }
+      }
+      const targetRatio = baseW / bestTall.measurement.frame.heightPct
+      const alreadyClose =
+        Math.abs(targetRatio - bestTall.aspectRatio) / bestTall.aspectRatio <= EXACT_RATIO_TOLERANCE
+      const exact = alreadyClose
+        ? null
+        : await probeRatio(productTypeId, appearanceId, front, hotspot, targetRatio)
+      return bestOf([bestTall, exact])
+    }
+
+    return winner
+  }
+
+  /**
+   * Every front hotspot that accepts the baseline `1:1` design, previewed with both complementary
    * designs on an available colour of the front view; the hotspot that shows the most of the design
-   * wins (an all-over print of a round button beats the square inside it) and a tie goes to the
-   * first in the view's order. When nothing measured, the reasons of every attempt are the detail,
-   * and the result is `unavailable` only when no attempt got as far as a picture.
+   * wins (ties go to the first in the view's order), and is then refined for non-square print
+   * areas so rectangular products store their true width and height. When nothing measured, the
+   * reasons of every attempt are the detail, and the result is `unavailable` only when no attempt
+   * got as far as a picture.
    */
   const measure = async (productTypeId: number, appearanceId: number): Promise<Calibration> => {
     const answeredViews = await viewsOf(productTypeId)
@@ -752,7 +968,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     }
     const front = frontView(answeredViews.value)
     if (front === undefined) return { kind: 'failed', detail: 'NO_FRONT_VIEW' }
-    const designs = await designIds()
+    const designs = await designIdsFor(CALIBRATION_EDGE_PIXELS, CALIBRATION_EDGE_PIXELS)
     if (designs.kind === 'failed') {
       return { kind: 'unavailable', detail: `designs/upload: ${designs.error}` }
     }
@@ -778,22 +994,28 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
         await preview(productTypeId, calibrationAppearance, front, designs.value, hotspot),
       )
     }
-    let largest: { calibration: Calibration; visiblePixels: number } | undefined
+    let largest: MeasuredAttempt | undefined
     for (const attempt of attempts) {
       if (
-        attempt.visiblePixels !== undefined &&
-        attempt.visiblePixels > (largest?.visiblePixels ?? -1)
+        attempt.kind === 'measured' &&
+        attempt.attempt.measurement.visiblePixels > (largest?.measurement.visiblePixels ?? -1)
       ) {
-        largest = { calibration: attempt.calibration, visiblePixels: attempt.visiblePixels }
+        largest = attempt.attempt
       }
     }
-    if (largest !== undefined) return largest.calibration
+    if (largest !== undefined) {
+      const best = await refineAspectRatio(productTypeId, calibrationAppearance, front, largest)
+      return {
+        kind: 'measured',
+        hotspot: best.hotspot,
+        frame: best.measurement.frame,
+        mask: best.measurement.mask,
+      }
+    }
     const detail = attempts
-      .flatMap((attempt) =>
-        attempt.calibration.kind === 'measured' ? [] : [attempt.calibration.detail],
-      )
+      .flatMap((attempt) => (attempt.kind === 'measured' ? [] : [attempt.detail]))
       .join(', ')
-    return attempts.every((attempt) => attempt.calibration.kind === 'unavailable')
+    return attempts.every((attempt) => attempt.kind === 'unavailable')
       ? { kind: 'unavailable', detail }
       : { kind: 'failed', detail }
   }
@@ -819,6 +1041,15 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
       return calibration
     },
   }
+}
+
+/** Fraction of the frame's area that is visibly printed, used to compare masked all-over fits. */
+function visibleFillFraction(measurement: MeasuredMeasurement): number {
+  const frameArea = measurement.frame.widthPct * measurement.frame.heightPct
+  if (frameArea <= 0) return 0
+  return (
+    measurement.visiblePixels / ((frameArea / 10_000) * PREVIEW_EDGE_PIXELS * PREVIEW_EDGE_PIXELS)
+  )
 }
 
 /**
@@ -853,9 +1084,16 @@ const MIN_AXIS_SCORE = 0.75
 const MIN_CONTAINMENT_PERCENT = 90
 /** Minimum percent of 2D interior visible pixels whose green and blue signs match the ruler. */
 const MIN_2D_AGREEMENT_PERCENT = 85
-/** Allowed aspect ratio range of the fitted 1:1 design frame before counting as distorted. */
+/** Allowed drift between the fitted frame aspect ratio and the uploaded design's aspect ratio. */
 const MIN_ASPECT_RATIO = 0.65
 const MAX_ASPECT_RATIO = 1.55
+/** Deviation from 1:1 (5 %) required before refining a product type with a non-square probe. */
+const RATIO_CHANGE_THRESHOLD = 1.05
+/** Relative tolerance (3 %) within which a 2:1 / 1:2 probe already matches the exact print ratio. */
+const EXACT_RATIO_TOLERANCE = 0.03
+/** Clamp probed ratios to `[1:4, 4:1]` so degenerate narrow strips are never uploaded. */
+const MAX_PROBED_ASPECT_RATIO = 4
+const MIN_DESIGN_SHORT_EDGE = 100
 const MIN_BOX_PERCENT = 2
 const MIN_FILL_PERCENT = 97
 /** Match `ck_article_spod_articles_print_frame` (V39): up to 400 % wide/tall, origin ≥ -300 %. */

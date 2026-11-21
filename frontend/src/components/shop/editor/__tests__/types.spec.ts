@@ -42,8 +42,35 @@ describe('editor type adapters', () => {
     ).toBeNull()
   })
 
-  it('gives a SPOD article a square print area without millimetres', () => {
+  it('derives a SPOD article print area aspect ratio from its print frame without millimetres', () => {
     expect(toEditorSpodArticle(createShopTee()).printArea).toEqual({
+      aspectRatio: 50 / 40.5,
+      documentFormatWidthMm: null,
+      documentFormatHeightMm: null,
+    })
+    expect(
+      toEditorSpodArticle(
+        createShopTee({ printFrame: { leftPct: 30, topPct: 45, widthPct: 39, heightPct: 26 } }),
+      ).printArea,
+    ).toEqual({
+      aspectRatio: 1.5,
+      documentFormatWidthMm: null,
+      documentFormatHeightMm: null,
+    })
+    expect(
+      toEditorSpodArticle(
+        createShopTee({ printFrame: { leftPct: 30, topPct: 20, widthPct: 30, heightPct: 40 } }),
+      ).printArea,
+    ).toEqual({
+      aspectRatio: 0.75,
+      documentFormatWidthMm: null,
+      documentFormatHeightMm: null,
+    })
+    expect(
+      toEditorSpodArticle(
+        createShopTee({ printFrame: { leftPct: 0, topPct: 0, widthPct: 0, heightPct: 40 } }),
+      ).printArea,
+    ).toEqual({
       aspectRatio: 1,
       documentFormatWidthMm: null,
       documentFormatHeightMm: null,

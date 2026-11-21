@@ -1,13 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import sharp from 'sharp'
 import { calibrationPreviewPair, type Box, type CalibrationPreviewOptions } from '../test-fixtures'
-import { calibrationDesignPngs, measurePrintFrame } from './calibration'
+import { calibrationDesignPngs, dimensionsForAspectRatio, measurePrintFrame } from './calibration'
 
 /** The measurement rule, held to preview pairs this test draws itself; no partner, no database. */
 
-const measure = async (box: Box, options: CalibrationPreviewOptions = {}) => {
+const measure = async (
+  box: Box,
+  options: CalibrationPreviewOptions = {},
+  expectedAspectRatio = 1,
+) => {
   const { a, b } = await calibrationPreviewPair(box, options)
-  return measurePrintFrame(a, b)
+  return measurePrintFrame(a, b, expectedAspectRatio)
 }
 
 const expectFrameClose = (
@@ -30,6 +34,7 @@ describe('measurePrintFrame', () => {
       frame: { leftPct: 28.4, topPct: 18.8, widthPct: 41.6, heightPct: 41.6 },
       mask: null,
       visiblePixels: 416 * 416,
+      visibleBounds: { widthPct: 41.6, heightPct: 41.6 },
     })
   })
 
@@ -195,5 +200,45 @@ describe('measurePrintFrame', () => {
       frame: { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100 },
       mask: null,
     })
+  })
+
+  test('measures non-square designs (3:2 pencil case, 1:2 phone case) and reports visibleBounds', async () => {
+    expect(dimensionsForAspectRatio(1.5)).toEqual({ width: 4000, height: 2667 })
+    expect(dimensionsForAspectRatio(0.75)).toEqual({ width: 3000, height: 4000 })
+    expect(dimensionsForAspectRatio(0.1)).toEqual({ width: 1000, height: 4000 })
+
+    // 3:2 landscape pencil case (390 × 260 px, exact 13-unit multiples)
+    const pencilCase = await measure({ x: 305, y: 450, width: 390, height: 260 }, {}, 1.5)
+    expect(pencilCase).toEqual({
+      kind: 'measured',
+      frame: { leftPct: 30.5, topPct: 45, widthPct: 39, heightPct: 26 },
+      mask: null,
+      visiblePixels: 390 * 260,
+      visibleBounds: { widthPct: 39, heightPct: 26 },
+    })
+
+    // A 3:2 box measured against an expected 1:1 design is within tolerance (1.5 <= 1.55),
+    // while a 2:1 box against expected 1:1 is rejected as DISTORTED_PRINT.
+    expect(await measure({ x: 240, y: 370, width: 520, height: 260 }, {}, 1)).toEqual({
+      kind: 'failed',
+      reason: 'DISTORTED_PRINT',
+    })
+    // The same 2:1 box passes when expectedAspectRatio is 2.
+    expect(await measure({ x: 240, y: 370, width: 520, height: 260 }, {}, 2)).toMatchObject({
+      kind: 'measured',
+      frame: { leftPct: 24, topPct: 37, widthPct: 52, heightPct: 26 },
+      mask: null,
+    })
+
+    // Tall phone case visibleBounds under 1:1 design reveals 0.50 ratio
+    const phoneMask = await measure(
+      { x: 150, y: 120, width: 700, height: 700 },
+      {
+        visibleAt: (x, y) => (x >= 340 && x < 660 && y >= 150 && y < 790 ? 1 : 0),
+      },
+      1,
+    )
+    if (phoneMask.kind !== 'measured') throw new Error('Expected phone case measurement')
+    expect(phoneMask.visibleBounds).toEqual({ widthPct: 32, heightPct: 64 })
   })
 })

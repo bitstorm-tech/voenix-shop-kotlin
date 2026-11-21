@@ -267,32 +267,37 @@ type — this is the *calibration* (SPOD sync decision 7):
 3. it lets the partner render both designs on every front hotspot and compares
    the pair against itself (no blank mockup needed): pixels that differ between
    the pair show what is visibly printed, and the ruler's zero-crossings locate
-   the exact 1:1 design frame even under shading, glare, arbitrary product
-   colours, cutouts, or full-bleed edge overhang;
-4. the **hotspot** that shows the most of the design wins, and that hotspot,
-   its frame, and what is visible of it are written into every article of the
-   product type.
+   the exact design frame even under shading, glare, arbitrary product colours,
+   cutouts, or full-bleed edge overhang;
+4. the **hotspot** that shows the most of the design wins, and the run checks
+   whether that hotspot accepts a wider or taller print area (probing `2:1` /
+   `1:2` on rectangular hotspots or the visible mask's aspect ratio on tall/wide
+   all-over products) so landscape items like a 3:2 pencil case and portrait
+   items like a 3:4 tee or 1:2 phone case get their full physical width and
+   height;
+5. that hotspot, its frame, and what is visible of it are written into every
+   article of the product type.
 
-Most products show the whole frame: a tee prints the square as it is. A product
-that is not a rectangle does not. On a round button the all-over hotspot
-(`OVERALL_FRONT`) lays the design over the whole face and a little beyond its
-rim, so the frame is larger than the button and only the round face of it is
-printed visibly. The shop editor cuts the customer's design to exactly that
-shape. What is visible is what the partner prints, not the outline of the
-product: a star-shaped ornament that only offers `FULL_FRONT` gets a square in
-its middle.
+Most products show the whole frame: a tee or pencil case prints the measured
+rectangle as it is. A product that is not a rectangle does not. On a round
+button the all-over hotspot (`OVERALL_FRONT`) lays the design over the whole
+face and a little beyond its rim, so the frame is larger than the button and
+only the round face of it is printed visibly. The shop editor cuts the
+customer's design to exactly that shape.
 
 The result shows in two places: the report line names the hotspot, and the
 *Print* section of the article (5c) draws the frame on the mockup as a dashed
 box with its four numbers, and tints the part of it that is visible. The numbers are percentages of the mockup picture: *Left* and *Top*
 are the distance of the box's upper left corner from the left and the top edge,
-*Width* and *Height* its size. A tee measured at `35.6 / 18.9 / 28.4 / 28.4 %`
-prints a square that starts a good third from the left and a fifth from the
-top, and covers a bit more than a quarter of the picture in each direction.
-The box is the same for every colour of the product type, and it is always a
-square: a SPOD article is always printed `1:1`, and the customer's image is
-generated in that shape. On a round product the corners of that image are not
-printed, so a motif belongs in the middle.
+*Width* and *Height* its size. A tee measured at `35.6 / 18.9 / 28.4 / 37.8 %`
+prints a portrait rectangle that starts a good third from the left and a fifth
+from the top; a pencil case measured at `30.5 / 45.0 / 39.0 / 26.0 %` prints a
+3:2 landscape rectangle. The box is the same for every colour of the product
+type, and the shop editor matches its aspect ratio (`Width / Height`) when
+cropping and exporting the customer's design (with the longest edge capped at
+4000 px). Generated motifs start square and can be positioned and cropped freely
+inside the frame; on a round product the corners are not printed, so a motif
+belongs in the middle.
 
 Every run measures again — nothing is remembered between runs. If the partner
 changes its mockup or its hotspots, the next run simply measures the new ones.
@@ -340,12 +345,13 @@ fix its front hotspots in the backoffice*.
 
 The partner allows 60 API requests per minute for the whole account, and the
 shop paces every call to stay below that. A run costs, **per product type** it
-meets, two calls plus two complementary previews per accepted front hotspot, and
-once per run two design uploads; the picture downloads do not count. Twenty tees
-of one product type therefore cost as much calibration as one tee. Each paced
-call takes a little over a second, so ten different product types with two
-front hotspots each add about a minute to a run. The run works in the
-background; the screen polls it until it is done.
+meets, two calls plus two complementary previews per accepted front hotspot and
+up to a few aspect-ratio refinement pairs (cached `2:1` / `1:2` probe designs
+are uploaded at most once per run); the picture downloads do not count. Twenty
+tees of one product type therefore cost as much calibration as one tee. Each
+paced call takes a little over a second, so ten different product types add
+about one to two minutes to a run. The run works in the background; the screen
+polls it until it is done.
 
 ### 5c. Complete the shop's half in the article editor
 

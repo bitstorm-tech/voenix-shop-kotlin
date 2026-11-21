@@ -31,10 +31,12 @@ export async function composeImage(options: {
 
   const img = await loadImage(imageUrl)
 
+  const ratio = Number.isFinite(frameAspectRatio) && frameAspectRatio > 0 ? frameAspectRatio : 1
   const imageAspect = img.naturalWidth / img.naturalHeight
   const canvas = document.createElement('canvas')
-  canvas.width = outputWidth
-  canvas.height = Math.round(outputWidth / frameAspectRatio)
+  // Cap the longest edge at outputWidth so tall portrait frames stay within SPOD's 4000 px limit.
+  canvas.width = ratio >= 1 ? outputWidth : Math.round(outputWidth * ratio)
+  canvas.height = ratio >= 1 ? Math.round(outputWidth / ratio) : outputWidth
   const ctx = canvas.getContext('2d')!
   const frameRect = { x: 0, y: 0, width: canvas.width, height: canvas.height }
   const imageRect = computeCoverRect(frameRect, imageAspect)

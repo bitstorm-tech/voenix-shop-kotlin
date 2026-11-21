@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { readdir, rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { sql } from 'kysely'
+import sharp from 'sharp'
 import { createSpodClient, type SpodCatalogArticle } from '@/modules/spod'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testAuth } from '@test-support/http'
@@ -56,6 +57,10 @@ interface Partner {
   distorted?: boolean
   /** The product type also offers an all-over hotspot, and shows a circle of that print. */
   round?: boolean
+  /** The product type offers an all-over hotspot with a tall 1:2 phone-case cutout. */
+  phoneCase?: boolean
+  /** Overrides the rectangular FULL_FRONT print area (px on a 1000×1000 mockup) to test non-1:1 discovery. */
+  fullFrontBox?: { x: number; y: number; width: number; height: number }
   /** Omits the mockup of the first appearance (5) from views to prove fallback to appearance 6. */
   missingFirstMockup?: boolean
   viewsRefused?: boolean
@@ -69,9 +74,46 @@ interface Partner {
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
 
+function fitContain(box: { x: number; y: number; width: number; height: number }, ratio: number) {
+  const boxRatio = box.width / box.height
+  const width = ratio >= boxRatio ? box.width : box.height * ratio
+  const height = ratio >= boxRatio ? box.width / ratio : box.height
+  return {
+    x: box.x + (box.width - width) / 2,
+    y: box.y + (box.height - height) / 2,
+    width,
+    height,
+  }
+}
+
+function fitCover(box: { x: number; y: number; width: number; height: number }, ratio: number) {
+  const boxRatio = box.width / box.height
+  const width = ratio >= boxRatio ? box.height * ratio : box.width
+  const height = ratio >= boxRatio ? box.height : box.width / ratio
+  return {
+    x: box.x + (box.width - width) / 2,
+    y: box.y + (box.height - height) / 2,
+    width,
+    height,
+  }
+}
+
 function fakePartner(partner: Partner) {
   const hits: string[] = []
   let uploads = 0
+  const uploadedDesigns = new Map<string, { variant: 'a' | 'b'; ratio: number }>()
+  const previewCache = new Map<string, Promise<Buffer>>()
+  const fullFrontBox = partner.fullFrontBox ?? { x: 284, y: 188, width: 416, height: 416 }
+  const mediumFrontBox = partner.fullFrontBox
+    ? {
+        x: fullFrontBox.x + Math.round(fullFrontBox.width * 0.15),
+        y: fullFrontBox.y + Math.round(fullFrontBox.height * 0.15),
+        width: Math.round(fullFrontBox.width * 0.7),
+        height: Math.round(fullFrontBox.height * 0.7),
+      }
+    : { x: 356, y: 188, width: 286, height: 286 }
+  const phoneBody = { x: 325, y: 150, width: 350, height: 700 }
+
   const fetch = async (url: string, init: RequestInit): Promise<Response> => {
     const { hostname, pathname } = new URL(url)
     hits.push(hostname === 'cdn.example.test' ? `cdn:${pathname}` : pathname)
@@ -79,19 +121,40 @@ function fakePartner(partner: Partner) {
       if (partner.failingDownloads?.has(pathname)) return new Response('', { status: 404 })
       if (pathname.startsWith('/previews/')) {
         const [, , , hotspot, designSegment] = pathname.split('/')
-        const variant = (designSegment?.split(',')[0] ?? 'a') === 'b' ? 'b' : 'a'
-        const preview =
-          hotspot === 'OVERALL_FRONT'
-            ? calibrationPreviewPng({ x: 150, y: 100, width: 702, height: 702 }, variant, {
-                visibleRadius: 300,
-              })
-            : calibrationPreviewPng(
-                hotspot === 'FULL_FRONT'
-                  ? { x: 284, y: 188, width: 416, height: 416 }
-                  : { x: 356, y: 188, width: 286, height: 286 },
-                variant,
-                { rotationDeg: partner.distorted === true ? 25 : 0 },
-              )
+        const designId = designSegment?.split(',')[0] ?? ''
+        const design = uploadedDesigns.get(designId) ?? { variant: 'a' as const, ratio: 1 }
+        const cacheKey = `${hotspot ?? ''}:${design.variant}:${design.ratio.toFixed(4)}`
+        let preview = previewCache.get(cacheKey)
+        if (!preview) {
+          if (hotspot === 'OVERALL_FRONT' && partner.phoneCase === true) {
+            preview = calibrationPreviewPng(fitCover(phoneBody, design.ratio), design.variant, {
+              visibleAt: (x, y) => {
+                if (
+                  x < phoneBody.x ||
+                  x >= phoneBody.x + phoneBody.width ||
+                  y < phoneBody.y ||
+                  y >= phoneBody.y + phoneBody.height
+                ) {
+                  return 0
+                }
+                // Camera cutout in upper-left corner so the mask stays non-rectangular.
+                return x >= 355 && x < 435 && y >= 180 && y < 290 ? 0 : 1
+              },
+            })
+          } else if (hotspot === 'OVERALL_FRONT') {
+            preview = calibrationPreviewPng(
+              fitCover({ x: 150, y: 100, width: 702, height: 702 }, design.ratio),
+              design.variant,
+              { visibleRadius: 300 },
+            )
+          } else {
+            const box = hotspot === 'FULL_FRONT' ? fullFrontBox : mediumFrontBox
+            preview = calibrationPreviewPng(fitContain(box, design.ratio), design.variant, {
+              rotationDeg: partner.distorted === true ? 25 : 0,
+            })
+          }
+          previewCache.set(cacheKey, preview)
+        }
         return new Response(await preview, { headers: { 'Content-Type': 'image/png' } })
       }
       return new Response(await pngBytes(), { headers: { 'Content-Type': 'image/png' } })
@@ -102,7 +165,17 @@ function fakePartner(partner: Partner) {
     }
     if (pathname === '/designs/upload') {
       uploads++
-      return json({ designId: uploads % 2 === 1 ? 'design-a' : 'design-b' })
+      const form = init.body instanceof FormData ? init.body : null
+      const file = form?.get('file')
+      const bytes = file instanceof Blob ? Buffer.from(await file.arrayBuffer()) : Buffer.alloc(0)
+      const meta = bytes.length > 0 ? await sharp(bytes).metadata() : undefined
+      const width = meta?.width ?? 4000
+      const height = meta?.height ?? 4000
+      const variant =
+        file instanceof File && file.name.endsWith('-b.png') ? 'b' : uploads % 2 === 1 ? 'a' : 'b'
+      const designId = `design-${String(uploads)}`
+      uploadedDesigns.set(designId, { variant, ratio: width / height })
+      return json({ designId })
     }
     const productType = pathname.split('/')[2] ?? ''
     if (pathname.endsWith('/size-chart')) {
@@ -141,7 +214,9 @@ function fakePartner(partner: Partner) {
         hotspots: [
           { name: 'FULL_FRONT' },
           { name: 'MEDIUM_FRONT' },
-          ...(partner.round === true ? [{ name: 'OVERALL_FRONT' }] : []),
+          ...(partner.round === true || partner.phoneCase === true
+            ? [{ name: 'OVERALL_FRONT' }]
+            : []),
         ],
       })
     }
@@ -150,15 +225,19 @@ function fakePartner(partner: Partner) {
         configurations: { designId: string; hotspot: string }[]
       }
       const hotspot = body.configurations[0]?.hotspot ?? ''
-      const variant = body.configurations[0]?.designId === 'design-b' ? 'b' : 'a'
+      const designId = body.configurations[0]?.designId ?? 'design-1'
       return json({
         images: [
           {
-            url: `${CDN}/previews/${productType}/${hotspot}/${variant}`,
+            url: `${CDN}/previews/${productType}/${hotspot}/${designId}`,
             viewId: '1',
             viewName: 'FRONT',
           },
-          { url: `${CDN}/previews/${productType}/back/${variant}`, viewId: '2', viewName: 'BACK' },
+          {
+            url: `${CDN}/previews/${productType}/back/${designId}`,
+            viewId: '2',
+            viewName: 'BACK',
+          },
         ],
       })
     }
@@ -297,7 +376,8 @@ describe('a first run', () => {
       { size_label: 'L', is_default: false, active: true },
       { size_label: 'M', is_default: false, active: true },
     ])
-    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
+    // 1:1 pair + 2:1 wide probe pair + 1:2 tall probe pair (each cached per sync run).
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(6)
     expect(hits.filter((hit) => hit.endsWith('/size-chart'))).toHaveLength(1)
     expect(downloads(hits)).toHaveLength(6)
   })
@@ -314,7 +394,7 @@ describe('an identical second run', () => {
     expect(report.unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
     expect(report.warnings).toEqual([])
     expect(downloads(hits)).toEqual([])
-    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(6)
   })
 
   test('downloads again every picture whose file is gone, and refers only to stored files', async () => {
@@ -618,8 +698,8 @@ describe('a listing that cannot be read to the end', () => {
 })
 
 describe('the calibration', () => {
-  test('an all-over print on a round product beats the square inside it and stores its mask', async () => {
-    const { run } = await syncWith({ listing: page([shirt()]), round: true })
+  test('an all-over print on a round product beats the square inside it and stores its mask without extra probes', async () => {
+    const { run, hits } = await syncWith({ listing: page([shirt()]), round: true })
     const report = await run()
     expect(report.warnings).toEqual([])
     expect(report.created).toMatchObject([
@@ -628,10 +708,56 @@ describe('the calibration', () => {
         printFrame: { leftPct: 15, topPct: 10, widthPct: 70.2, heightPct: 70.2 },
       },
     ])
+    // Round all-over mask is already ~1:1, so only the 1:1 pair is uploaded.
+    expect(hits.filter((hit) => hit === '/designs/upload')).toHaveLength(2)
     const stored = await storedArticle()
     expect(stored.spod_hotspot).toBe('OVERALL_FRONT')
     expect(stored.print_mask).toStartWith('data:image/png;base64,')
     expect((await run()).unchanged.map((line) => line.spodArticleId)).toEqual(['a-1'])
+  })
+
+  test('discovers a landscape 3:2 print area (pencil case) and measures the full width and height', async () => {
+    const { run } = await syncWith({
+      listing: page([shirt()]),
+      fullFrontBox: { x: 305, y: 450, width: 390, height: 260 },
+    })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    expect(report.created).toMatchObject([
+      {
+        hotspot: 'FULL_FRONT',
+        printFrame: { leftPct: 30.5, topPct: 45, widthPct: 39, heightPct: 26 },
+      },
+    ])
+    expect((await storedArticle()).print_mask).toBeNull()
+  })
+
+  test('discovers a portrait 3:4 print area and measures its full height', async () => {
+    const { run } = await syncWith({
+      listing: page([shirt()]),
+      fullFrontBox: { x: 344, y: 180, width: 312, height: 416 },
+    })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    expect(report.created).toMatchObject([
+      {
+        hotspot: 'FULL_FRONT',
+        printFrame: { leftPct: 34.4, topPct: 18, widthPct: 31.2, heightPct: 41.6 },
+      },
+    ])
+    expect((await storedArticle()).print_mask).toBeNull()
+  })
+
+  test('refines a tall OVERALL_FRONT phone case to match its 1:2 visible mask ratio', async () => {
+    const { run } = await syncWith({ listing: page([shirt()]), phoneCase: true })
+    const report = await run()
+    expect(report.warnings).toEqual([])
+    const frame = report.created[0]?.printFrame
+    expect(report.created[0]?.hotspot).toBe('OVERALL_FRONT')
+    expect(frame).not.toBeNull()
+    expect(Math.abs((frame?.widthPct ?? 0) - 35)).toBeLessThanOrEqual(0.5)
+    expect(Math.abs((frame?.heightPct ?? 0) - 70)).toBeLessThanOrEqual(0.5)
+    expect((await storedArticle()).print_mask).toStartWith('data:image/png;base64,')
   })
 
   test('a missing mockup on the first colour still calibrates the product type using another colour', async () => {

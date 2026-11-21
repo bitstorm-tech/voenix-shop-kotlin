@@ -252,7 +252,7 @@ describe('ProductEditor', () => {
     )
   })
 
-  it('shows the plain square print frame for a colour without a mockup', () => {
+  it('shows the plain print frame at its measured aspect ratio for a colour without a mockup', () => {
     const tee = createShopTee({
       appearances: [createSpodAppearance({ id: 201, mockupImageFilename: null })],
     })
@@ -266,11 +266,11 @@ describe('ProductEditor', () => {
     expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
     expect(wrapper.html()).not.toContain('/mockups/null')
     expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
-      'aspect-ratio: 1',
+      `aspect-ratio: ${50 / 40.5}`,
     )
   })
 
-  it('falls back to the plain square print frame when the mockup photo fails to load', async () => {
+  it('falls back to the plain print frame at its measured aspect ratio when the mockup photo fails to load', async () => {
     const draft = createDraft()
     const wrapper = mountProductEditor(draft, {}, { article: spodArticle, variant: spodVariant })
 
@@ -278,7 +278,7 @@ describe('ProductEditor', () => {
 
     expect(wrapper.find('[data-testid="editor-mockup-image"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="editor-print-frame"]').attributes('style')).toContain(
-      'aspect-ratio: 1',
+      `aspect-ratio: ${40 / 22.5}`,
     )
   })
 

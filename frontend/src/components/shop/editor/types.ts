@@ -112,6 +112,9 @@ export function toEditorMugArticle(mug: MugDto): EditorMugArticle {
 }
 
 export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle {
+  const { widthPct, heightPct } = article.printFrame
+  const aspectRatio = widthPct > 0 && heightPct > 0 ? widthPct / heightPct : 1
+
   return {
     id: article.id,
     type: 'SPOD',
@@ -119,8 +122,9 @@ export function toEditorSpodArticle(article: SpodArticleDto): EditorSpodArticle 
     descriptionShort: article.descriptionShort,
     price: article.price,
     regularPrice: article.regularPrice,
-    // A SPOD design is always square, and there are no millimetres to lose.
-    printArea: { aspectRatio: 1, documentFormatWidthMm: null, documentFormatHeightMm: null },
+    // SPOD mockups are square (1000 × 1000), so widthPct / heightPct is the print area's ratio;
+    // millimetres are not part of SPOD's contract.
+    printArea: { aspectRatio, documentFormatWidthMm: null, documentFormatHeightMm: null },
     productTypeName: article.productTypeName,
     printFrame: article.printFrame,
     printMask: article.printMask ?? null,

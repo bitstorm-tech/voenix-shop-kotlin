@@ -428,7 +428,9 @@ it needs at checkout. A database failure throws; an empty map would tell a
 cart its articles are gone.
 
 **`printFormats`** answers `'16:9' | '1:1'` per known article: a mug's stored
-ratio, `1:1` for every SPOD article (its frame is measured for a square design).
+ratio, and `'1:1'` for every SPOD article (AI image generation stays decoupled
+from the measured print frame's aspect ratio for now; the editor crops and
+composes to the frame's stored `widthPct / heightPct`).
 
 **`spodCatalogSync`** is described next.
 
@@ -494,7 +496,7 @@ nothing.
 
 **A second identical run** lands every article in `unchanged`, downloads no
 picture (one storage check per stored picture), and costs one `spod_synced_at` bump per article — plus the
-re-measurement (two complementary design uploads per run, and `2 + 2 * candidates` paced calls
+re-measurement (cached complementary design pairs per run, and `2 + 2 * candidates` plus aspect-ratio probe calls
 per product type).
 
 ### The report and its warning codes
@@ -585,6 +587,29 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
      (`[-300 %, 400 %]`, overlapping `[0 %, 100 %]`), else `OUTSIDE_PICTURE`.
    - **The hotspot that shows the most pixels of the design wins**, ties go to
      the first hotspot.
+   - **Arbitrary non-square print areas are discovered automatically** without
+     a fixed aspect-ratio enum; only the measured frame's `widthPct` and
+     `heightPct` (and `print_mask`) are stored. After the `1:1` baseline picks
+     the winning hotspot:
+     - *Masked / clipped all-over (`mask !== null`)*: if the visible mask's
+       bounding box differs from `1:1` by more than 5 % (for example a `1:2`
+       phone case), the winning hotspot is re-measured once with a calibration
+       pair sized to that visible aspect ratio (longest edge 4000 px) and kept
+       when coverage stays ≥ 95 % with a tighter fill or more visible pixels.
+       Nearly square masks (round button, heart puzzle) trigger no extra calls.
+     - *Unmasked rectangular hotspot (`mask === null`)*: the run probes `2:1`
+       (`4000 × 2000`, uploaded and cached once per run). If the measured width
+       grows by > 5 % (landscape, e.g. a `3:2` pencil case), it escalates to
+       `3:1` when `2:1` still touches top and bottom, derives the exact
+       `targetRatio = bestWide.widthPct / base.heightPct`, and measures once at
+       that ratio. Otherwise it probes `1:2` (`2000 × 4000`, cached per run)
+       and symmetrically handles portrait frames (e.g. a `3:4` tee). Any
+       refused or unmeasurable probe falls back cleanly to the best valid
+       measurement so far.
+     - *Frontend & AI generation*: the editor derives `printArea.aspectRatio`
+       from `widthPct / heightPct` (SPOD mockups are square `1000 × 1000`) and
+       `composeImage` caps the longest edge at `4000 px`. AI image generation
+       (`printFormats`) stays decoupled at `1:1` for now.
 
    Per product type, per run, stateless; only answers are cached.
    A measurement failure writes no frame (`CALIBRATION_FAILED`); a transport
@@ -603,20 +628,20 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
    and glossy specular highlights that pushed pixels outside `±24`; (3) green or
    magenta garments that collided with the calibration colours; (4) shaped
    products with cutouts, zippers, or narrow crops that clipped the 50 % marker;
-   (5) full-bleed all-over frames extending slightly past the mockup border; and
-   (6) articles whose first colour lacked a front mockup. Rejected: `printAreas`
-   of `GET /productTypes/{id}` (millimetres without mockup coordinates or shape);
-   the order's custom `position` (undocumented units, cannot be previewed);
-   amplitude-only colour gradients (distorted by gamma and non-uniform RGB
-   shading).
+   (5) full-bleed all-over frames extending slightly past the mockup border;
+   (6) articles whose first colour lacked a front mockup; and (7) non-square
+   print areas (such as a 3:2 pencil case or a portrait tee/phone case) where a
+   `1:1`-only measurement inscribed a square inside a wider or taller print box.
+   Rejected: `printAreas` of `GET /productTypes/{id}` (millimetres without
+   mockup coordinates or shape); the order's custom `position` (undocumented
+   units, cannot be previewed); amplitude-only colour gradients (distorted by
+   gamma and non-uniform RGB shading); a closed format enum for SPOD aspect
+   ratios (SPOD print areas have arbitrary physical widths and heights).
 
-   The mask shows what the partner prints for a `1:1` design, not the outline of
-   the product: a product with a landscape print area (such as a 3:2 pencil case)
-   or a star ornament offering only `FULL_FRONT` gets the square the partner
-   actually prints for a `1:1` motif. One thing stays open: the partner's
-   documentation lists ten hotspot names for an order, and `OVERALL_FRONT` is not
-   among them, although `views`, the hotspot check, and `previews` answer and
-   accept it. No order has been placed with it yet.
+   One thing stays open: the partner's documentation lists ten hotspot names
+   for an order, and `OVERALL_FRONT` is not among them, although `views`, the
+   hotspot check, and `previews` answer and accept it. No order has been placed
+   with it yet.
 8. **The name tripwire keeps firing on partner renames** (production's
    decision); accepted until the three ids are snapshotted.
 9. **Appearances and images are tables of their own**: a colour is a row, a
@@ -766,8 +791,8 @@ stubbed `fetch` behind the real `createSpodClient`.
 | `spod-article/routes.test.ts` | the five admin routes, the four write-path activation refusals, the measurements of every variant size with the lowest-id label, the delete with all three kinds of file and the measurements, the reorder and its `409`, no create and no t-shirt paths |
 | `storefront.test.ts` | the visibility matrix over mugs, SPOD articles, and the navigation; the whole public documents; the discounted price; no partner ids in the SPOD answer; the measurements of active sizes only; the empty catalog |
 | `catalog.test.ts` | `find`: purchasable, inactive, draft without price, discounted, unknown and cross-article pairs, the SPOD triple and hotspot, an unmeasured SPOD article; `printFormats` |
-| `spod-article/calibration.test.ts` | `measurePrintFrame` on drawn preview pairs: flat frames, dark shading + warm lighting + glare + gamma 2.2, neon green/magenta garments, half-up edges ending at 100, glossy round product with mask, shaped cutouts (phone case camera hole, zip hoodie), full-bleed overhang past the mockup edges, `DISTORTED_PRINT` (25° rotation), `NO_PRINT_AREA`, `UNREADABLE_IMAGE`, and the 4000 × 4000 calibration design pair itself |
-| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, the round all-over hotspot that beats the square inside it and stores its mask, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, the size measurements (sold sizes only, unchanged without a rewrite, a changed value, unanswered, without `sizes`, the normalization), `busy` |
+| `spod-article/calibration.test.ts` | `measurePrintFrame` and `dimensionsForAspectRatio` on drawn preview pairs: flat square and non-square (`3:2`, `2:1`) frames, dark shading + warm lighting + glare + gamma 2.2, neon green/magenta garments, half-up edges ending at 100, glossy round product with mask, shaped cutouts (phone case camera hole, zip hoodie, visible bounds), full-bleed overhang past the mockup edges, `DISTORTED_PRINT` (25° rotation and aspect-ratio mismatch), `NO_PRINT_AREA`, `UNREADABLE_IMAGE`, and the 4000 px calibration design pairs |
+| `spod-article/sync.test.ts` | whole runs: the first run, the identical re-run without downloads, the overwrite that keeps the shop's half and re-measures the frame, the sweep and the reappearance, the other environment, five malformed or refused listings, the round all-over hotspot that beats the square inside it and stores its mask without extra probes, automatic landscape (`3:2`) and portrait (`3:4`) rectangular discovery, tall `OVERALL_FRONT` phone case refinement, `CALIBRATION_FAILED` and `CALIBRATION_UNAVAILABLE`, degraded colours and images, skipped articles, the size measurements (sold sizes only, unchanged without a rewrite, a changed value, unanswered, without `sizes`, the normalization), `busy` |
 
 `test-fixtures.ts` holds what they share (the wired module, SQL seeds for VAT,
 suppliers, destinations, categories, synced SPOD articles, and the drawn

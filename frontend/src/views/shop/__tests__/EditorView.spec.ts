@@ -317,10 +317,37 @@ describe('EditorView', () => {
     await wrapper.get('[data-testid="editor-add-to-cart"]').trigger('click')
     await flushPromises()
 
-    // The mockup photo is a backdrop only: the composed print image is the square design, with no
-    // mockup pixel in it.
+    // The mockup photo is a backdrop only: the composed print image has the print frame's aspect
+    // ratio, with no mockup pixel in it.
     expect(composeImage).toHaveBeenCalledWith(
       expect.objectContaining({ imageUrl: draft.images[0]!.url, frameAspectRatio: 1 }),
+    )
+  })
+
+  it('passes a non-square SPOD print frame aspect ratio to composeImage', async () => {
+    const pencilCase = createShopTee({
+      id: 3,
+      name: 'Pencil Case',
+      printFrame: { leftPct: 30.5, topPct: 45, widthPct: 39, heightPct: 26 },
+    })
+    const editorStore = useEditorStore()
+    const draft = editorStore.createDraftFromGeneratedImages({
+      articleId: pencilCase.id,
+      variantId: pencilCase.variants[0]!.id,
+      images: [generatedImage('image-1')],
+    })
+    const router = createRouterForEditor()
+    mockLoadedArticles([pencilCase])
+    const cartStore = useCartStore()
+    vi.spyOn(cartStore, 'addToCart').mockResolvedValue()
+    mockComposeCanvas()
+
+    const wrapper = await mountAt(router, `/editor/${draft.id}`)
+    await wrapper.get('[data-testid="editor-add-to-cart"]').trigger('click')
+    await flushPromises()
+
+    expect(composeImage).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrl: draft.images[0]!.url, frameAspectRatio: 1.5 }),
     )
   })
 })
