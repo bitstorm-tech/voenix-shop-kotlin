@@ -10,50 +10,50 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ### Bestehende Punkte (Stand 2026-11-22 verifiziert)
 
-- [ ] **1. Datenschutzerklärung prüfen & absichern** *(teilweise erledigt)* – `backend/src/modules/legal/index.ts`, `frontend/src/views/shop/PrivacyView.vue`
+- [ ] **A1. Datenschutzerklärung prüfen & absichern** *(teilweise erledigt)* – `backend/src/modules/legal/index.ts`, `frontend/src/views/shop/PrivacyView.vue`
   `/api/legal/privacy` proxyt jetzt serverseitig die iubenda-Policy `48736531` und entfernt externe `img`/`svg` (kein IP-Leak an iubenda).
   Noch offen:
   - Inhalt der Policy `48736531` bei iubenda verifizieren: Sliplane (Hosting), Mollie, Sweego (Mail), **fal.ai (Foto-Upload, US-Drittlandtransfer!)**, SPOD und Tassen-Lieferant, Cookies (`voenix.auth`, `XSRF-TOKEN`, `voenix.guest`), `localStorage`, Kundenkonto; alte Einträge (Stripe, Tag Manager, Facebook-Pixel) müssen raus.
   - Kein lokaler Fallback bei Cold-Start/iubenda-Ausfall (liefert dann HTTP 502) und keine englische Fassung für `en`-Locale.
-- [ ] **2. AGB fehlen auf der Seite** – `frontend/src/views/shop/TermsView.vue`, `frontend/src/views/shop/CheckoutView.vue:463-469`
+- [ ] **A2. AGB fehlen auf der Seite** – `frontend/src/views/shop/TermsView.vue`, `frontend/src/views/shop/CheckoutView.vue:463-469`
   `/terms` ist weiterhin ein Platzhalter. Die Kasse verlinkt noch auf `https://voenix.shop/pdf/AGBs.pdf` beim alten WordPress-Host (nach Domain-Umzug tot; PDF Stand 18.09.2025 ist veraltet: falsche Adresse/Mail, widersprüchliche Lieferzeit, leere Ziffer 4.4, unzulässige Rügepflicht 9.2, fehlender Verbrauchervorbehalt, fehlende Angaben zu Vertragstext-Speicherung/Vertragssprache).
   Fix: AGB neu erstellen lassen, auf `/terms` anzeigen, Kasse per `RouterLink` auf `/terms` verlinken.
-- [ ] **3. Widerrufsinfo fehlt** – `frontend/src/views/shop/ReturnsView.vue`, `frontend/src/views/shop/CheckoutView.vue:458-473`
+- [ ] **A3. Widerrufsinfo fehlt** – `frontend/src/views/shop/ReturnsView.vue`, `frontend/src/views/shop/CheckoutView.vue:458-473`
   `/returns` ist ein Platzhalter; in der Kasse fehlt der Hinweis auf den Ausschluss des Widerrufsrechts für personalisierte Ware (§ 312g Abs. 2 Nr. 1 BGB / Art. 246a § 1 Abs. 3 Nr. 1 EGBGB).
   Fix: Text auf `/returns`, Hinweis mit Link in der Kasse.
   Hinweis zum **Widerrufsbutton (§ 356a BGB, Pflicht seit 19.06.2026)**: nicht nötig, solange ausschließlich personalisierte Ware verkauft wird — daher `/magic-coins`-Kaufpakete ausblenden und `imageId: null` in `backend/src/modules/cart/routes.ts:35` ablehnen.
-- [ ] **4. Bestellbestätigung ohne Vertragsinfos & Anbieter-Footer** – `backend/src/modules/email/templates/order-confirmation.ts:78-145`, `backend/src/modules/email/templates/layout.ts:83,121-123`
+- [ ] **A4. Bestellbestätigung ohne Vertragsinfos & Anbieter-Footer** – `backend/src/modules/email/templates/order-confirmation.ts:78-145`, `backend/src/modules/email/templates/layout.ts:83,121-123`
   Mail enthält weder AGB noch Widerrufshinweis, kein `inkl. MwSt.`, keine Lieferzeit; Footer zeigt nur `© Voenix Shop` statt vollständiger Anbieterangaben (§ 312f Abs. 2 BGB dauerhafter Datenträger).
   Fix: AGB und Widerrufshinweis als Text/Anhang, `inkl. gesetzl. MwSt.` + Lieferzeit sowie vollständige Anbieterangaben (GbR, Gesellschafter, Anschrift, E-Mail, Telefon, USt-IdNr.) in den Mail-Footer.
-- [ ] **5. Impressum unvollständig** – `frontend/src/views/shop/ImprintView.vue:47-70`, `frontend/src/views/shop/ContactView.vue`
+- [ ] **A5. Impressum unvollständig** – `frontend/src/views/shop/ImprintView.vue:47-70`, `frontend/src/views/shop/ContactView.vue`
   Telefonnummer fehlt weiterhin (Pflicht im Fernabsatz, Art. 246a § 1 Abs. 1 Nr. 2 EGBGB / § 5 DDG); § 36 VSBG-Hinweis fehlt ebenfalls (keinen abgeschalteten EU-OS-Link setzen). `/contact` ist ein Platzhalter.
   Fix: Telefonnummer und § 36 VSBG ergänzen.
-- [x] **6. Google Fonts von Google-Servern** – `frontend/index.html`, `frontend/src/assets/base.css:3-4`, `frontend/src/components/shop/editor/ProductEditor.vue:3-10`
+- [x] **A6. Google Fonts von Google-Servern** – `frontend/index.html`, `frontend/src/assets/base.css:3-4`, `frontend/src/components/shop/editor/ProductEditor.vue:3-10`
   Erledigt: Alle Schriften werden lokal via `@fontsource*` ausgeliefert, keine externen Google-Font-Links oder Tracker mehr. *(Einwilligungsfreiheit hängt zusätzlich am neuen Punkt A17 zum `voenix.guest`-Cookie!)*
-- [ ] **7. Preisangaben ohne MwSt.- und Versandhinweis** – `frontend/src/components/shop/ProductPrice.vue:64-99`, `frontend/src/components/shop/CartSummary.vue:62-65`, `frontend/src/views/shop/CheckoutView.vue:452-455`, `frontend/src/components/shop/OrderDetails.vue:160-163`
+- [ ] **A7. Preisangaben ohne MwSt.- und Versandhinweis** – `frontend/src/components/shop/ProductPrice.vue:64-99`, `frontend/src/components/shop/CartSummary.vue:62-65`, `frontend/src/views/shop/CheckoutView.vue:452-455`, `frontend/src/components/shop/OrderDetails.vue:160-163`
   Produktkarten, Assistent, Warenkorb und Kasse zeigen Preise ohne `inkl. MwSt.` und ohne `zzgl. Versand`-Link auf `/shipping` (§§ 1, 3, 6 PAngV).
   Fix: Hinweis an Preis und Gesamtsumme, `zzgl. Versand` mit Link auf `/shipping`.
-- [ ] **8. Kasse: wesentliche Merkmale und Lieferzeit fehlen** – `frontend/src/views/shop/CheckoutView.vue:410-426`
+- [ ] **A8. Kasse: wesentliche Merkmale und Lieferzeit fehlen** – `frontend/src/views/shop/CheckoutView.vue:410-426`
   Bestellübersicht direkt über dem Bestellbutton (§ 312j Abs. 2 BGB) zeigt nur `articleName` und `variantName × quantity`.
   Fix: Produktart mit Kernangaben (Material/Füllmenge, „personalisiert“), Motiv-Vorschau (`item.imageId`), Lieferzeit und `inkl. MwSt.` ergänzen.
-- [x] **9. Versandkosten widersprechen sich** – `backend/src/modules/cart/totals.ts:5-8`, `frontend/src/i18n/locales/de.json:398-408`, `en.json:398-408`, `frontend/src/components/shop/CartSummary.vue:29`
+- [x] **A9. Versandkosten widersprechen sich** – `backend/src/modules/cart/totals.ts:5-8`, `frontend/src/i18n/locales/de.json:398-408`, `en.json:398-408`, `frontend/src/components/shop/CartSummary.vue:29`
   Erledigt: Seite und Berechnung zeigen übereinstimmend `4,90 €`, frei ab `50 €`. *(Hinweis: bei Wechsel auf DE-only — siehe D3 — Versandseite und `/api/countries` mitanpassen.)*
-- [ ] **10. Fest einprogrammierte Kundenstimmen** – `frontend/src/views/shop/HomeView.vue:328-370`, `frontend/src/components/shop/campaigns/royal-dog/RoyalDogReviews.vue:9-45`, `de.json:508-531,637-674`, `en.json`
+- [ ] **A10. Fest einprogrammierte Kundenstimmen** – `frontend/src/views/shop/HomeView.vue:328-370`, `frontend/src/components/shop/campaigns/royal-dog/RoyalDogReviews.vue:9-45`, `de.json:508-531,637-674`, `en.json`
   Markus T., Sarah K., Julia M. (Startseite) und Lena M., Tom B., Anna K. (`/royal-dog`) sind weiter live (§ 5, § 5b Abs. 3 UWG). Auch ungenutzte Fake-Stats (`4,9 Sterne`, `50k+ Designs`) aus den Locales entfernen.
   Fix: beide Bewertungs-Abschnitte entfernen, bis echte Bewertungen vorliegen.
-- [ ] **11. Werbeaussagen ohne Deckung** *(teilweise erledigt)* – `de.json:391-406,541-611,768`, `en.json`, `frontend/src/views/shop/HomeView.vue:139-159,230,276`, `frontend/src/components/shop/Footer.vue:45-52,137`
+- [ ] **A11. Werbeaussagen ohne Deckung** *(teilweise erledigt)* – `de.json:391-406,541-611,768`, `en.json`, `frontend/src/views/shop/HomeView.vue:139-159,230,276`, `frontend/src/components/shop/Footer.vue:45-52,137`
   Erledigt: falsche „ab“-Preise und pauschale „Bio-Baumwolle / Fair Trade“-Aussagen wurden entfernt.
   Noch offen:
   - „Made in Germany“ (`de.json:611`) und „Wir drucken und versenden per DHL aus Deutschland“ (`de.json:591`, `Footer.vue:137`) für SPOD-Artikel prüfen oder streichen.
   - Nicht im Sortiment befindliche „Poster“ (`de.json:541,591`) und „Als Karte“ (`HomeView.vue:139-159`, `de.json:569`) entfernen.
   - Alle gezeigten Zahlarten (PayPal, Klarna, Apple Pay, Google Pay, Sofortüberweisung in `Footer.vue:45-52` & `de.json:768`) müssen im Mollie-Live-Profil wirklich aktiv sein.
   - „Versand in 3–5 Tagen“ mit AGB und `/shipping` abgleichen.
-- [ ] **12. Stilnamen mit fremden Rechten** – Admin → Prompts (`backend/src/modules/prompt/schema.ts:56`)
+- [ ] **A12. Stilnamen mit fremden Rechten** – Admin → Prompts (`backend/src/modules/prompt/schema.ts:56`)
   „Hundertwasser“, „Picasso“, „Funky Pop Toy Style“, „Instagramm Beauty“ im Admin umbenennen.
-- [ ] **13. Herstellerangaben fehlen (EU-GPSR)** – `backend/src/modules/article/schema.ts:50-119`, `storefront.ts:25-70`, `ProductCard.vue`, `SelectArticleStep.vue`
+- [ ] **A13. Herstellerangaben fehlen (EU-GPSR)** – `backend/src/modules/article/schema.ts:50-119`, `storefront.ts:25-70`, `ProductCard.vue`, `SelectArticleStep.vue`
   Art. 19 EU-GPSR verlangt im Angebot Name, Anschrift und E-Mail des Herstellers (+ ggf. Sicherheits-/Warnhinweise). Fehlt in DB-Schema, API und UI.
   Fix: Herstellerangaben pro Artikel erfassen und in der Shop-UI anzeigen.
-- [ ] **14. Foto-Upload ohne Bildrechte-/KI-Hinweis** – `frontend/src/components/shop/wizard/steps/UploadImageStep.vue:44-75`, `frontend/src/components/shop/editor/ProductDraftUpload.vue:44-70`
+- [ ] **A14. Foto-Upload ohne Bildrechte-/KI-Hinweis** – `frontend/src/components/shop/wizard/steps/UploadImageStep.vue:44-75`, `frontend/src/components/shop/editor/ProductDraftUpload.vue:44-70`
   Beide Upload-Stellen (Wizard **und** Editor-Direktupload) haben keinen Hinweis zu Bildrechten, abgebildeten Personen (§§ 22/23 KUG) und KI-Verarbeitung (fal.ai) mit Link auf `/privacy` und `/terms`.
 
 ### Neu entdeckte rechtliche Punkte (Audit 2026-11-22)
@@ -83,9 +83,9 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ## B. Security-Blocker & Missbrauchsschutz
 
-### Offene Punkte aus `TODO.md` & `GOLIVE-TODO.md` (Stand 2026-11-22 verifiziert)
+### Offene Punkte aus `TODO.md` & Vor-Audit (Stand 2026-11-22 verifiziert)
 
-*(Bereits erledigt: `TODO #1` Route-Pattern-Logging — alte Webhook-Secrets trotzdem rotieren!; `TODO #2` `Secure`-Cookies; `TODO #6` Bildgrößen-Allowlist; `GOLIVE #22` `sourcemap: false`.)*
+*(Bereits erledigt: `TODO #1` Route-Pattern-Logging — alte Webhook-Secrets trotzdem rotieren!; `TODO #2` `Secure`-Cookies; `TODO #6` Bildgrößen-Allowlist; `sourcemap: false`.)*
 
 - [ ] **B1. [BLOCKER] Service Worker cacht private `/api/`-Daten über Logout hinaus (`TODO #7`, auch DSGVO Art. 32)** – `frontend/vite.config.ts:35-43`
   `NetworkFirst` auf `/api/` speichert `/api/auth/me`, Bestellungen, Bestell-Links und Admin-Daten 1 h lang und leert beim Logout nicht.
@@ -102,7 +102,7 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **B5. [BLOCKER] Kein Rate-Limit auf Auth- & Gutschein-Endpunkten (`TODO #8`)** – `backend/src/modules/account/routes.ts:202-259`, `backend/src/modules/cart/routes.ts:145-155`
   Ermöglicht Sweego-Mail-Bombing (`register`/`forgot-password`/`resend-confirmation`), permanentes Admin-Aussperren (15 Fehlversuche = 10 min Lockout), PBKDF2-CPU-DoS (600k Iterationen) und Gutschein-Brute-Force.
   Fix: `createClientIpRateLimiter` vor diese Routen schalten.
-- [ ] **B6. [BLOCKER] Keine HTTP-Sicherheits-Header (`GOLIVE #21`)** – `backend/src/platform/http/app.ts:24-56`
+- [ ] **B6. [BLOCKER] Keine HTTP-Sicherheits-Header** – `backend/src/platform/http/app.ts:24-56`
   HSTS, `X-Content-Type-Options: nosniff`, Clickjacking-Schutz, `Referrer-Policy` und CSP fehlen.
   Fix: Hono `secureHeaders()` aktivieren (`no-referrer` für `/order/*` und Auth-Link-Seiten).
 - [ ] **B7. [HOCH] Kontoübernahme vor Registrierung & unvollständiger Reset (`TODO #9`)** – `backend/src/modules/account/service.ts:127-142`, `backend/src/modules/account/repository.ts:293-307`
@@ -138,74 +138,74 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ### Frontend (bestehend + neu)
 
-- [ ] **15. [BLOCKER] Platzhalterseiten im Footer** – `AboutView.vue`, `FaqView.vue`, `ContactView.vue`, `SupportView.vue`, `PaymentView.vue`, `TermsView.vue`, `ReturnsView.vue`, `frontend/src/components/shop/Footer.vue:29-43`
+- [ ] **C1. [BLOCKER] Platzhalterseiten im Footer** – `AboutView.vue`, `FaqView.vue`, `ContactView.vue`, `SupportView.vue`, `PaymentView.vue`, `TermsView.vue`, `ReturnsView.vue`, `frontend/src/components/shop/Footer.vue:29-43`
   7 von 10 Footer-Links zeigen „Hier findest du bald …“.
   Fix: Rechtstexte & `/payment` füllen, unfertige Links aus `Footer.vue` entfernen.
-- [ ] **16. [BLOCKER] Stil-Aufpreis wird angezeigt, aber nie berechnet** – `SelectStyleStep.vue:238-243`, `WizardView.vue:209-221`, `stores/shop/editor.ts:35-48`, `ProductEditor.vue:501-508`
+- [ ] **C2. [BLOCKER] Stil-Aufpreis wird angezeigt, aber nie berechnet** – `SelectStyleStep.vue:238-243`, `WizardView.vue:209-221`, `stores/shop/editor.ts:35-48`, `ProductEditor.vue:501-508`
   Assistent zeigt Stil-Preis (z. B. `3,95 €`), `promptId` geht aber zwischen Wizard → `EditorDraft` → `addToCart` verloren (`promptPrice` immer `0`).
   Fix: `promptId` durchreichen oder Stil-Preisanzeige entfernen.
-- [ ] **17. [BLOCKER] Magic Coins halb fertig** – `Header.vue:110-116`, `MobileMenu.vue:376-384`, `MagicCoinsView.vue:63-78`, `GenerateStep.vue:276-280,345-349`
+- [ ] **C3. [BLOCKER] Magic Coins halb fertig** – `Header.vue:110-116`, `MobileMenu.vue:376-384`, `MagicCoinsView.vue:63-78`, `GenerateStep.vue:276-280,345-349`
   Header verlinkt für alle auf `/magic-coins` mit Paketpreisen (7,90–34,90 €), Kauf zeigt nur einen Toast (und Navigation aus `GenerateStep` löscht das hochgeladene Foto).
   Fix: Links und Kaufpakete ausblenden, bis der echte Kauf inkl. § 356a BGB existiert.
-- [ ] **18. [HOCH] `/royal-dog` ohne Prompt-ID & fehlerhaftes Layout** – `frontend/src/views/shop/RoyalDogView.vue:13`, `frontend/src/layouts/ShopLayout.vue:13`
+- [ ] **C4. [HOCH] `/royal-dog` ohne Prompt-ID & fehlerhaftes Layout** – `frontend/src/views/shop/RoyalDogView.vue:13`, `frontend/src/layouts/ShopLayout.vue:13`
   `ROYAL_DOG_PROMPT_ID` ist `null`; außerdem rendert `ShopLayout` nur `home` full-bleed, sodass `/royal-dog` in `max-w-7xl px-4` gequetscht wird.
   Fix: Prompt anlegen und ID setzen + `campaignLanding` full-bleed unterstützen (oder Seite bis dahin nicht bewerben/routen).
-- [ ] **C1. [HOCH / NEU] Abgebrochene/fehlgeschlagene Mollie-Zahlung zeigt „Warten auf Zahlungsbestätigung“** – `frontend/src/views/shop/OrderConfirmationView.vue:32-76,192-215`
+- [ ] **C5. [HOCH / NEU] Abgebrochene/fehlgeschlagene Mollie-Zahlung zeigt „Warten auf Zahlungsbestätigung“** – `frontend/src/views/shop/OrderConfirmationView.vue:32-76,192-215`
   `hasTerminalPayment` aus `useOrderStatusRefresh` wird ignoriert → nach Zahlungsabbruch bei Mollie sieht der Kunde keinen Fehlerstatus.
   Fix: `hasTerminalPayment` / `paymentStatus` (`FAILED`, `CANCELED`, `EXPIRED`) auswerten und klaren Fehlerzustand + Retry-CTA anzeigen. *(Ebenfalls `?orderId=` strikt mit `/^[1-9]\d*$/` validieren, Zeile 19–23.)*
-- [ ] **C2. [HOCH / NEU] Mobile-Editor versteckt „In den Warenkorb“-Text auf Smartphones (`<= 430px`)** – `frontend/src/components/shop/editor/ProductEditor.vue:527-538`
+- [ ] **C6. [HOCH / NEU] Mobile-Editor versteckt „In den Warenkorb“-Text auf Smartphones (`<= 430px`)** – `frontend/src/components/shop/editor/ProductEditor.vue:527-538`
   `max-[430px]:sr-only` schrumpft den primären Kauf-CTA auf iPhone/Pixel zu einem unbeschrifteten 36×36-Icon.
   Fix: Label auf Mobilgeräten sichtbar lassen.
-- [ ] **C3. [HOCH / NEU] GIF im Upload erlaubt, vom KI-Generator aber abgelehnt (400)** – `UploadImageStep.vue:12`, `stores/shop/wizard.ts:5`, `ImageUploadDropzone.vue:25` vs. `stores/shop/imageGeneration.ts:31`
+- [ ] **C7. [HOCH / NEU] GIF im Upload erlaubt, vom KI-Generator aber abgelehnt (400)** – `UploadImageStep.vue:12`, `stores/shop/wizard.ts:5`, `ImageUploadDropzone.vue:25` vs. `stores/shop/imageGeneration.ts:31`
   Fix: `image/gif` aus Upload-Accept und Hilfetexten entfernen (oder vorab per Canvas konvertieren).
-- [ ] **C4. [HOCH] Wizard behält alte Motive & Warenkorb-Ladefehler wirkt wie „leer“ (`TODO #12, #13`)** – `stores/shop/imageGeneration.ts:61-135`, `WizardView.vue`, `CartView.vue:39-125`, `CheckoutView.vue:46-50`
+- [ ] **C8. [HOCH] Wizard behält alte Motive & Warenkorb-Ladefehler wirkt wie „leer“ (`TODO #12, #13`)** – `stores/shop/imageGeneration.ts:61-135`, `WizardView.vue`, `CartView.vue:39-125`, `CheckoutView.vue:46-50`
   Generationszähler + `reset()` bei Artikel-/Foto-/Stilwechsel einbauen; bei `cartStore.error` Fehler + Retry-Button statt „Warenkorb leer“ / Redirect anzeigen.
-- [ ] **C5. [HOCH / NEU] Concurrent-Fetch-Bug in `prompts`-, `catalog`- & `articleCategories`-Stores** – `stores/shop/prompts.ts:65-66`, `catalog.ts:221-222`, `articleCategories.ts:37-40`
+- [ ] **C9. [HOCH / NEU] Concurrent-Fetch-Bug in `prompts`-, `catalog`- & `articleCategories`-Stores** – `stores/shop/prompts.ts:65-66`, `catalog.ts:221-222`, `articleCategories.ts:37-40`
   `if (isLoading.value) return` wartet nicht auf das laufende Promise → Klick auf einen Stil auf `/` während des Ladens verwirft `?promptId=`.
   Fix: `pendingRequest`-Promise cachen und zurückgeben (wie in `stores/shop/countries.ts:72-81`).
-- [ ] **23. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** – `frontend/vite.config.ts:90-107`, `backend/src/platform/http/app.ts`
+- [ ] **C10. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** – `frontend/vite.config.ts:90-107`, `backend/src/platform/http/app.ts`
   Chunk-Gruppen `admin`, `shop`, `shared` schalten Route-Lazy-Loading aus (~1,3 MB JS unkomprimiert auf `/`, davon ~450 KB Admin).
   Fix: Die drei Gruppen entfernen (nur Vendor-Chunks behalten) und prüfen, ob Sliplane/Traefik komprimiert (sonst Hono `compress()` aktivieren).
-- [ ] **25. [MITTEL] `sitemap.xml` fehlt & SW fängt `/robots.txt` ab** *(teilweise erledigt)* – `frontend/public/robots.txt`, `frontend/vite.config.ts:34`
+- [ ] **C11. [MITTEL] `sitemap.xml` fehlt & SW fängt `/robots.txt` ab** *(teilweise erledigt)* – `frontend/public/robots.txt`, `frontend/vite.config.ts:34`
   `robots.txt` existiert jetzt, aber `sitemap.xml` fehlt (liefert HTTP 200 HTML) und `navigateFallbackDenylist` schließt `/robots.txt` und `/sitemap.xml` nicht aus.
   Fix: `sitemap.xml` anlegen, in `robots.txt` referenzieren und beide Pfade in `navigateFallbackDenylist` aufnehmen.
-- [ ] **C6. [MITTEL] UX- & i18n-Feinschliff (`TODO #18–#20` + NEU)**:
+- [ ] **C12. [MITTEL] UX- & i18n-Feinschliff (`TODO #18–#20` + NEU)**:
   - Doppelklick auf `+/-` im Warenkorb (`CartLineItem.vue:158-180`) und Doppel-Submit in Kasse/Retry (`CheckoutView.vue:268-276`, `OrderConfirmationView.vue:83-106`) sperren.
   - „Zur Kasse“-Button deaktivieren, solange nicht verfügbare Artikel im Warenkorb liegen (`CartView.vue:70-76`, `CartSummary.vue:68-77`).
   - `RegisterView.vue:110-116`: `minlength="8"` ergänzen; rohe englische Backend-Fehlermeldungen nicht 1:1 in der deutschen UI anzeigen; Auth-Store nur bei `401` ausloggen (`stores/shared/auth.ts:186-193`); `localStorage`-Zugriffe mit `try/catch` schützen (`i18n/index.ts:9`, `stores/shared/{locale,theme}.ts`); `LandingCarousel` `ResizeObserver` via `watch(trackRef)` anhängen; ungenutzte Deps/Dateien bereinigen (`TODO #18`); kleine i18n-Reste (`HeaderSubcategoryMenuCard.vue:42` „No image“, `MobileMenu.vue:148,157`, `TextToolPanel.vue:244` „deg“).
 
 ### Backend, Datenbank & Fulfillment (bestehend + neu)
 
-- [ ] **C7. [HOCH / NEU] Payment-Retry storniert Bestellung dauerhaft bei kurzem Mollie-Fehler** – `backend/src/modules/order/payment/service.ts:217-220`, `backend/src/modules/checkout/service.ts:192-213`
+- [ ] **C13. [HOCH / NEU] Payment-Retry storniert Bestellung dauerhaft bei kurzem Mollie-Fehler** – `backend/src/modules/order/payment/service.ts:217-220`, `backend/src/modules/checkout/service.ts:192-213`
   Beim Retry ist der Warenkorb bereits `CHECKED_OUT`; ein kurzer Mollie-Timeout/5xx setzt die Order endgültig auf `CANCELLED` → Kunde strandet.
   Fix: `cancelOnFailure: boolean` (`true` beim Erst-Checkout, `false` beim Retry).
-- [ ] **C8. [HOCH / NEU] `DATABASE_MAXIMUM_POOL_SIZE` default `100` droht Postgres zu erschöpfen** – `backend/src/platform/settings.ts:39`
+- [ ] **C14. [HOCH / NEU] `DATABASE_MAXIMUM_POOL_SIZE` default `100` droht Postgres zu erschöpfen** – `backend/src/platform/settings.ts:39`
   Standard-PostgreSQL erlaubt 100 Connections (97 Non-Superuser); bei Rolling-Deploy mit 2 Containern droht `too many clients already`.
   Fix: Default auf `15–20` senken.
-- [ ] **C9. [HOCH / NEU] Kein `/api/health` / `/api/ready` Endpoint & kein `Dockerfile HEALTHCHECK`** – `backend/src/composition.ts:216-226`, `Dockerfile`
+- [ ] **C15. [HOCH / NEU] Kein `/api/health` / `/api/ready` Endpoint & kein `Dockerfile HEALTHCHECK`** – `backend/src/composition.ts:216-226`, `Dockerfile`
   `/` liefert per SPA-Fallback selbst bei DB-Ausfall HTTP 200.
   Fix: `GET /api/health` (Liveness) und `GET /api/ready` (`SELECT 1`, 503 bei DB-Fehler) vor `serveFrontend` mounten + `HEALTHCHECK` im `Dockerfile`.
-- [ ] **C10. [HOCH / NEU] Graceful Shutdown ohne Timeout, Re-entrancy-Guard & `spodCatalogSync`-Drain** – `backend/src/main.ts:38-51`, `backend/src/modules/article/spod-article/sync.ts:684-697`
+- [ ] **C16. [HOCH / NEU] Graceful Shutdown ohne Timeout, Re-entrancy-Guard & `spodCatalogSync`-Drain** – `backend/src/main.ts:38-51`, `backend/src/modules/article/spod-article/sync.ts:684-697`
   Offene Keep-Alive-Verbindungen können `server.stop()` bis zum `SIGKILL` blockieren, bevor Worker stoppen und `db.destroy()` läuft; laufende SPOD-Syncs werden nicht abgebrochen.
   Fix: Shutdown-Guard, 10–15 s Timeout vor `server.stop(true)` und `AbortSignal`/Drain für `spodCatalogSync`.
-- [ ] **C11. [HOCH] SPOD-Webhook-Fallback & Lieferanten-PDF-Snapshot (`TODO #14, #15`)** – `backend/src/modules/production/fulfillment/service.ts:206-218`, `backend/src/modules/production/delivery/generation.ts:63-68`, `pdf/renderer.ts:83`
+- [ ] **C17. [HOCH] SPOD-Webhook-Fallback & Lieferanten-PDF-Snapshot (`TODO #14, #15`)** – `backend/src/modules/production/fulfillment/service.ts:206-218`, `backend/src/modules/production/delivery/generation.ts:63-68`, `pdf/renderer.ts:83`
   Webhook-Fallback nur zulassen, wenn `externalReference === null`; Lieferanten-PDF gegen `production_job_items` prüfen (`ITEM_SET_CHANGED` wie bei SPOD).
-- [ ] **C12. [MITTEL / NEU] DB-Constraint `ck_orders_owner` verhindert DSGVO-Kontolöschung** – `backend/migrations/V16__create_orders.sql:65-66,81-84`
+- [ ] **C18. [MITTEL / NEU] DB-Constraint `ck_orders_owner` verhindert DSGVO-Kontolöschung** – `backend/migrations/V16__create_orders.sql:65-66,81-84`
   `fk_orders_user ON DELETE SET NULL` kollidiert mit `CHECK (user_id IS NOT NULL OR guest_session_token IS NOT NULL)` bei registrierten Kunden ohne Gast-Token → `DELETE FROM users` schlägt fehl!
   Fix: Neue Migration, die `ck_orders_owner` entfernt (analog zu `carts`).
-- [ ] **C13. [MITTEL / NEU] Endlos-Retry bei permanenten Fehlern (Email `4xx` & SPOD `ORDER_CREATE_REJECTED`)** – `backend/src/modules/email/worker.ts:39-64`, `backend/src/modules/production/spod/repository.ts:103-129`
+- [ ] **C19. [MITTEL / NEU] Endlos-Retry bei permanenten Fehlern (Email `4xx` & SPOD `ORDER_CREATE_REJECTED`)** – `backend/src/modules/email/worker.ts:39-64`, `backend/src/modules/production/spod/repository.ts:103-129`
   Sweego-`4xx` und abgelehnte SPOD-Orders laufen ewig im Intervall weiter (SPOD alle 60 s gegen 60 req/min Rate-Limit; `EMAIL_STALLED` bleibt permanent offen).
   Fix: Exponential Backoff + Max-Retries / Dead-Letter bzw. Admin-Retry/Dismiss einführen (und `email-package.md` / `spod-fulfillment.md` aktualisieren).
-- [ ] **C14. [MITTEL / NEU] Plattenwachstum (`/app/data`), `email_jobs`-Index & 5-Minuten-Mail-Verzögerung** – `backend/migrations/V5__create_email_jobs.sql`, `backend/src/platform/settings.ts:52`, `backend/src/modules/image/orphans.ts`, `production/pdf/artifact-store.ts`
+- [ ] **C20. [MITTEL / NEU] Plattenwachstum (`/app/data`), `email_jobs`-Index & 5-Minuten-Mail-Verzögerung** – `backend/migrations/V5__create_email_jobs.sql`, `backend/src/platform/settings.ts:52`, `backend/src/modules/image/orphans.ts`, `production/pdf/artifact-store.ts`
   - `EMAIL_POLL_INTERVAL_MINUTES` steht auf `5` (Kunden warten bis zu 5 min auf Bestellbestätigung) → auf `1` senken oder Worker bei `enqueue` direkt wecken.
   - Partial Index `CREATE INDEX ix_email_jobs_open ON email_jobs (id) WHERE sent_at IS NULL;` ergänzen + Retention für alte `email_jobs`-Payloads (enthalten PII & Order-Links).
   - Abgebrochene `ACTIVE`-Warenkörbe verfallen nie (halten Print-Bilder ewig vor Orphan-Cleanup fest); Produktions-PDFs werden nie aufgeräumt → Ablauf/Cleanup planen.
-- [ ] **C15. [MITTEL] Gefährliches Migrations-Skript & Backend-Kleinkram (`TODO #16, #18`)** – `scripts/migrate-legacy-data.sh:561-580`
+- [ ] **C21. [MITTEL] Gefährliches Migrations-Skript & Backend-Kleinkram (`TODO #16, #18`)** – `scripts/migrate-legacy-data.sh:561-580`
   `TRUNCATE ... CASCADE` gegen Produktiv-Host absichern (`--yes-wipe-target` / Host-Check) oder nach Umzug entfernen.
 
 ### Katalog & Datenqualität
 
-- [ ] **20. Testdaten im Katalog bereinigen** – Admin
+- [ ] **C22. Testdaten im Katalog bereinigen** – Admin
   - Tassen-Langbeschreibungen (`.`, `asf`, `qwef`, `sdg`) ersetzen.
   - Tippfehler in Stilnamen beheben (`Stylizet Anime`, `Expressive Oil Paining`, `Instagramm Beauty`).
   - Saisonale Kategorie „Valentinstag“ (7,08 €) und „Western Comic“ (0,00 €) prüfen/deaktivieren.
@@ -236,10 +236,10 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ## E. Domain-Umzug, Produktiv-Konfiguration & Launch-Tag
 
-- [ ] **26. 301-Weiterleitungen für alte WordPress-URLs** – `backend/src/composition.ts:209-225` (oder Proxy)
+- [ ] **E1. 301-Weiterleitungen für alte WordPress-URLs** – `backend/src/composition.ts:209-225` (oder Proxy)
   Noch nicht implementiert: `/impressum/`, `/widerruf/`, `/versand/`, `/zahlung/`, `/faq/`, `/ueber-uns/`, `/tassenuebersicht/`, `/firmenkunden/`, `/pdf/AGBs.pdf` landen aktuell per SPA-Fallback auf HTTP 200 / Client-404.
   Fix: Serverseitige 301-Redirects einrichten; `www.voenix.shop` ↔ `voenix.shop` kanonisch weiterleiten; Testinstanz `voenix-shop-test-ts.sliplane.app` abschalten, per Auth sperren oder mit `noindex` versehen.
-- [ ] **27. Produktiv-Konfiguration & Secret-Rotation** – `backend/src/platform/settings.ts`
+- [ ] **E2. Produktiv-Konfiguration & Secret-Rotation** – `backend/src/platform/settings.ts`
   Alle Produktiv-Variablen explizit setzen (nicht auf Defaults verlassen!):
   - `FRONTEND_BASE_URL=https://voenix.shop` (Default ist `http://localhost:5173` → schaltet sonst still `Secure`-Cookies aus!)
   - `MOLLIE_API_KEY=live_...` & `MOLLIE_WEBHOOK_URL=https://voenix.shop/api/payments/webhook/<NEUES_SECRET>`
@@ -251,32 +251,32 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
   - `OPERATIONS_ALERT_EMAIL=<überwachtes Ops-Postfach>`
   - Persistentes Volume auf `/app/data` gemountet & für Container-User `app` beschreibbar.
   - **In Admin UI (`/admin/logistics/destinations`)**: SPOD von `STAGING` auf `PRODUCTION` + Live-Token umstellen, Katalog neu synchronisieren, Live-Webhooks registrieren (`Shipment.sent`, `Order.cancelled`, `Order.needs-action`); Tassen-SFTP-Zugang + Host-Key-Fingerprint verifizieren.
-- [ ] **28. Mail-Zustellbarkeit (Sweego)**
+- [ ] **E3. Mail-Zustellbarkeit (Sweego)**
   SPF von `voenix.shop` um Sweego ergänzen, DKIM & Return-Path CNAME einrichten, DMARC prüfen (`p=none` perspektivisch schärfen), Zustelltest an Gmail, GMX, Web.de und Outlook.de (Inbox statt Spam). Hinweis: Sweego-Bounces sind nicht im Shop sichtbar → regelmäßig im Sweego-Dashboard prüfen.
-- [ ] **29. Echte End-to-End-Testbestellungen & Rollback-Plan**
+- [ ] **E4. Echte End-to-End-Testbestellungen & Rollback-Plan**
   - Vor Traffic: DB-Snapshot erstellen; altes WordPress 48–72 h read-only als DNS-Rollback belassen (Achtung: DB-Migrationen sind forward-only).
   - Live-Tests auf echten Geräten (iOS Safari + Android Chrome) mit Live-Mollie-Key:
     1. **Tasse (SFTP)**: Foto → KI-Generierung → Editor → Warenkorb (mit/ohne Gutschein) → Live-Zahlung → Bestellmail in Inbox → `/order/:token`-Link → PDF auf SFTP + Lieferanten-Mail → Versandmarkierung → Versandmail + Tracking.
     2. **Textil (SPOD)**: Gleicher Ablauf → Telefon-Validierung → Live-Order in Spreadconnect inkl. Motiv/Hotspot (insb. falls `OVERALL_FRONT`-Artikel aktiv sind).
     3. **Konto & Fehlerpfade**: Registrierung → E-Mail-Bestätigung → Passwort-Reset → abgebrochene Mollie-Zahlung → Retry-Zahlung.
-- [ ] **E1. Erste 48 Stunden nach Go-live**
+- [ ] **E5. Erste 48 Stunden nach Go-live**
   `/admin/operations` (`lastScanAt <= 5 min`), Sliplane-Logs (`ERROR`/`5xx`/`429`), Mollie-Webhook-Logs, Sweego-Bounces, `/app/data`-Speicher, Postgres-Connections und fal.ai-Verbrauch aktiv prüfen; `sitemap.xml` in Google Search Console einreichen.
 
 ---
 
 ## F. Außerhalb der Seite klären
 
-- [ ] **30. Auftragsverarbeitungsverträge (AVV / Art. 28 DSGVO)** mit Sliplane, Sweego, **fal.ai (US-Drittlandtransfer, SCCs/DPF, Zero-Training/Retention für Kundenfotos prüfen!)**, SPOD/Spreadshirt, Tassen-Lieferant und iubenda; Verarbeitungsverzeichnis (Art. 30 DSGVO) & TOMs (Art. 32 DSGVO) dokumentieren.
-- [ ] **31. Verpackungsregistrierung (LUCID / VerpackG)** + Duales System vor dem ersten deutschen Paket klären (inkl. Rollenverteilung mit SPOD und Tassen-Lieferant).
-- [ ] **32. EU-Versand (OSS & ausländisches EPR)** klären — oder zum Go-live auf Deutschland beschränken (siehe D3).
-- [ ] **F1. Kosten- & Konto-Schutznetze**: Hard-Spend-Limit + Low-Credit-Alert bei **fal.ai** setzen; **Mollie Live-KYC** & alle aktivierten Zahlarten abgleichen; **Support-Postfach** (`write-us@voenix.shop`) + Telefonnummer besetzen; kurzes internes **Support-SOP** (manuelle Refunds, Reklamation/Neudruck, Kundenrechnungen, `SPOD_QUARANTINED`) festhalten; **BFSG-Ausnahme** für Kleinstunternehmen (<10 MA & ≤2 Mio. € Umsatz, § 3 Abs. 3 BFSG) intern dokumentieren.
+- [ ] **F1. Auftragsverarbeitungsverträge (AVV / Art. 28 DSGVO)** mit Sliplane, Sweego, **fal.ai (US-Drittlandtransfer, SCCs/DPF, Zero-Training/Retention für Kundenfotos prüfen!)**, SPOD/Spreadshirt, Tassen-Lieferant und iubenda; Verarbeitungsverzeichnis (Art. 30 DSGVO) & TOMs (Art. 32 DSGVO) dokumentieren.
+- [ ] **F2. Verpackungsregistrierung (LUCID / VerpackG)** + Duales System vor dem ersten deutschen Paket klären (inkl. Rollenverteilung mit SPOD und Tassen-Lieferant).
+- [ ] **F3. EU-Versand (OSS & ausländisches EPR)** klären — oder zum Go-live auf Deutschland beschränken (siehe D3).
+- [ ] **F4. Kosten- & Konto-Schutznetze**: Hard-Spend-Limit + Low-Credit-Alert bei **fal.ai** setzen; **Mollie Live-KYC** & alle aktivierten Zahlarten abgleichen; **Support-Postfach** (`write-us@voenix.shop`) + Telefonnummer besetzen; kurzes internes **Support-SOP** (manuelle Refunds, Reklamation/Neudruck, Kundenrechnungen, `SPOD_QUARANTINED`) festhalten; **BFSG-Ausnahme** für Kleinstunternehmen (<10 MA & ≤2 Mio. € Umsatz, § 3 Abs. 3 BFSG) intern dokumentieren.
 
 ---
 
 ## Geprüft und in Ordnung
 
 - **Core-Security & Krypto**: PBKDF2-HMAC-SHA256 (600k Iterationen, Timing-Safe + Dummy-Hash); AES-256-GCM Cookies (`HttpOnly`, `Secure` bei HTTPS, `SameSite=Lax`); Double-Submit-CSRF mit `timingSafeEqual`; konstante Secret-Prüfung bei Mollie- & SPOD-Webhooks; Mollie-Status/Betrag immer serverseitig bei Mollie abgefragt; SFTP mit gepinntem SHA-256-Host-Key; `DOMPurify` für iubenda-HTML; parametrisiertes Kysely-SQL; `lstat`/`realpath`-Pfadprüfung; Admin/Supplier-Routen sauber geschützt (`401`/`403`); `spod-mcp/` ist rein lokal und per `.dockerignore` ausgeschlossen.
-- **Bereits behobene Audit-Punkte**: Route-Pattern-Logging (`TODO #1`), `Secure`-Cookies (`TODO #2`), feste Bildgrößen-Allowlist (`TODO #6`), lokale Fonts ohne Google-Requests (`GOLIVE #6`), einheitliche Versandkosten (`GOLIVE #9`), `sourcemap: false` (`GOLIVE #22`), `lang="de"`, lokalisierte Titel/404 & `robots.txt` (`GOLIVE #24`, teilweise `#25`), entfernte falsche „ab“-Preise & pauschale Bio-Claims (teilweise `GOLIVE #11`).
+- **Bereits behobene Audit-Punkte**: Route-Pattern-Logging (`TODO #1`), `Secure`-Cookies (`TODO #2`), feste Bildgrößen-Allowlist (`TODO #6`), lokale Fonts ohne Google-Requests (`A6`), einheitliche Versandkosten (`A9`), `sourcemap: false`, `lang="de"`, lokalisierte Titel/404 & `robots.txt` (teilweise `C11`), entfernte falsche „ab“-Preise & pauschale Bio-Claims (teilweise `A11`).
 - **Struktur**: 1:1-Key-Parität zwischen `de.json` und `en.json` (1180 Zeilen); 38 konsistente DB-Migrationen bis `V39` mit Advisory Lock; Kernablauf (Upload → Zuschnitt → Stil → KI-Generierung → Editor → Warenkorb → Kasse) auf Testinstanz bereits verifiziert.
 
 ## Noch ausstehende Prüfungen vor Release
