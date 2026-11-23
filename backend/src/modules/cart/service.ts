@@ -1,3 +1,4 @@
+import type { Transaction } from 'kysely'
 import {
   catalogKey,
   type ArticleCatalog,
@@ -13,6 +14,7 @@ import type {
   PromotionRejection,
 } from '@/modules/promotion'
 import type { PromptCatalog } from '@/modules/prompt'
+import type { Tables } from '@/platform/db/database'
 import { createLogger, errorDetails } from '@/platform/logging'
 import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { CartOwner, CartRepository, StoredCart } from './repository'
@@ -73,7 +75,7 @@ export interface AddItemInput {
   variantId: number
   quantity: number
   promptId?: number | null | undefined
-  imageId?: number | null | undefined
+  imageId: number
 }
 
 /**
@@ -182,7 +184,7 @@ export function createCartService({
       priceCents: variant.grossSalesPriceCents,
       promptId,
       promptPriceCents,
-      printImageId: input.imageId ?? null,
+      printImageId: input.imageId,
     })
     if (stored === 'imageNotOwned') return invalid({ imageId: ['The image cannot be used'] })
     return ok(await view(stored))
@@ -251,8 +253,38 @@ export function createCartService({
       })
     },
 
-    updateQuantity: async (owner: CartOwner, itemId: number, quantity: number) =>
-      viewOf(await repository.updateQuantity(owner, itemId, quantity)),
+    /**
+     * Changes the quantity of one line and refreshes its price snapshots (`price_cents` and, when a
+     * prompt is attached, `prompt_price_cents`) from the current catalogs. A line whose variant is
+     * no longer purchasable or priced, or whose prompt is no longer usable, is refused with
+     * `conflict` so expired 0 € promotional lines or deactivated articles cannot be scaled up.
+     */
+    updateQuantity: async (
+      owner: CartOwner,
+      itemId: number,
+      quantity: number,
+    ): Promise<OperationResult<CartView>> => {
+      const cart = await repository.findActiveCart(owner)
+      const line = cart?.lines.find((candidate) => candidate.id === itemId)
+      if (line === undefined) return notFound
+      const variant = (await articleCatalog.find([line])).get(catalogKey(line))
+      if (variant?.purchasable !== true || variant.grossSalesPriceCents === null) return conflict
+      let promptPriceCents = line.promptPriceCents
+      if (line.promptId !== null) {
+        const promptPrice = (await promptCatalog.findSalesGrossPriceCents([line.promptId])).get(
+          line.promptId,
+        )
+        if (promptPrice === undefined) return conflict
+        promptPriceCents = promptPrice
+      }
+      return viewOf(
+        await repository.updateQuantity(owner, itemId, {
+          quantity,
+          priceCents: variant.grossSalesPriceCents,
+          promptPriceCents,
+        }),
+      )
+    },
 
     removeItem: async (owner: CartOwner, itemId: number) =>
       viewOf(await repository.removeItem(owner, itemId)),
@@ -273,15 +305,17 @@ export function createCartService({
     removePromotion: async (owner: CartOwner) => viewOf(await repository.removePromotion(owner)),
 
     /**
-     * The priced active cart of this caller for the checkout, or `null` when there is none. The
-     * lookup is the cart routes' own, so a signed-in checkout gets the customer's cart. A cart
-     * without lines is a snapshot with no lines, not `null`.
+     * Locks the caller's active cart (`SELECT … FOR UPDATE`) inside checkout TX1 and returns its
+     * priced snapshot, or `null` when there is none. Reading after the lock guarantees that no line
+     * added concurrently is silently dropped while the cart is closed. A cart without lines is a
+     * snapshot with no lines, not `null`.
      */
-    checkoutCart: async (
+    lockCheckoutCart: async (
+      trx: Transaction<Tables>,
       guestToken: string | null,
       userId: number | null,
     ): Promise<CheckoutCart | null> => {
-      const stored = await repository.findActiveCart({ guestToken, userId })
+      const stored = await repository.lockActiveCart(trx, { guestToken, userId })
       if (stored === undefined) return null
       const { variants, totals } = await price(stored)
       return {

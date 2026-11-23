@@ -9,11 +9,14 @@ const errorsOf = (schema: z.ZodType, input: unknown) => {
 }
 
 describe('addCartItemInput', () => {
-  test('valid input is accepted, with or without prompt and image', () => {
-    expect(addCartItemInput.parse({ articleId: 1, variantId: 2, quantity: 99 })).toEqual({
+  test('valid input is accepted, with or without prompt, and requires imageId', () => {
+    expect(
+      addCartItemInput.parse({ articleId: 1, variantId: 2, quantity: 99, imageId: 3 }),
+    ).toEqual({
       articleId: 1,
       variantId: 2,
       quantity: 99,
+      imageId: 3,
     })
     expect(
       addCartItemInput.parse({
@@ -31,6 +34,17 @@ describe('addCartItemInput', () => {
       articleId: ['ArticleId is required'],
       variantId: ['VariantId is required'],
       quantity: ['Quantity is required'],
+      imageId: ['ImageId is required'],
+    })
+    expect(
+      errorsOf(addCartItemInput, {
+        articleId: 1,
+        variantId: 1,
+        quantity: 1,
+        imageId: null,
+      }),
+    ).toEqual({
+      imageId: ['ImageId is required'],
     })
     expect(
       errorsOf(addCartItemInput, {
@@ -47,7 +61,9 @@ describe('addCartItemInput', () => {
       promptId: ['PromptId must be positive'],
       imageId: ['ImageId must be positive'],
     })
-    expect(errorsOf(addCartItemInput, { articleId: 1, variantId: 1, quantity: 100 })).toEqual({
+    expect(
+      errorsOf(addCartItemInput, { articleId: 1, variantId: 1, quantity: 100, imageId: 1 }),
+    ).toEqual({
       quantity: ['Quantity must be between 1 and 99'],
     })
   })

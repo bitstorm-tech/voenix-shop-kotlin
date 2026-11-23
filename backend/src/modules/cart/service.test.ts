@@ -31,12 +31,27 @@ const guest = async (token = 'guest-a') => {
   const headers = await guestHeaders()
   return { ...headers, Cookie: `${headers.Cookie ?? ''}; ${await guestCookie(token)}` }
 }
-const addItem = async (headers: Record<string, string>, body: Record<string, unknown> = {}) =>
-  testApp(cart.routes).request('/api/cart/items', {
+const seedPrintImage = async (
+  filename: string,
+  owner: { guestToken?: string | null; userId?: number | null } = { guestToken: 'guest-a' },
+) => {
+  const { rows } = await sql<{ id: number }>`INSERT INTO print_images
+      (filename, guest_session_token, user_id)
+    VALUES (${filename}, ${owner.guestToken ?? null}, ${owner.userId ?? null})
+    RETURNING id`.execute(database.db)
+  return rows[0]?.id ?? 0
+}
+const addItem = async (headers: Record<string, string>, body: Record<string, unknown> = {}) => {
+  const imageId =
+    'imageId' in body
+      ? body.imageId
+      : await seedPrintImage(`img-${crypto.randomUUID()}.webp`, { guestToken: 'guest-a' })
+  return testApp(cart.routes).request('/api/cart/items', {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({ ...MUG_REF, quantity: 1, ...body }),
+    body: JSON.stringify({ ...MUG_REF, quantity: 1, ...body, imageId }),
   })
+}
 const cartOf = async (response: Response) =>
   (await jsonOf(response)) as { id: number; items: { quantity: number }[] }
 const lines = () =>
@@ -66,12 +81,13 @@ const pngUpload = async () => ({
 describe('adding lines', () => {
   test('an identical line merges and caps at 99; a different snapshot is a line of its own', async () => {
     const headers = await guest()
-    await addItem(headers, { quantity: 60 })
-    expect((await cartOf(await addItem(headers, { quantity: 60 }))).items).toMatchObject([
+    const imageId = await seedPrintImage('merge.webp')
+    await addItem(headers, { quantity: 60, imageId })
+    expect((await cartOf(await addItem(headers, { quantity: 60, imageId }))).items).toMatchObject([
       { quantity: 99 },
     ])
-    await addItem(headers, { promptId: PROMPT_ID })
-    await addItem(headers, SPOD_REF)
+    await addItem(headers, { promptId: PROMPT_ID, imageId })
+    await addItem(headers, { ...SPOD_REF, imageId })
     expect((await lines()).map(({ position, quantity }) => [position, quantity])).toEqual([
       [1, 99],
       [2, 1],
@@ -81,7 +97,11 @@ describe('adding lines', () => {
 
   test('two concurrent first adds of one visitor make one cart, and identical lines one line', async () => {
     const headers = await guest()
-    const responses = await Promise.all([addItem(headers), addItem(headers)])
+    const imageId = await seedPrintImage('concurrent.webp')
+    const responses = await Promise.all([
+      addItem(headers, { imageId }),
+      addItem(headers, { imageId }),
+    ])
     expect(responses.map((response) => response.status)).toEqual([200, 200])
     expect(await count(database.db, 'carts')).toBe(1)
     expect((await lines()).map(({ quantity }) => quantity)).toEqual([2])
@@ -172,18 +192,25 @@ describe('print images', () => {
 })
 
 describe('checkoutCarts', () => {
-  test('activeCart answers the priced snapshot a checkout places from', async () => {
-    expect(await cart.checkoutCarts.activeCart('guest-a', null)).toBeNull()
+  const lockActiveCart = (guestToken: string | null, userId: number | null) =>
+    write(database.db, (trx) => cart.checkoutCarts.lockActiveCart(trx, guestToken, userId))
+
+  test('lockActiveCart answers the priced snapshot a checkout places from', async () => {
+    expect(await lockActiveCart('guest-a', null)).toBeNull()
     const headers = await guest()
-    await addItem(headers, { quantity: 2, promptId: PROMPT_ID })
-    const cartId = (await cartOf(await addItem(headers, { ...SPOD_REF, quantity: 2 }))).id
+    const mugImageId = await seedPrintImage('checkout-mug.webp')
+    const spodImageId = await seedPrintImage('checkout-spod.webp')
+    await addItem(headers, { quantity: 2, promptId: PROMPT_ID, imageId: mugImageId })
+    const cartId = (
+      await cartOf(await addItem(headers, { ...SPOD_REF, quantity: 2, imageId: spodImageId }))
+    ).id
     // A line whose reference the catalog no longer answers.
     await sql`INSERT INTO cart_items (cart_id, article_id, variant_id, quantity, price_cents, position)
       VALUES (${cartId}, 1, 6, 1, 100, 3)`.execute(database.db)
     const promotionId = await seedPromotion(database.db)
     await sql`UPDATE carts SET promotion_id = ${promotionId}`.execute(database.db)
 
-    expect(await cart.checkoutCarts.activeCart('guest-a', null)).toEqual({
+    expect(await lockActiveCart('guest-a', null)).toEqual({
       cartId,
       userId: null,
       guestToken: 'guest-a',
@@ -195,7 +222,7 @@ describe('checkoutCarts', () => {
           priceCents: 1490,
           promptPriceCents: 500,
           promptId: PROMPT_ID,
-          printImageId: null,
+          printImageId: mugImageId,
           articleType: 'MUG',
         },
         {
@@ -204,7 +231,7 @@ describe('checkoutCarts', () => {
           priceCents: 2500,
           promptPriceCents: 0,
           promptId: null,
-          printImageId: null,
+          printImageId: spodImageId,
           articleType: 'SPOD',
         },
         {
@@ -225,34 +252,34 @@ describe('checkoutCarts', () => {
     })
   })
 
-  test('activeCart finds a signed-in customer’s cart by user id, and an emptied cart is a snapshot without lines', async () => {
+  test('lockActiveCart finds a signed-in customer’s cart by user id, and an emptied cart is a snapshot without lines', async () => {
     const headers = await signedInHeaders({ userId: 7, roles: ['CUSTOMER'] })
-    const added = await cartOf(await addItem(headers))
+    const userImageId = await seedPrintImage('user-7.webp', { userId: 7 })
+    const added = await cartOf(await addItem(headers, { imageId: userImageId }))
     await sql`DELETE FROM cart_items`.execute(database.db)
-    expect(await cart.checkoutCarts.activeCart('any-token', 7)).toMatchObject({
+    expect(await lockActiveCart('any-token', 7)).toMatchObject({
       cartId: added.id,
       userId: 7,
       lines: [],
       totalCents: 0,
     })
-    expect(await cart.checkoutCarts.activeCart('any-token', null)).toBeNull()
+    expect(await lockActiveCart('any-token', null)).toBeNull()
   })
 
-  test('lockForCheckout and markCheckedOut close the cart once; the next add starts a fresh cart', async () => {
+  test('lockActiveCart and markCheckedOut close the cart once; the next add starts a fresh cart', async () => {
     const headers = await guest()
     const { id } = await cartOf(await addItem(headers))
-    const { lockForCheckout, markCheckedOut } = cart.checkoutCarts
+    const { lockActiveCart: lockInTrx, markCheckedOut } = cart.checkoutCarts
     expect(
       await write(database.db, async (trx) => [
-        await lockForCheckout(trx, id),
+        (await lockInTrx(trx, 'guest-a', null))?.cartId ?? null,
         await markCheckedOut(trx, id),
         await markCheckedOut(trx, id),
-        await lockForCheckout(trx, id),
-        await lockForCheckout(trx, 999),
+        await lockInTrx(trx, 'guest-a', null),
         await markCheckedOut(trx, 999),
       ]),
-    ).toEqual([true, true, false, false, false, false])
-    expect(await cart.checkoutCarts.activeCart('guest-a', null)).toBeNull()
+    ).toEqual([id, true, false, null, false])
+    expect(await lockActiveCart('guest-a', null)).toBeNull()
     expect((await cartOf(await addItem(headers))).id).not.toBe(id)
   })
 
@@ -261,7 +288,7 @@ describe('checkoutCarts', () => {
     const { id } = await cartOf(await addItem(headers))
     let racing: Promise<Response> | undefined
     await write(database.db, async (trx) => {
-      expect(await cart.checkoutCarts.lockForCheckout(trx, id)).toBe(true)
+      expect((await cart.checkoutCarts.lockActiveCart(trx, 'guest-a', null))?.cartId).toBe(id)
       racing = addItem(headers, SPOD_REF)
       await Bun.sleep(200)
       await cart.checkoutCarts.markCheckedOut(trx, id)
@@ -274,15 +301,6 @@ describe('checkoutCarts', () => {
 })
 
 describe('printImageRegistry', () => {
-  /** A print image row of guest `guest-a` for `filename`, answering its id. */
-  const seedPrintImage = async (filename: string) => {
-    const { rows } = await sql<{ id: number }>`INSERT INTO print_images
-        (filename, guest_session_token) VALUES (${filename}, 'guest-a') RETURNING id`.execute(
-      database.db,
-    )
-    return rows[0]?.id ?? 0
-  }
-
   test('inUse answers the images a cart line or an ordered line points at', async () => {
     const inCart = await seedPrintImage('in-cart.webp')
     const ordered = await seedPrintImage('ordered.webp')

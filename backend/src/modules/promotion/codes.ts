@@ -4,6 +4,7 @@ import { apiError, type ApiError } from '@/platform/http/respond'
 import {
   countRedemptions,
   countReservations,
+  hasReservation,
   holdReservation,
   insertRedemption,
   lockPromotion,
@@ -115,6 +116,16 @@ export function createPromotionCodes(db: Kysely<Tables>) {
           applicable(promotion)
         )
       }),
+
+    /**
+     * Whether `cartId` currently holds an active reservation for `promotionId`, read in the
+     * caller's transaction.
+     */
+    hasReservation: (
+      trx: Transaction<Tables>,
+      promotionId: number,
+      cartId: number,
+    ): Promise<boolean> => hasReservation(trx, promotionId, cartId),
 
     /**
      * Holds the capacity of `promotionId` for `cartId` in the caller's transaction (checkout TX1),

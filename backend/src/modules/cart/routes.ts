@@ -32,7 +32,7 @@ export const addCartItemInput = z.strictObject({
   variantId: identifier('VariantId'),
   quantity,
   promptId: identifier('PromptId').nullish(),
-  imageId: identifier('ImageId').nullish(),
+  imageId: identifier('ImageId'),
 }) satisfies z.ZodType<AddItemInput>
 
 /** The body of `PATCH /api/cart/items/{itemId}`: the new quantity of one line. */
@@ -47,7 +47,7 @@ export const promotionCodeInput = z.strictObject({
     .max(64, 'PromotionCode must be at most 64 characters'),
 })
 
-/** Only a reorder reports a conflict, and it answers that one itself. */
+/** Routes that report a conflict (`PATCH /items/:itemId` and reorder) answer it with their own code. */
 const CART_RESPONSES = { notFound: 'Cart not found', conflict: null }
 const REORDER_RESPONSES = { notFound: 'Order item not found', conflict: null }
 
@@ -105,17 +105,20 @@ export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens'])
     ),
   )
 
-  cart.patch('/items/:itemId', itemIdParam, jsonBody(cartQuantityInput), async (c) =>
-    respondResult(
-      c,
-      await carts.updateQuantity(
-        await mutatingOwner(c),
-        c.req.valid('param').itemId,
-        c.req.valid('json').quantity,
-      ),
-      CART_RESPONSES,
-    ),
-  )
+  cart.patch('/items/:itemId', itemIdParam, jsonBody(cartQuantityInput), async (c) => {
+    const result = await carts.updateQuantity(
+      await mutatingOwner(c),
+      c.req.valid('param').itemId,
+      c.req.valid('json').quantity,
+    )
+    if (result.kind === 'conflict') {
+      return c.json(
+        apiError('This cart item is no longer available', {}, 'CART_ITEM_UNAVAILABLE'),
+        409,
+      )
+    }
+    return respondResult(c, result, CART_RESPONSES)
+  })
 
   cart.delete('/items/:itemId', itemIdParam, async (c) =>
     respondResult(

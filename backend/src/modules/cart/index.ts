@@ -56,10 +56,11 @@ export function createCartModule({
       release: repository.releasePrintImage,
     } satisfies PrintImageRegistry,
     checkoutCarts: {
-      /** The priced active cart of the caller (`userId` first, else `guestToken`), or `null`. */
-      activeCart: service.checkoutCart,
-      /** Checkout TX1: `SELECT … FOR UPDATE` on the cart row; `true` while it is still active. */
-      lockForCheckout: repository.lockForCheckout,
+      /**
+       * Checkout TX1: locks (`SELECT … FOR UPDATE`) and prices the caller's active cart (`userId`
+       * first, else `guestToken`) inside `trx`, or answers `null` when there is none.
+       */
+      lockActiveCart: service.lockCheckoutCart,
       /** Closes the cart in the caller's transaction; `false` when it was no longer active. */
       markCheckedOut: repository.markCheckedOut,
     },

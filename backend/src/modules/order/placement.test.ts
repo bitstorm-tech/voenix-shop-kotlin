@@ -5,7 +5,9 @@ import { count, seedUser, testDatabase } from '@test-support/database'
 import { rejectionOf } from '@test-support/values'
 import {
   ADDRESS,
+  catalog,
   FRONTEND_BASE_URL,
+  MUG,
   orderEvents,
   orderModuleFor,
   placedOrder,
@@ -176,11 +178,24 @@ describe('orders.place', () => {
     expect(await count(database.db, 'orders')).toBe(2)
   })
 
-  test('a line the catalog does not know refuses the whole placement', async () => {
+  test('a line the catalog does not know, is not purchasable, or has no price refuses the whole placement', async () => {
     const cartId = await seedCart(database.db)
     const input = placeInput(cartId)
     const lines = [...input.lines, { ...input.lines[0], articleId: 9, variantId: 9 }]
-    expect(await place({ ...input, lines } as PlaceOrderInput)).toEqual({ kind: 'unknownArticle' })
+    expect(await place({ ...input, lines } as PlaceOrderInput)).toEqual({
+      kind: 'unavailableArticle',
+    })
+
+    try {
+      catalog.set('1:1', { ...MUG, purchasable: false })
+      expect(await place(input)).toEqual({ kind: 'unavailableArticle' })
+
+      catalog.set('1:1', { ...MUG, purchasable: true, grossSalesPriceCents: null })
+      expect(await place(input)).toEqual({ kind: 'unavailableArticle' })
+    } finally {
+      catalog.set('1:1', MUG)
+    }
+
     expect(await count(database.db, 'orders')).toBe(0)
     expect(await count(database.db, 'email_jobs')).toBe(0)
   })

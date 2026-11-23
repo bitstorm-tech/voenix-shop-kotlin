@@ -290,6 +290,21 @@ export async function countReservations(
   return (await query.executeTakeFirstOrThrow()).count
 }
 
+/** Whether `cartId` currently holds a reservation for `promotionId`. */
+export async function hasReservation(
+  trx: Transaction<Tables>,
+  promotionId: number,
+  cartId: number,
+): Promise<boolean> {
+  const row = await trx
+    .selectFrom('promotion_reservations')
+    .select('id')
+    .where('cart_id', '=', cartId)
+    .where('promotion_id', '=', promotionId)
+    .executeTakeFirst()
+  return row !== undefined
+}
+
 /**
  * Holds `promotionId` for `cartId`, overwriting whatever that cart held. The unique `cart_id` is
  * what turns a repeated checkout into an update instead of a second unit of capacity.

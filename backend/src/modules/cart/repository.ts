@@ -146,11 +146,20 @@ export function createCartRepository(
         return storedCart(trx, cartId)
       }),
 
-    updateQuantity: (owner: CartOwner, itemId: number, quantity: number) =>
+    updateQuantity: (
+      owner: CartOwner,
+      itemId: number,
+      update: { quantity: number; priceCents: number; promptPriceCents: number },
+    ) =>
       writeToExistingCart(owner, async (trx, cartId) => {
         const result = await trx
           .updateTable('cart_items')
-          .set({ quantity, updated_at: sql<Date>`now()` })
+          .set({
+            quantity: update.quantity,
+            price_cents: update.priceCents,
+            prompt_price_cents: update.promptPriceCents,
+            updated_at: sql<Date>`now()`,
+          })
           .where('id', '=', itemId)
           .where('cart_id', '=', cartId)
           .executeTakeFirst()
@@ -188,18 +197,17 @@ export function createCartRepository(
       }),
 
     /**
-     * Locks cart `cartId` in the caller's transaction (checkout TX1) and answers whether it is
-     * still active. A cart mutation waits behind this lock, and a second checkout of the same cart
-     * as well, until the caller commits.
+     * Finds and locks the active cart of `owner` (`SELECT … FOR UPDATE`) in the caller's
+     * transaction (checkout TX1), returning its stored contents or `undefined` when there is none.
+     * Every cart mutation and a second checkout of the same cart wait behind this lock until the
+     * caller commits.
      */
-    lockForCheckout: async (trx: Transaction<Tables>, cartId: number): Promise<boolean> => {
-      const cart = await trx
-        .selectFrom('carts')
-        .select('status')
-        .where('id', '=', cartId)
-        .forUpdate()
-        .executeTakeFirst()
-      return cart?.status === 'ACTIVE'
+    lockActiveCart: async (
+      trx: Transaction<Tables>,
+      owner: CartOwner,
+    ): Promise<StoredCart | undefined> => {
+      const cartId = await activeCartId(trx, owner, { lock: true })
+      return cartId === undefined ? undefined : storedCart(trx, cartId)
     },
 
     /**

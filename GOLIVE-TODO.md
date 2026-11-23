@@ -18,10 +18,10 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **A2. AGB fehlen auf der Seite** – `frontend/src/views/shop/TermsView.vue`, `frontend/src/views/shop/CheckoutView.vue:463-469`
   `/terms` ist weiterhin ein Platzhalter. Die Kasse verlinkt noch auf `https://voenix.shop/pdf/AGBs.pdf` beim alten WordPress-Host (nach Domain-Umzug tot; PDF Stand 18.09.2025 ist veraltet: falsche Adresse/Mail, widersprüchliche Lieferzeit, leere Ziffer 4.4, unzulässige Rügepflicht 9.2, fehlender Verbrauchervorbehalt, fehlende Angaben zu Vertragstext-Speicherung/Vertragssprache).
   Fix: AGB neu erstellen lassen, auf `/terms` anzeigen, Kasse per `RouterLink` auf `/terms` verlinken.
-- [ ] **A3. Widerrufsinfo fehlt** – `frontend/src/views/shop/ReturnsView.vue`, `frontend/src/views/shop/CheckoutView.vue:458-473`
+- [ ] **A3. Widerrufsinfo fehlt** *(API-Guard erledigt)* – `frontend/src/views/shop/ReturnsView.vue`, `frontend/src/views/shop/CheckoutView.vue:458-473`
   `/returns` ist ein Platzhalter; in der Kasse fehlt der Hinweis auf den Ausschluss des Widerrufsrechts für personalisierte Ware (§ 312g Abs. 2 Nr. 1 BGB / Art. 246a § 1 Abs. 3 Nr. 1 EGBGB).
   Fix: Text auf `/returns`, Hinweis mit Link in der Kasse.
-  Hinweis zum **Widerrufsbutton (§ 356a BGB, Pflicht seit 19.06.2026)**: nicht nötig, solange ausschließlich personalisierte Ware verkauft wird — daher `/magic-coins`-Kaufpakete ausblenden und `imageId: null` in `backend/src/modules/cart/routes.ts:35` ablehnen.
+  Hinweis zum **Widerrufsbutton (§ 356a BGB, Pflicht seit 19.06.2026)**: nicht nötig, solange ausschließlich personalisierte Ware verkauft wird — `imageId` in `backend/src/modules/cart/routes.ts` ist jetzt Pflichtfeld (erledigt); `/magic-coins`-Kaufpakete noch in Paket 3 ausblenden.
 - [ ] **A4. Bestellbestätigung ohne Vertragsinfos & Anbieter-Footer** – `backend/src/modules/email/templates/order-confirmation.ts:78-145`, `backend/src/modules/email/templates/layout.ts:83,121-123`
   Mail enthält weder AGB noch Widerrufshinweis, kein `inkl. MwSt.`, keine Lieferzeit; Footer zeigt nur `© Voenix Shop` statt vollständiger Anbieterangaben (§ 312f Abs. 2 BGB dauerhafter Datenträger).
   Fix: AGB und Widerrufshinweis als Text/Anhang, `inkl. gesetzl. MwSt.` + Lieferzeit sowie vollständige Anbieterangaben (GbR, Gesellschafter, Anschrift, E-Mail, Telefon, USt-IdNr.) in den Mail-Footer.
@@ -90,15 +90,12 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **B1. [BLOCKER] Service Worker cacht private `/api/`-Daten über Logout hinaus (`TODO #7`, auch DSGVO Art. 32)** – `frontend/vite.config.ts:35-43`
   `NetworkFirst` auf `/api/` speichert `/api/auth/me`, Bestellungen, Bestell-Links und Admin-Daten 1 h lang und leert beim Logout nicht.
   Fix: `/api/`-Eintrag aus `workbox.runtimeCaching` komplett entfernen.
-- [ ] **B2. [BLOCKER] Mengenerhöhung zum alten / 0-€-Aktionspreis (`TODO #4`)** – `backend/src/modules/cart/service.ts:254-255`, `backend/src/modules/cart/repository.ts:149-158`
-  `updateQuantity` aktualisiert nur `quantity` ohne Preis-Refresh oder `purchasable`-Check (0-€-Zeile aus abgelaufener Aktion → 99 Stück gratis, automatisch `PAID`).
-  Fix: Bei Mengenerhöhung aktuellen Katalogpreis & `purchasable` prüfen/neu schreiben + Test. *(Widerspricht `docs/dev/backend/packages/cart-package.md:237-250` — Doku explizit anpassen.)*
-- [ ] **B3. [BLOCKER] Einmal-Gutschein mehrfach einlösbar über „erneut bezahlen“ (`TODO #5`)** – `backend/src/modules/order/payment/service.ts:206-252`, `backend/src/modules/order/transitions.ts:48-62,106-110`
-  N `PENDING`-Orders mit Code anlegen, abbrechen (Reservierung frei), dann alle via Retry bezahlen → `startPayment` reserviert nicht neu, `markPaid` setzt trotz fehlgeschlagenem `redeem()` auf `PAID`.
-  Fix: In `startPayment` unter Order-Lock neu reservieren; bei Ablehnung `409 promotionRejected` zurückgeben. *(`docs/dev/backend/packages/checkout-package.md:274-277` aktualisieren.)*
-- [ ] **B4. [BLOCKER] Deaktivierte Artikel bleiben bestellbar (`TODO #3`)** – `backend/src/modules/order/service.ts:141-144`
-  Prüft nur `catalog.has(...)`, nicht `purchasable === true` / `grossSalesPriceCents !== null`.
-  Fix: Nicht kaufbare Zeilen ablehnen (`409`) + Test.
+- [x] **B2. [BLOCKER] Mengenerhöhung zum alten / 0-€-Aktionspreis (`TODO #4`)** – `backend/src/modules/cart/service.ts`, `backend/src/modules/cart/repository.ts`, `backend/src/modules/cart/routes.ts`
+  Erledigt: `PATCH /api/cart/items/:itemId` prüft `purchasable`/Preis (bzw. Prompt-Nutzbarkeit), lehnt nicht kaufbare Zeilen mit `409 CART_ITEM_UNAVAILABLE` ab und aktualisiert `price_cents` und `prompt_price_cents` aus dem Katalog; Doku in `docs/dev/backend/packages/cart-package.md` angepasst.
+- [x] **B3. [BLOCKER] Einmal-Gutschein mehrfach einlösbar über „erneut bezahlen“ (`TODO #5`)** – `backend/src/modules/order/payment/service.ts`, `backend/src/modules/promotion/codes.ts`, `backend/src/modules/checkout/service.ts`
+  Erledigt: `startPayment` prüft unter Order-Lock, ob eine aktive Promotion-Reservierung existiert, reserviert andernfalls vor dem Mollie-Call neu und lehnt fehlgeschlagene Reservierungen vor Mollie mit `promotionRejected` (`409` bei Limit) ab; Doku in `docs/dev/backend/packages/checkout-package.md` und `order-package.md` angepasst.
+- [x] **B4. [BLOCKER] Deaktivierte Artikel bleiben bestellbar (`TODO #3`)** – `backend/src/modules/order/service.ts`, `backend/src/modules/checkout/service.ts`, `backend/src/modules/cart/service.ts`
+  Erledigt: Placement prüft `purchasable === true` und `grossSalesPriceCents !== null` (`409 CART_ITEM_UNAVAILABLE`), und der Checkout liest den Warenkorb-Snapshot über `lockActiveCart` erst nach dem Cart-Lock.
 - [ ] **B5. [BLOCKER] Kein Rate-Limit auf Auth- & Gutschein-Endpunkten (`TODO #8`)** – `backend/src/modules/account/routes.ts:202-259`, `backend/src/modules/cart/routes.ts:145-155`
   Ermöglicht Sweego-Mail-Bombing (`register`/`forgot-password`/`resend-confirmation`), permanentes Admin-Aussperren (15 Fehlversuche = 10 min Lockout), PBKDF2-CPU-DoS (600k Iterationen) und Gutschein-Brute-Force.
   Fix: `createClientIpRateLimiter` vor diese Routen schalten.
@@ -176,9 +173,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ### Backend, Datenbank & Fulfillment (bestehend + neu)
 
-- [ ] **C13. [HOCH / NEU] Payment-Retry storniert Bestellung dauerhaft bei kurzem Mollie-Fehler** – `backend/src/modules/order/payment/service.ts:217-220`, `backend/src/modules/checkout/service.ts:192-213`
-  Beim Retry ist der Warenkorb bereits `CHECKED_OUT`; ein kurzer Mollie-Timeout/5xx setzt die Order endgültig auf `CANCELLED` → Kunde strandet.
-  Fix: `cancelOnFailure: boolean` (`true` beim Erst-Checkout, `false` beim Retry).
+- [x] **C13. [HOCH / NEU] Payment-Retry storniert Bestellung dauerhaft bei kurzem Mollie-Fehler** – `backend/src/modules/order/payment/service.ts`, `backend/src/modules/checkout/service.ts`
+  Erledigt: `startPayment` akzeptiert `{ cancelOnFailure }` (`true` beim Erst-Checkout, `false` beim Retry); bei Mollie-Fehler im Retry bleibt die Bestellung `PENDING` und eine frisch gezogene Promotion-Reservierung wird sauber freigegeben.
 - [ ] **C14. [HOCH / NEU] `DATABASE_MAXIMUM_POOL_SIZE` default `100` droht Postgres zu erschöpfen** – `backend/src/platform/settings.ts:39`
   Standard-PostgreSQL erlaubt 100 Connections (97 Non-Superuser); bei Rolling-Deploy mit 2 Containern droht `too many clients already`.
   Fix: Default auf `15–20` senken.

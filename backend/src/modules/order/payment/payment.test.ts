@@ -54,9 +54,12 @@ beforeEach(() => resetOrders(database.db))
 describe('orders.startPayment', () => {
   test('creates and stores one payment, and a repeat answers it without a provider call', async () => {
     const { module, order, calls } = await placed()
-    const url = await module.orders.startPayment(order)
-    expect(url).toBe('https://mollie.test/checkout/tr_1_1')
-    expect(await module.orders.startPayment(order)).toBe(url)
+    const started = await module.orders.startPayment(order)
+    expect(started).toEqual({
+      kind: 'started',
+      checkoutUrl: 'https://mollie.test/checkout/tr_1_1',
+    })
+    expect(await module.orders.startPayment(order)).toEqual(started)
     expect(calls.create).toBe(1)
     expect(await payments()).toEqual([
       {
@@ -71,33 +74,87 @@ describe('orders.startPayment', () => {
 
   test('concurrent starts of one order queue on the order lock: one payment, one URL', async () => {
     const { module, order, calls } = await placed()
-    const urls = await Promise.all([
+    const results = await Promise.all([
       module.orders.startPayment(order),
       module.orders.startPayment(order),
       module.orders.startPayment(order),
     ])
-    expect(new Set(urls).size).toBe(1)
+    expect(
+      new Set(results.map((result) => (result.kind === 'started' ? result.checkoutUrl : null)))
+        .size,
+    ).toBe(1)
     expect(calls.create).toBe(1)
     expect(calls.cancel).toEqual([])
     expect(await count(database.db, 'payments')).toBe(1)
   })
 
-  test('a terminal payment frees the slot for a second one', async () => {
+  test('a terminal payment frees the slot and reservation, and a retry re-reserves before Mollie', async () => {
     const { module, order, report, app } = await placed()
     await module.orders.startPayment(order)
     report('tr_1_1', { status: 'EXPIRED' })
     expect((await webhook(app, 'tr_1_1')).status).toBe(200)
-    expect(await module.orders.startPayment(order)).toBe('https://mollie.test/checkout/tr_1_2')
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+    expect(await module.orders.startPayment(order, { cancelOnFailure: false })).toEqual({
+      kind: 'started',
+      checkoutUrl: 'https://mollie.test/checkout/tr_1_2',
+    })
     expect((await payments()).map((payment) => payment.status)).toEqual(['EXPIRED', 'OPEN'])
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
   })
 
-  test('a provider refusal cancels the order and releases its reservation', async () => {
+  test('a retry whose promotion can no longer be reserved stops before Mollie', async () => {
+    const { module, order, report, app, calls } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'EXPIRED' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    await database.db
+      .updateTable('promotions')
+      .set({ ends_at: new Date('2020-01-01T00:00:00Z') })
+      .execute()
+
+    expect(await module.orders.startPayment(order, { cancelOnFailure: false })).toEqual({
+      kind: 'promotionRejected',
+      rejection: { kind: 'expired' },
+    })
+    expect(calls.create).toBe(1)
+    expect(await orderStatus()).toBe('PENDING')
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+  })
+
+  test('a provider refusal cancels the order and releases its reservation when cancelOnFailure is true', async () => {
     const { module, order, state } = await placed()
     state.refuse = true
-    expect(await module.orders.startPayment(order)).toBeNull()
+    expect(await module.orders.startPayment(order, { cancelOnFailure: true })).toEqual({
+      kind: 'notStarted',
+    })
     expect(await orderStatus()).toBe('CANCELLED')
     expect(await count(database.db, 'promotion_reservations')).toBe(0)
     expect(await count(database.db, 'payments')).toBe(0)
+  })
+
+  test('a provider refusal on retry keeps the order PENDING and releases a freshly acquired reservation', async () => {
+    const { module, order, report, app, state } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'EXPIRED' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+
+    state.refuse = true
+    expect(await module.orders.startPayment(order, { cancelOnFailure: false })).toEqual({
+      kind: 'notStarted',
+    })
+    expect(await orderStatus()).toBe('PENDING')
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+    expect(
+      (await orderEvents(database.db)).filter((event) => event.kind === 'ORDER_CANCELLED'),
+    ).toEqual([])
+
+    state.refuse = false
+    expect(await module.orders.startPayment(order, { cancelOnFailure: false })).toEqual({
+      kind: 'started',
+      checkoutUrl: 'https://mollie.test/checkout/tr_1_3',
+    })
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
   })
 
   test('a refusal cancels the order under the lock a concurrent start waits on: no payment for a cancelled order', async () => {
@@ -110,12 +167,12 @@ describe('orders.startPayment', () => {
     mollie.create = (payable, key) =>
       calls.create === 0 ? create(payable, key).then(() => null) : create(payable, key)
 
-    const urls = await Promise.all([
+    const results = await Promise.all([
       module.orders.startPayment(order),
       module.orders.startPayment(order),
     ])
 
-    expect(urls).toEqual([null, null])
+    expect(results).toEqual([{ kind: 'notStarted' }, { kind: 'notStarted' }])
     expect(calls.create).toBe(1)
     expect(await orderStatus()).toBe('CANCELLED')
     expect(await count(database.db, 'payments')).toBe(0)
@@ -125,7 +182,7 @@ describe('orders.startPayment', () => {
   test('an order that is no longer pending gets no payment', async () => {
     const { module, order, calls } = await placed()
     await write(database.db, (trx) => module.orders.confirmFree(trx, order.orderId))
-    expect(await module.orders.startPayment(order)).toBeNull()
+    expect(await module.orders.startPayment(order)).toEqual({ kind: 'notStarted' })
     expect(calls.create).toBe(0)
   })
 })

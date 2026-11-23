@@ -288,10 +288,11 @@ the lines with the prices the customer was quoted.
    without the lock that races a second placement gets its `23505` as an
    exception.
 2. **The catalog snapshot.** `articleCatalog.find(lines)` resolves every
-   `(articleId, variantId)` once, and every reference has to come back;
-   otherwise the answer is `unknownArticle` and nothing is written. The line
-   stores the article type, both names, the supplier article number, the five
-   mug millimetres (`NULL` on a SPOD line), and the **SPOD hotspot**
+   `(articleId, variantId)` once, and every reference has to come back with
+   `purchasable === true` and `grossSalesPriceCents !== null`; otherwise the
+   answer is `unavailableArticle` and nothing is written. The line stores the
+   article type, both names, the supplier article number, the five mug
+   millimetres (`NULL` on a SPOD line), and the **SPOD hotspot**
    (`CatalogVariant.spodHotspot`, `NULL` on a mug): what is printed must be what
    was previewed, so a later sync cannot change it (#260, decisions 8 and 14).
 3. **The write.** The order with a fresh access token and `total = subtotal +
@@ -398,23 +399,31 @@ for the same order.
 
 ### Starting a payment
 
-`orders.startPayment(order)` takes the `PayableOrder` (from a placement or from
-`payable`) and answers the URL the customer is sent to, or `null` when no
-payment was started. It runs one transaction of its own:
+`orders.startPayment(order, { cancelOnFailure = true })` takes the
+`PayableOrder` (from a placement or from `payable`) and answers a
+`StartPaymentResult`: `{ kind: 'started', checkoutUrl }`,
+`{ kind: 'promotionRejected', rejection }`, or `{ kind: 'notStarted' }`. It
+runs one transaction of its own:
 
 ```text
 SELECT … FROM orders WHERE id = ? FOR NO KEY UPDATE
-  → not PENDING            null, no provider call
-  → a live payment exists  its stored checkout_url, no provider call
-  → otherwise              Mollie create (fresh Idempotency-Key) → INSERT payments → the new URL
+  → not PENDING                    notStarted, no provider call
+  → a live payment exists          started (its stored checkout_url), no provider call
+  → promotion without reservation  promotionCodes.reserve → rejection stops before Mollie
+  → otherwise                      Mollie create (fresh Idempotency-Key) → INSERT payments → started
 ```
 
-The order row lock is held around "check the live payment → create at Mollie →
-insert". Two concurrent starts of one order (a double-clicked checkout) queue
-on the lock, and the second finds the first one's payment and answers its URL:
-one provider call, one row. The adapter bounds the provider call at eight
-seconds, below the 10-second `lock_timeout` every connection sets: a second
-start or a status transition queued on the same order waits at most ten
+The order row lock is held around "check the live payment → ensure promotion
+reservation → create at Mollie → insert". Two concurrent starts of one order (a
+double-clicked checkout) queue on the lock, and the second finds the first
+one's payment and answers its URL: one provider call, one row. On initial
+checkout, TX1 already holds the promotion reservation (`hasReservation` is
+`true`), so `promotions` is not locked across the provider call; on a retry
+whose previous payment released its reservation, `promotionCodes.reserve`
+acquires a fresh hold before Mollie is contacted, preventing single-use coupon
+replay across cancelled pending orders. The adapter bounds the provider call at
+eight seconds, below the 10-second `lock_timeout` every connection sets: a
+second start or a status transition queued on the same order waits at most ten
 seconds for the lock, so the provider call must give up first, or each waiter
 would answer `500` while the first start is still talking to Mollie.
 
@@ -423,19 +432,27 @@ on the live index, the re-read of the winner, the cancellation of the loser's
 provider payment, the one bounded retry into a vacated slot): with the lock
 there is no loser. Two compensations stay:
 
-- **Mollie refuses or cannot be reached** → `cancel(trx, orderId)` in the
-  *same* transaction, under the lock the start already holds: the order is
-  cancelled and its reservation released, a warning names the order, and the
-  caller gets `null`. Checkout does not have to cancel anything itself. The
-  cancellation must not be a transaction of its own: the refusal would commit
-  nothing and release the lock, a second start queued on that lock would then
-  create a live payment and answer its URL, and the first start's cancellation
-  would take the order away under the customer about to pay it. Under the one
-  lock the queued start finds the order `CANCELLED` and starts nothing.
+- **Mollie refuses or cannot be reached**:
+  - with `cancelOnFailure: true` (initial checkout) → `cancel(trx, orderId)` in
+    the *same* transaction, under the lock the start already holds: the order is
+    cancelled and its reservation released, a warning names the order, and the
+    caller gets `notStarted`. Checkout does not have to cancel anything itself.
+    The cancellation must not be a transaction of its own: the refusal would
+    commit nothing and release the lock, a second start queued on that lock
+    would then create a live payment and answer its URL, and the first start's
+    cancellation would take the order away under the customer about to pay it.
+    Under the one lock the queued start finds the order `CANCELLED` and starts
+    nothing.
+  - with `cancelOnFailure: false` (payment retry, whose cart is already
+    `CHECKED_OUT`) → the order stays `PENDING`, any promotion reservation
+    freshly acquired in this attempt is released again, a warning names the
+    order, and the caller gets `notStarted` so the customer can retry once
+    Mollie recovers.
 - **The database fails after Mollie created the payment** → the created
-  payment is cancelled at Mollie (best effort) before the error travels on.
-  An open payment nobody will be sent to is the one thing that could still take
-  the customer's money.
+  payment is cancelled at Mollie (best effort) before the error travels on (and
+  the rolling-back transaction automatically drops any reservation taken inside
+  it). An open payment nobody will be sent to is the one thing that could still
+  take the customer's money.
 
 A non-positive amount throws: the caller is a module, and a free order is
 confirmed through `confirmFree`, never paid.

@@ -22,13 +22,14 @@ import {
 /**
  * What a placement ends in. `alreadyPlaced` is a success: the cart has a live order, and the
  * answer is that stored order, never the request just made; `alreadyPaid` is that same case for a
- * live order that is already `PAID`, which has nothing left to pay. `unknownArticle` wrote nothing.
+ * live order that is already `PAID`, which has nothing left to pay. `unavailableArticle` wrote
+ * nothing (a line is missing from the catalog, no longer `purchasable`, or has no sales price).
  */
 export type PlaceOrderResult =
   | { kind: 'placed'; order: PayableOrder }
   | { kind: 'alreadyPlaced'; order: PayableOrder }
   | { kind: 'alreadyPaid'; order: PayableOrder }
-  | { kind: 'unknownArticle' }
+  | { kind: 'unavailableArticle' }
 
 /**
  * The one read this module needs of the cart's `print_images` table, declared here as a type and
@@ -139,8 +140,13 @@ export function createOrderService({
         return { kind: live.status === 'PAID' ? 'alreadyPaid' : 'alreadyPlaced', order: live.order }
       }
       const catalog = await articleCatalog.find(input.lines)
-      if (input.lines.some((line) => !catalog.has(catalogKey(line)))) {
-        return { kind: 'unknownArticle' }
+      if (
+        input.lines.some((line) => {
+          const entry = catalog.get(catalogKey(line))
+          return entry?.purchasable !== true || entry.grossSalesPriceCents === null
+        })
+      ) {
+        return { kind: 'unavailableArticle' }
       }
       const snapshotOf = (line: PlaceOrderInput['lines'][number]) => {
         const snapshot = catalog.get(catalogKey(line))

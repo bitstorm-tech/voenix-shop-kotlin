@@ -23,7 +23,7 @@ that module exports:
 
 | It needs | It calls | Owner |
 | --- | --- | --- |
-| the priced cart, the row lock, and closing the cart | `checkoutCarts.activeCart` / `lockForCheckout(trx, …)` / `markCheckedOut(trx, …)` | cart |
+| the priced locked cart and closing the cart | `checkoutCarts.lockActiveCart(trx, …)` / `markCheckedOut(trx, …)` | cart |
 | holding the coupon's capacity, giving it back | `promotionCodes.reserve(trx, …)` / `release(trx, …)` | promotion |
 | placing the order, confirming a free one, reading a payable one, starting its payment | `orders.place(trx, …)` / `confirmFree(trx, …)` / `payable` / `startPayment` | order |
 | may we ship to this country? | `countries.isShippable` | country |
@@ -41,31 +41,39 @@ unique-violation retry path inside the placement for a double-clicked checkout.
 The port (#247) replaces that with two transactions of this module and the
 order module's payment start between them:
 
-- **TX1** locks the cart row (`SELECT … FOR UPDATE` through
-  `lockForCheckout`), reserves the coupon, places the order together with its
-  rendered confirmation mail, and, for a **free** order, confirms it and closes
-  the cart. Everything in it commits together or not at all. The lock is what
-  makes a second submission of the same cart wait and then find the live order
-  (`alreadyPlaced`) instead of racing `ux_orders_live_cart`; the one-transaction
-  scope is what makes a refused placement leave no reservation behind without a
-  separate compensation.
+- **TX1** locks and reads the active cart row (`SELECT … FOR UPDATE` through
+  `lockActiveCart`), checks the checkout guards (non-empty, integer bound,
+  shippable country, SPOD phone rule), reserves the coupon, places the order
+  together with its rendered confirmation mail, and, for a **free** order,
+  confirms it and closes the cart. Everything in it commits together or not at
+  all. The lock is what makes a second submission of the same cart wait and then
+  find the live order (`alreadyPlaced`) instead of racing `ux_orders_live_cart`,
+  and reading after the lock guarantees no concurrently added line is dropped;
+  the one-transaction scope is what makes a refused placement leave no
+  reservation behind without a separate compensation.
 - **The payment start is the order module's own transaction.**
-  `orders.startPayment` opens it, locks the *order* row (`SELECT … FOR
-  UPDATE`), makes the Mollie call inside it (eight seconds at most), and
-  inserts the payment row there. The call runs outside both checkout
+  `orders.startPayment(order, { cancelOnFailure })` opens it, locks the *order*
+  row (`SELECT … FOR NO KEY UPDATE`), re-reserves the coupon if no active
+  reservation exists, makes the Mollie call inside it (eight seconds at most),
+  and inserts the payment row there. The call runs outside both checkout
   transactions: neither TX1 nor TX2 stays open across a network call, and the
-  cart lock is released before it. Only the order row is held, and the
-  provider timeout stays below the database's `lock_timeout` (see
+  cart lock is released before it. Only the order row (and, on a retry that had
+  to re-reserve a coupon, the promotion row) is held, and the provider timeout
+  stays below the database's `lock_timeout` (see
   [the Order package](order-package.md)).
 - **TX2** only closes the cart, once a payment exists. Until then the cart stays
   `ACTIVE` on purpose: a checkout that dies halfway, and a provider that
-  refuses, both leave the customer a cart to submit again.
+  refuses on initial checkout, both leave the customer a cart to submit again.
 
-What a refusal does is now the order module's business: when Mollie starts no
-payment, `startPayment` cancels the order and releases the reservation inside
-the very transaction that holds the order lock and answers `null`; the
-checkout only answers `502 PAYMENT_NOT_STARTED`. There is no compensation left
-in this module.
+What a refusal does is now the order module's business: on initial checkout
+(`cancelOnFailure: true`), when Mollie starts no payment, `startPayment` cancels
+the order and releases the reservation inside the very transaction that holds
+the order lock and answers `notStarted`; the checkout answers `502
+PAYMENT_NOT_STARTED` and keeps the cart active. On a payment retry
+(`cancelOnFailure: false`), the cart is already `CHECKED_OUT`, so a transient
+Mollie refusal leaves the order `PENDING`, releases any reservation freshly
+acquired in that retry, and answers `502 PAYMENT_NOT_STARTED` so the customer
+can retry once Mollie recovers. There is no compensation left in this module.
 
 ### A checkout that dies between its two transactions
 
@@ -183,9 +191,9 @@ moment later with `CART_ITEM_UNAVAILABLE`, the answer that actually helps.
 | `400` | none | the shop does not ship to `shippingAddress.country`: a **field error** |
 | `400` | none | the cart contains a SPOD article and the request carries no phone: a **field error** on `shippingAddress.phone` |
 | `400`/`403`/`409` | `PROMOTION_*` | the coupon could not be reserved; status and code come from the promotion module's `toApiError` |
-| `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has |
+| `409` | `CART_ITEM_UNAVAILABLE` | a line names an article variant the catalog no longer has, that is no longer `purchasable`, or that has no price |
 | `409` | `CART_TOTAL_TOO_LARGE` | the cart's amounts do not fit the integer cents an order stores |
-| `502` | `PAYMENT_NOT_STARTED` | Mollie started no payment; the order is cancelled and the cart is still active |
+| `502` | `PAYMENT_NOT_STARTED` | Mollie started no payment; on initial checkout the order is cancelled and the cart stays active, on retry the order stays `PENDING` |
 | `500` | none | a step threw; nothing is mapped, the app's `onError` answers |
 
 The two field errors are answered in the exact shape a rejected body has, so a
@@ -204,31 +212,32 @@ it is placed, so its retry is the "already paid" answer too.
 
 ## The flow of a checkout
 
-In five lines:
+In four lines:
 
-1. **Read and guard**, outside any transaction: `activeCart` (no identity, no
-   cart, no line → `CART_EMPTY`), the integer bound, `isShippable`, the phone
-   rule. A checkout that could never succeed writes nothing.
-2. **TX1**: `lockForCheckout`; `reserve` when the cart carries a coupon;
-   `orders.place`; a free order: `confirmFree` and `markCheckedOut`; a live
-   order already paid: `markCheckedOut`.
-3. **Outside this module's transactions**: `orders.startPayment(order)`, which
-   runs the provider call and stores the payment in its own transaction under
-   the order row lock; `null` answers `502` and ends here.
-4. **TX2**: `markCheckedOut`.
-5. Answer `201` with the order id and the checkout URL.
+1. **Identity check & TX1**: no identity → `CART_EMPTY`; otherwise open TX1,
+   lock and price the active cart (`lockActiveCart`, empty → `CART_EMPTY`),
+   check the integer bound, `isShippable`, and the phone rule, `reserve` when
+   the cart carries a coupon, `orders.place`; for a free order: `confirmFree`
+   and `markCheckedOut`; for a live order already paid: `markCheckedOut`.
+2. **Outside this module's transactions**: `orders.startPayment(order, {
+   cancelOnFailure: true })`, which runs the provider call and stores the
+   payment in its own transaction under the order row lock; `notStarted`
+   answers `502` and ends here.
+3. **TX2**: `markCheckedOut`.
+4. Answer `201` with the order id and the checkout URL.
 
-Three details of step 2:
+Three details of step 1:
 
-- `lockForCheckout` answering `false` means the cart was closed by a concurrent
-  checkout between this one's snapshot read and its lock. The answer is
-  `CART_EMPTY`: the customer's cart is gone, and the order that took it is in
-  their history. Placing from the stale snapshot would create a second order.
-- A placement that answers `unknownArticle` wrote nothing, so the reservation
-  taken a moment earlier is released in the same transaction before the
-  refusal goes out. A deleted article variant refuses every retry the same way,
-  and a reservation has no expiry; without the release the customer who gives
-  up would block the coupon's capacity forever.
+- Because the snapshot is taken inside TX1 *after* `SELECT … FOR UPDATE` on the
+  cart row (`lockActiveCart`), a concurrent checkout or cart mutation waits
+  behind the lock rather than racing the snapshot; a cart closed by an earlier
+  checkout is simply absent (`CART_EMPTY`).
+- A placement that answers `unavailableArticle` (missing, inactive, or
+  priceless variant) wrote nothing, so the reservation taken a moment earlier
+  is released in the same transaction before the refusal goes out. A disabled
+  or deleted article variant refuses every retry the same way, and a
+  reservation has no expiry; without the release the customer who gives up
+  would block the coupon's capacity forever.
 - `alreadyPlaced` is a success: a second submission is answered with the one
   order that was placed, and `startPayment` answers that order's stored
   checkout URL without a provider call, because the order row lock serializes
@@ -240,19 +249,6 @@ Three details of step 2:
 checkout read the cart as `ACTIVE` a moment earlier and has settled an order for
 it since, so the only thing that can have closed it is a concurrent checkout of
 the very same cart. Nothing is broken for the customer.
-
-### Known limitation: the snapshot is read before the lock
-
-The cart snapshot (`activeCart`, a read-only transaction of the cart module) is
-taken **before** TX1 locks the row, as the Kotlin module did and as #247 lists
-the steps. A line added to the cart between that read and the lock is not in
-the order, and the cart is still closed by TX2. The window is one request's
-worth of milliseconds and the customer would have to add a line from a second
-tab inside it; the orchestrator recorded the gap on #277 and decided not to
-close it in the port. The alternative, when it is ever needed, is an
-`activeCart(trx, …)` that reads the snapshot *inside* TX1 after the lock; the
-cart module's `checkoutCarts` would grow one `trx`-taking read and the guards
-of step 1 would move into TX1.
 
 ## The retry route
 
@@ -271,10 +267,23 @@ it on the order page.
 - A live payment answers its stored URL without touching the provider; a
   terminal one starts a second payment row. Two simultaneous retries queue on
   the order row lock and are sent to the same payment.
-- It does **not** reserve the coupon again. The reservation was released when
-  the payment ended, so the retry competes for whatever capacity is left when
-  the order is paid; a `PAID` order without a redemption is the accepted worst
-  case, and the order module logs it.
+- **Decision revision (`B3`):** The original design did not re-reserve the
+  coupon on retry and accepted a `PAID` order without a redemption as the worst
+  case. That allowed a replay attack: placing N `PENDING` orders with a single-
+  use code, cancelling each first payment (which releases the reservation), and
+  paying all N orders through retry. `startPayment` now checks under the order
+  lock whether an active reservation exists for `(promotion_id, cart_id)` and,
+  when none exists, calls `promotionCodes.reserve` **before** calling Mollie.
+  If the coupon is exhausted, expired, or inactive, no Mollie payment is
+  started and the route answers the promotion module's `toApiError` (`409
+  PROMOTION_TOTAL_EXHAUSTED` / `PROMOTION_PER_USER_EXHAUSTED`, `400
+  PROMOTION_EXPIRED`, etc.).
+- **Transient provider failures (`C13`):** The retry passes `cancelOnFailure:
+  false` to `orders.startPayment`. Because the originating cart is already
+  `CHECKED_OUT`, a transient Mollie timeout or 5xx must not permanently cancel
+  the order: the order stays `PENDING`, any reservation freshly acquired in
+  that attempt is released again, and the route answers `502
+  PAYMENT_NOT_STARTED` so the customer can retry.
 
 ## Composition
 

@@ -51,8 +51,15 @@ const send = (method: string, path: string, headers: Record<string, string>, bod
         },
   )
 const getCart = (headers: Record<string, string>) => send('GET', '/api/cart', headers)
-const addItem = (headers: Record<string, string>, body: Record<string, unknown> = {}) =>
-  send('POST', '/api/cart/items', headers, { ...MUG_REF, quantity: 1, ...body })
+const addItem = async (headers: Record<string, string>, body: Record<string, unknown> = {}) => {
+  const imageId = 'imageId' in body ? body.imageId : await uploadedImageId(headers)
+  return send('POST', '/api/cart/items', headers, {
+    ...MUG_REF,
+    quantity: 1,
+    ...body,
+    imageId,
+  })
+}
 const applyCode = (headers: Record<string, string>, promotionCode: string) =>
   send('POST', '/api/cart/promotion', headers, { promotionCode })
 const reorder = (headers: Record<string, string>, orderItemId: number | string) =>
@@ -72,7 +79,13 @@ const uploadedImageId = async (headers: Record<string, string>) => {
 
 interface CartBody {
   id: number | null
-  items: { id: number; quantity: number; price: number; imageId: number | null }[]
+  items: {
+    id: number
+    quantity: number
+    price: number
+    promptPrice: number
+    imageId: number | null
+  }[]
   subtotal: number
   discountAmount: number
   total: number
@@ -154,8 +167,8 @@ describe('the cart journey', () => {
 
   test('the first mutation hands out the guest cookie the cart is stored under', async () => {
     const headers = await guestHeaders()
-    const response = await addItem(headers)
-    expect(response.status).toBe(200)
+    const response = await upload(headers, new Uint8Array(await pngBytes()))
+    expect(response.status).toBe(201)
     expect(setCookies(response, 'voenix.guest')).toHaveLength(1)
   })
 
@@ -188,17 +201,39 @@ describe('POST /api/cart/images', () => {
 })
 
 describe('POST /api/cart/items', () => {
+  test('a missing or null imageId is 400 and writes nothing', async () => {
+    const headers = await guest()
+    const missing = await send('POST', '/api/cart/items', headers, { ...MUG_REF, quantity: 1 })
+    expect(missing.status).toBe(400)
+    expect(await jsonOf(missing)).toEqual({
+      message: 'Validation failed',
+      errors: { imageId: ['ImageId is required'] },
+    })
+    const nullable = await send('POST', '/api/cart/items', headers, {
+      ...MUG_REF,
+      quantity: 1,
+      imageId: null,
+    })
+    expect(nullable.status).toBe(400)
+    expect(await jsonOf(nullable)).toEqual({
+      message: 'Validation failed',
+      errors: { imageId: ['ImageId is required'] },
+    })
+    expect(await count(database.db, 'carts')).toBe(0)
+  })
+
   test('a variant that cannot be bought, an unusable prompt, and a foreign image are 400 and write nothing', async () => {
     const headers = await guest()
+    const imageId = await uploadedImageId(headers)
     cart.variants.set('1:1', { ...MUG, purchasable: false })
-    expect(await jsonOf(await addItem(headers))).toEqual({
+    expect(await jsonOf(await addItem(headers, { imageId }))).toEqual({
       message: 'Validation failed',
       errors: { variantId: ['The article variant cannot be bought'] },
     })
-    expect((await addItem(headers, { variantId: 6 })).status).toBe(400)
+    expect((await addItem(headers, { variantId: 6, imageId })).status).toBe(400)
     cart.variants.set('1:1', MUG)
 
-    expect(await jsonOf(await addItem(headers, { promptId: 99 }))).toEqual({
+    expect(await jsonOf(await addItem(headers, { promptId: 99, imageId }))).toEqual({
       message: 'Validation failed',
       errors: { promptId: ['The prompt cannot be used'] },
     })
@@ -211,14 +246,15 @@ describe('POST /api/cart/items', () => {
     expect(await count(database.db, 'carts')).toBe(0)
   })
 
-  test('the price snapshot of a line stays when the catalog price changes', async () => {
+  test('the price snapshot of an untouched line stays when the catalog price changes', async () => {
     const headers = await guest()
-    await addItem(headers)
+    const imageId = await uploadedImageId(headers)
+    await addItem(headers, { imageId })
     cart.variants.set('1:1', { ...MUG, grossSalesPriceCents: 1990 })
     const body = await bodyOf(await getCart(headers))
     expect(body.items.map((item) => item.price)).toEqual([1490])
     // A line at the new price is a line of its own.
-    const added = await bodyOf(await addItem(headers))
+    const added = await bodyOf(await addItem(headers, { imageId }))
     expect(added.items.map((item) => item.price)).toEqual([1490, 1990])
   })
 })
@@ -240,6 +276,79 @@ describe('PATCH and DELETE /api/cart/items/{itemId}', () => {
     expect(malformed.status).toBe(404)
     expect(await jsonOf(malformed)).toEqual({ message: 'Cart item not found', errors: {} })
     expect((await bodyOf(await getCart(await guest('guest-b')))).items).toEqual(other.items)
+  })
+
+  test('updating quantity refreshes article and prompt prices from the catalog', async () => {
+    const headers = await guest()
+    const added = await bodyOf(await addItem(headers, { quantity: 1, promptId: PROMPT_ID }))
+    const itemId = added.items[0]?.id ?? 0
+    expect(added.items[0]).toMatchObject({ price: 1490, promptPrice: 500, quantity: 1 })
+
+    cart.variants.set('1:1', { ...MUG, grossSalesPriceCents: 1990 })
+    cart.promptPrices.set(PROMPT_ID, 700)
+
+    const updated = await send('PATCH', `/api/cart/items/${String(itemId)}`, headers, {
+      quantity: 3,
+    })
+    expect(updated.status).toBe(200)
+    const body = await bodyOf(updated)
+    expect(body.items[0]).toMatchObject({ price: 1990, promptPrice: 700, quantity: 3 })
+    expect(body.subtotal).toBe(3 * (1990 + 700))
+    expect(body.total).toBe(3 * (1990 + 700))
+  })
+
+  test('scaling up a line from an expired 100% promo charges the current regular price', async () => {
+    const headers = await guest()
+    cart.variants.set('1:1', { ...MUG, grossSalesPriceCents: 0 })
+    const free = await bodyOf(await addItem(headers, { quantity: 1 }))
+    const itemId = free.items[0]?.id ?? 0
+    expect(free.items[0]).toMatchObject({ price: 0, quantity: 1 })
+
+    // Promotion ended: catalog is back at the regular price.
+    cart.variants.set('1:1', { ...MUG, grossSalesPriceCents: 1490 })
+
+    const scaled = await send('PATCH', `/api/cart/items/${String(itemId)}`, headers, {
+      quantity: 10,
+    })
+    expect(scaled.status).toBe(200)
+    const body = await bodyOf(scaled)
+    expect(body.items[0]).toMatchObject({ price: 1490, quantity: 10 })
+    expect(body.subtotal).toBe(14_900)
+    expect(body.total).toBe(14_900)
+  })
+
+  test('updating quantity rejects a deactivated, priceless, or prompt-unusable line with 409', async () => {
+    const headers = await guest()
+    const added = await bodyOf(await addItem(headers, { quantity: 1, promptId: PROMPT_ID }))
+    const itemId = added.items[0]?.id ?? 0
+
+    cart.variants.set('1:1', { ...MUG, purchasable: false })
+    const deactivated = await send('PATCH', `/api/cart/items/${String(itemId)}`, headers, {
+      quantity: 2,
+    })
+    expect(deactivated.status).toBe(409)
+    expect(await jsonOf(deactivated)).toEqual({
+      message: 'This cart item is no longer available',
+      errors: {},
+      code: 'CART_ITEM_UNAVAILABLE',
+    })
+
+    cart.variants.set('1:1', { ...MUG, purchasable: true, grossSalesPriceCents: null })
+    const priceless = await send('PATCH', `/api/cart/items/${String(itemId)}`, headers, {
+      quantity: 2,
+    })
+    expect(priceless.status).toBe(409)
+
+    cart.variants.set('1:1', MUG)
+    cart.promptPrices.delete(PROMPT_ID)
+    const promptGone = await send('PATCH', `/api/cart/items/${String(itemId)}`, headers, {
+      quantity: 2,
+    })
+    expect(promptGone.status).toBe(409)
+
+    // Quantity was never modified.
+    const unchanged = await bodyOf(await getCart(headers))
+    expect(unchanged.items[0]?.quantity).toBe(1)
   })
 })
 

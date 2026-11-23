@@ -60,7 +60,7 @@ flowchart TB
     Service --> Totals
     Service --> Catalogs
     Checkout -- "checkoutCarts" --> Service
-    Checkout -- "lockForCheckout · markCheckedOut" --> Repository
+    Checkout -- "lockActiveCart · markCheckedOut" --> Repository
     ImageRoute -- "guestImageResolver" --> Repository
 ```
 
@@ -108,9 +108,9 @@ Every answer except the upload is the complete recalculated cart.
 | --- | --- | --- | --- |
 | `GET /api/cart` | none | `200` `CartView`; no cart yet → the empty view; `Cache-Control: no-store` | none |
 | `POST /api/cart/images` | multipart, part `file` | `201` `{"id": 42}` | `415` not a multipart form (platform `formBody`), `400` on `file`: missing part, too large, unreadable, unsupported |
-| `POST /api/cart/items` | JSON | `200` `CartView` | `400`: field rules, `variantId` not purchasable, `promptId` unusable, `imageId` not the caller's |
+| `POST /api/cart/items` | JSON | `200` `CartView` | `400`: field rules (`imageId` is required), `variantId` not purchasable, `promptId` unusable, `imageId` not the caller's |
 | `POST /api/cart/order-items/{orderItemId}` | none | `200` `CartView` | `404` `Order item not found` (unknown, foreign, or malformed id), `409` `ORDER_IMAGE_UNAVAILABLE`, `400` variant no longer purchasable |
-| `PATCH /api/cart/items/{itemId}` | `{"quantity": 1..99}` | `200` `CartView` | `400`, `404` |
+| `PATCH /api/cart/items/{itemId}` | `{"quantity": 1..99}` | `200` `CartView` | `400`, `404`, `409` `CART_ITEM_UNAVAILABLE` (variant no longer purchasable/priced or prompt unusable) |
 | `DELETE /api/cart/items/{itemId}` | none | `200` `CartView` | `404` |
 | `POST /api/cart/promotion` | `{"promotionCode": "…"}` | `200` `CartView` | `400`/`403`/`409` with a `code`, `404` `Cart not found` |
 | `DELETE /api/cart/promotion` | none | `200` `CartView` | `404` `Cart not found` |
@@ -169,9 +169,9 @@ property is a `400`.
 
 | Schema | Field | Rule and message |
 | --- | --- | --- |
-| `addCartItemInput` | `articleId`, `variantId` | required positive integers: `ArticleId is required`, `ArticleId must be positive` (and the same for `VariantId`) |
+| `addCartItemInput` | `articleId`, `variantId`, `imageId` | required positive integers: `ArticleId is required`, `ArticleId must be positive` (and the same for `VariantId` and `ImageId`; every new cart line must carry a print image so only personalised goods can be ordered) |
 | | `quantity` | required, `Quantity must be between 1 and 99` |
-| | `promptId`, `imageId` | optional or `null`; when given, positive (`PromptId must be positive`) |
+| | `promptId` | optional or `null`; when given, positive (`PromptId must be positive`) |
 | `cartQuantityInput` | `quantity` | the same quantity rule |
 | `promotionCodeInput` | `promotionCode` | trimmed; blank → `PromotionCode is required`; longer than 64 → `PromotionCode must be at most 64 characters` (the `coupon_code` column) |
 
@@ -235,8 +235,19 @@ sets a cookie and answers the empty view to a request with neither identity.
 2. **Snapshots.** `articleCatalog.find` answers whether the variant may be
    bought at all and what it costs right now; `promptCatalog
    .findSalesGrossPriceCents` does the same for the prompt. Both numbers are
-   written onto the line and never change again. A later price change moves
-   the shop's catalog, not a cart a customer is already looking at.
+   written onto the line and stay intact while the line sits untouched in the
+   cart, so a later price change moves the shop's catalog rather than a cart a
+   customer is already looking at.
+   **Decision revision (`B2`):** The original rule that snapshots *never* change
+   again was intentionally replaced for quantity updates
+   (`PATCH /api/cart/items/{itemId}`). Leaving `price_cents` untouched on a
+   quantity change allowed a 0 € line from an expired 100 % price discount to be
+   scaled up to 99 free pieces and confirmed automatically as `PAID`. Every
+   quantity update therefore re-checks `articleCatalog.find` (requiring
+   `purchasable === true` and `grossSalesPriceCents !== null`) and, when a
+   prompt is attached, `promptCatalog.findSalesGrossPriceCents`, refuses
+   unavailable lines with `409 CART_ITEM_UNAVAILABLE`, and writes the current
+   `price_cents` and `prompt_price_cents` back onto the line.
 3. **The write.** `repository.addItem` checks that the image belongs to the
    caller, finds or creates the cart, and merges or appends the line, in one
    transaction. The image check comes first, so a rejected add commits
@@ -322,7 +333,7 @@ concurrent adds could compute the same position and one would fail on
 `UNIQUE (cart_id, position)`. With it they queue up, and two identical parallel
 adds become one line of quantity 2. Every cart mutation locks exactly one cart
 row, so there is no lock order to agree on. The checkout takes the same lock
-with `lockForCheckout`, which is what makes an add that races a checkout wait
+with `lockActiveCart`, which is what makes an add that races a checkout wait
 and then land in a fresh cart.
 
 ## The schema
@@ -486,28 +497,28 @@ no late binding.
 `checkoutCarts` is the cart's side of checkout's first transaction (#247):
 
 ```ts
-checkoutCarts.activeCart(guestToken, userId)  // Promise<CheckoutCart | null>
-checkoutCarts.lockForCheckout(trx, cartId)    // Promise<boolean>: SELECT … FOR UPDATE; still ACTIVE?
-checkoutCarts.markCheckedOut(trx, cartId)     // Promise<boolean>: ACTIVE → CHECKED_OUT, true if this call did it
+checkoutCarts.lockActiveCart(trx, guestToken, userId) // Promise<CheckoutCart | null>: SELECT … FOR UPDATE, then price
+checkoutCarts.markCheckedOut(trx, cartId)             // Promise<boolean>: ACTIVE → CHECKED_OUT, true if this call did it
 ```
 
-- `activeCart` is the cart routes' own lookup, so a signed-in checkout is
-  answered with the customer's cart and an anonymous one with the token's. It
-  answers `null` when there is no active cart, and a cart without lines is a
-  snapshot with an empty list, so "no cart" and "empty cart" can become the
-  same `CART_EMPTY` answer. The `CheckoutCart` is shaped so the checkout builds
-  its `PlaceOrderInput` without a second read: `cartId`, the caller's `userId`
-  and `guestToken` as asked, `promotionId`, the lines as
-  `{ articleId, variantId, quantity, priceCents, promptPriceCents, promptId,
-  printImageId, articleType }`, and `subtotalCents`, `shippingCostCents`,
-  `discountCents`, `totalCents`. The totals come from the same `cartTotals` and
-  the same promotion lookup the cart answer uses, so the checkout charges what
-  the customer saw. `articleType` is the catalog's current answer (`null` for a
-  reference it no longer resolves) and is what the checkout's phone rule for
-  SPOD articles asks about.
-- `lockForCheckout` runs in the checkout's transaction. Every cart mutation
-  and a second checkout of the same cart wait behind it until that transaction
-  ends. `false` means the cart is no longer active.
+- `lockActiveCart` runs inside the checkout's first transaction (`trx`). It
+  finds the caller's active cart with the cart routes' own lookup (`userId`
+  first, else `guestToken`), takes `SELECT … FOR UPDATE` on the cart row so
+  every cart mutation and any concurrent checkout of the same cart wait behind
+  it until TX1 ends, and only then reads and prices the lines. Reading after the
+  lock eliminates the window in which a line added concurrently could be omitted
+  from the order while the cart is closed. It answers `null` when there is no
+  active cart, and a cart without lines is a snapshot with an empty list, so
+  "no cart" and "empty cart" can become the same `CART_EMPTY` answer. The
+  `CheckoutCart` is shaped so the checkout builds its `PlaceOrderInput` without
+  a second read: `cartId`, the caller's `userId` and `guestToken` as asked,
+  `promotionId`, the lines as `{ articleId, variantId, quantity, priceCents,
+  promptPriceCents, promptId, printImageId, articleType }`, and
+  `subtotalCents`, `shippingCostCents`, `discountCents`, `totalCents`. The
+  totals come from the same `cartTotals` and the same promotion lookup the cart
+  answer uses, so the checkout charges what the customer saw. `articleType` is
+  the catalog's current answer (`null` for a reference it no longer resolves)
+  and is what the checkout's phone rule for SPOD articles asks about.
 - `markCheckedOut` closes the cart with `UPDATE … WHERE status = 'ACTIVE'`.
   The predicate makes it idempotent: `true` means this call did it, `false`
   that it was already done or the cart does not exist, and neither is a

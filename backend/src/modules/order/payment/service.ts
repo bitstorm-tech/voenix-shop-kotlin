@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Kysely, Transaction } from 'kysely'
+import type { PromotionCodes, PromotionRejection } from '@/modules/promotion'
 import { write, type Tables } from '@/platform/db/database'
 import { createLogger, errorDetails } from '@/platform/logging'
 import { conflict, notFound, ok } from '@/platform/operation'
@@ -15,6 +16,17 @@ import {
   type PaymentRepository,
   type StoredPayment,
 } from './repository'
+
+/** What starting (or reusing) a payment ends in. */
+export type StartPaymentResult =
+  | { kind: 'started'; checkoutUrl: string }
+  | { kind: 'promotionRejected'; rejection: PromotionRejection }
+  | { kind: 'notStarted' }
+
+/** Controls whether a Mollie refusal cancels the pending order (`true` on initial checkout, `false` on retry). */
+export interface StartPaymentOptions {
+  cancelOnFailure?: boolean
+}
 
 /**
  * What one webhook delivery did. Every outcome but `providerUnavailable` answers Mollie `200`:
@@ -46,11 +58,13 @@ export function createPaymentService({
   repository,
   mollie,
   transitions,
+  promotionCodes,
 }: {
   db: Kysely<Tables>
   repository: PaymentRepository
   mollie: MolliePayments
   transitions: OrderTransitions
+  promotionCodes: Pick<PromotionCodes, 'hasReservation' | 'reserve' | 'release'>
 }) {
   const logger = createLogger('payment')
 
@@ -193,29 +207,68 @@ export function createPaymentService({
 
   return {
     /**
-     * Starts the payment of `order`, or answers the one it already has, and returns the URL the
-     * customer is sent to, or `null` when no payment was started. One transaction holds the order
-     * row lock around "live payment? → Mollie create → insert", so concurrent starts of one order
-     * queue on the lock and the second answers the first one's stored URL without a provider
-     * call. A provider that refuses cancels the order (and releases its reservation) under that
-     * same lock, so a start queued behind the refusal finds the order cancelled instead of paying
-     * for it; a database failure after Mollie created the payment cancels that payment before the
-     * error travels on. The lock is held during the provider call, which the adapter bounds at
-     * eight seconds.
+     * Starts the payment of `order`, or answers the one it already has. One transaction holds the
+     * order row lock around "live payment? → ensure promotion reservation → Mollie create →
+     * insert", so concurrent starts of one order queue on the lock and the second answers the
+     * first one's stored URL without a provider call.
+     *
+     * When the order carries a promotion without an active reservation (typically a retry after a
+     * terminal payment released the initial hold), the promotion is reserved again under the order
+     * lock before Mollie is called; a rejected reservation stops immediately with
+     * `promotionRejected` and starts no payment.
+     *
+     * On a provider refusal: with `cancelOnFailure: true` (initial checkout, the default), the
+     * order is cancelled and its reservation released under the same lock so a queued start finds
+     * it cancelled and the still-active cart can be submitted again. With `cancelOnFailure: false`
+     * (payment retry, whose cart is already checked out), the order stays `PENDING` and any
+     * reservation acquired in this attempt is released again so a transient Mollie failure does
+     * not strand the customer or leak coupon capacity. A database failure after Mollie created the
+     * payment cancels that payment before the error travels on. The lock is held during the
+     * provider call, which the adapter bounds at eight seconds.
      */
-    startPayment: async (order: PayableOrder): Promise<string | null> => {
+    startPayment: async (
+      order: PayableOrder,
+      { cancelOnFailure = true }: StartPaymentOptions = {},
+    ): Promise<StartPaymentResult> => {
       if (order.totalCents <= 0) throw new Error('A payment amount must be greater than zero')
       const attempt: { created: MolliePayment | null } = { created: null }
-      let outcome: { kind: 'started'; checkoutUrl: string } | { kind: 'refused' | 'notPending' }
+      let outcome:
+        | { kind: 'started'; checkoutUrl: string }
+        | { kind: 'promotionRejected'; rejection: PromotionRejection }
+        | { kind: 'refused' | 'notPending' }
       try {
         outcome = await write(db, async (trx) => {
           const locked = await lockOrder(trx, order.orderId)
           if (locked?.status !== 'PENDING') return { kind: 'notPending' }
           const live = await livePayment(trx, order.orderId)
           if (live !== undefined) return { kind: 'started', checkoutUrl: live.checkoutUrl }
+          let reservedNow = false
+          if (locked.promotionId !== null) {
+            const alreadyReserved = await promotionCodes.hasReservation(
+              trx,
+              locked.promotionId,
+              locked.cartId,
+            )
+            if (!alreadyReserved) {
+              const reservation = await promotionCodes.reserve(
+                trx,
+                locked.promotionId,
+                locked.cartId,
+                locked.userId,
+              )
+              if (reservation.kind !== 'applicable') {
+                return { kind: 'promotionRejected', rejection: reservation }
+              }
+              reservedNow = true
+            }
+          }
           const created = await mollie.create(order, randomUUID())
           if (created?.checkoutUrl == null) {
-            await transitions.cancel(trx, order.orderId)
+            if (cancelOnFailure) {
+              await transitions.cancel(trx, order.orderId)
+            } else if (reservedNow) {
+              await promotionCodes.release(trx, locked.cartId)
+            }
             return { kind: 'refused' }
           }
           attempt.created = created
@@ -239,15 +292,19 @@ export function createPaymentService({
       }
       switch (outcome.kind) {
         case 'started':
-          return outcome.checkoutUrl
+          return outcome
+        case 'promotionRejected':
+          return outcome
         case 'notPending':
-          return null
+          return { kind: 'notStarted' }
         case 'refused':
           logger.warn(
-            { orderId: order.orderId },
-            'Mollie started no payment: the order is cancelled and no checkout URL exists',
+            { orderId: order.orderId, cancelled: cancelOnFailure },
+            cancelOnFailure
+              ? 'Mollie started no payment: the order is cancelled and no checkout URL exists'
+              : 'Mollie started no payment: the order remains PENDING and no checkout URL exists',
           )
-          return null
+          return { kind: 'notStarted' }
       }
     },
 

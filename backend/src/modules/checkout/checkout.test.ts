@@ -292,6 +292,20 @@ describe('POST /api/checkout', () => {
     expect(await count(database.db, 'promotion_reservations')).toBe(1)
   })
 
+  test('an article deactivated after being added to the cart is refused with 409 and frees its coupon', async () => {
+    const promotionId = await seedPromotion(database.db, 'DEACTIVATED1', { usageLimitTotal: 1 })
+    const cartId = await seedCart(database.db, { guestToken: 'guest-a' }, { promotionId })
+    await sql`UPDATE article_mugs SET active = FALSE WHERE id = 4711`.execute(database.db)
+
+    const refused = await checkout(await guest('guest-a'))
+
+    expect(refused.status).toBe(409)
+    expect(await codeOf(refused)).toBe('CART_ITEM_UNAVAILABLE')
+    expect(await count(database.db, 'orders')).toBe(0)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+    expect(await cartStatus(cartId)).toBe('ACTIVE')
+  })
+
   test('two overlapping submissions of one cart end as one order and one payment', async () => {
     const headers = await guest('guest-a')
     const cartId = await seedCart(database.db, { guestToken: 'guest-a' })
@@ -368,7 +382,7 @@ describe('POST /api/checkout/orders/{orderId}/payment', () => {
     expect(await count(database.db, 'payments')).toBe(1)
   })
 
-  test('a terminal payment frees the coupon, and the retry starts a second payment', async () => {
+  test('a terminal payment frees the coupon, and the retry re-reserves it before starting a second payment', async () => {
     const promotionId = await seedPromotion(database.db, 'RETRY10')
     const placed = await placedOrder('guest-a', promotionId)
     expect(await count(database.db, 'promotion_reservations')).toBe(1)
@@ -383,7 +397,78 @@ describe('POST /api/checkout/orders/{orderId}/payment', () => {
     expect(response.status).toBe(200)
     expect((await answerOf(response)).checkoutUrl).not.toBe(placed.checkoutUrl)
     expect(await count(database.db, 'payments')).toBe(2)
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
+  })
+
+  test('a one-use coupon cannot be replayed across two cancelled orders via payment retry', async () => {
+    const promotionId = await seedPromotion(database.db, 'ONCE10', { usageLimitTotal: 1 })
+
+    const first = await placedOrder('guest-a', promotionId)
+    const firstPayment = await molliePaymentId(first.orderId)
+    app().mollie.report(firstPayment, { status: 'CANCELED' })
+    expect((await webhook(firstPayment)).status).toBe(200)
     expect(await count(database.db, 'promotion_reservations')).toBe(0)
+
+    const second = await placedOrder('guest-b', promotionId)
+    const secondPayment = await molliePaymentId(second.orderId)
+    app().mollie.report(secondPayment, { status: 'CANCELED' })
+    expect((await webhook(secondPayment)).status).toBe(200)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+
+    const callsBeforeRetry = app().mollie.calls.create
+    const firstRetry = await retry(first.headers, first.orderId)
+    expect(firstRetry.status).toBe(200)
+    expect(app().mollie.calls.create).toBe(callsBeforeRetry + 1)
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
+
+    // While order 1 holds the re-acquired reservation, order 2 is refused before reaching Mollie.
+    const blockedWhileOpen = await retry(second.headers, second.orderId)
+    expect(blockedWhileOpen.status).toBe(409)
+    expect(await codeOf(blockedWhileOpen)).toBe('PROMOTION_TOTAL_EXHAUSTED')
+    expect(app().mollie.calls.create).toBe(callsBeforeRetry + 1)
+
+    // Pay order 1; order 2 remains refused because the one-use code is now redeemed.
+    const retryPayment = (
+      await database.db
+        .selectFrom('payments')
+        .select('mollie_payment_id')
+        .where('order_id', '=', first.orderId)
+        .orderBy('id', 'desc')
+        .executeTakeFirstOrThrow()
+    ).mollie_payment_id
+    app().mollie.report(retryPayment, { status: 'PAID' })
+    expect((await webhook(retryPayment)).status).toBe(200)
+    expect(await order(first.orderId)).toMatchObject({ status: 'PAID' })
+    expect(await count(database.db, 'promotion_redemptions')).toBe(1)
+
+    const blockedAfterPaid = await retry(second.headers, second.orderId)
+    expect(blockedAfterPaid.status).toBe(409)
+    expect(await codeOf(blockedAfterPaid)).toBe('PROMOTION_TOTAL_EXHAUSTED')
+    expect(app().mollie.calls.create).toBe(callsBeforeRetry + 1)
+  })
+
+  test('a transient Mollie refusal on retry keeps the order PENDING so a later retry succeeds', async () => {
+    const promotionId = await seedPromotion(database.db, 'TRANSIENT10', { usageLimitTotal: 1 })
+    const placed = await placedOrder('guest-a', promotionId)
+    const firstPayment = await molliePaymentId(placed.orderId)
+    app().mollie.report(firstPayment, { status: 'FAILED' })
+    expect((await webhook(firstPayment)).status).toBe(200)
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+
+    app().mollie.state.refuse = true
+    const refused = await retry(placed.headers, placed.orderId)
+    expect(refused.status).toBe(502)
+    expect(await codeOf(refused)).toBe('PAYMENT_NOT_STARTED')
+    expect(await order(placed.orderId)).toMatchObject({ status: 'PENDING' })
+    expect(await count(database.db, 'promotion_reservations')).toBe(0)
+
+    app().mollie.state.refuse = false
+    const recovered = await retry(placed.headers, placed.orderId)
+    expect(recovered.status).toBe(200)
+    expect((await answerOf(recovered)).checkoutUrl).not.toBe(placed.checkoutUrl)
+    expect(await order(placed.orderId)).toMatchObject({ status: 'PENDING' })
+    expect(await count(database.db, 'payments')).toBe(2)
+    expect(await count(database.db, 'promotion_reservations')).toBe(1)
   })
 
   test('two simultaneous retries of one order leave one live payment', async () => {

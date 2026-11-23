@@ -19,6 +19,7 @@ import { createOrderTransitions } from './transitions'
 
 export type { MolliePayment, MolliePayments } from './payment/mollie'
 export type { OrderFinding } from './payment/repository'
+export type { StartPaymentOptions, StartPaymentResult } from './payment/service'
 export type { OrderAddress, OrderItemReference, PayableOrder, PlaceOrderInput } from './repository'
 export type { PayableResult, PlaceOrderResult, PrintImageReads } from './service'
 export type { CancelResult, PaidResult } from './transitions'
@@ -48,7 +49,7 @@ export function createOrderModule({
   db: Kysely<Tables>
   settings: { mollie: Settings['mollie']; frontendBaseUrl: string }
   articleCatalog: Pick<ArticleCatalog, 'find'>
-  promotionCodes: Pick<PromotionCodes, 'redeem' | 'release'>
+  promotionCodes: Pick<PromotionCodes, 'hasReservation' | 'reserve' | 'redeem' | 'release'>
   email: { outbox: Pick<EmailModule['outbox'], 'enqueue'> }
   images: Pick<ImageModule, 'privateStorage'>
   printImages: PrintImageReads
@@ -63,6 +64,7 @@ export function createOrderModule({
     repository: paymentRepository,
     mollie,
     transitions,
+    promotionCodes,
   })
   const service = createOrderService({
     repository,

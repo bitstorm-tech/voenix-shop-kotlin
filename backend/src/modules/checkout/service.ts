@@ -102,12 +102,31 @@ export function createCheckoutService({
     }
   }
 
-  /** TX1: lock, reserve, place, and settle a free order. */
-  const place = (cart: CheckoutCart, request: CheckoutInput): Promise<Placement> =>
+  /** TX1: lock & read the active cart, guard, reserve, place, and settle a free order. */
+  const place = (
+    guestToken: string | null,
+    userId: number | null,
+    request: CheckoutInput,
+  ): Promise<Placement> =>
     write(db, async (trx) => {
-      // The snapshot was read before the lock; a cart closed in between has its order already,
-      // and placing from the stale snapshot would create a second one.
-      if (!(await carts.lockForCheckout(trx, cart.cartId))) return { kind: 'emptyCart' }
+      const cart = await carts.lockActiveCart(trx, guestToken, userId)
+      if (cart === null || cart.lines.length === 0) return { kind: 'emptyCart' }
+      if (cart.subtotalCents + cart.shippingCostCents > MAX_ORDER_CENTS) {
+        return { kind: 'totalTooLarge' }
+      }
+      // Only the shipping address is checked; an invoice may go anywhere.
+      if (!(await countries.isShippable(request.shippingAddress.country))) {
+        return { kind: 'shippingCountryUnavailable' }
+      }
+      // The print-on-demand partner refuses an order without a phone number. What decides is the
+      // resolved type of the stored lines; a line the catalog no longer resolves is not a SPOD
+      // article here and is refused as unavailable by the placement a moment later.
+      if (
+        request.shippingAddress.phone === null &&
+        cart.lines.some((line) => line.articleType === 'SPOD')
+      ) {
+        return { kind: 'phoneRequired' }
+      }
       let reserved = false
       if (cart.promotionId !== null) {
         const reservation = await promotionCodes.reserve(
@@ -122,7 +141,7 @@ export function createCheckoutService({
         reserved = true
       }
       const placed = await orders.place(trx, placeOrderInput(cart, request))
-      if (placed.kind === 'unknownArticle') {
+      if (placed.kind === 'unavailableArticle') {
         // No order exists and none ever will for this cart as it stands: the hold is given back
         // now, because a reservation has no expiry and a customer who gives up never frees it.
         if (reserved) await promotionCodes.release(trx, cart.cartId)
@@ -154,40 +173,26 @@ export function createCheckoutService({
       request: CheckoutInput,
     ): Promise<CheckoutResult> => {
       if (guestToken === null && userId === null) return { kind: 'emptyCart' }
-      const cart = await carts.activeCart(guestToken, userId)
-      if (cart === null || cart.lines.length === 0) return { kind: 'emptyCart' }
-      if (cart.subtotalCents + cart.shippingCostCents > MAX_ORDER_CENTS) {
-        return { kind: 'totalTooLarge' }
-      }
-      // Only the shipping address is checked; an invoice may go anywhere.
-      if (!(await countries.isShippable(request.shippingAddress.country))) {
-        return { kind: 'shippingCountryUnavailable' }
-      }
-      // The print-on-demand partner refuses an order without a phone number. What decides is the
-      // resolved type of the stored lines; a line the catalog no longer resolves is not a SPOD
-      // article here and is refused as unavailable by the placement a moment later.
-      if (
-        request.shippingAddress.phone === null &&
-        cart.lines.some((line) => line.articleType === 'SPOD')
-      ) {
-        return { kind: 'phoneRequired' }
-      }
-
-      const placement = await place(cart, request)
+      const placement = await place(guestToken, userId, request)
       if (placement.kind !== 'payable') return placement
       const { order } = placement
       logger.info({ orderId: order.orderId }, 'Checkout proceeds with order')
-      const checkoutUrl = await orders.startPayment(order)
-      if (checkoutUrl === null) return { kind: 'paymentNotStarted' }
-      await write(db, (trx) => closeCart(trx, cart.cartId))
-      return { kind: 'started', orderId: order.orderId, checkoutUrl }
+      const started = await orders.startPayment(order, { cancelOnFailure: true })
+      if (started.kind === 'promotionRejected') {
+        return { kind: 'promotionRejected', rejection: started.rejection }
+      }
+      if (started.kind !== 'started') return { kind: 'paymentNotStarted' }
+      await write(db, (trx) => closeCart(trx, order.cartId))
+      return { kind: 'started', orderId: order.orderId, checkoutUrl: started.checkoutUrl }
     },
 
     /**
      * Starts the payment of an already placed order again. No cart is read; the cart the order
      * came from is closed once the payment stands, which is a no-op for the usual retry (the
      * checkout closed it) and the repair for a checkout that died between its two transactions,
-     * whose cart would otherwise stay open on a paid order.
+     * whose cart would otherwise stay open on a paid order. A provider refusal leaves the order
+     * `PENDING` so a transient Mollie outage does not strand a customer whose cart is already
+     * checked out.
      */
     startPayment: async (
       orderId: number,
@@ -204,10 +209,13 @@ export function createCheckoutService({
         case 'free':
           return { kind: 'notPayable' }
         case 'payable': {
-          const checkoutUrl = await orders.startPayment(payable.order)
-          if (checkoutUrl === null) return { kind: 'paymentNotStarted' }
+          const started = await orders.startPayment(payable.order, { cancelOnFailure: false })
+          if (started.kind === 'promotionRejected') {
+            return { kind: 'promotionRejected', rejection: started.rejection }
+          }
+          if (started.kind !== 'started') return { kind: 'paymentNotStarted' }
           await write(db, (trx) => carts.markCheckedOut(trx, payable.order.cartId))
-          return { kind: 'started', orderId, checkoutUrl }
+          return { kind: 'started', orderId, checkoutUrl: started.checkoutUrl }
         }
       }
     },
