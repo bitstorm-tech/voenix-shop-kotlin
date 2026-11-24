@@ -7,11 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { useWizardStore } from '@/stores/shop/wizard'
 import { useImageGenerationStore } from '@/stores/shop/imageGeneration'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
-import {
-  IMAGE_GENERATION_MAGIC_COIN_COST,
-  INSUFFICIENT_MAGIC_COINS_CODE,
-  MAGIC_COINS_ROUTE,
-} from '@/lib/magicCoins'
+import { IMAGE_GENERATION_MAGIC_COIN_COST, INSUFFICIENT_MAGIC_COINS_CODE } from '@/lib/magicCoins'
 import VariantGallery from '@/components/shop/wizard/VariantGallery.vue'
 import { useGenerationErrorMessage } from '@/composables/useGenerationErrorMessage'
 
@@ -273,11 +269,6 @@ onMounted(async () => {
           <p class="text-center text-sm text-muted-foreground sm:text-base">
             {{ t('configurator.steps.generate.insufficientMagicCoins') }}
           </p>
-          <Button as-child variant="outline" size="sm">
-            <RouterLink :to="MAGIC_COINS_ROUTE">
-              {{ t('configurator.steps.generate.refillMagicCoins') }}
-            </RouterLink>
-          </Button>
         </div>
       </div>
     </div>
@@ -332,8 +323,11 @@ onMounted(async () => {
 
     <!-- Success state -->
     <div v-else-if="imageGeneration.hasImages" class="generate-result mt-6 sm:mt-8">
-      <div class="generate-result-toolbar mb-4 flex justify-center md:justify-end">
-        <Button v-if="canGenerate" variant="outline" size="sm" @click="generate">
+      <div
+        v-if="canGenerate"
+        class="generate-result-toolbar mb-4 flex justify-center md:justify-end"
+      >
+        <Button variant="outline" size="sm" @click="generate">
           <RefreshCw class="h-3.5 w-3.5" />
           {{ t('configurator.steps.generate.generateAnother') }} ·
           {{
@@ -341,11 +335,6 @@ onMounted(async () => {
               coins: IMAGE_GENERATION_MAGIC_COIN_COST,
             })
           }}
-        </Button>
-        <Button v-else as-child variant="outline" size="sm">
-          <RouterLink :to="MAGIC_COINS_ROUTE">
-            {{ t('configurator.steps.generate.refillMagicCoins') }}
-          </RouterLink>
         </Button>
       </div>
 

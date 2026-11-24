@@ -381,4 +381,36 @@ describe('cart store', () => {
     expect(store.promotionErrorCode).toBe('PROMOTION_LOGIN_REQUIRED')
     expect(store.appliedPromotion).toBeNull()
   })
+
+  it('ignores duplicate concurrent quantity mutations for the same item', async () => {
+    let resolvePatch: ((response: Response) => void) | undefined
+    const fetchMock = antiforgeryOr((input, init) => {
+      if (input === '/api/cart/items/34' && init?.method === 'PATCH') {
+        return new Promise<Response>((resolve) => {
+          resolvePatch = resolve
+        })
+      }
+
+      throw new Error(`Unexpected request: ${String(input)}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCartStore()
+    store.items = [createCartItem({ id: 34, quantity: 1 })]
+
+    const first = store.updateQuantity(34, 2)
+    expect(store.isItemMutating(34)).toBe(true)
+    const second = store.updateQuantity(34, 3)
+
+    expect(await second).toBe(false)
+
+    await vi.waitFor(() => {
+      expect(resolvePatch).toBeTypeOf('function')
+    })
+    resolvePatch!(
+      jsonResponse(createCartView({ items: [createCartItem({ id: 34, quantity: 2 })] })),
+    )
+    expect(await first).toBe(true)
+    expect(store.isItemMutating(34)).toBe(false)
+    expect(fetchMock.mock.calls.filter(([input]) => input === '/api/cart/items/34')).toHaveLength(1)
+  })
 })

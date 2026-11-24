@@ -28,17 +28,31 @@ export const useArticleCategoriesStore = defineStore('articleCategories', () => 
   const isLoading = shallowRef(false)
   const error = shallowRef<string | null>(null)
   const hasFetched = shallowRef(false)
+  let pendingRequest: Promise<void> | null = null
 
   /**
    * Loads the shop navigation. The route is type-agnostic: one menu leads to mugs and shirts
    * alike, so the answer is the bare array of the categories every visible article sits in — there
    * is no map from article type to look a `"MUG"` key up in.
    */
-  async function fetchCategories() {
-    if (hasFetched.value || isLoading.value) {
+  async function fetchCategories(): Promise<void> {
+    if (hasFetched.value) {
       return
     }
 
+    if (pendingRequest) {
+      return pendingRequest
+    }
+
+    pendingRequest = loadCategories()
+    try {
+      await pendingRequest
+    } finally {
+      pendingRequest = null
+    }
+  }
+
+  async function loadCategories(): Promise<void> {
     isLoading.value = true
     error.value = null
 

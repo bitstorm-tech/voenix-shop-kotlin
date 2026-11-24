@@ -12,9 +12,13 @@
     "promoDescription": "Watercolor, pop-art, oil painting and many more. Explore the available looks for your photo.",
     "promoCta": "Discover all styles",
     "login": "Log In",
-    "toggleTheme": "Toggle color mode"
+    "toggleTheme": "Toggle color mode",
+    "noImage": "No image",
+    "selectLanguage": "Select language"
   },
   "mobileMenu": {
+    "openMenu": "Open menu",
+    "closeMenu": "Close",
     "navigation": "Products",
     "account": "Account",
     "orders": "Orders",
@@ -34,39 +38,14 @@
   "magicCoins": {
     "badgeLabel": "Magic Coins",
     "hero": {
-      "title": "Refill your Magic Coins and stay in the flow."
-    },
-    "plans": {
-      "popular": "Most popular",
-      "selected": "Active",
-      "coinsLabel": "Magic Coins",
-      "bonusLabel": "+{coins} bonus",
-      "priceSuffix": "one-time",
-      "items": {
-        "starter": {
-          "name": "Starter"
-        },
-        "studio": {
-          "name": "Studio"
-        },
-        "reserve": {
-          "name": "Reserve"
-        }
-      }
+      "title": "Magic Coins"
     },
     "summary": {
-      "eyebrow": "Your selection",
-      "currentBalance": "Current balance",
-      "selectedPlan": "Selected package",
-      "packagePrice": "Package price",
-      "afterPurchase": "Balance after top-up",
-      "cta": "Continue to purchase",
-      "guestCta": "Sign in to buy"
+      "currentBalance": "Current balance"
     },
-    "toast": {
-      "title": "{plan} is selected",
-      "description": "The next step will connect this selection to the Magic Coins purchase checkout."
-    }
+    "unavailableTitle": "Additional Magic Coins coming soon",
+    "unavailableDescription": "Purchasing additional Magic Coins packages is not available yet. Your current balance is shown above.",
+    "backToProducts": "Discover products"
   },
   "auth": {
     "login": {
@@ -259,6 +238,7 @@
     "title": "My Orders",
     "subtitle": "Review your previous orders, payment status, and item summary in one place.",
     "profileAction": "Go to profile",
+    "loadError": "Your orders could not be loaded. Please try again.",
     "retry": "Try again",
     "emptyTitle": "No orders yet",
     "emptyDescription": "As soon as you place an order, your order history will show up here.",
@@ -761,6 +741,7 @@
     "unknownArticle": "Article no longer available",
     "unavailable": "No longer orderable",
     "unavailableHint": "An item in your cart is no longer orderable. Please remove it to check out.",
+    "loadError": "Your cart could not be loaded. Please try again.",
     "mutationFailed": "The cart could not be changed.",
     "reload": "Reload cart",
     "summaryTitle": "Order Summary",
@@ -801,7 +782,7 @@
     "paymentHint": "After placing your order, you will be redirected to our secure payment provider to complete the payment.",
     "paymentNotRequiredHint": "No payment is required for this order. It will be confirmed immediately.",
     "orderSummary": "Order Summary",
-    "submit": "Place Order",
+    "submit": "Order with obligation to pay",
     "submitFree": "Place Order",
     "submitting": "Processing...",
     "backToCart": "Back to Cart",
@@ -864,9 +845,16 @@
       "error": "Could not load order status.",
       "titleCancelled": "Order Cancelled",
       "descriptionCancelled": "This order was cancelled. No payment is outstanding.",
+      "titlePaymentFailed": "Payment Failed",
+      "descriptionPaymentFailed": "The payment could not be completed. Your order is still open — please try again.",
+      "titlePaymentCanceled": "Payment Cancelled",
+      "descriptionPaymentCanceled": "You cancelled the payment. Your order is still open — you can start the payment again at any time.",
+      "titlePaymentExpired": "Payment Expired",
+      "descriptionPaymentExpired": "The payment session has expired. Please start the payment again to complete your order.",
       "waitingStopped": "We have not received a payment confirmation yet. Check again, or start the payment once more.",
       "refresh": "Check status again",
       "retryPayment": "Pay for this order",
+      "retryPaymentAgain": "Pay again",
       "retryPaymentFailed": "The payment could not be started. Please try again.",
       "missingOrderId": "This link has no order number, so there is nothing to show here.",
       "goToOrders": "Go to your orders"
@@ -915,7 +903,7 @@
       "title": "Upload an image for this product",
       "body": "This design is already set up for the selected product and color. Add one image to begin editing. You can also paste it from the clipboard.",
       "action": "Upload image",
-      "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF).",
+      "errorFileType": "Please upload an image file (JPG, PNG, or WebP).",
       "errorFileSize": "File is too large. Maximum size is 10 MB."
     },
     "addToCart": {
@@ -1092,13 +1080,13 @@
         "label": "Upload Image",
         "title": "Upload & Crop Image",
         "dropzoneTitle": "Drop or paste your image here, or click to browse",
-        "dropzoneHint": "JPG, PNG, WebP, or GIF",
+        "dropzoneHint": "JPG, PNG, or WebP",
         "constraints": "Maximum file size: 10 MB",
         "previewAlt": "Uploaded image preview",
         "change": "Change",
         "remove": "Remove",
         "editCrop": "Edit Crop",
-        "errorFileType": "Please upload an image file (JPG, PNG, WebP, or GIF)",
+        "errorFileType": "Please upload an image file (JPG, PNG, or WebP)",
         "errorFileSize": "File is too large. Maximum size is 10 MB.",
         "cropDialog": {
           "title": "Crop Image",
@@ -1118,7 +1106,7 @@
         "costSuffix": "{coins} Coin",
         "refillMagicCoins": "Refill Magic Coins",
         "checkingMagicCoins": "Checking your Magic Coins...",
-        "insufficientMagicCoins": "You don’t have enough Magic Coins. Refill your balance to generate more images.",
+        "insufficientMagicCoins": "You don’t have any Magic Coins left to generate more AI designs right now.",
         "magicCoinsUnavailable": "Magic Coins are currently unavailable. Please try again later.",
         "historyLabel": "Your variations",
         "variationAlt": "Variation {number}",

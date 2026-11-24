@@ -58,9 +58,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ### Neu entdeckte rechtliche Punkte (Audit 2026-11-22)
 
-- [ ] **A15. [BLOCKER] Englischer Bestellbutton rechtlich unwirksam (§ 312j Abs. 3 & 4 BGB)** – `frontend/src/i18n/locales/en.json:804`
-  `en.json:804` zeigt `"Place Order"` statt `"Order with obligation to pay"` / `"Buy now"`. Damit kommt bei englischer UI kein wirksamer Vertrag zustande.
-  Fix: Auf `"Order with obligation to pay"` (oder `"Buy now"`) ändern.
+- [x] **A15. [BLOCKER] Englischer Bestellbutton rechtlich unwirksam (§ 312j Abs. 3 & 4 BGB)** – `frontend/src/i18n/locales/en.json`
+  Erledigt: `checkout.submit` in `en.json` auf `"Order with obligation to pay"` geändert.
 - [ ] **A16. [BLOCKER] Zahlungsinformationen fehlen vor/im Bestellprozess (§ 312j Abs. 1 BGB)** – `frontend/src/views/shop/PaymentView.vue`, `frontend/src/views/shop/CheckoutView.vue:370-380`
   `/payment` ist Platzhalter und die Kasse nennt die akzeptierten Zahlarten nicht.
   Fix: `/payment` mit den real aktiven Mollie-Zahlarten füllen und Zahlarten im Checkout sichtbar benennen.
@@ -86,9 +85,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 *(Bereits erledigt: `TODO #1` Route-Pattern-Logging — alte Webhook-Secrets trotzdem rotieren!; `TODO #2` `Secure`-Cookies; `TODO #6` Bildgrößen-Allowlist; `sourcemap: false`.)*
 
-- [ ] **B1. [BLOCKER] Service Worker cacht private `/api/`-Daten über Logout hinaus (`TODO #7`, auch DSGVO Art. 32)** – `frontend/vite.config.ts:35-43`
-  `NetworkFirst` auf `/api/` speichert `/api/auth/me`, Bestellungen, Bestell-Links und Admin-Daten 1 h lang und leert beim Logout nicht.
-  Fix: `/api/`-Eintrag aus `workbox.runtimeCaching` komplett entfernen.
+- [x] **B1. [BLOCKER] Service Worker cacht private `/api/`-Daten über Logout hinaus (`TODO #7`, auch DSGVO Art. 32)** – `frontend/vite.config.ts`
+  Erledigt: `/api/`-Eintrag aus `workbox.runtimeCaching` entfernt; der Service Worker cacht nur noch `/images/`.
 - [x] **B2. [BLOCKER] Mengenerhöhung zum alten / 0-€-Aktionspreis (`TODO #4`)** – `backend/src/modules/cart/service.ts`, `backend/src/modules/cart/repository.ts`, `backend/src/modules/cart/routes.ts`
   Erledigt: `PATCH /api/cart/items/:itemId` prüft `purchasable`/Preis (bzw. Prompt-Nutzbarkeit), lehnt nicht kaufbare Zeilen mit `409 CART_ITEM_UNAVAILABLE` ab und aktualisiert `price_cents` und `prompt_price_cents` aus dem Katalog; Doku in `docs/dev/backend/packages/cart-package.md` angepasst.
 - [x] **B3. [BLOCKER] Einmal-Gutschein mehrfach einlösbar über „erneut bezahlen“ (`TODO #5`)** – `backend/src/modules/order/payment/service.ts`, `backend/src/modules/promotion/codes.ts`, `backend/src/modules/checkout/service.ts`
@@ -119,8 +117,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **B13. [MITTEL] Klartext-Secrets in PostgreSQL & Admin-Session-Revocation (`TODO #11`)** – `backend/src/modules/production/repository.ts:204-244`, `backend/src/platform/auth/auth.ts:91-116,215-220`
   SFTP-Passwörter und SPOD-Live-Tokens liegen unverschlüsselt in der DB; `requireAdmin` prüft Rollen nur aus dem Stateless-Cookie (nicht widerrufbar bei Logout/Passwortwechsel/Rollenentzug).
   Fix: SFTP-/SPOD-Secrets mit AES-256-GCM at-rest verschlüsseln; `requireAdmin` gegen DB prüfen (wie `requireSupplier`).
-- [ ] **B14. [NIEDRIG] Unvalidierter `redirect`-Parameter & `bun audit`** – `frontend/src/views/auth/LoginView.vue:55-56`
-  `route.query.redirect` auf einzelne relative Pfade (`^/(?!/)`) validieren. Außerdem `bun audit` in `backend/` und `frontend/` mit installierten Abhängigkeiten ausführen.
+- [x] **B14. [NIEDRIG] Unvalidierter `redirect`-Parameter & `bun audit`** – `frontend/src/views/auth/LoginView.vue`
+  Erledigt (Frontend): `route.query.redirect` wird auf einzelne relative Pfade (`^/(?!/)`) geprüft; `bun audit` in `frontend/` ausgeführt (29 Prod-Findings / 114 inkl. Dev-Deps, u. a. `vue-i18n@9.14.5`, `defu@6.1.4`, Build-Tools — `backend/`-Audit noch in Paket 4).
 
 ---
 
@@ -134,35 +132,28 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **C2. [BLOCKER] Stil-Aufpreis wird angezeigt, aber nie berechnet** – `SelectStyleStep.vue:238-243`, `WizardView.vue:209-221`, `stores/shop/editor.ts:35-48`, `ProductEditor.vue:501-508`
   Assistent zeigt Stil-Preis (z. B. `3,95 €`), `promptId` geht aber zwischen Wizard → `EditorDraft` → `addToCart` verloren (`promptPrice` immer `0`).
   Fix: `promptId` durchreichen oder Stil-Preisanzeige entfernen.
-- [ ] **C3. [BLOCKER] Magic Coins halb fertig** – `Header.vue:110-116`, `MobileMenu.vue:376-384`, `MagicCoinsView.vue:63-78`, `GenerateStep.vue:276-280,345-349`
-  Header verlinkt für alle auf `/magic-coins` mit Paketpreisen (7,90–34,90 €), Kauf zeigt nur einen Toast (und Navigation aus `GenerateStep` löscht das hochgeladene Foto).
-  Fix: Links und Kaufpakete ausblenden, bis der echte Kauf inkl. § 356a BGB existiert.
+- [x] **C3. [BLOCKER] Magic Coins halb fertig** – `Header.vue`, `MobileMenu.vue`, `MagicCoinsView.vue`, `GenerateStep.vue`
+  Erledigt: Header/MobileMenu zeigen nur den aktuellen Coin-Stand ohne Kauf-Link, Refill-CTAs in `GenerateStep` entfernt und Kaufpakete/Preise auf `/magic-coins` entfernt, bis ein echter Checkout existiert.
 - [ ] **C4. [HOCH] `/royal-dog` ohne Prompt-ID & fehlerhaftes Layout** – `frontend/src/views/shop/RoyalDogView.vue:13`, `frontend/src/layouts/ShopLayout.vue:13`
   `ROYAL_DOG_PROMPT_ID` ist `null`; außerdem rendert `ShopLayout` nur `home` full-bleed, sodass `/royal-dog` in `max-w-7xl px-4` gequetscht wird.
   Fix: Prompt anlegen und ID setzen + `campaignLanding` full-bleed unterstützen (oder Seite bis dahin nicht bewerben/routen).
-- [ ] **C5. [HOCH / NEU] Abgebrochene/fehlgeschlagene Mollie-Zahlung zeigt „Warten auf Zahlungsbestätigung“** – `frontend/src/views/shop/OrderConfirmationView.vue:32-76,192-215`
-  `hasTerminalPayment` aus `useOrderStatusRefresh` wird ignoriert → nach Zahlungsabbruch bei Mollie sieht der Kunde keinen Fehlerstatus.
-  Fix: `hasTerminalPayment` / `paymentStatus` (`FAILED`, `CANCELED`, `EXPIRED`) auswerten und klaren Fehlerzustand + Retry-CTA anzeigen. *(Ebenfalls `?orderId=` strikt mit `/^[1-9]\d*$/` validieren, Zeile 19–23.)*
-- [ ] **C6. [HOCH / NEU] Mobile-Editor versteckt „In den Warenkorb“-Text auf Smartphones (`<= 430px`)** – `frontend/src/components/shop/editor/ProductEditor.vue:527-538`
-  `max-[430px]:sr-only` schrumpft den primären Kauf-CTA auf iPhone/Pixel zu einem unbeschrifteten 36×36-Icon.
-  Fix: Label auf Mobilgeräten sichtbar lassen.
-- [ ] **C7. [HOCH / NEU] GIF im Upload erlaubt, vom KI-Generator aber abgelehnt (400)** – `UploadImageStep.vue:12`, `stores/shop/wizard.ts:5`, `ImageUploadDropzone.vue:25` vs. `stores/shop/imageGeneration.ts:31`
-  Fix: `image/gif` aus Upload-Accept und Hilfetexten entfernen (oder vorab per Canvas konvertieren).
-- [ ] **C8. [HOCH] Wizard behält alte Motive & Warenkorb-Ladefehler wirkt wie „leer“ (`TODO #12, #13`)** – `stores/shop/imageGeneration.ts:61-135`, `WizardView.vue`, `CartView.vue:39-125`, `CheckoutView.vue:46-50`
-  Generationszähler + `reset()` bei Artikel-/Foto-/Stilwechsel einbauen; bei `cartStore.error` Fehler + Retry-Button statt „Warenkorb leer“ / Redirect anzeigen.
-- [ ] **C9. [HOCH / NEU] Concurrent-Fetch-Bug in `prompts`-, `catalog`- & `articleCategories`-Stores** – `stores/shop/prompts.ts:65-66`, `catalog.ts:221-222`, `articleCategories.ts:37-40`
-  `if (isLoading.value) return` wartet nicht auf das laufende Promise → Klick auf einen Stil auf `/` während des Ladens verwirft `?promptId=`.
-  Fix: `pendingRequest`-Promise cachen und zurückgeben (wie in `stores/shop/countries.ts:72-81`).
-- [ ] **C10. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** – `frontend/vite.config.ts:90-107`, `backend/src/platform/http/app.ts`
-  Chunk-Gruppen `admin`, `shop`, `shared` schalten Route-Lazy-Loading aus (~1,3 MB JS unkomprimiert auf `/`, davon ~450 KB Admin).
-  Fix: Die drei Gruppen entfernen (nur Vendor-Chunks behalten) und prüfen, ob Sliplane/Traefik komprimiert (sonst Hono `compress()` aktivieren).
-- [ ] **C11. [MITTEL] `sitemap.xml` fehlt & SW fängt `/robots.txt` ab** *(teilweise erledigt)* – `frontend/public/robots.txt`, `frontend/vite.config.ts:34`
-  `robots.txt` existiert jetzt, aber `sitemap.xml` fehlt (liefert HTTP 200 HTML) und `navigateFallbackDenylist` schließt `/robots.txt` und `/sitemap.xml` nicht aus.
-  Fix: `sitemap.xml` anlegen, in `robots.txt` referenzieren und beide Pfade in `navigateFallbackDenylist` aufnehmen.
-- [ ] **C12. [MITTEL] UX- & i18n-Feinschliff (`TODO #18–#20` + NEU)**:
-  - Doppelklick auf `+/-` im Warenkorb (`CartLineItem.vue:158-180`) und Doppel-Submit in Kasse/Retry (`CheckoutView.vue:268-276`, `OrderConfirmationView.vue:83-106`) sperren.
-  - „Zur Kasse“-Button deaktivieren, solange nicht verfügbare Artikel im Warenkorb liegen (`CartView.vue:70-76`, `CartSummary.vue:68-77`).
-  - `RegisterView.vue:110-116`: `minlength="8"` ergänzen; rohe englische Backend-Fehlermeldungen nicht 1:1 in der deutschen UI anzeigen; Auth-Store nur bei `401` ausloggen (`stores/shared/auth.ts:186-193`); `localStorage`-Zugriffe mit `try/catch` schützen (`i18n/index.ts:9`, `stores/shared/{locale,theme}.ts`); `LandingCarousel` `ResizeObserver` via `watch(trackRef)` anhängen; ungenutzte Deps/Dateien bereinigen (`TODO #18`); kleine i18n-Reste (`HeaderSubcategoryMenuCard.vue:42` „No image“, `MobileMenu.vue:148,157`, `TextToolPanel.vue:244` „deg“).
+- [x] **C5. [HOCH / NEU] Abgebrochene/fehlgeschlagene Mollie-Zahlung zeigt „Warten auf Zahlungsbestätigung“** – `frontend/src/views/shop/OrderConfirmationView.vue`
+  Erledigt: `hasTerminalPayment` (`FAILED`, `CANCELED`, `EXPIRED`) zeigt Fehler-Icon, passenden Titel/Text und prominenten „Erneut bezahlen“-Button; `?orderId=` strikt mit `/^[1-9]\d*$/` validiert; Doppel-Submit via `isRedirecting` gesperrt.
+- [x] **C6. [HOCH / NEU] Mobile-Editor versteckt „In den Warenkorb“-Text auf Smartphones (`<= 430px`)** – `frontend/src/components/shop/editor/ProductEditor.vue`
+  Erledigt: `max-[430px]:sr-only` und Icon-Only-Schrumpfung entfernt, sodass der Button-Text auf allen mobilen Breiten sichtbar bleibt.
+- [x] **C7. [HOCH / NEU] GIF im Upload erlaubt, vom KI-Generator aber abgelehnt (400)** – `UploadImageStep.vue`, `stores/shop/wizard.ts`, `ImageUploadDropzone.vue`, `ProductDraftUpload.vue`, `de.json`, `en.json`
+  Erledigt: `image/gif` aus akzeptierten Typen und Hilfetexten für den Shop-Upload entfernt.
+- [x] **C8. [HOCH] Wizard behält alte Motive & Warenkorb-Ladefehler wirkt wie „leer“ (`TODO #12, #13`)** – `stores/shop/imageGeneration.ts`, `WizardView.vue`, `CartView.vue`, `CheckoutView.vue`
+  Erledigt: Generationszähler + `AbortController` in `imageGeneration.ts`, `reset()` bei Artikel-/Foto-/Stilwechsel in `WizardView.vue`; Fehlerkarte + Retry in `CartView.vue` und `CheckoutView.vue` statt Falsch-„leer“ bzw. Redirect.
+- [x] **C9. [HOCH / NEU] Concurrent-Fetch-Bug in `prompts`-, `catalog`- & `articleCategories`-Stores** – `stores/shop/prompts.ts`, `catalog.ts`, `articleCategories.ts`
+  Erledigt: Laufendes `pendingRequest`-Promise wird in allen drei Stores gespeichert und an parallele Aufrufer zurückgegeben.
+- [ ] **C10. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** *(Frontend erledigt)* – `frontend/vite.config.ts`, `backend/src/platform/http/app.ts`
+  Frontend erledigt: Chunk-Gruppen `admin`, `shop`, `shared` und `radix-vue` aus `vite.config.ts` entfernt, sodass Admin-Views getrennt in `dist/assets/admin/` lazy-loaded werden.
+  Noch offen (Backend/Betrieb): prüfen, ob Sliplane/Traefik komprimiert (sonst Hono `compress()` aktivieren).
+- [x] **C11. [MITTEL] `sitemap.xml` fehlt & SW fängt `/robots.txt` ab** – `frontend/public/robots.txt`, `frontend/public/sitemap.xml`, `frontend/vite.config.ts`
+  Erledigt: `sitemap.xml` angelegt, in `robots.txt` referenziert und `/^\/robots\.txt$/`, `/^\/sitemap\.xml$/` in `navigateFallbackDenylist` aufgenommen.
+- [x] **C12. [MITTEL] UX- & i18n-Feinschliff (`TODO #18–#20` + NEU)** – `CartLineItem.vue`, `CartSummary.vue`, `CartView.vue`, `CheckoutView.vue`, `OrderConfirmationView.vue`, `RegisterView.vue`, `LoginView.vue`, `ProfileView.vue`, `OrderView.vue`, `OrderDetails.vue`, `stores/shared/{auth,locale,theme}.ts`, `i18n/index.ts`, `LandingCarousel.vue`, `HeaderSubcategoryMenuCard.vue`, `MobileMenu.vue`, `TextToolPanel.vue`, `CartButton.vue`, `LanguageDropdown.vue`, `frontend/package.json`
+  Erledigt: Doppelklick-/Doppel-Submit-Schutz im Warenkorb und Checkout, „Zur Kasse“-Sperre bei nicht verfügbaren Artikeln, `minlength="8"` bei Registrierung, lokalisierte Fehler-Fallbacks statt roher Backend-Texte, `auth.ts`-Logout nur bei `401`, `try/catch` für `localStorage`, `LandingCarousel` `ResizeObserver` via `watch(trackRef)`, ungenutzte Deps (`@iconify/vue`, `@tanstack/vue-table`, `radix-vue`, `vite-plugin-vue-devtools`) und `useImageContainRect.ts` entfernt, i18n-/A11y-Reste behoben.
 
 ### Backend, Datenbank & Fulfillment (bestehend + neu)
 

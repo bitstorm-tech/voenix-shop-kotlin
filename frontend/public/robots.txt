@@ -7,3 +7,5 @@ Disallow: /checkout
 Disallow: /order
 Disallow: /profile
 Disallow: /editor
+
+Sitemap: https://voenix.shop/sitemap.xml

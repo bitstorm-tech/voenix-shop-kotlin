@@ -234,7 +234,7 @@ describe('GenerateStep', () => {
     expect(wrapper.get('p').text()).toBe('configurator.steps.generate.errorMessage')
   })
 
-  it('keeps the insufficient Magic Coins panel for the coin code branch', () => {
+  it('keeps the insufficient Magic Coins panel without a refill link', () => {
     const wrapper = mountRefusedGeneration({
       message: 'Not enough Magic Coins',
       code: 'INSUFFICIENT_MAGIC_COINS',
@@ -242,6 +242,7 @@ describe('GenerateStep', () => {
     })
 
     expect(wrapper.get('p').text()).toBe('configurator.steps.generate.insufficientMagicCoins')
+    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
   })
 
   it('opens the lightbox when the main preview is clicked', async () => {

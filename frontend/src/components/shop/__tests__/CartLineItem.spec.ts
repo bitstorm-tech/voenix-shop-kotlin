@@ -22,8 +22,8 @@ const stubs = {
   Card: { template: '<li><slot /></li>' },
 }
 
-function mountLine(item: CartItem) {
-  return mount(CartLineItem, { props: { item }, global: { stubs } })
+function mountLine(item: CartItem, busy = false) {
+  return mount(CartLineItem, { props: { item, busy }, global: { stubs } })
 }
 
 describe('CartLineItem', () => {
@@ -111,5 +111,13 @@ describe('CartLineItem', () => {
     )
 
     expect(wrapper.get('[data-testid="cart-line-spod-fallback"]').attributes('fill')).toBe('none')
+  })
+
+  it('disables quantity and remove buttons while a line mutation is in flight', () => {
+    const wrapper = mountLine(createCartItem({ quantity: 2 }), true)
+
+    const buttons = wrapper.findAll('button')
+    expect(buttons).toHaveLength(3)
+    expect(buttons.every((button) => button.attributes('disabled') !== undefined)).toBe(true)
   })
 })

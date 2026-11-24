@@ -140,12 +140,21 @@ export const useCartStore = defineStore('cart', () => {
   const promotionErrorCode = shallowRef<PromotionApplicationErrorCode | null>(null)
   /** The message of the last failed quantity change or removal, until the next one succeeds. */
   const mutationError = shallowRef<string | null>(null)
+  /** Line ids whose quantity change or removal is currently in flight, to block double-clicks. */
+  const mutatingItemIds = shallowRef<ReadonlySet<number>>(new Set())
+  const isClearing = shallowRef(false)
 
   const totalItems = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
 
   const isEmpty = computed(() => items.value.length === 0)
 
   const hasUnavailableItem = computed(() => items.value.some((item) => !item.available))
+
+  const isMutating = computed(() => isClearing.value || mutatingItemIds.value.size > 0)
+
+  function isItemMutating(id: number): boolean {
+    return isClearing.value || mutatingItemIds.value.has(id)
+  }
 
   /**
    * Whether the cart contains a SPOD line. The checkout reads it for one rule: a SPOD article is
@@ -234,7 +243,14 @@ export const useCartStore = defineStore('cart', () => {
     applyCartView(cart)
   }
 
-  async function runItemMutation(request: () => Promise<CartView>): Promise<boolean> {
+  async function runItemMutation(id: number, request: () => Promise<CartView>): Promise<boolean> {
+    if (mutatingItemIds.value.has(id)) {
+      return false
+    }
+
+    const next = new Set(mutatingItemIds.value)
+    next.add(id)
+    mutatingItemIds.value = next
     mutationError.value = null
     try {
       applyCartView(await request())
@@ -246,11 +262,15 @@ export const useCartStore = defineStore('cart', () => {
       }
 
       throw err
+    } finally {
+      const remaining = new Set(mutatingItemIds.value)
+      remaining.delete(id)
+      mutatingItemIds.value = remaining
     }
   }
 
   function updateQuantity(id: number, quantity: number): Promise<boolean> {
-    return runItemMutation(() =>
+    return runItemMutation(id, () =>
       fetchJson<CartView>(`/api/cart/items/${id}`, {
         method: 'PATCH',
         body: { quantity },
@@ -259,18 +279,29 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   function removeItem(id: number): Promise<boolean> {
-    return runItemMutation(() => fetchJson<CartView>(`/api/cart/items/${id}`, { method: 'DELETE' }))
+    return runItemMutation(id, () =>
+      fetchJson<CartView>(`/api/cart/items/${id}`, { method: 'DELETE' }),
+    )
   }
 
   /** Removes the lines one by one and stops at the first refusal, which stays on `mutationError`. */
   async function clearCart(): Promise<boolean> {
-    for (const id of items.value.map((item) => item.id)) {
-      if (!(await removeItem(id))) {
-        return false
-      }
+    if (isClearing.value || mutatingItemIds.value.size > 0) {
+      return false
     }
 
-    return true
+    isClearing.value = true
+    try {
+      for (const id of items.value.map((item) => item.id)) {
+        if (!(await removeItem(id))) {
+          return false
+        }
+      }
+
+      return true
+    } finally {
+      isClearing.value = false
+    }
   }
 
   function clearMutationError() {
@@ -319,6 +350,9 @@ export const useCartStore = defineStore('cart', () => {
     isPromotionLoading,
     promotionErrorCode,
     mutationError,
+    isClearing,
+    isMutating,
+    isItemMutating,
     isEmpty,
     hasUnavailableItem,
     hasSpodItem,

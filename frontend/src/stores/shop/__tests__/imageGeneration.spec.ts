@@ -307,4 +307,47 @@ describe('imageGeneration store', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:editor-owned')
     expect(store.generatedImages).toHaveLength(0)
   })
+
+  it('discards a late generation response when reset is called while in flight', async () => {
+    const magicCoinsStore = useMagicCoinsStore()
+    magicCoinsStore.balance = 2
+    let resolveGenerate!: (response: Response) => void
+    const generatePromise = new Promise<Response>((resolve) => {
+      resolveGenerate = resolve
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === '/api/antiforgery/token') {
+          return Promise.resolve(jsonResponse({ requestToken: 'csrf-token' }))
+        }
+        if (url === '/api/generator/generate') {
+          return generatePromise
+        }
+        if (url === '/api/magic-coins/balance') {
+          return Promise.resolve(jsonResponse({ balance: 1 }))
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`))
+      }),
+    )
+
+    const store = useImageGenerationStore()
+    const pending = store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
+    store.reset()
+
+    resolveGenerate(
+      new Response(new Blob(['stale'], { type: 'image/png' }), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    )
+    await pending
+
+    expect(store.generatedImages).toEqual([])
+    expect(store.selectedImageId).toBeNull()
+    expect(store.isGenerating).toBe(false)
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
 })

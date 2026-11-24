@@ -11,7 +11,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_BYTES = 10 * 1024 * 1024
 
 const validationError = shallowRef<'fileType' | 'fileSize' | null>(null)

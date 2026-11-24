@@ -206,4 +206,38 @@ describe('shop prompts store', () => {
     ])
     expect(store.getSubcategoriesByCategory(30)).toEqual([])
   })
+
+  it('shares an in-flight promise across concurrent callers instead of returning early', async () => {
+    const store = usePromptsStore()
+    let resolveFetch!: (response: Response) => void
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = store.fetchPrompts()
+    const second = store.fetchPrompts()
+    let secondResolved = false
+    void second.then(() => {
+      secondResolved = true
+    })
+
+    await Promise.resolve()
+    expect(secondResolved).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    resolveFetch(
+      new Response(JSON.stringify(PUBLIC_PROMPT_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await Promise.all([first, second])
+
+    expect(secondResolved).toBe(true)
+    expect(store.getPromptById(1)).toEqual(PUBLIC_PROMPT_RESPONSE[0])
+  })
 })

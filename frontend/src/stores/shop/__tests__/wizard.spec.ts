@@ -37,4 +37,13 @@ describe('wizard store', () => {
     expect(wizard.selectedArticleId).toBeNull()
     expect(wizard.selectedVariantId).toBeNull()
   })
+
+  it('rejects GIF uploads because the AI generator only supports JPEG, PNG, and WebP', () => {
+    const wizard = useWizardStore()
+    const gifFile = new File(['GIF89a'], 'anim.gif', { type: 'image/gif' })
+
+    expect(wizard.setImage(gifFile)).toBe(false)
+    expect(wizard.validationError).toEqual({ type: 'fileType' })
+    expect(wizard.uploadedFile).toBeNull()
+  })
 })

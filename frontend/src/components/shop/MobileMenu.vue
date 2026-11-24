@@ -33,7 +33,6 @@ import { useLocaleStore } from '@/stores/shared/locale'
 import { useThemeStore, type Theme } from '@/stores/shared/theme'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
-import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import MagicCoinsBadge from './MagicCoinsBadge.vue'
 
 const { t, locale } = useI18n()
@@ -145,7 +144,7 @@ const activeThemeIcon = computed(
         variant="ghost"
         size="icon-sm"
         class="rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
-        aria-label="Open menu"
+        :aria-label="t('mobileMenu.openMenu')"
       >
         <Menu class="size-5" />
       </Button>
@@ -154,7 +153,7 @@ const activeThemeIcon = computed(
     <SheetContent
       side="right"
       class="flex w-full max-w-none flex-col p-0 sm:max-w-none"
-      close-label="Close"
+      :close-label="t('mobileMenu.closeMenu')"
     >
       <!-- Header -->
       <div class="flex min-h-14 items-center justify-end border-b p-4 pr-14">
@@ -373,15 +372,13 @@ const activeThemeIcon = computed(
           </div>
 
           <!-- Magic Coins -->
-          <Button
-            type="button"
-            variant="ghost"
-            class="flex w-full justify-start items-center rounded-md px-3 py-1 transition-colors hover:bg-accent"
+          <div
+            class="flex w-full items-center px-3 py-1"
             :aria-label="t('magicCoins.badgeLabel')"
-            @click="navigateTo(MAGIC_COINS_ROUTE)"
+            data-testid="mobile-menu-magic-coins"
           >
             <MagicCoinsBadge :coins="magicCoinsStore.balance" />
-          </Button>
+          </div>
 
           <!-- Language Switcher -->
           <div class="px-3">

@@ -110,4 +110,22 @@ describe('theme store', () => {
     expect(store.resolvedTheme).toBe('light')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
+
+  it('falls back safely when localStorage throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Blocked', 'SecurityError')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Blocked', 'SecurityError')
+    })
+
+    try {
+      const store = useThemeStore()
+      expect(store.theme).toBe('system')
+      expect(() => store.setTheme('dark')).not.toThrow()
+      expect(store.theme).toBe('dark')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
 })

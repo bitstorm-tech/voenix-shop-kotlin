@@ -169,20 +169,21 @@ describe('Header', () => {
     expect(className).not.toContain('overflow-x-auto')
   })
 
-  it('links the shared Magic Coins badge from the desktop header', () => {
+  it('displays the shared Magic Coins badge without linking to a purchase page', () => {
     const wrapper = mountHeader()
 
+    expect(wrapper.find('[data-testid="header-magic-coins"]').attributes('aria-label')).toBe(
+      'magicCoins.badgeLabel',
+    )
     const magicCoinsLink = wrapper
       .findAllComponents(RouterLinkStub)
       .find((link) => link.props('to') === MAGIC_COINS_ROUTE)
-
-    expect(magicCoinsLink).toBeTruthy()
-    expect(magicCoinsLink?.attributes('aria-label')).toBe('magicCoins.badgeLabel')
+    expect(magicCoinsLink).toBeUndefined()
   })
 
   it('renders the public taxonomy dataset in the real mobile menu in merchandising order', async () => {
     const wrapper = mountHeader({ realMobileMenu: true })
-    const openMenu = wrapper.get('button[aria-label="Open menu"]')
+    const openMenu = wrapper.get('button[aria-label="mobileMenu.openMenu"]')
 
     await openMenu.trigger('click')
 
@@ -196,5 +197,6 @@ describe('Header', () => {
     ])
     expect(document.body.textContent).toContain('Espresso')
     expect(document.body.textContent).toContain('Thermobecher')
+    expect(document.body.querySelector('[data-testid="mobile-menu-magic-coins"]')).not.toBeNull()
   })
 })

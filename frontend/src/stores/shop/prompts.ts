@@ -53,6 +53,9 @@ export const usePromptsStore = defineStore('prompts', () => {
   const STALE_MS = 5 * 60 * 1000
   let lastFetchedAt = 0
   let lastFetchedCategoryId: number | null = null
+  let pendingRequest: Promise<void> | null = null
+  let pendingCategoryId: number | null = null
+  let requestGeneration = 0
 
   /**
    * Loads the storefront prompts, optionally filtered by category.
@@ -62,17 +65,40 @@ export const usePromptsStore = defineStore('prompts', () => {
    * [getSubcategoriesByCategory] are derived from what was loaded: a filtered load leaves the
    * navigation with only the categories of that slice.
    */
-  async function fetchPrompts(categoryId: number | null = null) {
-    if (isLoading.value) return
+  async function fetchPrompts(categoryId: number | null = null): Promise<void> {
+    if (pendingRequest && pendingCategoryId === categoryId) {
+      return pendingRequest
+    }
 
     const now = Date.now()
     const isStale = now - lastFetchedAt > STALE_MS
     const isDifferentFilter = categoryId !== lastFetchedCategoryId
-    // A filter change replaces the list, so it shows its loading state and reports its failure
-    // like the first load does.
-    const isVisibleLoad = !hasFetched.value || isDifferentFilter
 
     if (hasFetched.value && !isDifferentFilter && !isStale) return
+
+    const generation = ++requestGeneration
+    const request = loadPrompts(categoryId, now, generation)
+    pendingRequest = request
+    pendingCategoryId = categoryId
+
+    try {
+      await request
+    } finally {
+      if (pendingRequest === request) {
+        pendingRequest = null
+        pendingCategoryId = null
+      }
+    }
+  }
+
+  async function loadPrompts(
+    categoryId: number | null,
+    now: number,
+    generation: number,
+  ): Promise<void> {
+    // A filter change replaces the list, so it shows its loading state and reports its failure
+    // like the first load does.
+    const isVisibleLoad = !hasFetched.value || categoryId !== lastFetchedCategoryId
 
     if (isVisibleLoad) {
       isLoading.value = true
@@ -81,15 +107,19 @@ export const usePromptsStore = defineStore('prompts', () => {
 
     try {
       const query = categoryId === null ? '' : `?categoryId=${categoryId}`
-      prompts.value = await fetchJson<PromptDto[]>(`/api/prompts${query}`)
+      const fetched = await fetchJson<PromptDto[]>(`/api/prompts${query}`)
+      if (generation !== requestGeneration) return
+
+      prompts.value = fetched
       hasFetched.value = true
       lastFetchedAt = now
       lastFetchedCategoryId = categoryId
       error.value = null
     } catch (err) {
+      if (generation !== requestGeneration) return
       if (isVisibleLoad) error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
-      if (isVisibleLoad) isLoading.value = false
+      if (generation === requestGeneration && isVisibleLoad) isLoading.value = false
     }
   }
 

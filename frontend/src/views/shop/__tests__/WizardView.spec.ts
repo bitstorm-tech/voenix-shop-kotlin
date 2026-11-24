@@ -499,4 +499,36 @@ describe('WizardView', () => {
     expect(wizardStore.selectedArticleId).toBeNull()
     expect(wizardStore.selectedVariantId).toBeNull()
   })
+
+  it('resets generated images when the customer changes article, photo, or style', async () => {
+    const wizardStore = useWizardStore()
+    wizardStore.selectArticle('MUG', 1, 11)
+    wizardStore.selectPrompt(7)
+    wizardStore.uploadedFile = new File(['first'], 'first.png', { type: 'image/png' })
+
+    const imageGenerationStore = useImageGenerationStore()
+    imageGenerationStore.generatedImages = [generatedImage('generated-1')]
+    imageGenerationStore.selectedImageId = 'generated-1'
+
+    await mountWizard()
+
+    // Changing article resets generated designs
+    wizardStore.selectArticle('MUG', 2, 21)
+    await nextTick()
+    expect(imageGenerationStore.generatedImages).toEqual([])
+
+    // Changing style resets generated designs
+    imageGenerationStore.generatedImages = [generatedImage('generated-2')]
+    imageGenerationStore.selectedImageId = 'generated-2'
+    wizardStore.selectPrompt(8)
+    await nextTick()
+    expect(imageGenerationStore.generatedImages).toEqual([])
+
+    // Changing uploaded photo resets generated designs
+    imageGenerationStore.generatedImages = [generatedImage('generated-3')]
+    imageGenerationStore.selectedImageId = 'generated-3'
+    wizardStore.uploadedFile = new File(['second'], 'second.png', { type: 'image/png' })
+    await nextTick()
+    expect(imageGenerationStore.generatedImages).toEqual([])
+  })
 })

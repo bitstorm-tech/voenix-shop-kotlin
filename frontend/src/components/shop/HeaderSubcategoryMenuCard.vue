@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { NavigationMenuLink } from '@/components/ui/navigation-menu'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 
@@ -8,6 +9,8 @@ defineProps<{
   imageSrc: string | null
   imageAlt: string
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -39,7 +42,7 @@ defineProps<{
           class="inline-flex min-h-8 min-w-[6.5rem] items-center justify-center rounded-lg border border-[oklch(0_0_0_/_0.16)] bg-[oklch(1_0_0_/_0.62)] text-[0.72rem] font-extrabold text-muted-foreground uppercase dark:border-[oklch(1_0_0_/_0.16)] dark:bg-[oklch(0.18_0.012_255_/_0.7)]"
           aria-hidden="true"
         >
-          No image
+          {{ t('header.noImage') }}
         </span>
       </span>
       <span

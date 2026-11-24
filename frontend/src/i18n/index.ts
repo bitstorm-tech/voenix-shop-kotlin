@@ -6,7 +6,11 @@ const STORAGE_KEY = 'voenix-locale'
 
 function getStoredLocale(): string {
   if (typeof window === 'undefined') return 'de'
-  return localStorage.getItem(STORAGE_KEY) || 'de'
+  try {
+    return localStorage.getItem(STORAGE_KEY) || 'de'
+  } catch {
+    return 'de'
+  }
 }
 
 const i18n = createI18n({

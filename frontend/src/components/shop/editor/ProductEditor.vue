@@ -526,13 +526,13 @@ async function handleAddToCart() {
     <div class="editor-actionbar flex items-center justify-end gap-3 max-[640px]:gap-2">
       <Button
         data-testid="editor-add-to-cart"
-        class="editor-add-to-cart min-w-0 flex-1 justify-center gap-[0.35rem] whitespace-nowrap px-2.5 text-[0.8125rem] max-[430px]:size-9 max-[430px]:flex-none max-[430px]:gap-0 max-[430px]:px-0 [&_svg]:size-[0.9rem] sm:flex-none sm:gap-2 sm:px-4 sm:text-sm sm:[&_svg]:size-4"
+        class="editor-add-to-cart min-w-0 flex-1 justify-center gap-2 whitespace-nowrap px-3 text-sm [&_svg]:size-4 sm:flex-none sm:px-4"
         :disabled="!canAddToCart"
         @click="handleAddToCart"
       >
         <Loader2 v-if="isAddingToCart" class="size-4 animate-spin" />
         <ShoppingCart v-else class="size-4" />
-        <span class="editor-add-to-cart-text max-[430px]:sr-only">
+        <span class="editor-add-to-cart-text">
           {{ t('editor.addToCart.label') }}
         </span>
       </Button>

@@ -9,15 +9,21 @@ import { formatPrice } from '@/lib/formatPrice'
 import type { AppliedPromotion, PromotionApplicationErrorCode } from '@/stores/shop/cart'
 
 /** The server-calculated totals of the current `CartView`; nothing here is recomputed locally. */
-defineProps<{
-  subtotal: number
-  shippingCost: number
-  discountAmount: number
-  total: number
-  appliedPromotion: AppliedPromotion | null
-  isPromotionLoading: boolean
-  promotionErrorCode: PromotionApplicationErrorCode | null
-}>()
+withDefaults(
+  defineProps<{
+    subtotal: number
+    shippingCost: number
+    discountAmount: number
+    total: number
+    appliedPromotion: AppliedPromotion | null
+    isPromotionLoading: boolean
+    promotionErrorCode: PromotionApplicationErrorCode | null
+    checkoutDisabled?: boolean
+  }>(),
+  {
+    checkoutDisabled: false,
+  },
+)
 
 const emit = defineEmits<{
   applyPromotion: [promotionCode: string]
@@ -69,6 +75,7 @@ const FREE_SHIPPING_THRESHOLD_IN_CENTS = 5000
       class="mt-6 w-full"
       variant="shop"
       size="shop"
+      :disabled="checkoutDisabled"
       data-testid="cart-checkout"
       @click="emit('checkout')"
     >

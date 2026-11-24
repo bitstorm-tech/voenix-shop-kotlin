@@ -68,6 +68,8 @@ describe('TextToolPanel', () => {
     ])
     expect(wrapper.findAllComponents(SwatchButton)).toHaveLength(10)
     expect(wrapper.findComponent(ColorInput).exists()).toBe(true)
+    expect(wrapper.text()).toContain('0°')
+    expect(wrapper.text()).not.toContain('0 deg')
   })
 
   it('updates the selected overlay when choosing preset and custom colors', async () => {

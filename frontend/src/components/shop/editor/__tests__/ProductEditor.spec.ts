@@ -544,4 +544,14 @@ describe('ProductEditor', () => {
     const clipart = wrapper.get('[data-testid="editor-clipart"]')
     expect(clipart.findAll('[data-testid^="editor-clipart-resize-"]')).toHaveLength(0)
   })
+
+  it('keeps the add-to-cart button label visible on small mobile viewports', () => {
+    const wrapper = mountProductEditor(createDraft())
+    const button = wrapper.get('[data-testid="editor-add-to-cart"]')
+    const label = button.get('.editor-add-to-cart-text')
+
+    expect(button.classes()).not.toContain('max-[430px]:size-9')
+    expect(label.classes()).not.toContain('max-[430px]:sr-only')
+    expect(label.text()).toBe('editor.addToCart.label')
+  })
 })

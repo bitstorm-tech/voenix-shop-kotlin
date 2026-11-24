@@ -71,6 +71,20 @@ watch(
   },
 )
 
+// Changing the article, uploaded/cropped photo, or style invalidates previously generated designs
+// (and cancels any in-flight generation for the old inputs).
+watch(
+  () => [
+    wizardStore.selectedArticleType,
+    wizardStore.selectedArticleId,
+    wizardStore.imageForGeneration,
+    wizardStore.selectedPromptId,
+  ],
+  () => {
+    imageGenerationStore.reset()
+  },
+)
+
 interface StepDef {
   id: 'selectArticle' | 'selectStyle' | 'uploadImage' | 'generate'
   labelKey: string

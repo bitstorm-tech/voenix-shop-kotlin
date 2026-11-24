@@ -92,9 +92,23 @@ describe('CartView', () => {
     expect(quantityButtons.every((button) => button.attributes('disabled') !== undefined)).toBe(
       true,
     )
+    expect(wrapper.get('[data-testid="cart-checkout"]').attributes('disabled')).toBeDefined()
   })
 
-  it('surfaces a refused removal instead of swallowing it', async () => {
+  it('shows a load error card with retry instead of an empty cart when fetching fails', async () => {
+    const store = useCartStore()
+    vi.spyOn(store, 'fetchCart').mockImplementation(async () => {
+      store.error = 'HTTP error 500'
+    })
+
+    const { wrapper } = await mountCart()
+
+    expect(wrapper.get('[data-testid="cart-load-error"]').text()).toContain('cart.loadError')
+    expect(wrapper.text()).not.toContain('cart.empty')
+    expect(wrapper.text()).not.toContain('HTTP error 500')
+  })
+
+  it('surfaces a refused removal with localized copy instead of raw backend error text', async () => {
     const store = useCartStore()
     vi.spyOn(store, 'fetchCart').mockImplementation(async () => {
       store.items = [createCartItem()]
@@ -116,6 +130,6 @@ describe('CartView', () => {
     expect(store.removeItem).toHaveBeenCalledWith(34)
     const alert = wrapper.get('[data-testid="cart-mutation-error"]')
     expect(alert.text()).toContain('cart.mutationFailed')
-    expect(alert.text()).toContain('Cart item not found')
+    expect(alert.text()).not.toContain('Cart item not found')
   })
 })

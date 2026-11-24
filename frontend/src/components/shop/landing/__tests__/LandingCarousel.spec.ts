@@ -200,4 +200,34 @@ describe('LandingCarousel', () => {
 
     expect(activeFinalDot.attributes('aria-current')).toBe('page')
   })
+
+  it('attaches ResizeObserver once the track mounts after loading completes', async () => {
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = observe
+        unobserve = vi.fn()
+        disconnect = disconnect
+      },
+    )
+
+    try {
+      const wrapper = mountCarousel({ prompts: [], isLoading: true })
+      expect(observe).not.toHaveBeenCalled()
+
+      await wrapper.setProps({ items: [makePrompt()], isLoading: false })
+      await nextTick()
+
+      expect(observe).toHaveBeenCalledWith(
+        wrapper.get('[data-testid="style-carousel-track"]').element,
+      )
+
+      wrapper.unmount()
+      expect(disconnect).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

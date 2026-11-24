@@ -149,7 +149,11 @@ function getItemTotal(item: OrderItem) {
       </div>
       <div class="flex justify-between gap-6 sm:min-w-64">
         <span class="text-muted-foreground">{{ t('orders.shipping') }}</span>
-        <span class="font-medium tabular-nums">{{ formatPrice(order.shippingCost) }}</span>
+        <span class="font-medium tabular-nums">
+          {{
+            order.shippingCost === 0 ? t('orders.shippingFree') : formatPrice(order.shippingCost)
+          }}
+        </span>
       </div>
       <div v-if="hasDiscount" class="flex justify-between gap-6 sm:min-w-64">
         <span class="text-muted-foreground">{{ t('orders.discount') }}</span>

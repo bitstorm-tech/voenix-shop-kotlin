@@ -35,7 +35,7 @@ const registerErrorMessage = (error: AuthActionError): string => {
     case MAIL_DELIVERY_FAILED_STATUS:
       return t('auth.register.errors.mailDeliveryFailed')
     default:
-      return error.message || t('auth.register.errors.generic')
+      return t('auth.register.errors.generic')
   }
 }
 
@@ -110,6 +110,7 @@ const handleRegister = async () => {
           <PasswordInput
             id="password"
             v-model="password"
+            minlength="8"
             required
             autocomplete="new-password"
             :label="t('common.showPassword')"

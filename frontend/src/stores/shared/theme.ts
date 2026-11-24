@@ -28,7 +28,11 @@ export const useThemeStore = defineStore('theme', () => {
   function setTheme(value: Theme) {
     if (value === theme.value) return
     theme.value = value
-    localStorage.setItem(STORAGE_KEY, value)
+    try {
+      localStorage.setItem(STORAGE_KEY, value)
+    } catch {
+      // Ignore storage access errors in restricted browsing contexts.
+    }
   }
 
   return { theme, resolvedTheme, setTheme }
@@ -36,8 +40,12 @@ export const useThemeStore = defineStore('theme', () => {
 
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'system'
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  } catch {
+    return 'system'
+  }
   return 'system'
 }
 

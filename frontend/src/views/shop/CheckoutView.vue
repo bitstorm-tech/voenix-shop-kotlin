@@ -41,10 +41,12 @@ const rememberShipping = shallowRef(false)
 const rememberBilling = shallowRef(false)
 /** The inline phone message appears once the customer has tried to place the order, not before. */
 const hasAttemptedSubmit = shallowRef(false)
+/** Stays true on a Mollie redirect so a second click cannot double-submit while leaving the page. */
+const isRedirecting = shallowRef(false)
 
 onMounted(async () => {
   await Promise.all([cartStore.fetchCart(), countriesStore.fetchCountries()])
-  if (cartStore.isEmpty) {
+  if (cartStore.isEmpty && !cartStore.error) {
     router.replace({ name: 'cart' })
     return
   }
@@ -56,6 +58,13 @@ onMounted(async () => {
   // Only the shipping country is resolved against the list; the billing country is free text.
   checkoutStore.shippingAddress = withShippableCountry(checkoutStore.shippingAddress)
 })
+
+async function retryCart() {
+  await cartStore.fetchCart()
+  if (cartStore.isEmpty && !cartStore.error) {
+    router.replace({ name: 'cart' })
+  }
+}
 
 const isInitialLoading = computed(
   () =>
@@ -121,7 +130,11 @@ const areCountriesUnavailable = computed(
 )
 
 const isSubmitDisabled = computed(
-  () => checkoutStore.isSubmitting || countriesStore.isLoading || areCountriesUnavailable.value,
+  () =>
+    checkoutStore.isSubmitting ||
+    isRedirecting.value ||
+    countriesStore.isLoading ||
+    areCountriesUnavailable.value,
 )
 
 /**
@@ -165,7 +178,7 @@ const submitError = computed(() => {
     return t('checkout.errors.phoneRequiredForSpod')
   }
 
-  return checkoutStore.error
+  return checkoutStore.error ? t('checkout.errors.generic') : null
 })
 
 const isZeroTotal = computed(() => cartStore.totalPrice === 0)
@@ -173,7 +186,7 @@ const paymentHint = computed(() =>
   t(isZeroTotal.value ? 'checkout.paymentNotRequiredHint' : 'checkout.paymentHint'),
 )
 const submitLabel = computed(() => {
-  if (checkoutStore.isSubmitting) {
+  if (checkoutStore.isSubmitting || isRedirecting.value) {
     return t('checkout.submitting')
   }
 
@@ -230,6 +243,10 @@ async function retryCountries() {
 }
 
 async function handleSubmit() {
+  if (isSubmitDisabled.value) {
+    return
+  }
+
   hasAttemptedSubmit.value = true
 
   if (areCountriesUnavailable.value) {
@@ -265,6 +282,7 @@ async function handleSubmit() {
     return
   }
 
+  isRedirecting.value = true
   try {
     const result = await checkoutStore.submitCheckout()
     await rememberAddresses()
@@ -283,7 +301,9 @@ async function handleSubmit() {
       name: 'order-confirmation',
       query: { orderId: String(result.orderId) },
     })
+    isRedirecting.value = false
   } catch {
+    isRedirecting.value = false
     toast({ title: submitError.value ?? t('checkout.errors.generic'), variant: 'destructive' })
   }
 }
@@ -302,6 +322,18 @@ async function handleSubmit() {
     <div v-if="isInitialLoading" class="flex justify-center py-20">
       <Loader2 class="size-8 animate-spin text-muted-foreground" />
     </div>
+
+    <!-- Cart load error state -->
+    <Card
+      v-else-if="cartStore.error && cartStore.isEmpty"
+      class="flex flex-col items-center justify-center border-dashed py-16 text-center"
+      data-testid="checkout-cart-load-error"
+    >
+      <p class="text-sm text-destructive">{{ t('cart.loadError') }}</p>
+      <Button class="mt-4" variant="outline" @click="retryCart">
+        {{ t('cart.reload') }}
+      </Button>
+    </Card>
 
     <template v-else>
       <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
@@ -414,7 +446,9 @@ async function handleSubmit() {
                 class="flex justify-between gap-2 py-3 first:pt-0"
               >
                 <div class="min-w-0">
-                  <p class="truncate font-medium">{{ item.articleName }}</p>
+                  <p class="truncate font-medium">
+                    {{ item.articleName ?? t('cart.unknownArticle') }}
+                  </p>
                   <p class="text-muted-foreground">
                     {{ item.variantName }} &times; {{ item.quantity }}
                   </p>
@@ -491,7 +525,10 @@ async function handleSubmit() {
               :disabled="isSubmitDisabled"
               @click="handleSubmit"
             >
-              <Loader2 v-if="checkoutStore.isSubmitting" class="size-4 animate-spin" />
+              <Loader2
+                v-if="checkoutStore.isSubmitting || isRedirecting"
+                class="size-4 animate-spin"
+              />
               {{ submitLabel }}
             </Button>
             <Button as-child variant="ghost" class="mt-2 w-full text-muted-foreground">

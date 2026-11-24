@@ -31,16 +31,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/images\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/images\//, /^\/robots\.txt$/, /^\/sitemap\.xml$/],
         runtimeCaching: [
-          {
-            urlPattern: /\/api\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
-            },
-          },
           {
             urlPattern: /\/images\//,
             handler: 'CacheFirst',
@@ -78,7 +70,7 @@ export default defineConfig({
             // Vendor: Vue ecosystem
             {
               name: 'vendor-vue',
-              test: /node_modules[\\/](vue|pinia|@vue[\\/]|radix-vue|reka-ui)/,
+              test: /node_modules[\\/](vue|pinia|@vue[\\/]|reka-ui)/,
               priority: 20,
             },
             // Vendor: everything else in node_modules
@@ -86,24 +78,6 @@ export default defineConfig({
               name: 'vendor',
               test: /node_modules/,
               priority: 10,
-            },
-            // App: admin code
-            {
-              name: 'admin',
-              test: /[\\/](views|components|stores)[\\/]admin[\\/]|[\\/]layouts[\\/]AdminLayout\.vue|[\\/]router[\\/]admin\.ts/,
-              priority: 5,
-            },
-            // App: shop code
-            {
-              name: 'shop',
-              test: /[\\/](views|components|stores)[\\/]shop[\\/]|[\\/]layouts[\\/]ShopLayout\.vue|[\\/]router[\\/]shop\.ts/,
-              priority: 5,
-            },
-            // App: shared code
-            {
-              name: 'shared',
-              test: /[\\/]components[\\/]shared[\\/]|[\\/]stores[\\/]shared[\\/]|[\\/]layouts[\\/]EmptyLayout\.vue|[\\/]router[\\/]guards\.ts/,
-              priority: 5,
             },
           ],
         },

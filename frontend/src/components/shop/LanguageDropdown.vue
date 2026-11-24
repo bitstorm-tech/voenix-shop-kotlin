@@ -10,7 +10,7 @@ const languages = [
 ]
 
 const localeStore = useLocaleStore()
-const { locale } = useI18n()
+const { t, locale } = useI18n()
 
 const selectedLanguage = computed({
   get: () => localeStore.locale,
@@ -24,6 +24,7 @@ const selectedLanguage = computed({
 <template>
   <Select v-model="selectedLanguage">
     <SelectTrigger
+      :aria-label="t('header.selectLanguage')"
       class="h-auto w-auto gap-1 border-0 bg-transparent px-2 py-1.5 shadow-none focus:ring-0"
     >
       <span class="text-lg">{{ languages.find((l) => l.code === selectedLanguage)?.flag }}</span>

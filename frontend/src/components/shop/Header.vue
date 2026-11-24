@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import VoenixLogo from '@/assets/images/voenix-logo-text.svg'
-import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import { useAuthStore } from '@/stores/shared/auth'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCampaignStore } from '@/stores/shop/campaign'
@@ -107,13 +106,9 @@ function isCategoryActive(categoryId: number) {
           </template>
 
           <UserMenu v-if="authStore.isAuthenticated" />
-          <RouterLink
-            :to="MAGIC_COINS_ROUTE"
-            class="rounded-full transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2"
-            :aria-label="t('magicCoins.badgeLabel')"
-          >
+          <div :aria-label="t('magicCoins.badgeLabel')" data-testid="header-magic-coins">
             <MagicCoinsBadge :coins="magicCoinsStore.balance" />
-          </RouterLink>
+          </div>
           <ThemeToggle />
           <LanguageDropdown />
           <CartButton />

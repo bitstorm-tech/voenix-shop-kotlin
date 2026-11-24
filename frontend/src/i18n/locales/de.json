@@ -12,9 +12,13 @@
     "promoDescription": "Aquarell, Pop-Art, Ölgemälde und vieles mehr. Entdecke die verfügbaren Looks für dein Foto.",
     "promoCta": "Alle Stile entdecken",
     "login": "Anmelden",
-    "toggleTheme": "Farbmodus umschalten"
+    "toggleTheme": "Farbmodus umschalten",
+    "noImage": "Kein Bild",
+    "selectLanguage": "Sprache auswählen"
   },
   "mobileMenu": {
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Schließen",
     "navigation": "Produkte",
     "account": "Konto",
     "orders": "Bestellungen",
@@ -34,39 +38,14 @@
   "magicCoins": {
     "badgeLabel": "Magic Coins",
     "hero": {
-      "title": "Fülle deine Magic Coins auf und bleib im Flow."
-    },
-    "plans": {
-      "popular": "Am beliebtesten",
-      "selected": "Aktiv",
-      "coinsLabel": "Magic Coins",
-      "bonusLabel": "+{coins} Bonus",
-      "priceSuffix": "einmalig",
-      "items": {
-        "starter": {
-          "name": "Starter"
-        },
-        "studio": {
-          "name": "Studio"
-        },
-        "reserve": {
-          "name": "Reserve"
-        }
-      }
+      "title": "Magic Coins"
     },
     "summary": {
-      "eyebrow": "Deine Auswahl",
-      "currentBalance": "Aktueller Bestand",
-      "selectedPlan": "Ausgewähltes Paket",
-      "packagePrice": "Paketpreis",
-      "afterPurchase": "Bestand danach",
-      "cta": "Weiter zum Kauf",
-      "guestCta": "Anmelden und kaufen"
+      "currentBalance": "Aktueller Bestand"
     },
-    "toast": {
-      "title": "{plan} ist ausgewählt",
-      "description": "Der nächste Schritt verbindet diese Auswahl mit dem Kauf-Checkout für Magic Coins."
-    }
+    "unavailableTitle": "Zusätzliche Magic Coins sind bald verfügbar",
+    "unavailableDescription": "Der Kauf zusätzlicher Magic-Coins-Pakete ist derzeit noch nicht freigeschaltet. Dein aktuelles Guthaben siehst du oben.",
+    "backToProducts": "Produkte entdecken"
   },
   "auth": {
     "login": {
@@ -259,6 +238,7 @@
     "title": "Meine Bestellungen",
     "subtitle": "Hier siehst du deine bisherigen Bestellungen inklusive Zahlungsstatus und Artikelübersicht.",
     "profileAction": "Zum Profil",
+    "loadError": "Deine Bestellungen konnten nicht geladen werden. Bitte versuche es erneut.",
     "retry": "Erneut laden",
     "emptyTitle": "Noch keine Bestellungen",
     "emptyDescription": "Sobald du etwas bestellst, taucht deine Bestellhistorie hier auf.",
@@ -761,6 +741,7 @@
     "unknownArticle": "Nicht mehr verfügbarer Artikel",
     "unavailable": "Nicht mehr bestellbar",
     "unavailableHint": "Ein Artikel in deinem Warenkorb ist nicht mehr bestellbar. Bitte entferne ihn, um zur Kasse zu gehen.",
+    "loadError": "Dein Warenkorb konnte nicht geladen werden. Bitte versuche es erneut.",
     "mutationFailed": "Der Warenkorb konnte nicht geändert werden.",
     "reload": "Warenkorb neu laden",
     "summaryTitle": "Bestellübersicht",
@@ -864,9 +845,16 @@
       "error": "Bestellstatus konnte nicht geladen werden.",
       "titleCancelled": "Bestellung storniert",
       "descriptionCancelled": "Diese Bestellung wurde storniert. Es ist keine Zahlung offen.",
+      "titlePaymentFailed": "Zahlung fehlgeschlagen",
+      "descriptionPaymentFailed": "Die Zahlung konnte nicht abgeschlossen werden. Deine Bestellung ist noch offen – bitte versuche es erneut.",
+      "titlePaymentCanceled": "Zahlung abgebrochen",
+      "descriptionPaymentCanceled": "Du hast die Zahlung abgebrochen. Deine Bestellung ist noch offen – du kannst die Zahlung jederzeit erneut starten.",
+      "titlePaymentExpired": "Zahlung abgelaufen",
+      "descriptionPaymentExpired": "Das Zeitfenster für die Zahlung ist abgelaufen. Bitte starte die Zahlung erneut, um deine Bestellung abzuschließen.",
       "waitingStopped": "Wir haben noch keine Zahlungsbestätigung erhalten. Prüfe den Status erneut oder starte die Zahlung noch einmal.",
       "refresh": "Status erneut prüfen",
       "retryPayment": "Bestellung bezahlen",
+      "retryPaymentAgain": "Erneut bezahlen",
       "retryPaymentFailed": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
       "missingOrderId": "Dieser Link enthält keine Bestellnummer, daher lässt sich hier nichts anzeigen.",
       "goToOrders": "Zu deinen Bestellungen"
@@ -915,7 +903,7 @@
       "title": "Bild für dieses Produkt hochladen",
       "body": "Dieses Design ist bereits für das gewählte Produkt und die Farbe eingerichtet. Lade ein Bild hoch, um mit der Bearbeitung zu beginnen. Du kannst es auch aus der Zwischenablage einfügen.",
       "action": "Bild hochladen",
-      "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF).",
+      "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG oder WebP).",
       "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB."
     },
     "addToCart": {
@@ -1092,13 +1080,13 @@
         "label": "Bild hochladen",
         "title": "Bild hochladen & zuschneiden",
         "dropzoneTitle": "Bild hierher ziehen, einfügen oder klicken zum Durchsuchen",
-        "dropzoneHint": "JPG, PNG, WebP oder GIF",
+        "dropzoneHint": "JPG, PNG oder WebP",
         "constraints": "Maximale Dateigröße: 10 MB",
         "previewAlt": "Vorschau des hochgeladenen Bildes",
         "change": "Ändern",
         "remove": "Entfernen",
         "editCrop": "Zuschnitt bearbeiten",
-        "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG, WebP oder GIF)",
+        "errorFileType": "Bitte lade eine Bilddatei hoch (JPG, PNG oder WebP)",
         "errorFileSize": "Die Datei ist zu groß. Maximale Größe: 10 MB.",
         "cropDialog": {
           "title": "Bild zuschneiden",
@@ -1118,7 +1106,7 @@
         "costSuffix": "{coins} Coin",
         "refillMagicCoins": "Magic Coins aufladen",
         "checkingMagicCoins": "Deine Magic Coins werden geprüft...",
-        "insufficientMagicCoins": "Du hast nicht genug Magic Coins. Lade dein Guthaben auf, um weitere Bilder zu generieren.",
+        "insufficientMagicCoins": "Du hast aktuell keine Magic Coins mehr übrig, um weitere KI-Designs zu generieren.",
         "magicCoinsUnavailable": "Magic Coins sind aktuell nicht verfügbar. Bitte versuche es später erneut.",
         "historyLabel": "Deine Variationen",
         "variationAlt": "Variation {number}",

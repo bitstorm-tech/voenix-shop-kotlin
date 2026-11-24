@@ -17,9 +17,13 @@ const checkoutStore = useCheckoutStore()
 
 /** Mollie sends the customer back here with the order they paid for as a query parameter. */
 const orderId = computed(() => {
-  const id = route.query.orderId
-  const parsed = id === undefined ? Number.NaN : Number(id)
-  return Number.isInteger(parsed) ? parsed : null
+  const raw = route.query.orderId
+  const id = Array.isArray(raw) ? raw[0] : raw
+  if (typeof id !== 'string' || !/^[1-9]\d*$/.test(id)) {
+    return null
+  }
+  const parsed = Number(id)
+  return Number.isSafeInteger(parsed) ? parsed : null
 })
 
 /**
@@ -37,16 +41,35 @@ const {
   hasFailed,
   isPaid,
   isCancelled,
+  hasTerminalPayment,
   isWaiting,
   hasStoppedWaiting,
   refreshNow,
 } = useOrderStatusRefresh(orderId)
 
 const paymentError = shallowRef<string | null>(null)
+/** Keeps the retry button locked once a checkout URL redirect is triggered so double-clicks cannot fire a second request. */
+const isRedirecting = shallowRef(false)
+
+const isPaymentFailedState = computed(
+  () => !isPaid.value && !isCancelled.value && hasTerminalPayment.value,
+)
+
+const isRetryDisabled = computed(() => checkoutStore.isSubmitting || isRedirecting.value)
 
 const confirmationTitle = computed(() => {
   if (isCancelled.value) {
     return t('checkout.confirmation.titleCancelled')
+  }
+  if (isPaymentFailedState.value) {
+    switch (paymentStatus.value) {
+      case 'CANCELED':
+        return t('checkout.confirmation.titlePaymentCanceled')
+      case 'EXPIRED':
+        return t('checkout.confirmation.titlePaymentExpired')
+      default:
+        return t('checkout.confirmation.titlePaymentFailed')
+    }
   }
   if (!isPaid.value) {
     return t('checkout.confirmation.titlePending')
@@ -63,6 +86,16 @@ const confirmationTitle = computed(() => {
 const confirmationDescription = computed(() => {
   if (isCancelled.value) {
     return t('checkout.confirmation.descriptionCancelled')
+  }
+  if (isPaymentFailedState.value) {
+    switch (paymentStatus.value) {
+      case 'CANCELED':
+        return t('checkout.confirmation.descriptionPaymentCanceled')
+      case 'EXPIRED':
+        return t('checkout.confirmation.descriptionPaymentExpired')
+      default:
+        return t('checkout.confirmation.descriptionPaymentFailed')
+    }
   }
   if (!isPaid.value) {
     return t('checkout.confirmation.descriptionPending')
@@ -82,10 +115,11 @@ const canRetryPayment = computed(
 
 async function retryPayment() {
   const id = orderId.value
-  if (id === null) {
+  if (id === null || isRetryDisabled.value) {
     return
   }
 
+  isRedirecting.value = true
   paymentError.value = null
   try {
     const result = await checkoutStore.startPayment(id)
@@ -95,8 +129,10 @@ async function retryPayment() {
     }
 
     // No URL means there is nothing to pay for this order; the fresh status says why.
+    isRedirecting.value = false
     await refreshNow()
   } catch (error) {
+    isRedirecting.value = false
     paymentError.value = retryErrorMessage(error)
     // `ORDER_ALREADY_PAID` means the confirmation this page waited for arrived elsewhere.
     if (error instanceof CheckoutError && error.code === 'ORDER_ALREADY_PAID') {
@@ -157,10 +193,16 @@ function retryErrorMessage(error: unknown): string {
           <div
             :class="[
               'flex size-16 items-center justify-center rounded-full',
-              isPaid ? 'bg-success-surface' : 'bg-warning-surface',
+              isPaid
+                ? 'bg-success-surface'
+                : isPaymentFailedState
+                  ? 'bg-destructive-soft'
+                  : 'bg-warning-surface',
             ]"
+            :data-testid="isPaymentFailedState ? 'order-payment-failed-icon' : undefined"
           >
             <CheckCircle v-if="isPaid" class="text-success size-8" />
+            <CircleX v-else-if="isPaymentFailedState" class="text-destructive size-8" />
             <CircleX v-else-if="isCancelled" class="text-warning size-8" />
             <Clock v-else class="text-warning size-8" />
           </div>
@@ -215,25 +257,49 @@ function retryErrorMessage(error: unknown): string {
 
         <!-- Asking again, and asking for another payment -->
         <div v-if="canRetryPayment" class="mt-6 space-y-2">
-          <Button
-            variant="outline"
-            class="w-full"
-            :disabled="isRefreshing"
-            data-testid="order-status-refresh"
-            @click="refreshNow"
-          >
-            <RefreshCw class="size-4" :class="{ 'animate-spin': isRefreshing }" />
-            {{ t('checkout.confirmation.refresh') }}
-          </Button>
-          <Button
-            class="w-full"
-            :disabled="checkoutStore.isSubmitting"
-            data-testid="retry-payment"
-            @click="retryPayment"
-          >
-            <Loader2 v-if="checkoutStore.isSubmitting" class="size-4 animate-spin" />
-            {{ t('checkout.confirmation.retryPayment') }}
-          </Button>
+          <template v-if="isPaymentFailedState">
+            <Button
+              class="w-full"
+              size="lg"
+              :disabled="isRetryDisabled"
+              data-testid="retry-payment"
+              @click="retryPayment"
+            >
+              <Loader2 v-if="isRetryDisabled" class="size-4 animate-spin" />
+              {{ t('checkout.confirmation.retryPaymentAgain') }}
+            </Button>
+            <Button
+              variant="outline"
+              class="w-full"
+              :disabled="isRefreshing"
+              data-testid="order-status-refresh"
+              @click="refreshNow"
+            >
+              <RefreshCw class="size-4" :class="{ 'animate-spin': isRefreshing }" />
+              {{ t('checkout.confirmation.refresh') }}
+            </Button>
+          </template>
+          <template v-else>
+            <Button
+              variant="outline"
+              class="w-full"
+              :disabled="isRefreshing"
+              data-testid="order-status-refresh"
+              @click="refreshNow"
+            >
+              <RefreshCw class="size-4" :class="{ 'animate-spin': isRefreshing }" />
+              {{ t('checkout.confirmation.refresh') }}
+            </Button>
+            <Button
+              class="w-full"
+              :disabled="isRetryDisabled"
+              data-testid="retry-payment"
+              @click="retryPayment"
+            >
+              <Loader2 v-if="isRetryDisabled" class="size-4 animate-spin" />
+              {{ t('checkout.confirmation.retryPayment') }}
+            </Button>
+          </template>
         </div>
 
         <!-- Back to shop -->

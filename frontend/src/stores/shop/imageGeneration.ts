@@ -42,6 +42,13 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
   const hasImages = computed(() => generatedImages.value.length > 0)
   const imageCount = computed(() => generatedImages.value.length)
 
+  /**
+   * Monotonic counter incremented on every new generation and every reset so late responses from
+   * superseded or reset requests are discarded instead of polluting the new wizard inputs.
+   */
+  let requestGeneration = 0
+  let abortController: AbortController | null = null
+
   function clearError() {
     error.value = null
     errorCode.value = null
@@ -59,6 +66,12 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
    * on `articleId`, so the caller must have a selected article before it starts.
    */
   async function generateImage(image: File | Blob, promptId: number, articleId: number) {
+    requestGeneration += 1
+    const activeGeneration = requestGeneration
+    abortController?.abort()
+    const controller = new AbortController()
+    abortController = controller
+
     isGenerating.value = true
     clearError()
 
@@ -66,6 +79,10 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
       const magicCoinsStore = useMagicCoinsStore()
       if (magicCoinsStore.balance === null) {
         await magicCoinsStore.fetchBalance()
+      }
+
+      if (activeGeneration !== requestGeneration) {
+        return
       }
 
       if (magicCoinsStore.balance === null) {
@@ -80,8 +97,7 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
       }
 
       const formData = new FormData()
-      const ext =
-        { 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[image.type] ?? 'jpg'
+      const ext = { 'image/png': 'png', 'image/webp': 'webp' }[image.type] ?? 'jpg'
       const fileName = image instanceof File ? image.name : `cropped.${ext}`
       formData.append('image', image, fileName)
       formData.append('promptId', String(promptId))
@@ -89,7 +105,13 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
 
       const blob = await fetchForm<Blob>('/api/generator/generate', formData, {
         responseType: 'blob',
+        signal: controller.signal,
       })
+
+      if (activeGeneration !== requestGeneration) {
+        return
+      }
+
       const newImage: GeneratedImage = {
         id: crypto.randomUUID(),
         blob: markRaw(blob),
@@ -100,6 +122,10 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
       selectedImageId.value = newImage.id
       await magicCoinsStore.fetchBalance()
     } catch (err) {
+      if (activeGeneration !== requestGeneration) {
+        return
+      }
+
       if (err instanceof ApiError) {
         errorCode.value = err.code
         errorStatus.value = err.status
@@ -116,7 +142,12 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
 
       error.value = err instanceof Error ? err.message : 'Unknown error occurred'
     } finally {
-      isGenerating.value = false
+      if (activeGeneration === requestGeneration) {
+        isGenerating.value = false
+        if (abortController === controller) {
+          abortController = null
+        }
+      }
     }
   }
 
@@ -125,6 +156,9 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
   }
 
   function reset() {
+    requestGeneration += 1
+    abortController?.abort()
+    abortController = null
     isGenerating.value = false
     for (const img of generatedImages.value) {
       URL.revokeObjectURL(img.url)

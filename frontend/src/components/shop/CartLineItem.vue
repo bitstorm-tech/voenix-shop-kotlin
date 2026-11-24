@@ -16,7 +16,15 @@ import {
 } from '@/stores/shop/catalog'
 import type { CartItem } from '@/stores/shop/cart'
 
-const props = defineProps<{ item: CartItem }>()
+const props = withDefaults(
+  defineProps<{
+    item: CartItem
+    busy?: boolean
+  }>(),
+  {
+    busy: false,
+  },
+)
 
 const emit = defineEmits<{
   updateQuantity: [quantity: number]
@@ -145,6 +153,7 @@ const lineTotal = computed(() =>
           variant="ghost"
           size="icon-sm"
           class="text-muted-foreground hover:text-destructive"
+          :disabled="busy"
           :aria-label="t('cart.removeItem', { item: articleName })"
           @click="emit('remove')"
         >
@@ -159,7 +168,7 @@ const lineTotal = computed(() =>
             variant="ghost"
             size="icon-sm"
             class="size-7 rounded-md bg-background shadow-sm"
-            :disabled="item.quantity <= 1 || !item.available"
+            :disabled="busy || item.quantity <= 1 || !item.available"
             :aria-label="t('cart.decreaseQuantity', { item: articleName })"
             @click="emit('updateQuantity', item.quantity - 1)"
           >
@@ -172,7 +181,7 @@ const lineTotal = computed(() =>
             variant="ghost"
             size="icon-sm"
             class="size-7 rounded-md bg-background shadow-sm"
-            :disabled="item.quantity >= 99 || !item.available"
+            :disabled="busy || item.quantity >= 99 || !item.available"
             :aria-label="t('cart.increaseQuantity', { item: articleName })"
             @click="emit('updateQuantity', item.quantity + 1)"
           >

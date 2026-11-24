@@ -69,8 +69,8 @@ async function retryCountries() {
 }
 
 /** `PUT /api/auth/profile` only ever refuses with `400` validation or `401` no session. */
-function profileErrorMessage(error: AuthActionError): string {
-  return error.message || t('profile.errors.saveAddresses')
+function profileErrorMessage(): string {
+  return t('profile.errors.saveAddresses')
 }
 
 /**
@@ -87,7 +87,7 @@ function changeEmailErrorMessage(error: AuthActionError): string {
     case MAIL_DELIVERY_FAILED_STATUS:
       return t('profile.changeEmail.errors.mailDeliveryFailed')
     default:
-      return error.message || t('profile.changeEmail.errors.generic')
+      return t('profile.changeEmail.errors.generic')
   }
 }
 
@@ -96,7 +96,7 @@ function changePasswordErrorMessage(error: AuthActionError): string {
     return t('profile.changePassword.errors.wrongPassword')
   }
 
-  return error.message || t('profile.changePassword.errors.generic')
+  return t('profile.changePassword.errors.generic')
 }
 
 async function handleSaveAddresses() {
@@ -115,7 +115,7 @@ async function handleSaveAddresses() {
     return
   }
 
-  toast({ title: profileErrorMessage(result.error), variant: 'destructive' })
+  toast({ title: profileErrorMessage(), variant: 'destructive' })
 }
 
 async function handleChangeEmail() {

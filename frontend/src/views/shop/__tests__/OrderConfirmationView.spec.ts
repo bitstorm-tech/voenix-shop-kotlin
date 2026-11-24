@@ -86,7 +86,45 @@ describe('OrderConfirmationView', () => {
     wrapper.unmount()
   })
 
-  it('offers another payment for an Order whose payment ended terminally', async () => {
+  it.each([
+    [
+      'FAILED',
+      'checkout.confirmation.titlePaymentFailed',
+      'checkout.confirmation.descriptionPaymentFailed',
+    ],
+    [
+      'CANCELED',
+      'checkout.confirmation.titlePaymentCanceled',
+      'checkout.confirmation.descriptionPaymentCanceled',
+    ],
+    [
+      'EXPIRED',
+      'checkout.confirmation.titlePaymentExpired',
+      'checkout.confirmation.descriptionPaymentExpired',
+    ],
+  ] as const)(
+    'shows an error state and prominent retry CTA when paymentStatus is %s',
+    async (paymentStatus, expectedTitle, expectedDescription) => {
+      const checkoutStore = useCheckoutStore()
+      vi.spyOn(checkoutStore, 'fetchOrderStatus').mockResolvedValue(
+        snapshot({ status: 'PENDING', paymentStatus }),
+      )
+
+      const wrapper = await mountConfirmation()
+
+      expect(wrapper.find('[data-testid="order-payment-failed-icon"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain(expectedTitle)
+      expect(wrapper.text()).toContain(expectedDescription)
+      expect(wrapper.text()).not.toContain('checkout.confirmation.titlePending')
+      expect(wrapper.find('[data-testid="order-status-waiting"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="retry-payment"]').text()).toContain(
+        'checkout.confirmation.retryPaymentAgain',
+      )
+      wrapper.unmount()
+    },
+  )
+
+  it('offers another payment for an Order whose payment ended terminally and blocks double-submit during redirect', async () => {
     const checkoutStore = useCheckoutStore()
     vi.spyOn(checkoutStore, 'fetchOrderStatus').mockResolvedValue(
       snapshot({ paymentStatus: 'EXPIRED' }),
@@ -103,11 +141,18 @@ describe('OrderConfirmationView', () => {
     // A terminal payment is not something to wait for.
     expect(wrapper.find('[data-testid="order-status-waiting"]').exists()).toBe(false)
 
-    await wrapper.get('[data-testid="retry-payment"]').trigger('click')
+    const retryButton = wrapper.get('[data-testid="retry-payment"]')
+    await retryButton.trigger('click')
     await flushPromises()
 
     expect(startPayment).toHaveBeenCalledWith(8)
     expect(window.location.href).toBe('https://checkout.example/again')
+    expect(retryButton.attributes('disabled')).toBeDefined()
+
+    await retryButton.trigger('click')
+    await flushPromises()
+    expect(startPayment).toHaveBeenCalledTimes(1)
+
     vi.unstubAllGlobals()
     wrapper.unmount()
   })
@@ -187,7 +232,7 @@ describe('OrderConfirmationView', () => {
 
   // Without a usable order number nothing is ever requested, so the "waiting for payment" card and
   // its two buttons could never do anything. The page has to say that instead of pretending.
-  it.each([[null], ['not-a-number'], ['4.5']])(
+  it.each([[null], [''], ['0'], ['-5'], ['not-a-number'], ['4.5']])(
     'dead-ends with its own message when the query carries %s as the order id',
     async (orderId) => {
       const checkoutStore = useCheckoutStore()

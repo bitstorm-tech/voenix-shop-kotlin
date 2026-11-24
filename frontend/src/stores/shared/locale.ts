@@ -9,12 +9,20 @@ export const useLocaleStore = defineStore('locale', () => {
 
   function getStoredLocale(): string {
     if (typeof window === 'undefined') return 'de'
-    return localStorage.getItem(STORAGE_KEY) || 'de'
+    try {
+      return localStorage.getItem(STORAGE_KEY) || 'de'
+    } catch {
+      return 'de'
+    }
   }
 
   function setLocale(newLocale: string) {
     locale.value = newLocale
-    localStorage.setItem(STORAGE_KEY, newLocale)
+    try {
+      localStorage.setItem(STORAGE_KEY, newLocale)
+    } catch {
+      // Ignore storage access errors in restricted browsing contexts.
+    }
   }
 
   return { locale, setLocale }

@@ -246,4 +246,15 @@ describe('OrderView', () => {
     expect(useEditorStore().drafts).toHaveLength(0)
     expect(router.currentRoute.value.name).toBe('orders')
   })
+
+  it('shows a localized load error instead of raw store error messages', async () => {
+    const ordersStore = useOrdersStore()
+    ordersStore.error = 'HTTP error 500'
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+
+    const wrapper = await mountOrders(createRouterForOrders())
+
+    expect(wrapper.text()).toContain('orders.loadError')
+    expect(wrapper.text()).not.toContain('HTTP error 500')
+  })
 })

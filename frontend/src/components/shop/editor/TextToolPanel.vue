@@ -241,7 +241,7 @@ function onCustomColor(hex: string) {
           <Label class="text-tool-label mb-0">
             {{ t('editor.textTool.rotation') }}
           </Label>
-          <span class="text-tool-size-display">{{ selectedOverlay.rotation }} deg</span>
+          <span class="text-tool-size-display">{{ selectedOverlay.rotation }}°</span>
         </div>
         <Slider
           :model-value="rotationSliderValue"

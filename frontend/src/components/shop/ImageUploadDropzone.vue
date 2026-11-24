@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<Props>(), {
   body: '',
   hint: '',
   actionLabel: '',
-  accept: 'image/jpeg,image/png,image/webp,image/gif',
+  accept: 'image/jpeg,image/png,image/webp',
   testId: undefined,
   inputTestId: undefined,
   layout: 'stacked',

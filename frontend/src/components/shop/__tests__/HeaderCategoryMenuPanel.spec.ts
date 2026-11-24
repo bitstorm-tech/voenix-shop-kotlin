@@ -76,7 +76,7 @@ describe('HeaderCategoryMenuPanel', () => {
     expect(wrapper.text()).toContain('Espresso')
     expect(wrapper.text()).toContain('Thermobehälter')
     expect(wrapper.get('img').attributes('alt')).toBe('Preview for Espresso')
-    expect(wrapper.text()).toContain('No image')
+    expect(wrapper.text()).toContain('header.noImage')
   })
 
   it('falls back to a single category link when no subcategories exist', () => {
@@ -109,6 +109,6 @@ describe('HeaderCategoryMenuPanel', () => {
     expect(cards).toHaveLength(2)
     expect(cards.map((card) => card.props('imageSrc'))).toEqual([null, null])
     expect(wrapper.findAll('img')).toHaveLength(0)
-    expect(wrapper.text()).toContain('No image')
+    expect(wrapper.text()).toContain('header.noImage')
   })
 })

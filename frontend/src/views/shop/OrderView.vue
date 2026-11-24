@@ -202,7 +202,7 @@ async function redesignItem(item: OrderItem) {
 
     <div v-else-if="ordersStore.error" class="space-y-4">
       <Alert variant="destructive">
-        <p class="m-0 text-sm">{{ ordersStore.error }}</p>
+        <p class="m-0 text-sm">{{ t('orders.loadError') }}</p>
       </Alert>
       <Button class="mt-4" variant="outline" @click="ordersStore.fetchOrders()">
         {{ t('orders.retry') }}

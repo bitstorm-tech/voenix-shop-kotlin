@@ -38,8 +38,13 @@ const loginErrorMessage = (error: AuthActionError): string => {
     case 429:
       return t('auth.login.errors.lockedOut')
     default:
-      return error.message || t('auth.login.errors.generic')
+      return t('auth.login.errors.generic')
   }
+}
+
+function getSafeRedirect(raw: unknown): string | null {
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return typeof value === 'string' && /^\/(?!\/)/.test(value) ? value : null
 }
 
 const handleLogin = async () => {
@@ -51,9 +56,9 @@ const handleLogin = async () => {
   loading.value = false
 
   if (result.success) {
-    // Redirect to intended page or the shared post-login landing page.
-    const redirect = route.query.redirect as string
-    router.push(redirect || getDefaultAuthenticatedRedirect())
+    // Redirect to intended in-app path or the shared post-login landing page.
+    const redirect = getSafeRedirect(route.query.redirect)
+    router.push(redirect ?? getDefaultAuthenticatedRedirect())
     return
   }
 

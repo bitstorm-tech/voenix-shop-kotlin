@@ -1,20 +1,13 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MagicCoinsView from '@/views/shop/MagicCoinsView.vue'
 import { SelectableCard } from '@/components/ui/selectable-card'
-import { magicCoinsPlans } from '@/lib/magicCoins'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
-  }),
-}))
-
-vi.mock('@/composables/useToast', () => ({
-  useToast: () => ({
-    toast: vi.fn(),
   }),
 }))
 
@@ -23,18 +16,20 @@ async function mountMagicCoinsView() {
     history: createMemoryHistory(),
     routes: [
       { path: '/magic-coins', name: 'magic-coins', component: MagicCoinsView },
-      { path: '/login', name: 'login', component: { template: '<div />' } },
+      { path: '/products', name: 'products', component: { template: '<div />' } },
     ],
   })
 
   await router.push('/magic-coins')
   await router.isReady()
 
-  return mount(MagicCoinsView, {
+  const wrapper = mount(MagicCoinsView, {
     global: {
       plugins: [router],
     },
   })
+  await flushPromises()
+  return wrapper
 }
 
 describe('MagicCoinsView', () => {
@@ -46,16 +41,15 @@ describe('MagicCoinsView', () => {
         const url = input.toString()
 
         if (url === '/api/magic-coins/balance') {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({ balance: 12 }),
-          } as unknown as Response)
+          return Promise.resolve(
+            new Response(JSON.stringify({ balance: 12 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
         }
 
-        return Promise.resolve({
-          ok: false,
-          json: vi.fn().mockResolvedValue({}),
-        } as unknown as Response)
+        return Promise.resolve(new Response(JSON.stringify({}), { status: 404 }))
       }),
     )
   })
@@ -65,17 +59,13 @@ describe('MagicCoinsView', () => {
     vi.restoreAllMocks()
   })
 
-  it('uses selectable cards for plan selection', async () => {
+  it('shows the current balance and hides purchase packages until real checkout exists', async () => {
     const wrapper = await mountMagicCoinsView()
-    const cards = wrapper.findAllComponents(SelectableCard)
 
-    expect(cards).toHaveLength(magicCoinsPlans.length)
-    expect(cards[1]!.attributes('data-state')).toBe('selected')
-
-    await cards[0]!.trigger('click')
-
-    const updatedCards = wrapper.findAllComponents(SelectableCard)
-    expect(updatedCards[0]!.attributes('data-state')).toBe('selected')
-    expect(updatedCards[1]!.attributes('data-state')).toBe('unselected')
+    expect(wrapper.get('[data-testid="magic-coins-balance"]').text()).toBe('12')
+    expect(wrapper.text()).toContain('magicCoins.unavailableTitle')
+    expect(wrapper.text()).toContain('magicCoins.unavailableDescription')
+    expect(wrapper.findAllComponents(SelectableCard)).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('7,90')
   })
 })

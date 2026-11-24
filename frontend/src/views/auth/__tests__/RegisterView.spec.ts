@@ -134,4 +134,18 @@ describe('RegisterView', () => {
     })
     expect(wrapper.findComponent(ResendConfirmationAlert).exists()).toBe(false)
   })
+
+  it('requires at least 8 characters on the password input and localizes 500 errors', async () => {
+    stubRegister(() => jsonResponse({ message: 'Internal Server Error', errors: {} }, 500))
+    const wrapper = await mountRegisterView()
+
+    expect(wrapper.get('#password').attributes('minlength')).toBe('8')
+
+    await submitRegistration(wrapper)
+
+    expect(toast).toHaveBeenCalledWith({
+      title: 'auth.register.errors.generic',
+      variant: 'destructive',
+    })
+  })
 })

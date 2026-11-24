@@ -108,17 +108,27 @@ function retry() {
 onMounted(() => {
   void nextTick(updateCarouselState)
   window.addEventListener('resize', updateCarouselState)
-
-  if (typeof ResizeObserver !== 'undefined' && trackRef.value) {
-    resizeObserver = new ResizeObserver(updateCarouselState)
-    resizeObserver.observe(trackRef.value)
-  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateCarouselState)
   resizeObserver?.disconnect()
+  resizeObserver = null
 })
+
+watch(
+  trackRef,
+  (track) => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+
+    if (typeof ResizeObserver !== 'undefined' && track) {
+      resizeObserver = new ResizeObserver(updateCarouselState)
+      resizeObserver.observe(track)
+    }
+  },
+  { immediate: true, flush: 'post' },
+)
 
 watch(
   () => [props.items.length, props.isLoading, props.error],

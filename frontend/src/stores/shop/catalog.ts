@@ -214,18 +214,31 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   const STALE_MS = 5 * 60 * 1000
   let lastFetchedAt = 0
+  let pendingRequest: Promise<void> | null = null
 
   const mugs = computed<MugDto[]>(() => articles.value.filter(isMug))
   const spodArticles = computed<SpodArticleDto[]>(() => articles.value.filter(isSpodArticle))
 
-  async function fetchArticles() {
-    if (isLoading.value) return
+  async function fetchArticles(): Promise<void> {
+    if (pendingRequest) {
+      return pendingRequest
+    }
 
     const now = Date.now()
     const isStale = now - lastFetchedAt > STALE_MS
-    const isFirstLoad = !hasFetched.value
 
     if (hasFetched.value && !isStale) return
+
+    pendingRequest = loadArticles(now)
+    try {
+      await pendingRequest
+    } finally {
+      pendingRequest = null
+    }
+  }
+
+  async function loadArticles(now: number): Promise<void> {
+    const isFirstLoad = !hasFetched.value
 
     if (isFirstLoad) {
       isLoading.value = true

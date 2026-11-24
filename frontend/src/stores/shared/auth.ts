@@ -186,9 +186,12 @@ export const useAuthStore = defineStore('auth', () => {
   const fetchCurrentUser = async () => {
     try {
       setUser(normalizeUser(await fetchJson<ApiUser>('/api/auth/me')))
-    } catch {
-      // `401` is the normal answer for a visitor without a session.
-      setUser(null)
+    } catch (error) {
+      // `401` is the normal answer for a visitor without a session; keep existing session state on
+      // transient 5xx or network errors so a hiccup does not silently log the user out.
+      if (error instanceof ApiError && error.status === 401) {
+        setUser(null)
+      }
     }
   }
 
@@ -345,8 +348,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Clean up old localStorage data from mock auth
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    localStorage.removeItem('user')
-    localStorage.removeItem('token')
+    try {
+      localStorage.removeItem('user')
+      localStorage.removeItem('token')
+    } catch {
+      // Ignore storage access errors in restricted browsing contexts.
+    }
   }
 
   return {

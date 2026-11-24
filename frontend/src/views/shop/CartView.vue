@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
+import { AlertCircle, Trash2, ShoppingBag, ArrowRight, Loader2 } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
 import { useCatalogStore } from '@/stores/shop/catalog'
 import { Alert } from '@/components/ui/alert'
@@ -40,6 +40,21 @@ function reloadCart() {
       <Loader2 class="size-8 animate-spin text-muted-foreground" />
     </div>
 
+    <!-- Load error state -->
+    <Card
+      v-else-if="cartStore.error && cartStore.isEmpty"
+      class="flex flex-col items-center justify-center border-dashed py-20 text-center"
+      data-testid="cart-load-error"
+    >
+      <div class="flex size-16 items-center justify-center rounded-full bg-destructive/10">
+        <AlertCircle class="size-7 text-destructive" />
+      </div>
+      <p class="mt-4 max-w-sm text-sm text-destructive">{{ t('cart.loadError') }}</p>
+      <Button class="mt-6" variant="outline" @click="reloadCart">
+        {{ t('cart.reload') }}
+      </Button>
+    </Card>
+
     <!-- Cart with items -->
     <template v-else-if="!cartStore.isEmpty">
       <!-- Header -->
@@ -52,7 +67,12 @@ function reloadCart() {
             {{ t('cart.itemCount', cartStore.totalItems) }}
           </p>
         </div>
-        <Button variant="destructive" size="sm" @click="cartStore.clearCart()">
+        <Button
+          variant="destructive"
+          size="sm"
+          :disabled="cartStore.isMutating"
+          @click="cartStore.clearCart()"
+        >
           <Trash2 class="size-4" />
           <span class="hidden sm:inline">{{ t('cart.clearCart') }}</span>
         </Button>
@@ -61,7 +81,6 @@ function reloadCart() {
       <!-- A refused quantity change or removal must not stay invisible -->
       <Alert v-if="cartStore.mutationError" variant="destructive" data-testid="cart-mutation-error">
         <p class="m-0 text-sm">{{ t('cart.mutationFailed') }}</p>
-        <p class="m-0 mt-1 text-xs opacity-80">{{ cartStore.mutationError }}</p>
         <Button class="mt-3" variant="outline" size="sm" @click="reloadCart">
           {{ t('cart.reload') }}
         </Button>
@@ -83,6 +102,7 @@ function reloadCart() {
               v-for="item in cartStore.items"
               :key="item.id"
               :item="item"
+              :busy="cartStore.isItemMutating(item.id)"
               @update-quantity="cartStore.updateQuantity(item.id, $event)"
               @remove="cartStore.removeItem(item.id)"
             />
@@ -99,6 +119,7 @@ function reloadCart() {
             :applied-promotion="cartStore.appliedPromotion"
             :is-promotion-loading="cartStore.isPromotionLoading"
             :promotion-error-code="cartStore.promotionErrorCode"
+            :checkout-disabled="cartStore.hasUnavailableItem || cartStore.isMutating"
             @apply-promotion="cartStore.applyPromotion"
             @remove-promotion="cartStore.removePromotion"
             @checkout="goToCheckout"

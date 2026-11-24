@@ -9,7 +9,7 @@ import { useWizardStore, type CropState } from '@/stores/shop/wizard'
 import ImageUploadDropzone from '@/components/shop/ImageUploadDropzone.vue'
 import ImageCropDialog from '@/components/shop/wizard/ImageCropDialog.vue'
 
-const acceptedImageTypes = 'image/jpeg,image/png,image/webp,image/gif'
+const acceptedImageTypes = 'image/jpeg,image/png,image/webp'
 const { t } = useI18n()
 const wizard = useWizardStore()
 

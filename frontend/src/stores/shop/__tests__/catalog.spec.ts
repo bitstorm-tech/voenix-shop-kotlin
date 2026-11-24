@@ -287,6 +287,52 @@ describe('shop catalog store', () => {
     expect(store.articles).toHaveLength(1)
     expect(store.getArticleById(7)?.name).toBe('Second')
   })
+
+  it('shares an in-flight promise across concurrent callers instead of returning early', async () => {
+    const store = useCatalogStore()
+    let resolveMugs!: (response: Response) => void
+    let resolveSpod!: (response: Response) => void
+    const fetchMock = vi.fn((input: string) => {
+      if (input === '/api/articles/mugs') {
+        return new Promise<Response>((resolve) => {
+          resolveMugs = resolve
+        })
+      }
+      return new Promise<Response>((resolve) => {
+        resolveSpod = resolve
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = store.fetchArticles()
+    const second = store.fetchArticles()
+    let secondResolved = false
+    void second.then(() => {
+      secondResolved = true
+    })
+
+    await Promise.resolve()
+    expect(secondResolved).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    resolveMugs(
+      new Response(JSON.stringify(PUBLIC_MUG_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    resolveSpod(
+      new Response(JSON.stringify(PUBLIC_SPOD_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await Promise.all([first, second])
+
+    expect(secondResolved).toBe(true)
+    expect(store.getArticleById(12)).toBeDefined()
+    expect(store.getArticleById(31)).toBeDefined()
+  })
 })
 
 describe('variantPhotoFilename', () => {

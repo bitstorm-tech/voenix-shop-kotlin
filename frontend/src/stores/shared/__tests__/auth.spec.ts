@@ -358,6 +358,36 @@ describe('auth store', () => {
       })
     })
   })
+
+  describe('fetchCurrentUser', () => {
+    it('keeps the current user on transient 5xx or network errors and only clears on 401', async () => {
+      let nextMeResponse: () => Response | Promise<Response> = () => jsonResponse(apiUser)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input) === '/api/auth/me') {
+            return nextMeResponse()
+          }
+          return jsonResponse({})
+        }),
+      )
+
+      const store = await createStore()
+      expect(store.user?.id).toBe(1)
+
+      nextMeResponse = () => apiErrorResponse(503, 'Service unavailable')
+      await store.fetchCurrentUser()
+      expect(store.user?.id).toBe(1)
+
+      nextMeResponse = () => Promise.reject(new TypeError('Failed to fetch'))
+      await store.fetchCurrentUser()
+      expect(store.user?.id).toBe(1)
+
+      nextMeResponse = () => apiErrorResponse(401, 'Authentication required')
+      await store.fetchCurrentUser()
+      expect(store.user).toBeNull()
+    })
+  })
 })
 
 /**

@@ -699,4 +699,60 @@ describe('CheckoutView', () => {
       'checkout.errors.shippingCountryUnavailable',
     )
   })
+
+  it('keeps the customer on checkout with a reload error when loading the cart fails', async () => {
+    const cartStore = useCartStore()
+    cartStore.items = []
+    cartStore.error = 'Network error'
+
+    const { wrapper, router } = await mountCheckout()
+
+    expect(router.currentRoute.value.name).toBe('checkout')
+    expect(wrapper.get('[data-testid="checkout-cart-load-error"]').text()).toContain(
+      'cart.loadError',
+    )
+  })
+
+  it('locks the submit button while redirecting to Mollie to prevent double submits', async () => {
+    const checkoutStore = useCheckoutStore()
+    const submitCheckout = vi.spyOn(checkoutStore, 'submitCheckout').mockResolvedValue({
+      orderId: 9,
+      checkoutUrl: 'https://checkout.example/session',
+    })
+    const { wrapper } = await mountCheckout()
+    const testWindow = Object.create(window) as Window
+    Object.defineProperty(testWindow, 'location', {
+      value: { href: '' },
+      configurable: true,
+    })
+    vi.stubGlobal('window', testWindow)
+
+    await wrapper.get('#termsAccepted').trigger('click')
+    const submitButton = findSubmitButton(wrapper)
+    await submitButton.trigger('click')
+    await flushPromises()
+
+    expect(submitButton.attributes('disabled')).toBeDefined()
+    await submitButton.trigger('click')
+    await flushPromises()
+    expect(submitCheckout).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the localized generic error instead of leaking raw backend messages', async () => {
+    const { wrapper } = await mountRefusedCheckout(null, 'Internal database failure')
+
+    expect(wrapper.get('[data-testid="checkout-submit-error"]').text()).toBe(
+      'checkout.errors.generic',
+    )
+    expect(wrapper.text()).not.toContain('Internal database failure')
+  })
+
+  it('renders a localized fallback when an item articleName is null', async () => {
+    const cartStore = useCartStore()
+    cartStore.items = [createCartItem({ id: 1, articleName: null, variantName: 'White' })]
+
+    const { wrapper } = await mountCheckout()
+
+    expect(wrapper.text()).toContain('cart.unknownArticle')
+  })
 })

@@ -61,7 +61,7 @@ function stubLogin(loginResponse: () => Response) {
   )
 }
 
-async function mountLoginView() {
+async function mountLoginView(path = '/login') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -69,11 +69,12 @@ async function mountLoginView() {
       { path: '/forgot-password', name: 'forgot-password', component: { template: '<div />' } },
       { path: '/register', name: 'register', component: { template: '<div />' } },
       { path: '/', name: 'home', component: { template: '<div />' } },
+      { path: '/orders', name: 'orders', component: { template: '<div />' } },
       { path: '/:pathMatch(.*)*', name: 'catch-all', component: { template: '<div />' } },
     ],
   })
 
-  await router.push('/login')
+  await router.push(path)
   await router.isReady()
 
   const wrapper = mount(LoginView, { global: { plugins: [router] } })
@@ -150,5 +151,40 @@ describe('LoginView', () => {
       variant: 'destructive',
     })
     expect(wrapper.findComponent(ResendConfirmationAlert).exists()).toBe(false)
+  })
+
+  it('honors a safe relative redirect query after login', async () => {
+    stubLogin(() => new Response(null, { status: 204 }))
+    const { wrapper, router } = await mountLoginView('/login?redirect=/orders')
+
+    await submitLogin(wrapper)
+
+    expect(router.currentRoute.value.path).toBe('/orders')
+  })
+
+  it.each(['https://evil.example/phish', '//evil.example/phish', 'javascript:alert(1)'])(
+    'ignores unsafe redirect query %s and falls back to the default route',
+    async (unsafeRedirect) => {
+      stubLogin(() => new Response(null, { status: 204 }))
+      const { wrapper, router } = await mountLoginView(
+        `/login?redirect=${encodeURIComponent(unsafeRedirect)}`,
+      )
+
+      await submitLogin(wrapper)
+
+      expect(router.currentRoute.value.path).toBe('/')
+    },
+  )
+
+  it('uses the localized generic error instead of raw backend error text on 500', async () => {
+    stubLogin(() => jsonResponse({ message: 'Internal Server Error', errors: {} }, 500))
+    const { wrapper } = await mountLoginView()
+
+    await submitLogin(wrapper)
+
+    expect(toast).toHaveBeenCalledWith({
+      title: 'auth.login.errors.generic',
+      variant: 'destructive',
+    })
   })
 })
