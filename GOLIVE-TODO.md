@@ -1,8 +1,8 @@
 # GOLIVE-TODO – Launch-Audit 2026-11-22 (Fortschreibung von 2026-11-17)
 
-Ergebnis der vollständigen Code- und Go-Live-Prüfung (Recht, Security, Backend, Frontend, Betrieb/Cutover) auf Basis des aktuellen Stands, inkl. Abgleich mit dem Audit vom 17.11.2026 und `TODO.md` (02.11.2026).
+Ergebnis der vollständigen Code- und Go-Live-Prüfung (Recht, Security, Backend, Frontend, Betrieb/Cutover) auf Basis des aktuellen Stands, inkl. Abgleich mit dem Audit vom 17.11.2026 und den übernommenen Punkten aus der ehemaligen `TODO.md` (Audit 02.11.2026).
 Die rechtlichen Punkte sind eine technische Einschätzung, keine Rechtsberatung.
-Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in C/D vor Werbung und echtem Traffic, **E am Go-live-Tag**, **F organisatorisch außerhalb des Codes**.
+Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in C/D vor Werbung und echtem Traffic, **E am Go-live-Tag**, **F organisatorisch außerhalb des Codes**, **G nicht blockierende Code-Hygiene (Post-Launch)**.
 
 ---
 
@@ -21,7 +21,7 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **A3. Widerrufsinfo fehlt** *(API-Guard erledigt)* – `frontend/src/views/shop/ReturnsView.vue`, `frontend/src/views/shop/CheckoutView.vue:458-473`
   `/returns` ist ein Platzhalter; in der Kasse fehlt der Hinweis auf den Ausschluss des Widerrufsrechts für personalisierte Ware (§ 312g Abs. 2 Nr. 1 BGB / Art. 246a § 1 Abs. 3 Nr. 1 EGBGB).
   Fix: Text auf `/returns`, Hinweis mit Link in der Kasse.
-  Hinweis zum **Widerrufsbutton (§ 356a BGB, Pflicht seit 19.06.2026)**: nicht nötig, solange ausschließlich personalisierte Ware verkauft wird — `imageId` in `backend/src/modules/cart/routes.ts` ist jetzt Pflichtfeld (erledigt); `/magic-coins`-Kaufpakete noch in Paket 3 ausblenden.
+  Hinweis zum **Widerrufsbutton (§ 356a BGB, Pflicht seit 19.06.2026)**: nicht nötig, solange ausschließlich personalisierte Ware verkauft wird — `imageId` in `backend/src/modules/cart/routes.ts` ist jetzt Pflichtfeld und `/magic-coins`-Kaufpakete wurden in `C3` ausgeblendet (erledigt).
 - [ ] **A4. Bestellbestätigung ohne Vertragsinfos & Anbieter-Footer** – `backend/src/modules/email/templates/order-confirmation.ts:78-145`, `backend/src/modules/email/templates/layout.ts:83,121-123`
   Mail enthält weder AGB noch Widerrufshinweis, kein `inkl. MwSt.`, keine Lieferzeit; Footer zeigt nur `© Voenix Shop` statt vollständiger Anbieterangaben (§ 312f Abs. 2 BGB dauerhafter Datenträger).
   Fix: AGB und Widerrufshinweis als Text/Anhang, `inkl. gesetzl. MwSt.` + Lieferzeit sowie vollständige Anbieterangaben (GbR, Gesellschafter, Anschrift, E-Mail, Telefon, USt-IdNr.) in den Mail-Footer.
@@ -81,7 +81,7 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ## B. Security-Blocker & Missbrauchsschutz
 
-### Offene Punkte aus `TODO.md` & Vor-Audit (Stand 2026-11-22 verifiziert)
+### Punkte aus dem Vor-Audit (ehemalige `TODO.md`, Stand 2026-11-22 verifiziert)
 
 *(Bereits erledigt: `TODO #1` Route-Pattern-Logging — alte Webhook-Secrets trotzdem rotieren!; `TODO #2` `Secure`-Cookies; `TODO #6` Bildgrößen-Allowlist; `sourcemap: false`.)*
 
@@ -242,11 +242,22 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ---
 
+## G. Nachgelagerter Kleinkram & Code-Hygiene (aus ehemaliger `TODO.md`, nicht Go-live-blockierend)
+
+- [ ] **G1. Doppelte Backend-Helper vereinheitlichen** – `backend/src/modules/spod/client.ts:494`, `backend/src/modules/generator/fal.ts:280`, `backend/src/modules/image/codec.ts:14`, `backend/src/modules/generator/upload.ts:13`, `backend/src/modules/spod/client.ts:152`
+  `readCapped` doppelt (`spod/client.ts`, `generator/fal.ts` → nach `platform/fetch.ts`, auch für `A1` nutzbar); `MAX_IMAGE_BYTES` dreifach (`image/codec.ts`, `generator/upload.ts`, `spod/client.ts` → zentral aus `image/codec.ts` importieren).
+- [ ] **G2. `PENDING`-Bestellung ohne Zahlung verschluckt spätere Warenkorb-Änderungen (`alreadyPlaced`)** – `backend/src/modules/checkout/service.ts:150`
+- [ ] **G3. E-Mail-Änderung nur in Groß-/Kleinschreibung liefert `409`** – `backend/src/modules/account/service.ts:249`
+- [ ] **G4. Unerreichbare `userId === undefined`-Zweige entfernen** – `backend/src/modules/account/routes.ts:294,301,312,334,420`
+- [ ] **G5. Kopierte ID-Param-Validatoren vereinheitlichen** – `cart`, `checkout`, `order`, `operations`, `production/fulfillment` Routes → `integerParam` in `backend/src/platform/http/respond.ts` mit Status-Option.
+
+---
+
 ## Geprüft und in Ordnung
 
 - **Core-Security & Krypto**: PBKDF2-HMAC-SHA256 (600k Iterationen, Timing-Safe + Dummy-Hash); AES-256-GCM Cookies (`HttpOnly`, `Secure` bei HTTPS, `SameSite=Lax`); Double-Submit-CSRF mit `timingSafeEqual`; konstante Secret-Prüfung bei Mollie- & SPOD-Webhooks; Mollie-Status/Betrag immer serverseitig bei Mollie abgefragt; SFTP mit gepinntem SHA-256-Host-Key; `DOMPurify` für iubenda-HTML; parametrisiertes Kysely-SQL; `lstat`/`realpath`-Pfadprüfung; Admin/Supplier-Routen sauber geschützt (`401`/`403`); `spod-mcp/` ist rein lokal und per `.dockerignore` ausgeschlossen.
-- **Bereits behobene Audit-Punkte**: Route-Pattern-Logging (`TODO #1`), `Secure`-Cookies (`TODO #2`), feste Bildgrößen-Allowlist (`TODO #6`), lokale Fonts ohne Google-Requests (`A6`), einheitliche Versandkosten (`A9`), `sourcemap: false`, `lang="de"`, lokalisierte Titel/404 & `robots.txt` (teilweise `C11`), entfernte falsche „ab“-Preise & pauschale Bio-Claims (teilweise `A11`).
-- **Struktur**: 1:1-Key-Parität zwischen `de.json` und `en.json` (1180 Zeilen); 38 konsistente DB-Migrationen bis `V39` mit Advisory Lock; Kernablauf (Upload → Zuschnitt → Stil → KI-Generierung → Editor → Warenkorb → Kasse) auf Testinstanz bereits verifiziert.
+- **Bereits behobene Audit-Punkte**: Route-Pattern-Logging (`TODO #1`), `Secure`-Cookies (`TODO #2`), feste Bildgrößen-Allowlist (`TODO #6`), lokale Fonts ohne Google-Requests (`A6`), einheitliche Versandkosten (`A9`), `sourcemap: false`, `lang="de"`, lokalisierte Titel/404, `robots.txt` & `sitemap.xml` (`C11`), entfernte falsche „ab“-Preise & pauschale Bio-Claims (teilweise `A11`), sowie alle abgehakten Punkte aus den Go-Live-Paketen 1–5.
+- **Struktur**: 1:1-Key-Parität zwischen `de.json` und `en.json` (1168 Zeilen); 40 konsistente DB-Migrationen bis `V41` mit Advisory Lock; Kernablauf (Upload → Zuschnitt → Stil → KI-Generierung → Editor → Warenkorb → Kasse) auf Testinstanz bereits verifiziert.
 
 ## Noch ausstehende Prüfungen vor Release
 
