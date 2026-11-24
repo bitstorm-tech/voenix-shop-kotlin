@@ -22,23 +22,89 @@ set -euo pipefail
 
 SOURCE=""
 TARGET=""
+YES_WIPE_TARGET=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --source) SOURCE="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
+    --yes-wipe-target) YES_WIPE_TARGET=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
 if [[ -z "$SOURCE" || -z "$TARGET" ]]; then
-  echo "Usage: $0 --source <connection_string> --target <connection_string>"
+  echo "Usage: $0 --source <connection_string> --target <connection_string> [--yes-wipe-target]"
+  echo ""
+  echo "Options:"
+  echo "  --yes-wipe-target  Required when target host is not localhost/127.0.0.1"
+  echo "                     (TRUNCATE ... CASCADE wipes carts, orders, and payments)."
   echo ""
   echo "Example:"
   echo "  $0 \\"
   echo "    --source 'postgresql://voenix:voenix@localhost:5432/voenix_v1' \\"
   echo "    --target 'postgresql://voenix:voenix@localhost:5432/voenix'"
   exit 1
+fi
+
+# Extract the host from a libpq URI (`postgresql://...`) or keyword/value
+# connection string (`host=...`), falling back to PGHOST / localhost.
+extract_target_host() {
+  local conn="$1"
+  if [[ "$conn" =~ ^postgres(ql)?:// ]]; then
+    local rest="${conn#*://}"
+    local query=""
+    if [[ "$rest" == *\?* ]]; then
+      query="${rest#*\?}"
+      rest="${rest%%\?*}"
+    fi
+    local authority="${rest%%/*}"
+    # Strip optional userinfo (`user:pass@`), using the last `@` in case the password contains `@`.
+    if [[ "$authority" == *@* ]]; then
+      authority="${authority##*@}"
+    fi
+    local host=""
+    if [[ "$authority" == \[*\]* ]]; then
+      host="${authority#\[}"
+      host="${host%%\]*}"
+    else
+      host="${authority%%:*}"
+    fi
+    if [[ -n "$host" ]]; then
+      printf '%s\n' "$host"
+      return
+    fi
+    # Query parameter `?host=...` (libpq URI syntax)
+    if [[ "$query" =~ (^|&)host=([^&]+) ]]; then
+      printf '%s\n' "${BASH_REMATCH[2]}"
+      return
+    fi
+  elif [[ "$conn" =~ (^|[[:space:]])host=([^[:space:]]+) ]]; then
+    local host="${BASH_REMATCH[2]}"
+    host="${host#\'}"
+    host="${host%\'}"
+    printf '%s\n' "$host"
+    return
+  fi
+  printf '%s\n' "${PGHOST:-localhost}"
+}
+
+TARGET_HOST="$(extract_target_host "$TARGET")"
+IS_LOCAL_TARGET=false
+case "${TARGET_HOST,,}" in
+  localhost|127.0.0.1|::1)
+    IS_LOCAL_TARGET=true
+    ;;
+esac
+
+if [[ "$IS_LOCAL_TARGET" != "true" ]]; then
+  if [[ "$YES_WIPE_TARGET" != "true" ]]; then
+    echo "ERROR: Refusing to run TRUNCATE ... CASCADE against non-local target host '$TARGET_HOST'." >&2
+    echo "       This script wipes catalog tables AND cascadingly deletes carts, orders, and payments." >&2
+    echo "       If you really intend to wipe '$TARGET_HOST', re-run with --yes-wipe-target." >&2
+    exit 1
+  fi
+  echo "WARNING: --yes-wipe-target confirmed for non-local host '$TARGET_HOST' — target data (including carts, orders, payments) will be wiped." >&2
 fi
 
 # Every source session is opened read-only, enforced by PostgreSQL itself: a

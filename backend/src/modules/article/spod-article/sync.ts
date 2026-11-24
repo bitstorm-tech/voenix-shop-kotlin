@@ -178,6 +178,20 @@ export function createSpodCatalogSync({
   const lastReports = new Map<number, SpodSyncReport>()
   /** The run of each destination syncing right now, for `state` to read its progress from. */
   const runs = new Map<number, SyncRun>()
+  /** Aborted when the application shuts down; ends in-flight partner calls and stops new runs. */
+  const shutdownController = new AbortController()
+  const isAborted = (): boolean => shutdownController.signal.aborted
+  /** Every in-flight run (`sync` or background `start`) so `stop()` can drain them before `db.destroy()`. */
+  const activeRuns = new Set<Promise<unknown>>()
+
+  const track = <T>(promise: Promise<T>): Promise<T> => {
+    activeRuns.add(promise)
+    const cleanup = () => {
+      activeRuns.delete(promise)
+    }
+    promise.then(cleanup, cleanup)
+    return promise
+  }
 
   const warn = (
     run: SyncRun,
@@ -198,9 +212,15 @@ export function createSpodCatalogSync({
   }
 
   /** Downloads `url` and stores it in `folder`, or answers `null` when either step refused. */
-  const store = async (access: SpodAccess, url: string, folder: ExampleImages) => {
-    const binary = await client.download(url, access.timeoutSeconds)
-    if (binary.kind === 'failed') return null
+  const store = async (
+    access: SpodAccess,
+    url: string,
+    folder: ExampleImages,
+    signal: AbortSignal,
+  ) => {
+    if (isAborted()) return null
+    const binary = await client.download(url, access.timeoutSeconds, signal)
+    if (binary.kind === 'failed' || isAborted()) return null
     const stored = await folder.store(binary.value)
     return stored.kind === 'ok' ? stored.value.filename : null
   }
@@ -213,6 +233,7 @@ export function createSpodCatalogSync({
    */
   const listArticles = async (
     access: SpodAccess,
+    signal: AbortSignal,
   ): Promise<
     { kind: 'complete'; articles: SpodCatalogArticle[] } | { kind: 'failed'; error: SpodError }
   > => {
@@ -224,7 +245,8 @@ export function createSpodCatalogSync({
     const seen = new Set<string>()
     let promised: number | null = null
     for (let page = 0; page < MAX_PAGES; page++) {
-      const answer = await client.articles(access, PAGE_LIMIT, collected.length)
+      if (isAborted()) return { kind: 'failed', error: 'PROVIDER_UNAVAILABLE' }
+      const answer = await client.articles(access, PAGE_LIMIT, collected.length, signal)
       if (answer.kind === 'failed') return { kind: 'failed', error: answer.error }
       const { count, items } = answer.value
       if (count === null) return unreadable('no count')
@@ -273,7 +295,7 @@ export function createSpodCatalogSync({
     if (await reusable(stored?.mockups.get(appearanceId), url, folders.mockups)) {
       return { prepared: null, available: true }
     }
-    const filename = await store(source.access, url, folders.mockups)
+    const filename = await store(source.access, url, folders.mockups, shutdownController.signal)
     if (filename === null) {
       warn(
         run,
@@ -321,7 +343,12 @@ export function createSpodCatalogSync({
         storedImages.find((candidate) => candidate.spodImageId === image.id)?.filename ?? null
       if (filename !== null && !(await folders.listingImages.exists(filename))) filename = null
       if (filename === null) {
-        filename = await store(source.access, downloadUrl(image), folders.listingImages)
+        filename = await store(
+          source.access,
+          downloadUrl(image),
+          folders.listingImages,
+          shutdownController.signal,
+        )
         if (filename !== null) minted.push(filename)
       }
       if (filename === null) {
@@ -366,7 +393,7 @@ export function createSpodCatalogSync({
     run: SyncRun,
   ): Promise<SpodSizeChart | null> => {
     if (!run.sizeCharts.has(productTypeId)) {
-      const answer = await client.sizeChart(source.access, productTypeId)
+      const answer = await client.sizeChart(source.access, productTypeId, shutdownController.signal)
       run.sizeCharts.set(productTypeId, answer.kind === 'answered' ? answer.value : null)
     }
     return run.sizeCharts.get(productTypeId) ?? null
@@ -397,7 +424,10 @@ export function createSpodCatalogSync({
     }
     if (await reusable(stored?.sizeChart, url, folders.sizeCharts)) return null
     if (!run.sizeChartFiles.has(productTypeId)) {
-      run.sizeChartFiles.set(productTypeId, await store(source.access, url, folders.sizeCharts))
+      run.sizeChartFiles.set(
+        productTypeId,
+        await store(source.access, url, folders.sizeCharts, shutdownController.signal),
+      )
     }
     const filename = run.sizeChartFiles.get(productTypeId) ?? null
     if (filename === null) {
@@ -487,12 +517,22 @@ export function createSpodCatalogSync({
   ): Promise<boolean> => {
     const colors: ResolvedColor[] = []
     for (const [index, appearanceId] of appearanceIdsOf(variants).entries()) {
+      if (isAborted()) break
       colors.push(
         await resolveColor(source, article, productTypeId, appearanceId, index + 1, stored, run),
       )
     }
+    if (isAborted()) {
+      for (const color of colors) {
+        for (const filename of color.minted) await folders.listingImages.deleteObsolete(filename)
+        await folders.mockups.deleteObsolete(color.mintedMockup)
+      }
+      return false
+    }
     const chart = await sizeChartAnswer(source, productTypeId, run)
+    if (isAborted()) return false
     const preparedSizeChart = await sizeChart(source, article, productTypeId, chart, stored, run)
+    if (isAborted()) return false
     const outcome = await repository.upsert(
       {
         destinationId: source.access.destinationId,
@@ -589,8 +629,9 @@ export function createSpodCatalogSync({
   }
 
   const reconcile = async (source: SpodCatalogSource): Promise<SpodSyncReport> => {
+    const signal = shutdownController.signal
     const run: SyncRun = {
-      calibration: createCalibration(client, source.access),
+      calibration: createCalibration(client, source.access, signal),
       phase: 'LISTING',
       startedAt: new Date(),
       processedArticles: 0,
@@ -622,17 +663,21 @@ export function createSpodCatalogSync({
       failed: run.failed,
       warnings: run.warnings,
     })
-    const listing = await listArticles(source.access)
+    const listing = await listArticles(source.access, signal)
     if (listing.kind === 'failed') return report(listing.error)
+    if (isAborted()) return report('PROVIDER_UNAVAILABLE')
     run.fetchedArticles = listing.articles.length
     run.phase = 'ARTICLES'
     for (const article of listing.articles) {
+      if (isAborted()) return report('PROVIDER_UNAVAILABLE')
       run.currentArticle = article.title
       await reconcileArticle(source, article, run)
+      if (isAborted()) return report('PROVIDER_UNAVAILABLE')
       run.processedArticles++
     }
     run.currentArticle = null
     run.phase = 'SWEEPING'
+    if (isAborted()) return report('PROVIDER_UNAVAILABLE')
     run.deactivated.push(
       ...(await repository.sweep(
         source.access.destinationId,
@@ -659,18 +704,22 @@ export function createSpodCatalogSync({
 
   /**
    * Runs one sync of `source` to completion, or answers `busy` without reading or writing anything
-   * while the same destination is already syncing. Nothing is queued.
+   * while the same destination is already syncing or shutting down. Nothing is queued.
    */
   const sync = async (source: SpodCatalogSource): Promise<SpodSyncResult> => {
     const destinationId = source.access.destinationId
-    if (busy.has(destinationId)) return { kind: 'busy' }
+    if (shutdownController.signal.aborted || busy.has(destinationId)) return { kind: 'busy' }
     busy.add(destinationId)
-    try {
-      return { kind: 'reported', report: await reconcile(source) }
-    } finally {
-      busy.delete(destinationId)
-      runs.delete(destinationId)
-    }
+    return track(
+      (async (): Promise<SpodSyncResult> => {
+        try {
+          return { kind: 'reported', report: await reconcile(source) }
+        } finally {
+          busy.delete(destinationId)
+          runs.delete(destinationId)
+        }
+      })(),
+    )
   }
 
   return {
@@ -683,16 +732,18 @@ export function createSpodCatalogSync({
      */
     start: (source: SpodCatalogSource): 'started' | 'busy' => {
       const destinationId = source.access.destinationId
-      if (busy.has(destinationId)) return 'busy'
+      if (shutdownController.signal.aborted || busy.has(destinationId)) return 'busy'
       lastReports.delete(destinationId)
       // `sync` takes the lock before its first await, so `state` reports the run from here on.
-      sync(source)
-        .then((result) => {
-          if (result.kind === 'reported') lastReports.set(destinationId, result.report)
-        })
-        .catch((error: unknown) => {
-          logger.error({ destinationId, error: errorDetails(error) }, 'SPOD sync run broke')
-        })
+      void track(
+        sync(source)
+          .then((result) => {
+            if (result.kind === 'reported') lastReports.set(destinationId, result.report)
+          })
+          .catch((error: unknown) => {
+            logger.error({ destinationId, error: errorDetails(error) }, 'SPOD sync run broke')
+          }),
+      )
       return 'started'
     },
 
@@ -703,6 +754,15 @@ export function createSpodCatalogSync({
         progress: run === undefined ? null : progressOf(run),
         report: lastReports.get(destinationId) ?? null,
       }
+    },
+
+    /**
+     * Aborts every in-flight sync run, prevents new runs from starting, and waits for all active
+     * runs to unwind before the database pool is closed.
+     */
+    stop: async (): Promise<void> => {
+      shutdownController.abort()
+      await Promise.allSettled([...activeRuns])
     },
   }
 }

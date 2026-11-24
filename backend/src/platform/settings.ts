@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import type { Logger } from '@/platform/logging'
 
 /**
  * Every setting the application reads, parsed once from environment variables. The names are the
@@ -36,7 +37,9 @@ const schema = z
     DATABASE_SSL_MODE: z
       .enum(['disable', 'require', 'verify-ca', 'verify-full'])
       .default('disable'),
-    DATABASE_MAXIMUM_POOL_SIZE: integerText.default(100),
+    DATABASE_MAXIMUM_POOL_SIZE: integerText
+      .refine((value) => value >= 1, 'must be at least 1')
+      .default(20),
 
     AUTH_SESSION_SECRET: required.refine(
       (value) => Buffer.byteLength(value, 'utf8') >= 32,
@@ -49,7 +52,7 @@ const schema = z
     EMAIL_ENABLED: booleanText.default(false),
     EMAIL_POLL_INTERVAL_MINUTES: integerText
       .refine((value) => value >= 1 && value <= 1440, 'must be between 1 and 1440')
-      .default(5),
+      .default(1),
     EMAIL_API_KEY: optional,
     EMAIL_FROM_EMAIL: optional,
     EMAIL_FROM_NAME: z
@@ -257,6 +260,80 @@ function frontendBaseUrlProblem(value: string): string | null {
     return 'must use HTTPS outside local environments'
   }
   return null
+}
+
+/** Whether the configured Mollie key targets live or test payments, inferred from its prefix. */
+export type MollieMode = 'live' | 'test' | 'unknown'
+
+export interface StartupConfigSummary {
+  frontendBaseUrl: string
+  secureCookies: boolean
+  emailEnabled: boolean
+  emailPollIntervalMinutes: number
+  databaseSslMode: Settings['database']['sslMode']
+  databaseMaxPoolSize: number
+  rateLimitTrustForwardedFor: boolean
+  generatorDummyMode: boolean
+  mollieMode: MollieMode
+}
+
+export function mollieModeOf(apiKey: string): MollieMode {
+  if (apiKey.startsWith('live_')) return 'live'
+  if (apiKey.startsWith('test_')) return 'test'
+  return 'unknown'
+}
+
+/** Secret-free snapshot of the operational settings logged once at process startup. */
+export function startupConfigSummary(settings: Settings): StartupConfigSummary {
+  return {
+    frontendBaseUrl: settings.frontend.baseUrl,
+    secureCookies: settings.auth.secureCookies,
+    emailEnabled: settings.email.enabled,
+    emailPollIntervalMinutes: settings.email.pollIntervalMinutes,
+    databaseSslMode: settings.database.sslMode,
+    databaseMaxPoolSize: settings.database.maximumPoolSize,
+    rateLimitTrustForwardedFor: settings.rateLimit.trustForwardedFor,
+    generatorDummyMode: settings.generator.dummyMode,
+    mollieMode: mollieModeOf(settings.mollie.apiKey),
+  }
+}
+
+/**
+ * Warnings for settings that are fine in local development but dangerous when `FRONTEND_BASE_URL`
+ * uses HTTPS (a deployed environment).
+ */
+export function productionConfigWarnings(settings: Settings): string[] {
+  if (!settings.frontend.baseUrl.startsWith('https://')) return []
+  const warnings: string[] = []
+  if (settings.database.sslMode === 'disable') {
+    warnings.push(
+      'DATABASE_SSL_MODE=disable while FRONTEND_BASE_URL uses HTTPS; set require or verify-full for a managed database',
+    )
+  }
+  if (!settings.email.enabled) {
+    warnings.push(
+      'EMAIL_ENABLED=false while FRONTEND_BASE_URL uses HTTPS; no transactional emails will be sent',
+    )
+  }
+  if (settings.generator.dummyMode) {
+    warnings.push(
+      'GENERATOR_DUMMY_MODE=true while FRONTEND_BASE_URL uses HTTPS; image generator returns uploaded photos unchanged',
+    )
+  }
+  if (!settings.rateLimit.trustForwardedFor) {
+    warnings.push(
+      'RATE_LIMIT_TRUST_FORWARDED_FOR=false while FRONTEND_BASE_URL uses HTTPS; behind a reverse proxy all clients share one rate-limit bucket',
+    )
+  }
+  return warnings
+}
+
+/** Logs the secret-free startup configuration summary and any HTTPS deployment warnings. */
+export function logStartupConfig(settings: Settings, log: Pick<Logger, 'info' | 'warn'>): void {
+  log.info(startupConfigSummary(settings), 'Startup configuration')
+  for (const warning of productionConfigWarnings(settings)) {
+    log.warn(warning)
+  }
 }
 
 function lastPathSegment(url: string): string | null {

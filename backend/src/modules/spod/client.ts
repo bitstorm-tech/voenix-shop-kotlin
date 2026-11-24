@@ -192,16 +192,23 @@ export function createSpodClient({
    * current one. The waits are chained, so concurrent callers queue up behind each other instead of
    * all sleeping the same interval and then firing together.
    */
-  const pace = (): Promise<void> => {
-    queue = queue.then(async () => {
+  const isAborted = (signal?: AbortSignal): boolean => signal?.aborted === true
+
+  const pace = async (signal?: AbortSignal): Promise<void> => {
+    if (isAborted(signal)) throw abortedError()
+    const slot = queue.then(async () => {
+      if (isAborted(signal)) return
       const current = now()
       const wait =
         earliestNextRequest === undefined ? 0 : Math.max(0, earliestNextRequest - current)
-      if (wait > 0) await sleep(wait)
+      if (wait > 0) await sleepAbortable(wait, sleep, signal)
+      if (isAborted(signal)) return
       // The clock is read again: a sleep that overshoots must push the next request out with it.
       earliestNextRequest = now() + MIN_REQUEST_INTERVAL_MILLIS
     })
-    return queue
+    queue = slot.catch(() => undefined)
+    await slot
+    if (isAborted(signal)) throw abortedError()
   }
 
   /** A request that never got a status: the outcome is unknown. The message is never logged. */
@@ -223,9 +230,14 @@ export function createSpodClient({
     path: string,
     init: { method: 'GET' | 'POST'; body?: string | FormData; contentType?: string },
     read: (body: string) => T,
+    signal?: AbortSignal,
   ): Promise<SpodResult<T>> => {
     const context = `destination ${String(access.destinationId)}: ${what}`
-    await pace()
+    try {
+      await pace(signal)
+    } catch (error) {
+      return unavailable(context, error)
+    }
     const headers: Record<string, string> = { [ACCESS_TOKEN_HEADER]: access.accessToken }
     if (init.contentType !== undefined) headers['Content-Type'] = init.contentType
     let body: string
@@ -235,7 +247,7 @@ export function createSpodClient({
         headers,
         ...(init.body === undefined ? {} : { body: init.body }),
         redirect: 'manual',
-        signal: AbortSignal.timeout(access.timeoutSeconds * 1000),
+        signal: combinedSignal(access.timeoutSeconds * 1000, signal),
       })
       if (!response.ok) {
         await discardBody(response)
@@ -264,7 +276,7 @@ export function createSpodClient({
 
   return {
     /** Uploads one print image as PNG; answers the design id. Safe to repeat. */
-    uploadDesign: (access: SpodAccess, fileName: string, png: Uint8Array) => {
+    uploadDesign: (access: SpodAccess, fileName: string, png: Uint8Array, signal?: AbortSignal) => {
       const form = new FormData()
       form.append('file', new Blob([png], { type: 'image/png' }), fileName)
       return call(
@@ -273,6 +285,7 @@ export function createSpodClient({
         '/designs/upload',
         { method: 'POST', body: form },
         (body) => json(designAnswer)(body).designId,
+        signal,
       )
     },
 
@@ -316,13 +329,19 @@ export function createSpodClient({
       ),
 
     /** The placement names this product type offers for this design. */
-    availableHotspots: (access: SpodAccess, productTypeId: number, designId: string) =>
+    availableHotspots: (
+      access: SpodAccess,
+      productTypeId: number,
+      designId: string,
+      signal?: AbortSignal,
+    ) =>
       call(
         access,
         'reading available hotspots',
         `/productTypes/${String(productTypeId)}/hotspots/design/${designId}`,
         { method: 'GET' },
         (body) => json(hotspotsAnswer)(body).hotspots.map((hotspot) => hotspot.name),
+        signal,
       ),
 
     /** One page of the merchant's backoffice articles; paging is the caller's. */
@@ -330,6 +349,7 @@ export function createSpodClient({
       access: SpodAccess,
       limit: number,
       offset: number,
+      signal?: AbortSignal,
     ): Promise<SpodResult<SpodCatalogPage>> =>
       call(
         access,
@@ -337,22 +357,29 @@ export function createSpodClient({
         `/articles?limit=${String(limit)}&offset=${String(offset)}`,
         { method: 'GET' },
         json(spodCatalogPage),
+        signal,
       ),
 
     /** The size chart of one product type. */
-    sizeChart: (access: SpodAccess, productTypeId: number): Promise<SpodResult<SpodSizeChart>> =>
+    sizeChart: (
+      access: SpodAccess,
+      productTypeId: number,
+      signal?: AbortSignal,
+    ): Promise<SpodResult<SpodSizeChart>> =>
       call(
         access,
         'reading a size chart',
         `/productTypes/${String(productTypeId)}/size-chart`,
         { method: 'GET' },
         json(spodSizeChart),
+        signal,
       ),
 
     /** Product type metadata: print areas (physical dimensions per view) and required print DPI. */
     productType: (
       access: SpodAccess,
       productTypeId: number,
+      signal?: AbortSignal,
     ): Promise<SpodResult<SpodProductType>> =>
       call(
         access,
@@ -360,16 +387,22 @@ export function createSpodClient({
         `/productTypes/${String(productTypeId)}`,
         { method: 'GET' },
         json(spodProductType),
+        signal,
       ),
 
     /** The views of one product type: each side's placement names and mockup per colour. */
-    views: (access: SpodAccess, productTypeId: number): Promise<SpodResult<SpodViews>> =>
+    views: (
+      access: SpodAccess,
+      productTypeId: number,
+      signal?: AbortSignal,
+    ): Promise<SpodResult<SpodViews>> =>
       call(
         access,
         'reading views',
         `/productTypes/${String(productTypeId)}/views`,
         { method: 'GET' },
         json(spodViews),
+        signal,
       ),
 
     /** Renders the request's designs on one colour of a product type; answers the picture URLs. */
@@ -377,6 +410,7 @@ export function createSpodClient({
       access: SpodAccess,
       productTypeId: number,
       request: SpodPreviewRequest,
+      signal?: AbortSignal,
     ): Promise<SpodResult<SpodPreviews>> =>
       call(
         access,
@@ -384,6 +418,7 @@ export function createSpodClient({
         `/productTypes/${String(productTypeId)}/previews`,
         { method: 'POST', contentType: 'application/json', body: JSON.stringify(request) },
         json(spodPreviews),
+        signal,
       ),
 
     /**
@@ -392,19 +427,24 @@ export function createSpodClient({
      * redirect, only an `image/*` answer, at most `MAX_IMAGE_BYTES` read, and not paced. Only the
      * host is ever logged.
      */
-    download: async (url: string, timeoutSeconds: number): Promise<SpodResult<SpodBinary>> => {
+    download: async (
+      url: string,
+      timeoutSeconds: number,
+      signal?: AbortSignal,
+    ): Promise<SpodResult<SpodBinary>> => {
       const host = httpsHostOf(url)
       if (host === null) {
         logger.warn('SPOD image download refused: the answered URL is not an https URL')
         return UNUSABLE_IMAGE
       }
       const context = `image download from ${host}`
+      if (signal?.aborted === true) return unavailable(context, abortedError())
       try {
         const response = await fetch(url, {
           method: 'GET',
           headers: { 'User-Agent': CDN_USER_AGENT },
           redirect: 'manual',
-          signal: AbortSignal.timeout(timeoutSeconds * 1000),
+          signal: combinedSignal(timeoutSeconds * 1000, signal),
         })
         const contentType = (response.headers.get('Content-Type') ?? '').split(';', 1)[0]?.trim()
         if (!response.ok || !contentType?.toLowerCase().startsWith('image/')) {
@@ -490,4 +530,39 @@ function httpsHostOf(url: string): string | null {
     return null
   }
   return parsed.protocol === 'https:' && parsed.hostname !== '' ? parsed.hostname : null
+}
+
+function combinedSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  return signal === undefined ? timeout : AbortSignal.any([timeout, signal])
+}
+
+function abortedError(): DOMException {
+  return new DOMException('The operation was aborted', 'AbortError')
+}
+
+async function sleepAbortable(
+  millis: number,
+  sleep: (millis: number) => Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal === undefined) {
+    await sleep(millis)
+    return
+  }
+  if (signal.aborted) return
+  let onAbort: (() => void) | undefined
+  try {
+    await Promise.race([
+      sleep(millis),
+      new Promise<void>((resolve) => {
+        onAbort = () => {
+          resolve()
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+  }
 }

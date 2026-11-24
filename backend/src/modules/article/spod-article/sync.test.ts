@@ -176,7 +176,23 @@ function fakePartner(partner: Partner) {
       return new Response(await pngBytes(), { headers: { 'Content-Type': 'image/png' } })
     }
     if (pathname === '/articles') {
-      await partner.gate
+      if (partner.gate !== undefined) {
+        const signal = init.signal
+        await new Promise<void>((resolve, reject) => {
+          if (signal?.aborted === true) {
+            reject(new DOMException('The operation was aborted', 'AbortError'))
+            return
+          }
+          const onAbort = () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'))
+          }
+          signal?.addEventListener('abort', onAbort, { once: true })
+          void partner.gate?.then(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+          })
+        })
+      }
       return partner.listing(Number(new URL(url).searchParams.get('offset')))
     }
     if (pathname === '/designs/upload') {
@@ -1000,5 +1016,23 @@ describe('one destination at a time', () => {
     expect(done.progress).toBeNull()
     expect(done.report?.status).toBe('COMPLETED')
     expect(done.report?.created.map((line) => line.spodArticleId)).toEqual(['a-1'])
+  })
+
+  test('stop aborts an in-flight background sync, drains it cleanly, and blocks new runs', async () => {
+    const neverOpens = new Promise<void>(() => {
+      // Held open until `stop()` aborts the in-flight request.
+    })
+    const { sync } = await syncWith({ listing: page([shirt()]), gate: neverOpens })
+    const destinationId = source().access.destinationId
+
+    expect(sync.start(source())).toBe('started')
+    expect(sync.state(destinationId).running).toBe(true)
+
+    await sync.stop()
+
+    expect(sync.state(destinationId).running).toBe(false)
+    expect(sync.state(destinationId).report?.status).toBe('FAILED')
+    expect(sync.start(source())).toBe('busy')
+    expect(await sync.sync(source())).toEqual({ kind: 'busy' })
   })
 })

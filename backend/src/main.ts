@@ -1,16 +1,18 @@
 import { createApplication } from '@/composition'
 import { createLogger, errorDetails } from '@/platform/logging'
-import { loadEnvFiles, loadSettings } from '@/platform/settings'
+import { loadEnvFiles, loadSettings, logStartupConfig } from '@/platform/settings'
+import { createShutdownHandler } from '@/platform/shutdown'
 
 /**
- * The process: settings, the composed application, the HTTP server, and the two workers, in one
- * process. SIGTERM and SIGINT stop the server first, so no new request arrives, then the workers
- * and the pool.
+ * The process: settings, the composed application, the HTTP server, and the three workers, in one
+ * process. SIGTERM and SIGINT stop the server first (with a bounded drain timeout), so no new
+ * request arrives, then the workers, SPOD catalog sync, and the pool.
  */
 const log = createLogger('main')
 
 loadEnvFiles()
 const settings = loadSettings(process.env)
+logStartupConfig(settings, log)
 const application = await createApplication(settings)
 application.start()
 const server = Bun.serve({
@@ -35,17 +37,17 @@ process.on('unhandledRejection', (reason) => {
   process.exit(1)
 })
 
-const shutdown = (signal: string) => {
-  log.info({ signal }, 'Shutting down')
-  void (async () => {
-    await server.stop()
-    await application.stop()
-    process.exit(0)
-  })()
-}
+const shutdown = createShutdownHandler({
+  stopServer: (closeActiveConnections) => server.stop(closeActiveConnections),
+  stopApplication: () => application.stop(),
+  exit: (code) => {
+    process.exit(code)
+  },
+  log,
+})
 process.on('SIGTERM', () => {
-  shutdown('SIGTERM')
+  void shutdown('SIGTERM')
 })
 process.on('SIGINT', () => {
-  shutdown('SIGINT')
+  void shutdown('SIGINT')
 })

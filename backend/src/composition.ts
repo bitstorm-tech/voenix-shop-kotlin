@@ -24,6 +24,8 @@ import { createAuth } from '@/platform/auth/auth'
 import { createDatabase } from '@/platform/db/database'
 import { migrate } from '@/platform/db/migrate'
 import { createApp } from '@/platform/http/app'
+import { databaseReadyCheck, healthRoutes } from '@/platform/http/health'
+import { legacyRedirectRoutes } from '@/platform/http/legacy-redirects'
 import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import type { Settings } from '@/platform/settings'
 
@@ -195,6 +197,9 @@ export async function createApplication(
     }
     // Last: the MCP tools read the admin routes mounted above from `app` itself.
     app.route('/', createMcpModule({ app, frontendBaseUrl }).routes)
+    // Operational probes and legacy WordPress 301 redirects sit ahead of the SPA fallback.
+    app.route('/', healthRoutes(databaseReadyCheck(db)))
+    app.route('/', legacyRedirectRoutes())
     // The frontend itself, when this deployment carries one: the full-stack image sets
     // FRONTEND_DIST_PATH; in development it stays unset and Vite serves the frontend.
     if (settings.frontend.distPath !== null) serveFrontend(app, settings.frontend.distPath)
@@ -207,7 +212,12 @@ export async function createApplication(
         operations.worker.start()
       },
       stop: async () => {
-        await Promise.all([email.worker.stop(), production.worker.stop(), operations.worker.stop()])
+        await Promise.all([
+          email.worker.stop(),
+          production.worker.stop(),
+          operations.worker.stop(),
+          article.spodCatalogSync.stop(),
+        ])
         await db.destroy()
       },
     }

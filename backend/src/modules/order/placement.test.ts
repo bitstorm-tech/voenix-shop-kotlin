@@ -228,6 +228,23 @@ describe('orders.place', () => {
     expect(await count(database.db, 'order_items')).toBe(0)
     expect(await count(database.db, 'email_jobs')).toBe(0)
   })
+
+  test('deleting a registered user preserves their order with user_id set to null (DSGVO)', async () => {
+    const userId = await seedUser(database.db, 'gdpr-delete@example.com')
+    const cartId = await seedCart(database.db, { userId })
+    const placed = await place(placeInput(cartId, { userId, guestToken: null }))
+    expect(placed.kind).toBe('placed')
+    const orderId = placedOrder(placed).orderId
+
+    await database.db.deleteFrom('users').where('id', '=', userId).execute()
+
+    const surviving = await database.db
+      .selectFrom('orders')
+      .select(['id', 'user_id', 'guest_session_token'])
+      .where('id', '=', orderId)
+      .executeTakeFirstOrThrow()
+    expect(surviving).toEqual({ id: orderId, user_id: null, guest_session_token: null })
+  })
 })
 
 describe('orders.payable', () => {

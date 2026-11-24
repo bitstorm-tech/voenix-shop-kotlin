@@ -40,4 +40,7 @@ RUN mkdir -p data/images/public data/images/private data/images/cache \
 USER app
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD ["bun", "-e", "const r = await fetch(`http://127.0.0.1:${process.env.PORT ?? 8080}/api/ready`); if (!r.ok) process.exit(1)"]
+
 ENTRYPOINT ["bun", "src/main.ts"]

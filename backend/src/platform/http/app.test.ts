@@ -300,3 +300,39 @@ describe('security headers', () => {
     )
   })
 })
+
+describe('response compression', () => {
+  test('compresses compressible responses and leaves binary images and small sized bodies untouched', async () => {
+    const routes = new Hono()
+    const payload = { items: Array.from({ length: 120 }, (_, i) => `article-${String(i)}`) }
+    routes.get('/probe/large-json', (c) => c.json(payload))
+    routes.get('/probe/small-text', (c) => c.text('tiny', 200, { 'Content-Length': '4' }))
+    routes.get('/probe/image', (c) =>
+      c.body(new Uint8Array(4096), 200, { 'Content-Type': 'image/png' }),
+    )
+    const app = testApp(routes)
+
+    const large = await app.request('/probe/large-json', {
+      headers: { 'Accept-Encoding': 'gzip' },
+    })
+    expect(large.status).toBe(200)
+    expect(large.headers.get('Content-Encoding')).toBe('gzip')
+    expect(large.headers.get('Vary')).toContain('Accept-Encoding')
+    const decompressed = await new Response(
+      large.body?.pipeThrough(new DecompressionStream('gzip')),
+    ).json()
+    expect(decompressed).toEqual(payload)
+
+    const small = await app.request('/probe/small-text', {
+      headers: { 'Accept-Encoding': 'gzip' },
+    })
+    expect(small.status).toBe(200)
+    expect(small.headers.get('Content-Encoding')).toBeNull()
+
+    const image = await app.request('/probe/image', {
+      headers: { 'Accept-Encoding': 'gzip' },
+    })
+    expect(image.status).toBe(200)
+    expect(image.headers.get('Content-Encoding')).toBeNull()
+  })
+})

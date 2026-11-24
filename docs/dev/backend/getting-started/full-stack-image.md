@@ -72,10 +72,13 @@ The root Dockerfile builds in three stages:
    variable the image sets itself. There is no build output: Bun runs the
    TypeScript sources directly with `bun src/main.ts`, which applies the
    pending migrations, starts the three workers, and listens on `PORT`
-   (default `8080`). The stage also installs
-   [`magic-wormhole`](https://magic-wormhole.readthedocs.io/), so files can be
-   moved to and from a running container (for example logs or a database
-   dump) with `wormhole send <file>` in a shell inside the container.
+   (default `8080`). A `HEALTHCHECK` probes `GET /api/ready` every 30 seconds.
+   The stage also copies the standalone Rust binary
+   [`wormhole-rs`](https://github.com/magic-wormhole/magic-wormhole.rs)
+   (symlinked as `wormhole`, without pulling Python into the image), so files
+   can be moved to and from a running container (for example logs or a database
+   dump) with `wormhole send <file>` or `wormhole-rs send <file>` in a shell
+   inside the container.
 
 The container runs as the non-root user `app` with `/app` as its home and
 working directory. Uploaded images, the image cache, and production PDFs

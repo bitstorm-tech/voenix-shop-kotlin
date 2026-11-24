@@ -777,7 +777,7 @@ interface MeasuredAttempt {
  * Every product type is measured once, on its first article; only answers are cached so one
  * transport hiccup costs one article.
  */
-export function createCalibration(client: SpodClient, access: SpodAccess) {
+export function createCalibration(client: SpodClient, access: SpodAccess, signal?: AbortSignal) {
   const uploadedBySize = new Map<string, UploadedCalibrationDesigns>()
   const views = new Map<number, SpodViews>()
   const productTypes = new Map<number, SpodProductType | null>()
@@ -786,7 +786,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
   const viewsOf = async (productTypeId: number): Promise<SpodResult<SpodViews>> => {
     const cached = views.get(productTypeId)
     if (cached !== undefined) return { kind: 'answered', value: cached }
-    const answer = await client.views(access, productTypeId)
+    const answer = await client.views(access, productTypeId, signal)
     if (answer.kind === 'answered') views.set(productTypeId, answer.value)
     return answer
   }
@@ -799,7 +799,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
   const productTypeOf = async (productTypeId: number): Promise<SpodProductType | null> => {
     const cached = productTypes.get(productTypeId)
     if (cached !== undefined) return cached
-    const answer = await client.productType(access, productTypeId)
+    const answer = await client.productType(access, productTypeId, signal)
     if (answer.kind === 'answered') {
       productTypes.set(productTypeId, answer.value)
       return answer.value
@@ -825,9 +825,9 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
       width === CALIBRATION_EDGE_PIXELS && height === CALIBRATION_EDGE_PIXELS
         ? CALIBRATION_DESIGN_B_FILE_NAME
         : `calibration-${key}-b.png`
-    const answerA = await client.uploadDesign(access, fileA, pngs.a)
+    const answerA = await client.uploadDesign(access, fileA, pngs.a, signal)
     if (answerA.kind === 'failed') return answerA
-    const answerB = await client.uploadDesign(access, fileB, pngs.b)
+    const answerB = await client.uploadDesign(access, fileB, pngs.b, signal)
     if (answerB.kind === 'failed') return answerB
     const uploaded: UploadedCalibrationDesigns = {
       a: answerA.value,
@@ -852,12 +852,17 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     | { kind: 'failed'; detail: string }
     | { kind: 'unavailable'; detail: string }
   > => {
-    const answer = await client.previews(access, productTypeId, {
-      configurations: [{ designId, hotspot }],
-      appearanceId,
-      width: PREVIEW_EDGE_PIXELS,
-      height: PREVIEW_EDGE_PIXELS,
-    })
+    const answer = await client.previews(
+      access,
+      productTypeId,
+      {
+        configurations: [{ designId, hotspot }],
+        appearanceId,
+        width: PREVIEW_EDGE_PIXELS,
+        height: PREVIEW_EDGE_PIXELS,
+      },
+      signal,
+    )
     if (answer.kind === 'failed') {
       return { kind: 'unavailable', detail: `${hotspot} previews: ${answer.error}` }
     }
@@ -866,7 +871,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
       return { kind: 'failed', detail: `${hotspot}: ${UNREADABLE satisfies SpodError}` }
     }
     // Previews come as WebP unless the URL asks for PNG.
-    const png = await client.download(`${url},mediaType=png`, access.timeoutSeconds)
+    const png = await client.download(`${url},mediaType=png`, access.timeoutSeconds, signal)
     if (png.kind === 'failed') {
       return { kind: 'unavailable', detail: `${hotspot} preview download: ${png.error}` }
     }
@@ -926,7 +931,7 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
     const { width, height } = dimensionsForAspectRatio(ratio, maxEdge)
     const designs = await designIdsFor(width, height)
     if (designs.kind === 'failed') return null
-    const available = await client.availableHotspots(access, productTypeId, designs.value.a)
+    const available = await client.availableHotspots(access, productTypeId, designs.value.a, signal)
     if (available.kind === 'failed' || !available.value.includes(hotspot)) return null
     const result = await preview(productTypeId, appearanceId, view, designs.value, hotspot)
     return result.kind === 'measured' ? result.attempt : null
@@ -1065,7 +1070,12 @@ export function createCalibration(client: SpodClient, access: SpodAccess) {
           detail: `designs/upload: ${designs.error}`,
         }
       }
-      const available = await client.availableHotspots(access, productTypeId, designs.value.a)
+      const available = await client.availableHotspots(
+        access,
+        productTypeId,
+        designs.value.a,
+        signal,
+      )
       if (available.kind === 'failed') {
         return { kind: 'unavailable' as const, detail: `hotspots: ${available.error}` }
       }

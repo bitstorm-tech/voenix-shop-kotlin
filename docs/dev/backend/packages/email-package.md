@@ -328,7 +328,7 @@ stub; nothing mocks a global.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `EMAIL_ENABLED` | `false` | `false`: `send` is a no-op and the worker never sends |
-| `EMAIL_POLL_INTERVAL_MINUTES` | `5` | between 1 and 1440 |
+| `EMAIL_POLL_INTERVAL_MINUTES` | `1` | between 1 and 1440 |
 | `EMAIL_API_KEY` | — | the Sweego key; required when enabled |
 | `EMAIL_FROM_EMAIL` | — | the sender address; required when enabled |
 | `EMAIL_FROM_NAME` | `Voenix Shop` | the sender name |

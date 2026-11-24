@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { compress } from 'hono/compress'
 import { HTTPException } from 'hono/http-exception'
 import { routePath } from 'hono/route'
 import { secureHeaders } from 'hono/secure-headers'
@@ -49,6 +50,7 @@ export function createApp(auth: Auth, { https = false }: { https?: boolean } = {
     httpLog.error({ error: errorDetails(error) }, 'Unhandled server error')
     return c.json(apiError('Internal server error'), 500)
   })
+  app.use('*', compress())
   // Installed before `secureHeaders` so its post-`next()` override runs after `secureHeaders` sets
   // the global `Referrer-Policy`.
   app.use('*', async (c, next) => {

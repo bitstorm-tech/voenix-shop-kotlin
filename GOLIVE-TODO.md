@@ -108,17 +108,15 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
   Erledigt: Auf `requireAdmin` umgestellt und im Test (`401` anonym, `403` Kunde, `200` Admin) abgesichert.
 - [x] **B10. [MITTEL] Ungeprüfte Uploads an `fal.ai` & ungeprüfter Ergebnis-Download** – `backend/src/modules/image/codec.ts`, `backend/src/modules/generator/upload.ts`, `backend/src/modules/generator/routes.ts`, `backend/src/modules/generator/fal.ts`
   Erledigt: Uploads (`/api/generator/generate` & `/api/admin/images/background-removal`) werden vor dem `fal.ai`-Call mit `sharp` (`validateImageUpload`, ≤ 40 MP, Magic-Bytes + Dekodierung) geprüft; Ergebnis-Download prüft manuell bis 5 Redirects (nur externe `https:`-Ziele ohne interne/Loopback-/Private-IPs) und validiert die Bytes per `inspectImageBytes`.
-- [ ] **B11. [MITTEL] Gefährliche Produktiv-Defaults (`RATE_LIMIT_TRUST_FORWARDED_FOR` & `DATABASE_SSL_MODE`)** – `backend/src/platform/settings.ts:36-38,81`
-  `RATE_LIMIT_TRUST_FORWARDED_FOR=false` führt hinter dem Sliplane-Proxy dazu, dass sich alle Besucher **ein** 20/h-Bucket teilen (sofortiger Shop-DoS!); `DATABASE_SSL_MODE` steht auf `disable`.
-  Fix: In Prod zwingend explizit setzen (und Sliplane-Proxy-Hop-Count verifizieren) sowie Startup-Warnung/Fail-Fast bei `HTTPS`-`FRONTEND_BASE_URL` + `disable`.
-- [ ] **B12. [MITTEL] `magic-wormhole` (+ Python) im Produktions-Docker-Image** – `Dockerfile:34-38`
-  Unnötige Angriffsfläche und Exfiltrations-Tool im Runtime-Container.
-  Fix: Aus dem Produktions-`Dockerfile` entfernen.
+- [x] **B11. [MITTEL] Gefährliche Produktiv-Defaults (`RATE_LIMIT_TRUST_FORWARDED_FOR` & `DATABASE_SSL_MODE`)** – `backend/src/platform/settings.ts`, `backend/src/main.ts`, `backend/.env.example`
+  Erledigt: Beim Start wird eine secret-freie Konfigurationszusammenfassung (inkl. Mollie-Modus `live`/`test`) geloggt sowie explizite `WARN`-Logs bei `HTTPS`-`FRONTEND_BASE_URL` mit `DATABASE_SSL_MODE=disable`, `EMAIL_ENABLED=false`, `GENERATOR_DUMMY_MODE=true` oder `RATE_LIMIT_TRUST_FORWARDED_FOR=false`. *(Die konkreten Produktiv-Env-Variablen werden beim Deploy in E2 gesetzt.)*
+- [x] **B12. [MITTEL] `magic-wormhole` (+ Python) im Produktions-Docker-Image** – `Dockerfile`
+  Erledigt: Python-`magic-wormhole` (`apt-get`) entfernt und durch das eigenständige Rust-Binary `magic-wormhole.rs` (`wormhole-rs` `0.8.1`, SHA-256-geprüft, Symlink `wormhole`, ohne Python-Runtime im Image) ersetzt, da das Tool weiter für Server-zu-Server-Datentransfers benötigt wird.
 - [ ] **B13. [MITTEL] Klartext-Secrets in PostgreSQL & Admin-Session-Revocation (`TODO #11`)** – `backend/src/modules/production/repository.ts:204-244`, `backend/src/platform/auth/auth.ts:91-116,215-220`
   SFTP-Passwörter und SPOD-Live-Tokens liegen unverschlüsselt in der DB; `requireAdmin` prüft Rollen nur aus dem Stateless-Cookie (nicht widerrufbar bei Logout/Passwortwechsel/Rollenentzug).
   Fix: SFTP-/SPOD-Secrets mit AES-256-GCM at-rest verschlüsseln; `requireAdmin` gegen DB prüfen (wie `requireSupplier`).
 - [x] **B14. [NIEDRIG] Unvalidierter `redirect`-Parameter & `bun audit`** – `frontend/src/views/auth/LoginView.vue`
-  Erledigt (Frontend): `route.query.redirect` wird auf einzelne relative Pfade (`^/(?!/)`) geprüft; `bun audit` in `frontend/` ausgeführt (29 Prod-Findings / 114 inkl. Dev-Deps, u. a. `vue-i18n@9.14.5`, `defu@6.1.4`, Build-Tools — `backend/`-Audit noch in Paket 4).
+  Erledigt: `route.query.redirect` wird auf einzelne relative Pfade (`^/(?!/)`) geprüft; `bun audit` in `frontend/` (29 Prod-Findings / 114 inkl. Dev-Deps) und `backend/` (0 Prod-Findings, 5 Dev-only-Findings in `testcontainers`/`eslint`) ausgeführt.
 
 ---
 
@@ -147,9 +145,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
   Erledigt: Generationszähler + `AbortController` in `imageGeneration.ts`, `reset()` bei Artikel-/Foto-/Stilwechsel in `WizardView.vue`; Fehlerkarte + Retry in `CartView.vue` und `CheckoutView.vue` statt Falsch-„leer“ bzw. Redirect.
 - [x] **C9. [HOCH / NEU] Concurrent-Fetch-Bug in `prompts`-, `catalog`- & `articleCategories`-Stores** – `stores/shop/prompts.ts`, `catalog.ts`, `articleCategories.ts`
   Erledigt: Laufendes `pendingRequest`-Promise wird in allen drei Stores gespeichert und an parallele Aufrufer zurückgegeben.
-- [ ] **C10. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** *(Frontend erledigt)* – `frontend/vite.config.ts`, `backend/src/platform/http/app.ts`
-  Frontend erledigt: Chunk-Gruppen `admin`, `shop`, `shared` und `radix-vue` aus `vite.config.ts` entfernt, sodass Admin-Views getrennt in `dist/assets/admin/` lazy-loaded werden.
-  Noch offen (Backend/Betrieb): prüfen, ob Sliplane/Traefik komprimiert (sonst Hono `compress()` aktivieren).
+- [x] **C10. [HOCH] Admin-Bundle für alle & fehlende Kompression (`TODO #17`)** – `frontend/vite.config.ts`, `backend/src/platform/http/app.ts`
+  Erledigt: Chunk-Gruppen `admin`, `shop`, `shared` und `radix-vue` aus `vite.config.ts` entfernt (Admin-Views lazy-loaded); Hono `compress()` in `app.ts` aktiv (komprimiert JSON/Text/JS/CSS, lässt Binärbilder und kleine Responses < 1 KB mit `Content-Length` unberührt).
 - [x] **C11. [MITTEL] `sitemap.xml` fehlt & SW fängt `/robots.txt` ab** – `frontend/public/robots.txt`, `frontend/public/sitemap.xml`, `frontend/vite.config.ts`
   Erledigt: `sitemap.xml` angelegt, in `robots.txt` referenziert und `/^\/robots\.txt$/`, `/^\/sitemap\.xml$/` in `navigateFallbackDenylist` aufgenommen.
 - [x] **C12. [MITTEL] UX- & i18n-Feinschliff (`TODO #18–#20` + NEU)** – `CartLineItem.vue`, `CartSummary.vue`, `CartView.vue`, `CheckoutView.vue`, `OrderConfirmationView.vue`, `RegisterView.vue`, `LoginView.vue`, `ProfileView.vue`, `OrderView.vue`, `OrderDetails.vue`, `stores/shared/{auth,locale,theme}.ts`, `i18n/index.ts`, `LandingCarousel.vue`, `HeaderSubcategoryMenuCard.vue`, `MobileMenu.vue`, `TextToolPanel.vue`, `CartButton.vue`, `LanguageDropdown.vue`, `frontend/package.json`
@@ -159,29 +156,24 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 - [x] **C13. [HOCH / NEU] Payment-Retry storniert Bestellung dauerhaft bei kurzem Mollie-Fehler** – `backend/src/modules/order/payment/service.ts`, `backend/src/modules/checkout/service.ts`
   Erledigt: `startPayment` akzeptiert `{ cancelOnFailure }` (`true` beim Erst-Checkout, `false` beim Retry); bei Mollie-Fehler im Retry bleibt die Bestellung `PENDING` und eine frisch gezogene Promotion-Reservierung wird sauber freigegeben.
-- [ ] **C14. [HOCH / NEU] `DATABASE_MAXIMUM_POOL_SIZE` default `100` droht Postgres zu erschöpfen** – `backend/src/platform/settings.ts:39`
-  Standard-PostgreSQL erlaubt 100 Connections (97 Non-Superuser); bei Rolling-Deploy mit 2 Containern droht `too many clients already`.
-  Fix: Default auf `15–20` senken.
-- [ ] **C15. [HOCH / NEU] Kein `/api/health` / `/api/ready` Endpoint & kein `Dockerfile HEALTHCHECK`** – `backend/src/composition.ts:216-226`, `Dockerfile`
-  `/` liefert per SPA-Fallback selbst bei DB-Ausfall HTTP 200.
-  Fix: `GET /api/health` (Liveness) und `GET /api/ready` (`SELECT 1`, 503 bei DB-Fehler) vor `serveFrontend` mounten + `HEALTHCHECK` im `Dockerfile`.
-- [ ] **C16. [HOCH / NEU] Graceful Shutdown ohne Timeout, Re-entrancy-Guard & `spodCatalogSync`-Drain** – `backend/src/main.ts:38-51`, `backend/src/modules/article/spod-article/sync.ts:684-697`
-  Offene Keep-Alive-Verbindungen können `server.stop()` bis zum `SIGKILL` blockieren, bevor Worker stoppen und `db.destroy()` läuft; laufende SPOD-Syncs werden nicht abgebrochen.
-  Fix: Shutdown-Guard, 10–15 s Timeout vor `server.stop(true)` und `AbortSignal`/Drain für `spodCatalogSync`.
+- [x] **C14. [HOCH / NEU] `DATABASE_MAXIMUM_POOL_SIZE` default `100` droht Postgres zu erschöpfen** – `backend/src/platform/settings.ts`, `backend/.env.example`
+  Erledigt: Default auf `20` gesenkt (Minimum `1`).
+- [x] **C15. [HOCH / NEU] Kein `/api/health` / `/api/ready` Endpoint & kein `Dockerfile HEALTHCHECK`** – `backend/src/platform/http/health.ts`, `backend/src/composition.ts`, `Dockerfile`, `backend/Dockerfile`
+  Erledigt: `GET /api/health` (`200 { status: "ok" }`) und `GET /api/ready` (`SELECT 1` mit 2 s Timeout, `200`/`503`) vor `serveFrontend` gemountet + `HEALTHCHECK` gegen `/api/ready` in beiden Dockerfiles ergänzt.
+- [x] **C16. [HOCH / NEU] Graceful Shutdown ohne Timeout, Re-entrancy-Guard & `spodCatalogSync`-Drain** – `backend/src/main.ts`, `backend/src/platform/shutdown.ts`, `backend/src/modules/article/spod-article/sync.ts`, `backend/src/modules/spod/client.ts`, `backend/src/composition.ts`
+  Erledigt: Re-entrancy-Guard in `shutdown()`, 12 s Drain-Timeout vor `server.stop(true)`, sowie `AbortController`/Drain-Handle in `spodCatalogSync.stop()` vor `db.destroy()`.
 - [ ] **C17. [HOCH] SPOD-Webhook-Fallback & Lieferanten-PDF-Snapshot (`TODO #14, #15`)** – `backend/src/modules/production/fulfillment/service.ts:206-218`, `backend/src/modules/production/delivery/generation.ts:63-68`, `pdf/renderer.ts:83`
   Webhook-Fallback nur zulassen, wenn `externalReference === null`; Lieferanten-PDF gegen `production_job_items` prüfen (`ITEM_SET_CHANGED` wie bei SPOD).
-- [ ] **C18. [MITTEL / NEU] DB-Constraint `ck_orders_owner` verhindert DSGVO-Kontolöschung** – `backend/migrations/V16__create_orders.sql:65-66,81-84`
-  `fk_orders_user ON DELETE SET NULL` kollidiert mit `CHECK (user_id IS NOT NULL OR guest_session_token IS NOT NULL)` bei registrierten Kunden ohne Gast-Token → `DELETE FROM users` schlägt fehl!
-  Fix: Neue Migration, die `ck_orders_owner` entfernt (analog zu `carts`).
+- [x] **C18. [MITTEL / NEU] DB-Constraint `ck_orders_owner` verhindert DSGVO-Kontolöschung** – `backend/migrations/V40__go_live_db_hardening.sql`, `backend/src/modules/order/placement.test.ts`
+  Erledigt: `V40__go_live_db_hardening.sql` entfernt `ck_orders_owner`; Test verifiziert, dass registrierte Nutzer mit Bestellungen gelöscht werden können und die Bestellung mit `user_id = NULL` erhalten bleibt.
 - [ ] **C19. [MITTEL / NEU] Endlos-Retry bei permanenten Fehlern (Email `4xx` & SPOD `ORDER_CREATE_REJECTED`)** – `backend/src/modules/email/worker.ts:39-64`, `backend/src/modules/production/spod/repository.ts:103-129`
   Sweego-`4xx` und abgelehnte SPOD-Orders laufen ewig im Intervall weiter (SPOD alle 60 s gegen 60 req/min Rate-Limit; `EMAIL_STALLED` bleibt permanent offen).
   Fix: Exponential Backoff + Max-Retries / Dead-Letter bzw. Admin-Retry/Dismiss einführen (und `email-package.md` / `spod-fulfillment.md` aktualisieren).
-- [ ] **C20. [MITTEL / NEU] Plattenwachstum (`/app/data`), `email_jobs`-Index & 5-Minuten-Mail-Verzögerung** – `backend/migrations/V5__create_email_jobs.sql`, `backend/src/platform/settings.ts:52`, `backend/src/modules/image/orphans.ts`, `production/pdf/artifact-store.ts`
-  - `EMAIL_POLL_INTERVAL_MINUTES` steht auf `5` (Kunden warten bis zu 5 min auf Bestellbestätigung) → auf `1` senken oder Worker bei `enqueue` direkt wecken.
-  - Partial Index `CREATE INDEX ix_email_jobs_open ON email_jobs (id) WHERE sent_at IS NULL;` ergänzen + Retention für alte `email_jobs`-Payloads (enthalten PII & Order-Links).
-  - Abgebrochene `ACTIVE`-Warenkörbe verfallen nie (halten Print-Bilder ewig vor Orphan-Cleanup fest); Produktions-PDFs werden nie aufgeräumt → Ablauf/Cleanup planen.
-- [ ] **C21. [MITTEL] Gefährliches Migrations-Skript & Backend-Kleinkram (`TODO #16, #18`)** – `scripts/migrate-legacy-data.sh:561-580`
-  `TRUNCATE ... CASCADE` gegen Produktiv-Host absichern (`--yes-wipe-target` / Host-Check) oder nach Umzug entfernen.
+- [ ] **C20. [MITTEL / NEU] Plattenwachstum (`/app/data`), `email_jobs`-Index & 5-Minuten-Mail-Verzögerung** *(teilweise erledigt)* – `backend/migrations/V40__go_live_db_hardening.sql`, `backend/src/platform/settings.ts`, `backend/src/modules/image/orphans.ts`, `production/pdf/artifact-store.ts`
+  Erledigt: `EMAIL_POLL_INTERVAL_MINUTES`-Default auf `1` gesenkt und Partial Index `ix_email_jobs_open` (`WHERE sent_at IS NULL`) in `V40` ergänzt.
+  Noch offen: Retention für alte `email_jobs`-Payloads sowie Ablauf/Cleanup für abgebrochene `ACTIVE`-Warenkörbe und alte Produktions-PDFs.
+- [x] **C21. [MITTEL] Gefährliches Migrations-Skript & Backend-Kleinkram (`TODO #16, #18`)** – `scripts/migrate-legacy-data.sh`
+  Erledigt: Skript bricht bei nicht-lokalem Ziel-Host (`!= localhost/127.0.0.1/::1`) ab, sofern nicht explizit `--yes-wipe-target` übergeben wird.
 
 ### Katalog & Datenqualität
 
@@ -216,9 +208,9 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 
 ## E. Domain-Umzug, Produktiv-Konfiguration & Launch-Tag
 
-- [ ] **E1. 301-Weiterleitungen für alte WordPress-URLs** – `backend/src/composition.ts:209-225` (oder Proxy)
-  Noch nicht implementiert: `/impressum/`, `/widerruf/`, `/versand/`, `/zahlung/`, `/faq/`, `/ueber-uns/`, `/tassenuebersicht/`, `/firmenkunden/`, `/pdf/AGBs.pdf` landen aktuell per SPA-Fallback auf HTTP 200 / Client-404.
-  Fix: Serverseitige 301-Redirects einrichten; `www.voenix.shop` ↔ `voenix.shop` kanonisch weiterleiten; Testinstanz `voenix-shop-test-ts.sliplane.app` abschalten, per Auth sperren oder mit `noindex` versehen.
+- [ ] **E1. 301-Weiterleitungen für alte WordPress-URLs** *(Backend-Redirects erledigt)* – `backend/src/platform/http/legacy-redirects.ts`, `backend/src/composition.ts`
+  Erledigt (Code): Serverseitige 301-Redirects vor `serveFrontend` für `/impressum`, `/widerruf`, `/versand`, `/zahlung`, `/faq/`, `/ueber-uns`, `/tassenuebersicht`, `/firmenkunden`, `/pdf/AGBs.pdf` (mit/ohne Trailing-Slash) inkl. Unit- & Integrationstests.
+  Noch offen (Launch-Tag/Infra): `www.voenix.shop` ↔ `voenix.shop` kanonisch weiterleiten; Testinstanz `voenix-shop-test-ts.sliplane.app` abschalten, per Auth sperren oder mit `noindex` versehen.
 - [ ] **E2. Produktiv-Konfiguration & Secret-Rotation** – `backend/src/platform/settings.ts`
   Alle Produktiv-Variablen explizit setzen (nicht auf Defaults verlassen!):
   - `FRONTEND_BASE_URL=https://voenix.shop` (Default ist `http://localhost:5173` → schaltet sonst still `Secure`-Cookies aus!)

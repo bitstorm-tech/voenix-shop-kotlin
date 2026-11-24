@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadEnvFiles, loadSettings } from '@/platform/settings'
+import {
+  loadEnvFiles,
+  loadSettings,
+  logStartupConfig,
+  productionConfigWarnings,
+  startupConfigSummary,
+} from '@/platform/settings'
 
 /** The variables `.env.development` sets; everything else falls through to the defaults. */
 const development = {
@@ -38,12 +44,12 @@ describe('loadSettings', () => {
       password: 'voenix',
       searchPath: 'voenix',
       sslMode: 'disable',
-      maximumPoolSize: 100,
+      maximumPoolSize: 20,
     })
     expect(settings.frontend).toEqual({ baseUrl: 'http://localhost:5173', distPath: null })
     expect(settings.mollie.redirectUrl).toBe('http://localhost:5173/order-confirmation')
     expect(settings.email.enabled).toBe(false)
-    expect(settings.email.pollIntervalMinutes).toBe(5)
+    expect(settings.email.pollIntervalMinutes).toBe(1)
     expect(settings.email.fromName).toBe('Voenix Shop')
     expect(settings.production.spod).toBeNull()
     expect(settings.generator.dummyMode).toBe(true)
@@ -157,6 +163,89 @@ describe('loadSettings', () => {
     expect(failure({ ...development, GENERATOR_GLOBAL_MAX_PER_HOUR: '0' })).toBe(
       'Invalid configuration: GENERATOR_GLOBAL_MAX_PER_HOUR must be at least 1',
     )
+  })
+
+  test('the database maximum pool size defaults to 20 and must be at least 1', () => {
+    expect(
+      loadSettings({ ...development, DATABASE_MAXIMUM_POOL_SIZE: '15' }).database.maximumPoolSize,
+    ).toBe(15)
+    expect(failure({ ...development, DATABASE_MAXIMUM_POOL_SIZE: '0' })).toBe(
+      'Invalid configuration: DATABASE_MAXIMUM_POOL_SIZE must be at least 1',
+    )
+  })
+})
+
+describe('startup config summary and warnings', () => {
+  const httpsProduction = {
+    ...development,
+    FRONTEND_BASE_URL: 'https://voenix.shop',
+    DATABASE_SSL_MODE: 'require',
+    EMAIL_ENABLED: 'true',
+    EMAIL_API_KEY: 'sweego-secret-key',
+    EMAIL_FROM_EMAIL: 'shop@voenix.shop',
+    GENERATOR_DUMMY_MODE: 'false',
+    GENERATOR_API_KEY: 'fal-secret-key',
+    RATE_LIMIT_TRUST_FORWARDED_FOR: 'true',
+    MOLLIE_API_KEY: 'live_mollie-secret',
+  }
+
+  test('builds a secret-free summary and classifies the Mollie key prefix', () => {
+    const summary = startupConfigSummary(loadSettings(httpsProduction))
+    expect(summary).toEqual({
+      frontendBaseUrl: 'https://voenix.shop',
+      secureCookies: true,
+      emailEnabled: true,
+      emailPollIntervalMinutes: 1,
+      databaseSslMode: 'require',
+      databaseMaxPoolSize: 20,
+      rateLimitTrustForwardedFor: true,
+      generatorDummyMode: false,
+      mollieMode: 'live',
+    })
+    const serialized = JSON.stringify(summary)
+    expect(serialized).not.toContain('sweego-secret-key')
+    expect(serialized).not.toContain('fal-secret-key')
+    expect(serialized).not.toContain('live_mollie-secret')
+    expect(serialized).not.toContain('development-only-session-secret')
+
+    expect(startupConfigSummary(loadSettings(development)).mollieMode).toBe('test')
+    expect(
+      startupConfigSummary(loadSettings({ ...development, MOLLIE_API_KEY: 'other_key' }))
+        .mollieMode,
+    ).toBe('unknown')
+  })
+
+  test('emits no warnings for local HTTP or for a properly hardened HTTPS deployment', () => {
+    expect(productionConfigWarnings(loadSettings(development))).toEqual([])
+    expect(productionConfigWarnings(loadSettings(httpsProduction))).toEqual([])
+  })
+
+  test('warns on every unsafe default when FRONTEND_BASE_URL uses HTTPS', () => {
+    const unsafeHttps = loadSettings({
+      ...development,
+      FRONTEND_BASE_URL: 'https://voenix.shop',
+    })
+    const warnings = productionConfigWarnings(unsafeHttps)
+    expect(warnings).toHaveLength(4)
+    expect(warnings.some((line) => line.includes('DATABASE_SSL_MODE=disable'))).toBe(true)
+    expect(warnings.some((line) => line.includes('EMAIL_ENABLED=false'))).toBe(true)
+    expect(warnings.some((line) => line.includes('GENERATOR_DUMMY_MODE=true'))).toBe(true)
+    expect(warnings.some((line) => line.includes('RATE_LIMIT_TRUST_FORWARDED_FOR=false'))).toBe(
+      true,
+    )
+
+    const infos: unknown[][] = []
+    const warns: unknown[][] = []
+    logStartupConfig(unsafeHttps, {
+      info: (...args: unknown[]) => {
+        infos.push(args)
+      },
+      warn: (...args: unknown[]) => {
+        warns.push(args)
+      },
+    })
+    expect(infos).toHaveLength(1)
+    expect(warns).toHaveLength(4)
   })
 })
 

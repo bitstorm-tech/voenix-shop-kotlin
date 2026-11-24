@@ -100,7 +100,7 @@ Five layers supply values, later ones winning:
 
 | Layer | Source | In Git? | Contains |
 | --- | --- | --- | --- |
-| 1 | the defaults in `settings.ts` | yes | `localhost`, port `5432`, search path `voenix`, pool size `100`, email off, … |
+| 1 | the defaults in `settings.ts` | yes | `localhost`, port `5432`, search path `voenix`, pool size `20`, email off, … |
 | 2 | [`backend/.env.development`](../../../../backend/.env.development) | yes | the development database and its password, the development session secret, dummy mode, Mollie placeholders |
 | 3 | `backend/.env.local` | no | optional: real keys and machine-specific values; the template is [`backend/.env.example`](../../../../backend/.env.example) |
 | 4 | `/etc/secrets/.env` | no | optional: the secret file Render mounts into a container (see [the full-stack image](full-stack-image.md#deploying-on-rendercom)) |
@@ -226,11 +226,11 @@ PORT=9090 bun run dev
 | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | `localhost`, `5432`, required, required, required | the PostgreSQL connection |
 | `DATABASE_SEARCH_PATH` | `voenix` | the one schema every table lives in |
 | `DATABASE_SSL_MODE` | `disable` | `disable`, `require`, `verify-ca`, or `verify-full` |
-| `DATABASE_MAXIMUM_POOL_SIZE` | `100` | connections in the pool |
+| `DATABASE_MAXIMUM_POOL_SIZE` | `20` | connections in the pool |
 | `AUTH_SESSION_SECRET` | required | at least 32 UTF-8 bytes; derives every cookie key |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | where every mailed link and the Mollie return to `/order-confirmation` point; HTTPS outside local hosts; an `http:` value leaves the auth cookies without `Secure` |
 | `FRONTEND_DIST_PATH` | unset | the built frontend to serve; see [the full-stack image](full-stack-image.md) |
-| `EMAIL_ENABLED`, `EMAIL_POLL_INTERVAL_MINUTES`, `EMAIL_API_KEY`, `EMAIL_FROM_EMAIL`, `EMAIL_FROM_NAME` | `false`, `5`, unset, unset, `Voenix Shop` | live delivery needs the key and the sender |
+| `EMAIL_ENABLED`, `EMAIL_POLL_INTERVAL_MINUTES`, `EMAIL_API_KEY`, `EMAIL_FROM_EMAIL`, `EMAIL_FROM_NAME` | `false`, `1`, unset, unset, `Voenix Shop` | live delivery needs the key and the sender |
 | `PRODUCTION_ARTIFACT_ROOT` | `./data/production/artifacts` | where production PDFs are stored |
 | `PRODUCTION_SPOD_WEBHOOK_SECRET` | unset | the secret needs 32 characters; set, it requires `OPERATIONS_ALERT_EMAIL` |
 | `OPERATIONS_ALERT_EMAIL` | unset | where the operations alert and the SPOD ops alert go; unset, the findings are only logged |

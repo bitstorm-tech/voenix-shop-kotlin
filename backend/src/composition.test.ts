@@ -39,6 +39,12 @@ const request = (path: string, init?: RequestInit) => {
 
 describe('createApplication', () => {
   test('every module answers on its routes', async () => {
+    const health = await request('/api/health')
+    expect(health.status).toBe(200)
+    expect(await jsonOf(health)).toEqual({ status: 'ok' })
+    const ready = await request('/api/ready')
+    expect(ready.status).toBe(200)
+    expect(await jsonOf(ready)).toEqual({ status: 'ready' })
     const countries = await request('/api/countries')
     expect(countries.status).toBe(200)
     expect(await jsonOf(countries)).toEqual(
@@ -97,7 +103,11 @@ describe('createApplication', () => {
     }
     await second.stop()
     expect(await findings()).toEqual([{ kind: 'EMAIL_STALLED' }])
-    // The pool is gone: the route's query fails and the app's `onError` answers it.
+    // The pool is gone: `/api/health` stays live while `/api/ready` answers 503 and normal routes fail.
+    expect((await second.app.request('/api/health')).status).toBe(200)
+    const unavailable = await second.app.request('/api/ready')
+    expect(unavailable.status).toBe(503)
+    expect(await jsonOf(unavailable)).toEqual({ status: 'unavailable' })
     expect((await second.app.request('/api/countries')).status).toBe(500)
   })
 
@@ -242,6 +252,19 @@ describe('the built frontend', () => {
     expect(countries.status).toBe(200)
     expect(countries.headers.get('Content-Type')).toContain('application/json')
     expect((await page('/api/nowhere')).status).toBe(404)
+  })
+
+  test('legacy WordPress URLs redirect with 301 ahead of the SPA fallback', async () => {
+    const imprint = await page('/impressum/')
+    expect(imprint.status).toBe(301)
+    expect(imprint.headers.get('Location')).toBe('/imprint')
+    const agb = await page('/pdf/AGBs.pdf')
+    expect(agb.status).toBe(301)
+    expect(agb.headers.get('Location')).toBe('/terms')
+    // `/faq` itself still serves the SPA instead of looping.
+    const faq = await page('/faq')
+    expect(faq.status).toBe(200)
+    expect(await faq.text()).toBe('<!doctype html>frontend')
   })
 })
 
