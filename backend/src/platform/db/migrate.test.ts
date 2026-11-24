@@ -8,10 +8,10 @@ const database = testDatabase({ template: false })
 describe('migrate', () => {
   test('applies every file in version order to an empty database and nothing on a second run', async () => {
     const applied = await migrate(database.settings)
-    expect(applied).toHaveLength(39)
+    expect(applied).toHaveLength(40)
     expect(applied[0]).toBe('V1__create_countries.sql')
     expect(applied[1]).toBe('V2__create_value_added_taxes.sql')
-    expect(applied.at(-1)).toBe('V40__go_live_db_hardening.sql')
+    expect(applied.at(-1)).toBe('V41__fulfillment_retry_and_chargebacks.sql')
 
     expect(await migrate(database.settings)).toEqual([])
 
@@ -20,8 +20,8 @@ describe('migrate', () => {
       .select('version')
       .orderBy('version')
       .execute()
-    expect(recorded).toHaveLength(39)
-    expect(recorded.at(-1)).toEqual({ version: 40 })
+    expect(recorded).toHaveLength(40)
+    expect(recorded.at(-1)).toEqual({ version: 41 })
     const seeded = await sql<{
       count: number
     }>`SELECT count(*)::int AS count FROM countries`.execute(database.db)
@@ -34,6 +34,8 @@ describe('migrate', () => {
       database.db,
     )
     expect(openEmailIndex.rows).toHaveLength(1)
-    expect(openEmailIndex.rows[0]?.indexdef).toContain('WHERE (sent_at IS NULL)')
+    expect(openEmailIndex.rows[0]?.indexdef).toContain(
+      'WHERE ((sent_at IS NULL) AND (failed_permanently_at IS NULL))',
+    )
   })
 })

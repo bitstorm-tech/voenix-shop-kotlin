@@ -269,6 +269,38 @@ describe('the production worker', () => {
     expect((await jobs())[0]?.sha256).not.toBeNull()
   })
 
+  test('fails PDF generation with ITEM_SET_CHANGED if an article is reassigned after the split', async () => {
+    // Missing image holds the job open right after the split so we can mutate the supplier mapping.
+    const laterImage = join(kit.root, 'later-mug.png')
+    await requestOrder([
+      line({ articleId: 1, variantId: 1, imagePath: laterImage, variantName: 'Weiß' }),
+      line({ articleId: 3, variantId: 3, imagePath: image, variantName: 'Blau' }),
+    ])
+    kit.catalog.set({ articleId: 3, variantId: 3 }, { supplierId: supplierA })
+    await kit.worker.runOnce()
+
+    // Now the image arrives, but article 3 has been reassigned from supplier A to supplier B.
+    await writeFile(laterImage, await readFile(image))
+    kit.catalog.set({ articleId: 3, variantId: 3 }, { supplierId: supplierB })
+    await kit.worker.runOnce()
+
+    expect(
+      await database.db
+        .selectFrom('production_jobs')
+        .select([
+          'generation_attempt_count as attempts',
+          'last_generation_error_code as code',
+          'generated_at as generatedAt',
+        ])
+        .execute(),
+    ).toEqual([{ attempts: 2, code: 'ITEM_SET_CHANGED', generatedAt: null }])
+
+    // Restoring the original supplier heals the job on the next scan.
+    kit.catalog.set({ articleId: 3, variantId: 3 }, { supplierId: supplierA })
+    await kit.worker.runOnce()
+    expect((await jobs())[0]?.sha256).not.toBeNull()
+  })
+
   test('a failed and a disabled destination stay open with their codes and recover', async () => {
     const destinationId = await seedSftpDestination(database.db, {
       supplierId: supplierA,

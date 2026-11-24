@@ -102,6 +102,7 @@ export interface ProductionSpodOrdersTable {
   create_ambiguous_count: Generated<number>
   attempt_count: Generated<number>
   last_error_code: string | null
+  blocked_alerted_at: Date | null
   created_at: Generated<Date>
   confirmed_at: Date | null
   remote_state: string | null

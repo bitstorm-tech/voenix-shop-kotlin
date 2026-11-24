@@ -25,6 +25,7 @@ withDefaults(defineProps<Props>(), { resolved: false })
 const KIND_LABELS: Record<FindingKind, string> = {
   PAYMENT_UNRESOLVED: 'Payment unresolved for over an hour',
   PAYMENT_PAID_ORDER_UNPAID: 'Payment paid, order not paid',
+  PAYMENT_CHARGEBACK: 'Payment chargeback reported',
   PRODUCTION_REQUEST_STALLED: 'Production request not split',
   JOB_GENERATION_STALLED: 'Production document not generated',
   JOB_WITHOUT_DESTINATION: 'Production job without destination',
@@ -35,6 +36,7 @@ const KIND_LABELS: Record<FindingKind, string> = {
   SHIPMENT_OVERDUE: 'Not shipped for seven days',
   SUPPLIER_WITHOUT_DESTINATION: 'Supplier without enabled destination',
   EMAIL_STALLED: 'Mail not sent',
+  EMAIL_FAILED_PERMANENTLY: 'Mail failed permanently',
 }
 
 function rowKey(finding: OperationsFinding): string {

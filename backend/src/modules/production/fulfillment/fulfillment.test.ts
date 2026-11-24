@@ -452,6 +452,35 @@ describe('the SPOD webhook', () => {
     expect((await jobOf(orderId, spodSupplier)).prepared_at).not.toBeNull()
   })
 
+  test('ignores shop-reference fallback when the job already holds another external reference', async () => {
+    const orderId = await processedOrder([shirt()])
+    const job = await jobOf(orderId, spodSupplier)
+    const reference = `ORD-${String(orderId)}-JOB-${String(job.id)}`
+
+    // Cancelling an orphaned SPOD order that shares our shop reference must not cancel the active job.
+    const orphanCancel = await webhook({
+      eventType: 'Order.cancelled',
+      order: { orderId: 'spod-orphan', externalOrderReference: reference },
+    })
+    expect([orphanCancel.status, await orphanCancel.text()]).toEqual([202, '[accepted]'])
+
+    // A webhook carrying only the shop reference (no externalReference) is also ignored once bound.
+    const shopRefOnlyCancel = await webhook({
+      eventType: 'Order.cancelled',
+      order: { externalOrderReference: reference },
+    })
+    expect([shopRefOnlyCancel.status, await shopRefOnlyCancel.text()]).toEqual([202, '[accepted]'])
+
+    const spodRow = await database.db
+      .selectFrom('production_spod_orders')
+      .select(['external_reference', 'remote_state'])
+      .where('production_job_id', '=', job.id)
+      .executeTakeFirstOrThrow()
+    expect(spodRow).toEqual({ external_reference: 'spod-1', remote_state: 'CONFIRMED' })
+    expect(await mailsOf('SPOD_OPS_ALERT')).toEqual([])
+    expect(kit.orders.events).toEqual([])
+  })
+
   test('remote states alert and are recorded once per transition; no-ops are accepted all the same', async () => {
     const orderId = await processedOrder([shirt()])
     const cancelled = { eventType: 'Order.cancelled', order: { orderId: 'spod-1' } }

@@ -282,6 +282,71 @@ describe('POST /api/payments/webhook/{secret}', () => {
     expect((await webhook(app, 'tr_1_1')).status).toBe(200)
     expect(await orderStatus()).toBe('PENDING')
   })
+
+  test('records refund and chargeback webhooks on an already-PAID payment idempotently and exposes chargeback findings', async () => {
+    const { module, order, report, app } = await placed()
+    await module.orders.startPayment(order)
+    report('tr_1_1', { status: 'PAID' })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    // First partial refund delivered concurrently + repeated → recorded once.
+    report('tr_1_1', { status: 'PAID', refundedAmountCents: 1000 })
+    const concurrentRefunds = await Promise.all([webhook(app, 'tr_1_1'), webhook(app, 'tr_1_1')])
+    expect(concurrentRefunds.map((response) => response.status)).toEqual([200, 200])
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    // Second partial refund increases cumulative refunded total → records the delta only.
+    report('tr_1_1', { status: 'PAID', refundedAmountCents: 2500 })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    // Chargeback webhook delivered twice → recorded once and reported as PAYMENT_CHARGEBACK finding.
+    report('tr_1_1', { status: 'PAID', refundedAmountCents: 2500, chargedBackAmountCents: 4072 })
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+    expect((await webhook(app, 'tr_1_1')).status).toBe(200)
+
+    const stored = await database.db
+      .selectFrom('payments')
+      .select(['status', 'refunded_amount_cents', 'charged_back_amount_cents'])
+      .executeTakeFirstOrThrow()
+    expect(stored).toEqual({
+      status: 'PAID',
+      refunded_amount_cents: 2500,
+      charged_back_amount_cents: 4072,
+    })
+
+    const events = (await orderEvents(database.db))
+      .filter((event) => event.kind === 'PAYMENT_REFUNDED' || event.kind === 'PAYMENT_CHARGEBACK')
+      .map(({ kind, actorType, cause, details }) => [kind, actorType, cause, details])
+    expect(events).toEqual([
+      [
+        'PAYMENT_REFUNDED',
+        'SYSTEM',
+        'WEBHOOK',
+        { paymentId: 1, amountCents: 1000, totalRefundedCents: 1000 },
+      ],
+      [
+        'PAYMENT_REFUNDED',
+        'SYSTEM',
+        'WEBHOOK',
+        { paymentId: 1, amountCents: 1500, totalRefundedCents: 2500 },
+      ],
+      [
+        'PAYMENT_CHARGEBACK',
+        'SYSTEM',
+        'WEBHOOK',
+        { paymentId: 1, amountCents: 4072, totalChargedBackCents: 4072 },
+      ],
+    ])
+
+    const findings = await module.orders.findings(new Date())
+    expect(findings).toMatchObject([
+      {
+        kind: 'PAYMENT_CHARGEBACK',
+        subject: { type: 'PAYMENT', id: 1 },
+        orderId: order.orderId,
+      },
+    ])
+  })
 })
 
 describe('the payment status of an order answer', () => {

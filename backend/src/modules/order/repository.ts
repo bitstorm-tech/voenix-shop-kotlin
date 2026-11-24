@@ -93,6 +93,20 @@ export type OrderEvent =
       actorId: number | null
       details: { paymentId: number; from: PaymentStatus; to: PaymentStatus }
     }
+  | {
+      kind: 'PAYMENT_REFUNDED'
+      actorType: 'SYSTEM'
+      cause: PaymentCause
+      actorId: number | null
+      details: { paymentId: number; amountCents: number; totalRefundedCents: number }
+    }
+  | {
+      kind: 'PAYMENT_CHARGEBACK'
+      actorType: 'SYSTEM'
+      cause: PaymentCause
+      actorId: number | null
+      details: { paymentId: number; amountCents: number; totalChargedBackCents: number }
+    }
   | ({ kind: 'ORDER_PAID' } & PaidBy)
   | { kind: 'ORDER_CANCELLED'; actorType: 'SYSTEM'; cause: 'PAYMENT_START_REFUSED' }
 

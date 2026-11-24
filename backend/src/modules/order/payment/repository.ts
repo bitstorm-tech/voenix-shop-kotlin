@@ -42,12 +42,13 @@ const columns = [
 ] as const
 
 /**
- * A payment that stands still where the shop expected it to move: still under way an hour after it
- * was started (`PAYMENT_UNRESOLVED`, probably a lost webhook), or paid while its order is not
- * (`PAYMENT_PAID_ORDER_UNPAID`: the amount differed, or the order was cancelled).
+ * A payment that needs operator attention: still under way an hour after it was started
+ * (`PAYMENT_UNRESOLVED`, probably a lost webhook), paid while its order is not
+ * (`PAYMENT_PAID_ORDER_UNPAID`: the amount differed, or the order was cancelled), or subject to a
+ * Mollie chargeback (`PAYMENT_CHARGEBACK`).
  */
 export interface OrderFinding {
-  kind: 'PAYMENT_UNRESOLVED' | 'PAYMENT_PAID_ORDER_UNPAID'
+  kind: 'PAYMENT_UNRESOLVED' | 'PAYMENT_PAID_ORDER_UNPAID' | 'PAYMENT_CHARGEBACK'
   subject: { type: 'PAYMENT'; id: number }
   orderId: number
   since: Date
@@ -88,38 +89,77 @@ export function createPaymentRepository(db: Kysely<Tables>) {
 
     /**
      * The order module's findings for the operations worker, oldest payment first. Only a live
-     * payment can be either kind, and a live payment is always its order's current one (the index
+     * payment can match the rules, and a live payment is always its order's current one (the index
      * allows one per order), so no "current payment" selection is needed. A pending order whose
      * payment ended is an abandoned checkout, not a finding.
      */
     findings: async (now: Date): Promise<OrderFinding[]> => {
+      const unresolvedBefore = new Date(now.getTime() - UNRESOLVED_AFTER_MILLIS)
       const rows = await read(db, (trx) =>
         trx
           .selectFrom('payments as p')
           .innerJoin('orders as o', 'o.id', 'p.order_id')
-          .select(['p.id', 'p.order_id', 'p.status', 'p.created_at', 'p.updated_at'])
+          .select([
+            'p.id',
+            'p.order_id',
+            'p.status',
+            'p.charged_back_amount_cents',
+            'p.created_at',
+            'p.updated_at',
+            'o.status as order_status',
+          ])
           .where((eb) =>
             eb.or([
               eb.and([
                 eb('o.status', '=', 'PENDING'),
                 eb('p.status', 'in', UNDER_WAY_STATUSES),
-                eb('p.created_at', '<', new Date(now.getTime() - UNRESOLVED_AFTER_MILLIS)),
+                eb('p.created_at', '<', unresolvedBefore),
               ]),
               eb.and([eb('p.status', '=', 'PAID'), eb('o.status', '<>', 'PAID')]),
+              eb('p.charged_back_amount_cents', '>', 0),
             ]),
           )
           .orderBy('p.id')
           .execute(),
       )
-      return rows.map((row) => ({
-        ...(row.status === 'PAID'
-          ? { kind: 'PAYMENT_PAID_ORDER_UNPAID', since: row.updated_at }
-          : { kind: 'PAYMENT_UNRESOLVED', since: row.created_at }),
-        subject: { type: 'PAYMENT', id: row.id },
-        orderId: row.order_id,
-        attemptCount: null,
-        lastErrorCode: null,
-      }))
+      const findings: OrderFinding[] = []
+      for (const row of rows) {
+        if (
+          row.order_status === 'PENDING' &&
+          isUnderWay(row.status) &&
+          row.created_at.getTime() < unresolvedBefore.getTime()
+        ) {
+          findings.push({
+            kind: 'PAYMENT_UNRESOLVED',
+            subject: { type: 'PAYMENT', id: row.id },
+            orderId: row.order_id,
+            since: row.created_at,
+            attemptCount: null,
+            lastErrorCode: null,
+          })
+        }
+        if (row.status === 'PAID' && row.order_status !== 'PAID') {
+          findings.push({
+            kind: 'PAYMENT_PAID_ORDER_UNPAID',
+            subject: { type: 'PAYMENT', id: row.id },
+            orderId: row.order_id,
+            since: row.updated_at,
+            attemptCount: null,
+            lastErrorCode: null,
+          })
+        }
+        if (row.charged_back_amount_cents > 0) {
+          findings.push({
+            kind: 'PAYMENT_CHARGEBACK',
+            subject: { type: 'PAYMENT', id: row.id },
+            orderId: row.order_id,
+            since: row.updated_at,
+            attemptCount: null,
+            lastErrorCode: null,
+          })
+        }
+      }
+      return findings
     },
 
     /**
@@ -185,6 +225,63 @@ export async function moveStatus(
     .where('id', '=', paymentId)
     .execute()
   return locked.status
+}
+
+export interface PaymentAdjustmentDeltas {
+  refundDeltaCents: number
+  totalRefundedCents: number
+  chargebackDeltaCents: number
+  totalChargedBackCents: number
+}
+
+/**
+ * Records increased cumulative refunded or charged-back amounts on a `PAID` payment under a
+ * `FOR UPDATE` row lock, answering the positive deltas actually applied. Repeated or concurrent
+ * webhooks carrying the same totals apply zero deltas and therefore produce no duplicate events.
+ */
+export async function recordPaymentAdjustments(
+  trx: Transaction<Tables>,
+  paymentId: number,
+  reported: { refundedAmountCents: number; chargedBackAmountCents: number },
+): Promise<PaymentAdjustmentDeltas> {
+  const locked = await trx
+    .selectFrom('payments')
+    .select(['status', 'refunded_amount_cents', 'charged_back_amount_cents'])
+    .where('id', '=', paymentId)
+    .forUpdate()
+    .executeTakeFirstOrThrow()
+  if (locked.status !== 'PAID') {
+    return {
+      refundDeltaCents: 0,
+      totalRefundedCents: locked.refunded_amount_cents,
+      chargebackDeltaCents: 0,
+      totalChargedBackCents: locked.charged_back_amount_cents,
+    }
+  }
+  const refundDeltaCents = Math.max(0, reported.refundedAmountCents - locked.refunded_amount_cents)
+  const chargebackDeltaCents = Math.max(
+    0,
+    reported.chargedBackAmountCents - locked.charged_back_amount_cents,
+  )
+  const totalRefundedCents = locked.refunded_amount_cents + refundDeltaCents
+  const totalChargedBackCents = locked.charged_back_amount_cents + chargebackDeltaCents
+  if (refundDeltaCents > 0 || chargebackDeltaCents > 0) {
+    await trx
+      .updateTable('payments')
+      .set({
+        refunded_amount_cents: totalRefundedCents,
+        charged_back_amount_cents: totalChargedBackCents,
+        updated_at: sql<Date>`now()`,
+      })
+      .where('id', '=', paymentId)
+      .execute()
+  }
+  return {
+    refundDeltaCents,
+    totalRefundedCents,
+    chargebackDeltaCents,
+    totalChargedBackCents,
+  }
 }
 
 /** The order's live payment, read inside the caller's transaction (which holds the order lock). */

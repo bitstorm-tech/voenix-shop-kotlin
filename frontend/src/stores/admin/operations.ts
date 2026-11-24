@@ -6,6 +6,7 @@ import { fetchJson } from '@/lib/api'
 export type FindingKind =
   | 'PAYMENT_UNRESOLVED'
   | 'PAYMENT_PAID_ORDER_UNPAID'
+  | 'PAYMENT_CHARGEBACK'
   | 'PRODUCTION_REQUEST_STALLED'
   | 'JOB_GENERATION_STALLED'
   | 'JOB_WITHOUT_DESTINATION'
@@ -16,6 +17,7 @@ export type FindingKind =
   | 'SHIPMENT_OVERDUE'
   | 'SUPPLIER_WITHOUT_DESTINATION'
   | 'EMAIL_STALLED'
+  | 'EMAIL_FAILED_PERMANENTLY'
 
 /**
  * One finding as `GET /api/admin/operations/findings` answers it: a row of the pipeline that stands

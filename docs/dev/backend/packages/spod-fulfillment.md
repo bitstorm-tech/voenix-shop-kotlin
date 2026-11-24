@@ -60,10 +60,19 @@ whose `prepared_at` is still `NULL`, oldest first, and makes **one** attempt
 per job. Nothing retries inside the attempt; a failure records a bounded code
 and the job waits for the next scan.
 
-Two kinds of job are left out of the scan on purpose: one quarantined as
-`create_state = 'OUTCOME_UNKNOWN'` (no automatic call until a person has
-looked) and one whose `remote_state` is `'CANCELLED'` (finished remotely; re-
-reading it would record `ORDER_STATE_UNEXPECTED` once a minute forever).
+Three kinds of job are left out of the scan on purpose:
+
+- one quarantined as `create_state = 'OUTCOME_UNKNOWN'` (no automatic call until
+  a person has looked);
+- one whose `remote_state` is `'CANCELLED'` (finished remotely; re-reading it
+  would record `ORDER_STATE_UNEXPECTED` once a minute forever);
+- one whose `last_error_code` is in `PERMANENT_FAILURES` (`ORDER_CREATE_REJECTED`,
+  `PLACEMENT_UNAVAILABLE`, `PHONE_MISSING`, `ITEM_WITHOUT_SPOD_PRODUCT`,
+  `SPOD_MAPPING_CHANGED`, `ITEM_SET_CHANGED`), so rejected or master-data-blocked
+  jobs stop burning SPOD's 60 req/min rate limit every minute (*changed in
+  go-live packet 5, `C19`*). After fixing the underlying cause, an operator
+  re-queues the job by clearing `last_error_code` to `NULL`.
+
 `NEEDS_ACTION` stays in the scan: somebody resolves it in the backoffice, and
 the next scan continues.
 
@@ -282,10 +291,13 @@ the statement sets `prepared_at = COALESCE(prepared_at, now())`.
 reduces the untrusted body to bounded values. Ids may arrive as numbers or
 strings and are read as text; a field of any other shape counts as absent;
 unknown fields are ignored. The job is found by the partner's order id
-(`production_spod_orders.external_reference`) first and, when none is stored
-(the case an ambiguous creation leaves behind), by this shop's
+(`production_spod_orders.external_reference`) first and, **only when the matched
+job has no stored `external_reference` yet** (the case an ambiguous creation
+leaves behind) or holds the exact same partner id, by this shop's
 `ORD-{orderId}-JOB-{jobId}`, whose two ids are then checked against a SPOD job
-of that order. References are trimmed and at most 128 characters; the tracking
+of that order. If the job already holds a different `external_reference`, the
+fallback is ignored and logged (without partner text), so cancelling an orphaned
+SPOD order with the same shop reference can never cancel the active job. References are trimmed and at most 128 characters; the tracking
 number at most 128 and free of control characters. The carrier name is mapped
 case- and separator-insensitively onto the bounded list (`Deutsche Post`,
 `deutsche_post`, and `DEUTSCHE POST` are one carrier), anything else is
@@ -327,10 +339,11 @@ transaction that records the situation:
 The last row is the set of codes that wait for a *person*:
 `ORDER_CREATE_REJECTED`, `PLACEMENT_UNAVAILABLE`, `PHONE_MISSING`,
 `ITEM_WITHOUT_SPOD_PRODUCT`, `SPOD_MAPPING_CHANGED`, `ITEM_SET_CHANGED`. The
-failure write is guarded like the remote state: `last_error_code IS DISTINCT
-FROM $1`, so a code every scan records again sends no second mail, while the
-same code recorded after a different one in between (a transient error, say)
-sends a new alert. Every other code stays silent: it heals by itself.
+alert is guarded by `blocked_alerted_at IS NULL` (`V41`) under a row lock: the
+first permanent failure sets `blocked_alerted_at = now()` and enqueues one
+`SUBMISSION_BLOCKED` mail, so neither repeated scans nor alternating permanent
+and transient errors can send duplicate alerts (only an admin `release` clears
+`blocked_alerted_at`). Every other code stays silent: it heals by itself.
 
 The mail goes to `OPERATIONS_ALERT_EMAIL`, the address the operations alert
 uses too (see [The alert](operations-package.md#the-alert)), and names the job number, the
@@ -446,8 +459,16 @@ WHERE j.fulfillment_channel = 'SPOD' AND j.prepared_at IS NULL
 ORDER BY j.id;
 ```
 
-Every job is retried on every scan (once a minute), with exactly one exception,
-the quarantine.
+Every job is retried on every scan (once a minute), except quarantined jobs
+(`create_state = 'OUTCOME_UNKNOWN'`), remotely cancelled jobs
+(`remote_state = 'CANCELLED'`), and jobs holding a `PERMANENT_FAILURES` code. To
+re-queue a job after fixing the cause of a permanent failure:
+
+```sql
+UPDATE production_spod_orders
+SET last_error_code = NULL
+WHERE production_job_id = <jobId>;
+```
 
 ### Reconciling a quarantined job (`OUTCOME_UNKNOWN`)
 
@@ -545,7 +566,8 @@ are untouched.
 1. Compare the **three SPOD ids** of today's variant (`spod_product_type_id`,
    `spod_size_id`, and its colour's `spod_appearance_id`) with the order.
 2. Unchanged ids, changed name: update `production_job_items.variant_name` to
-   today's composed name (`"<colour> / <size>"`); the next scan submits.
+   today's composed name (`"<colour> / <size>"`) and clear
+   `production_spod_orders.last_error_code = NULL`; the next scan submits.
 3. **Changed ids** are the real alarm. Do not touch the snapshot; look at the
    order before anything is printed.
 
@@ -568,8 +590,9 @@ placement.
    WHERE oi.order_id = <order id>;
    ```
 
-2. **Re-sync** when the partner should accept the ordered hotspot again; the
-   next scan still sends the snapshot.
+2. **Re-sync** when the partner should accept the ordered hotspot again, then
+   clear `production_spod_orders.last_error_code = NULL`; the next scan still
+   sends the snapshot.
 3. Otherwise **order the job by hand** in the backoffice in state `NEW`, with
    the ordered hotspot and the reference `ORD-{orderId}-JOB-{jobId}`, and adopt
    it like the "the order exists" case above.
@@ -577,8 +600,9 @@ placement.
 
 ## The bounded error codes
 
-Everything the stage persists in `last_error_code`. All are retryable, but
-most wait for an admin.
+Everything the stage persists in `last_error_code`. Transient codes retry on
+every scan; codes in `PERMANENT_FAILURES` stop automatic scans until an admin
+fixes the cause and clears `last_error_code`.
 
 | Code | Meaning |
 | --- | --- |

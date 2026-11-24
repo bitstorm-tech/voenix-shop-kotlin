@@ -490,7 +490,7 @@ place:
 | `PAID`, and the order is paid now or already was | `200`; the payment's `PAID` and [the paid transition](#the-paid-transition) commit together, so a transition that fails leaves the payment under way and the redelivery confirms it |
 | `PAID`, but Mollie's amount differs from the stored `amount_cents` | `200`, the order is **not** paid, ERROR log for a human |
 | `PAID` for a `CANCELLED` order | `200`, ERROR log: the amount has to be refunded by hand |
-| a status for a payment that is final (`PAID`, or `FAILED`, `CANCELED`, `EXPIRED`) | `200`, nothing moves: a delayed answer about an earlier state never takes a paid payment back; a `PAID` report still runs the paid transition, which finds the order paid |
+| a status for a payment that is final (`PAID`, or `FAILED`, `CANCELED`, `EXPIRED`) | `200`, nothing moves for status: a delayed answer about an earlier state never takes a paid payment back; a `PAID` report still runs the paid transition (which finds the order paid) and checks cumulative `amountRefunded` / `amountChargedBack` deltas, idempotently recording `PAYMENT_REFUNDED` / `PAYMENT_CHARGEBACK` events and logging an ERROR on chargebacks |
 | a payment Mollie knows and this backend never created | `200`, WARN |
 | database failure | `500` (the application's error answer), so Mollie redelivers |
 
@@ -531,8 +531,8 @@ picks, per order, the live payment if there is one and otherwise the last
 attempt, so an order whose only payment expired answers `EXPIRED`.
 
 `refreshed(orderId, cause)` asks Mollie only while the stored status is `OPEN`,
-`PENDING`, or `AUTHORIZED`. `PAID` is never asked again (the shop tracks no
-refunds), and the terminal three never move. What it does with Mollie's answer
+`PENDING`, or `AUTHORIZED`. `PAID` is not polled on reads (refunds and
+chargebacks arrive via Mollie's webhook), and the terminal three never move. What it does with Mollie's answer
 is exactly what the webhook does, through the same function, so the amount
 check and the cancelled-order rule hold whichever of the two learns it first.
 A provider that cannot answer is not an error here: the stored status is a
@@ -584,6 +584,7 @@ with `orders`, in one read transaction, oldest payment first:
 | --- | --- | --- |
 | `PAYMENT_UNRESOLVED` | the order is `PENDING`, its payment is under way (`OPEN`, `PENDING`, `AUTHORIZED`), and the payment was created more than an hour before `now`: usually a webhook that never arrived | the payment's `created_at` |
 | `PAYMENT_PAID_ORDER_UNPAID` | the payment is `PAID` and the order is not: the two `notConfirmed` outcomes of the webhook (an amount that differs, a payment on a `CANCELLED` order), which are otherwise only an `error` log line | the payment's `updated_at` |
+| `PAYMENT_CHARGEBACK` | Mollie reported a non-zero `amountChargedBack` on the payment (`charged_back_amount_cents > 0`): requires immediate operator attention so production/shipping can be halted if possible | the payment's `updated_at` |
 
 The subject of both is the payment (`{ type: 'PAYMENT', id }`); neither has an
 attempt counter or an error code. Only a *live* payment can match either rule,
@@ -675,6 +676,8 @@ writes nothing.
 | `ORDER_PLACED` | `service.place`, in checkout TX1 | `CUSTOMER` |
 | `PAYMENT_STARTED` | `startPayment`, when it inserted a payment | `CUSTOMER`; `{ paymentId }` |
 | `PAYMENT_STATUS_CHANGED` | `applyReported`, when `moveStatus` changed the row, `from` the locked previous status | `SYSTEM`; cause `WEBHOOK`, `REFRESH`, `RECONCILIATION`, or `ADMIN_RECHECK`, the last with the admin's user id as `actor_id`; `{ paymentId, from, to }` |
+| `PAYMENT_REFUNDED` | `applyReported`, when `amountRefunded` increased on a `PAID` payment (`V41`) | `SYSTEM`; cause `WEBHOOK` (etc.); `{ paymentId, amountCents, totalRefundedCents }` |
+| `PAYMENT_CHARGEBACK` | `applyReported`, when `amountChargedBack` increased on a `PAID` payment (`V41`) | `SYSTEM`; cause `WEBHOOK` (etc.); `{ paymentId, amountCents, totalChargedBackCents }` |
 | `ORDER_PAID` | `markPaid`, when it paid | `SYSTEM` with the cause of the payment answer, or `CUSTOMER` with `FREE_ORDER` (`confirmFree`) |
 | `ORDER_CANCELLED` | `cancel`, when it cancelled | `SYSTEM`; cause `PAYMENT_START_REFUSED`, the only caller |
 | `SPOD_REMOTE_STATE_CHANGED` | production, `recordRemoteState` when the row changed | `CHANNEL`; `{ jobId, state }` |

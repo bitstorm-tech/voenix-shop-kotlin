@@ -257,18 +257,41 @@ describe('the SPOD submission', () => {
     expect((await alerts())[0]?.text).toContain('Zweimal in Folge')
   })
 
-  test('a refused creation holds the job with one alert and is never re-sent with another placement', async () => {
+  test('a refused creation holds the job with one alert and stops automatic retries', async () => {
     await order([shirt()])
     partner.script.create.push(failed('REFUSED', false), failed('REFUSED', false))
     await kit.worker.runOnce()
     await kit.worker.runOnce()
-    expect(partner.calls.filter((call) => call === 'create').length).toBe(2)
+    expect(partner.calls.filter((call) => call === 'create').length).toBe(1)
     expect(
       partner.orders.map((request) => request.oneTimeItems[0]?.configurations[0]?.hotspot),
-    ).toEqual(['MEDIUM_FRONT', 'MEDIUM_FRONT'])
+    ).toEqual(['MEDIUM_FRONT'])
     expect(await spodState()).toMatchObject([
       { code: 'ORDER_CREATE_REJECTED', createState: 'PENDING' },
     ])
+    expect((await alerts()).length).toBe(1)
+
+    // Clearing the permanent error after an operator fixes the cause re-queues the job.
+    await database.db.updateTable('production_spod_orders').set({ last_error_code: null }).execute()
+    partner.script.create.length = 0
+    await kit.worker.runOnce()
+    expect(partner.calls.filter((call) => call === 'create').length).toBe(2)
+    expect((await spodState())[0]?.preparedAt).not.toBeNull()
+  })
+
+  test('alternating permanent and transient failures never send a second SUBMISSION_BLOCKED alert', async () => {
+    await order([shirt()], null)
+    await kit.worker.runOnce()
+    expect(await spodState()).toMatchObject([{ code: 'PHONE_MISSING' }])
+    expect((await alerts()).length).toBe(1)
+
+    // Simulate a transient error replacing the code, then the permanent error returning.
+    await database.db
+      .updateTable('production_spod_orders')
+      .set({ last_error_code: 'SOURCE_UNAVAILABLE' })
+      .execute()
+    await kit.worker.runOnce()
+    expect(await spodState()).toMatchObject([{ code: 'PHONE_MISSING' }])
     expect((await alerts()).length).toBe(1)
   })
 
@@ -288,7 +311,6 @@ describe('the SPOD submission', () => {
   })
 
   test('a variant renamed or moved to another supplier after the split refuses the job', async () => {
-    await order([shirt(), shirt({ variantId: 101, variantName: 'Black / L' })])
     kit.catalog.set(
       { articleId: 10, variantId: 101 },
       {
@@ -297,11 +319,21 @@ describe('the SPOD submission', () => {
         spodProduct: PRODUCT,
       },
     )
+    await order([shirt(), shirt({ variantId: 101, variantName: 'Black / L' })])
     kit.catalog.set(SHIRT, { supplierId, variantName: 'Schwarz / M', spodProduct: PRODUCT })
     // The job snapshots the name the order line carries; today's catalog name is another one.
     await kit.worker.runOnce()
     expect((await spodState())[0]?.code).toBe('SPOD_MAPPING_CHANGED')
 
+    // Permanent failure stops further automatic attempts on that job.
+    await kit.worker.runOnce()
+    const [firstAttempts] = await database.db
+      .selectFrom('production_spod_orders')
+      .select('attempt_count')
+      .execute()
+    expect(firstAttempts?.attempt_count).toBe(1)
+
+    // Re-queueing after fixing the rename while moving a line to another supplier hits ITEM_SET_CHANGED.
     const other = await seedSupplier(database.db, 'Andere')
     kit.catalog.set(SHIRT, { supplierId, variantName: 'Black / M', spodProduct: PRODUCT })
     kit.catalog.set(
@@ -312,14 +344,16 @@ describe('the SPOD submission', () => {
         spodProduct: PRODUCT,
       },
     )
+    await database.db.updateTable('production_spod_orders').set({ last_error_code: null }).execute()
     await kit.worker.runOnce()
     expect((await spodState())[0]?.code).toBe('ITEM_SET_CHANGED')
     expect(partner.calls).toEqual([])
   })
 
   test('a cancelled order is no longer scanned while a needs-action one still is', async () => {
-    await order([shirt({ spodHotspot: null })])
-    await order([shirt({ spodHotspot: null })])
+    // Use a transient error (missing image) so the jobs stay in the scan until remote_state decides.
+    await order([shirt({ imagePath: null })])
+    await order([shirt({ imagePath: null })])
     await kit.worker.runOnce()
     const [cancelled, flagged] = await spodState()
     await database.db

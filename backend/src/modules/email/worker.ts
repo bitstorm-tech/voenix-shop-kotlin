@@ -8,12 +8,38 @@ import './schema'
 
 const logger = createLogger('email-worker')
 
+/** Maximum delivery attempts before a transiently failing mail is marked permanently failed. */
+export const MAX_EMAIL_ATTEMPTS = 10
+
+const MINUTE_MILLIS = 60_000
+const MAX_BACKOFF_MINUTES = 60
+
 /**
- * The outbox worker: every `pollIntervalMinutes` it sends every open job, oldest first. Each
- * attempt counts in `attempt_count`; a failure stores its safe code and leaves the job open for the
- * next scan, with no maximum and no terminal state. Disabled email leaves every job untouched.
- * Delivery is at least once: a crash between Sweego's acceptance and the `sent_at` update sends the
- * job again on the next start.
+ * Whether a provider error code is permanent: any HTTP `4xx` except `408` (Request Timeout) and
+ * `429` (Too Many Requests). Retrying a permanent refusal (such as `PROVIDER_HTTP_400` for invalid
+ * recipient syntax) will never succeed.
+ */
+export function isPermanentEmailError(code: string): boolean {
+  const match = /^PROVIDER_HTTP_(4\d\d)$/.exec(code)
+  if (match?.[1] === undefined) return false
+  const status = Number(match[1])
+  return status !== 408 && status !== 429
+}
+
+/** Exponential backoff in milliseconds for a failed transient attempt (`1m, 2m, 4m, …, 60m`). */
+export function retryDelayMillis(attempt: number): number {
+  const minutes = Math.min(MAX_BACKOFF_MINUTES, 2 ** Math.max(0, attempt - 1))
+  return minutes * MINUTE_MILLIS
+}
+
+/**
+ * The outbox worker: every `pollIntervalMinutes` it sends every due open job, oldest first. Each
+ * attempt counts in `attempt_count`. A transient failure stores its safe code and schedules
+ * exponential backoff in `next_attempt_at` up to `MAX_EMAIL_ATTEMPTS`; a permanent `4xx` refusal
+ * (other than `408`/`429`) or reaching `MAX_EMAIL_ATTEMPTS` marks the job `failed_permanently_at`
+ * so it stops hitting Sweego. Disabled email leaves every job untouched. Delivery is at least
+ * once: a crash between Sweego's acceptance and the `sent_at` update sends the job again on the
+ * next start.
  */
 export function createEmailWorker({
   db,
@@ -24,25 +50,28 @@ export function createEmailWorker({
   settings: Settings['email']
   delivery: EmailDelivery
 }) {
-  /** Only touches the job while it is still open; answers whether it did. */
+  /** Only touches the job while it is still open (neither sent nor permanently failed). */
   const updateOpenJob = async (id: number, values: UpdateObject<Tables, 'email_jobs'>) => {
     const result = await db
       .updateTable('email_jobs')
       .set(values)
       .where('id', '=', id)
       .where('sent_at', 'is', null)
+      .where('failed_permanently_at', 'is', null)
       .executeTakeFirst()
     return result.numUpdatedRows > 0n
   }
 
-  /** One scan; stops between jobs once `signal` is aborted. */
-  const runOnce = async (signal?: AbortSignal): Promise<void> => {
+  /** One scan at `now`; stops between jobs once `signal` is aborted. */
+  const runOnce = async (signal?: AbortSignal, now: Date = new Date()): Promise<void> => {
     if (!settings.enabled) return
     const jobs = await read(db, (trx) =>
       trx
         .selectFrom('email_jobs')
         .select(['id', 'payload', 'attempt_count'])
         .where('sent_at', 'is', null)
+        .where('failed_permanently_at', 'is', null)
+        .where((eb) => eb.or([eb('next_attempt_at', 'is', null), eb('next_attempt_at', '<=', now)]))
         .orderBy('id')
         .execute(),
     )
@@ -51,14 +80,45 @@ export function createEmailWorker({
       // The increment is SQL, so two racing scans never write the same counter value.
       const started = await updateOpenJob(job.id, { attempt_count: sql`attempt_count + 1` })
       if (!started) continue
-      const context = { jobId: job.id, kind: job.payload.kind, attempt: job.attempt_count + 1 }
+      const attempt = job.attempt_count + 1
+      const context = { jobId: job.id, kind: job.payload.kind, attempt }
       const result = await delivery.deliver(job.payload, `voenix-email-${String(job.id)}`)
       if (result.kind === 'accepted') {
-        if (await updateOpenJob(job.id, { sent_at: sql<Date>`now()`, last_error_code: null })) {
+        if (
+          await updateOpenJob(job.id, {
+            sent_at: sql<Date>`now()`,
+            last_error_code: null,
+            next_attempt_at: null,
+          })
+        ) {
           logger.info(context, 'Email job transmitted')
         }
-      } else if (await updateOpenJob(job.id, { last_error_code: result.code })) {
-        logger.warn({ ...context, code: result.code }, 'Email job remains open after a failure')
+      } else if (isPermanentEmailError(result.code) || attempt >= MAX_EMAIL_ATTEMPTS) {
+        if (
+          await updateOpenJob(job.id, {
+            last_error_code: result.code,
+            next_attempt_at: null,
+            failed_permanently_at: now,
+          })
+        ) {
+          logger.error(
+            { ...context, code: result.code },
+            'Email job failed permanently and will not be retried',
+          )
+        }
+      } else {
+        const nextAttemptAt = new Date(now.getTime() + retryDelayMillis(attempt))
+        if (
+          await updateOpenJob(job.id, {
+            last_error_code: result.code,
+            next_attempt_at: nextAttemptAt,
+          })
+        ) {
+          logger.warn(
+            { ...context, code: result.code, nextAttemptAt: nextAttemptAt.toISOString() },
+            'Email job remains open after a transient failure',
+          )
+        }
       }
     }
   }

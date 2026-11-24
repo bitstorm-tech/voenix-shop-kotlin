@@ -72,8 +72,10 @@ export interface OrderItemsTable {
 }
 
 /**
- * The `payments` table (V17): one attempt at collecting the money of one order. The partial unique
- * index `ux_payments_live_order` allows one payment per order whose status is not terminal.
+ * The `payments` table (V17, extended by V41): one attempt at collecting the money of one order.
+ * The partial unique index `ux_payments_live_order` allows one payment per order whose status is
+ * not terminal. `refunded_amount_cents` and `charged_back_amount_cents` hold the cumulative
+ * amounts Mollie reported on a paid payment.
  */
 export interface PaymentsTable {
   id: Generated<number>
@@ -81,6 +83,8 @@ export interface PaymentsTable {
   mollie_payment_id: string
   status: PaymentStatus
   amount_cents: number
+  refunded_amount_cents: Generated<number>
+  charged_back_amount_cents: Generated<number>
   checkout_url: string
   created_at: Generated<Date>
   updated_at: Generated<Date>

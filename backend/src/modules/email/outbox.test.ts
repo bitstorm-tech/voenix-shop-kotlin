@@ -9,7 +9,12 @@ import { renderPasswordReset } from './templates/password-reset'
 import { renderProducerPdfNotification } from './templates/producer-pdf-notification'
 import type { RenderedEmail } from './templates/layout'
 import { createUserEmails, EmailDeliveryError } from './user-emails'
-import { createEmailWorker } from './worker'
+import {
+  createEmailWorker,
+  isPermanentEmailError,
+  MAX_EMAIL_ATTEMPTS,
+  retryDelayMillis,
+} from './worker'
 
 const database = testDatabase()
 
@@ -52,7 +57,13 @@ const enqueueMails = (...orderIds: number[]) =>
 const jobs = () =>
   database.db
     .selectFrom('email_jobs')
-    .select(['payload', 'attempt_count as attempts', 'last_error_code as errorCode'])
+    .select([
+      'payload',
+      'attempt_count as attempts',
+      'last_error_code as errorCode',
+      'next_attempt_at as nextAttemptAt',
+      'failed_permanently_at as failedPermanentlyAt',
+    ])
     .select(sql<boolean>`sent_at IS NOT NULL`.as('sent'))
     .orderBy('id')
     .execute()
@@ -65,7 +76,14 @@ describe('outbox.enqueue', () => {
   test('stores the rendered payload inside the caller transaction', async () => {
     await enqueueMails(1)
     const [job] = await jobs()
-    expect(job).toEqual({ payload: producerMail(1), attempts: 0, errorCode: null, sent: false })
+    expect(job).toEqual({
+      payload: producerMail(1),
+      attempts: 0,
+      errorCode: null,
+      nextAttemptAt: null,
+      failedPermanentlyAt: null,
+      sent: false,
+    })
   })
 
   test('stores the order id the caller passes, and none otherwise', async () => {
@@ -116,23 +134,115 @@ describe('worker', () => {
     expect(sent).toHaveLength(3)
   })
 
-  test('a failure keeps the job open with its code, and the next scan retries the stored mail', async () => {
+  test('a transient failure backs off exponentially and retries once due, up to MAX_EMAIL_ATTEMPTS', async () => {
     await enqueueMails(7)
-    await sql`UPDATE email_jobs SET attempt_count = 999`.execute(database.db)
+    const t0 = new Date('2026-10-16T12:00:00.000Z')
+    const { delivery, sent } = recordingDelivery([
+      { kind: 'failed', code: 'PROVIDER_HTTP_503' },
+      { kind: 'failed', code: 'PROVIDER_HTTP_429' },
+      { kind: 'failed', code: 'PROVIDER_HTTP_408' },
+    ])
+    const worker = createEmailWorker({ db: database.db, settings: settings(true), delivery })
+
+    await worker.runOnce(undefined, t0)
+    expect((await jobs())[0]).toMatchObject({
+      sent: false,
+      attempts: 1,
+      errorCode: 'PROVIDER_HTTP_503',
+      nextAttemptAt: new Date(t0.getTime() + retryDelayMillis(1)),
+      failedPermanentlyAt: null,
+    })
+
+    // Before next_attempt_at the worker skips the job.
+    await worker.runOnce(undefined, new Date(t0.getTime() + 59_000))
+    expect(sent).toHaveLength(1)
+
+    // Once due (1m later), attempt 2 fails with 429 → backs off 2m.
+    const t1 = new Date(t0.getTime() + 60_000)
+    await worker.runOnce(undefined, t1)
+    expect((await jobs())[0]).toMatchObject({
+      sent: false,
+      attempts: 2,
+      errorCode: 'PROVIDER_HTTP_429',
+      nextAttemptAt: new Date(t1.getTime() + retryDelayMillis(2)),
+      failedPermanentlyAt: null,
+    })
+
+    // Attempt 3 fails with 408 → backs off 4m.
+    const t2 = new Date(t1.getTime() + 120_000)
+    await worker.runOnce(undefined, t2)
+    expect((await jobs())[0]).toMatchObject({
+      sent: false,
+      attempts: 3,
+      errorCode: 'PROVIDER_HTTP_408',
+      nextAttemptAt: new Date(t2.getTime() + retryDelayMillis(3)),
+      failedPermanentlyAt: null,
+    })
+
+    // Once due again, Sweego accepts and clears backoff and error code.
+    const t3 = new Date(t2.getTime() + 240_000)
+    await worker.runOnce(undefined, t3)
+    expect((await jobs())[0]).toMatchObject({
+      sent: true,
+      attempts: 4,
+      errorCode: null,
+      nextAttemptAt: null,
+      failedPermanentlyAt: null,
+    })
+    expect(sent.map((entry) => entry.campaignId)).toEqual([
+      'voenix-email-1',
+      'voenix-email-1',
+      'voenix-email-1',
+      'voenix-email-1',
+    ])
+    expect(sent[3]?.email).toEqual(producerMail(7))
+  })
+
+  test('a permanent 4xx error (other than 408/429) stops retries immediately', async () => {
+    expect(isPermanentEmailError('PROVIDER_HTTP_400')).toBe(true)
+    expect(isPermanentEmailError('PROVIDER_HTTP_422')).toBe(true)
+    expect(isPermanentEmailError('PROVIDER_HTTP_408')).toBe(false)
+    expect(isPermanentEmailError('PROVIDER_HTTP_429')).toBe(false)
+    expect(isPermanentEmailError('PROVIDER_HTTP_503')).toBe(false)
+    expect(isPermanentEmailError('REQUEST_TIMEOUT')).toBe(false)
+
+    await enqueueMails(9)
+    const t0 = new Date('2026-10-16T12:00:00.000Z')
+    const { delivery, sent } = recordingDelivery([{ kind: 'failed', code: 'PROVIDER_HTTP_400' }])
+    const worker = createEmailWorker({ db: database.db, settings: settings(true), delivery })
+
+    await worker.runOnce(undefined, t0)
+    expect((await jobs())[0]).toMatchObject({
+      sent: false,
+      attempts: 1,
+      errorCode: 'PROVIDER_HTTP_400',
+      nextAttemptAt: null,
+      failedPermanentlyAt: t0,
+    })
+
+    // Subsequent scans never retry the dead-lettered mail.
+    await worker.runOnce(undefined, new Date(t0.getTime() + 24 * 60 * 60_000))
+    expect(sent).toHaveLength(1)
+  })
+
+  test('a transient failure reaching MAX_EMAIL_ATTEMPTS is marked permanently failed', async () => {
+    await enqueueMails(11)
+    await sql`UPDATE email_jobs SET attempt_count = ${MAX_EMAIL_ATTEMPTS - 1}`.execute(database.db)
+    const t0 = new Date('2026-10-16T12:00:00.000Z')
     const { delivery, sent } = recordingDelivery([{ kind: 'failed', code: 'PROVIDER_HTTP_503' }])
     const worker = createEmailWorker({ db: database.db, settings: settings(true), delivery })
 
-    await worker.runOnce()
+    await worker.runOnce(undefined, t0)
     expect((await jobs())[0]).toMatchObject({
       sent: false,
-      attempts: 1000,
+      attempts: MAX_EMAIL_ATTEMPTS,
       errorCode: 'PROVIDER_HTTP_503',
+      nextAttemptAt: null,
+      failedPermanentlyAt: t0,
     })
 
-    await worker.runOnce()
-    expect((await jobs())[0]).toMatchObject({ sent: true, attempts: 1001, errorCode: null })
-    expect(sent.map((entry) => entry.campaignId)).toEqual(['voenix-email-1', 'voenix-email-1'])
-    expect(sent[1]?.email).toEqual(producerMail(7))
+    await worker.runOnce(undefined, new Date(t0.getTime() + 24 * 60 * 60_000))
+    expect(sent).toHaveLength(1)
   })
 
   test('start scans at once and stop ends the loop without waiting for the interval', async () => {
@@ -201,6 +311,45 @@ describe('outbox.findings', () => {
         since: minutesAgo(1),
         attemptCount: 3,
         lastErrorCode: 'PROVIDER_HTTP_503',
+        emailKind: 'PRODUCER_PDF_NOTIFICATION',
+      },
+    ])
+  })
+
+  test('reports permanently failed mails as EMAIL_FAILED_PERMANENTLY for seven days instead of EMAIL_STALLED', async () => {
+    const { id: recentFailed } = await database.db
+      .insertInto('email_jobs')
+      .values({
+        payload: JSON.stringify(producerMail(12)),
+        order_id: 12,
+        created_at: minutesAgo(5),
+        attempt_count: 1,
+        last_error_code: 'PROVIDER_HTTP_400',
+        failed_permanently_at: minutesAgo(4),
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+    // Failed over seven days ago: no longer kept open so /admin/operations stays clean.
+    await database.db
+      .insertInto('email_jobs')
+      .values({
+        payload: JSON.stringify(producerMail(13)),
+        order_id: 13,
+        created_at: minutesAgo(8 * 24 * 60),
+        attempt_count: 1,
+        last_error_code: 'PROVIDER_HTTP_400',
+        failed_permanently_at: minutesAgo(7 * 24 * 60 + 1),
+      })
+      .execute()
+
+    expect(await stalledEmails(database.db, NOW)).toEqual([
+      {
+        kind: 'EMAIL_FAILED_PERMANENTLY',
+        subject: { type: 'EMAIL', id: recentFailed },
+        orderId: 12,
+        since: minutesAgo(4),
+        attemptCount: 1,
+        lastErrorCode: 'PROVIDER_HTTP_400',
         emailKind: 'PRODUCER_PDF_NOTIFICATION',
       },
     ])

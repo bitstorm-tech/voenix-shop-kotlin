@@ -13,6 +13,7 @@ import {
   isUnderWay,
   livePayment,
   moveStatus,
+  recordPaymentAdjustments,
   type PaymentRepository,
   type StoredPayment,
 } from './repository'
@@ -69,26 +70,88 @@ export function createPaymentService({
   const logger = createLogger('payment')
 
   /**
+   * Records newly reported cumulative refund or chargeback deltas on a `PAID` payment inside the
+   * caller's transaction, writing `PAYMENT_REFUNDED` / `PAYMENT_CHARGEBACK` idempotently. Answers
+   * the deltas so the caller can log an immediate error after commit when a chargeback arrives.
+   */
+  const recordAdjustments = async (
+    trx: Transaction<Tables>,
+    stored: StoredPayment,
+    reported: MolliePayment,
+    cause: PaymentCause,
+    actorId: number | null,
+  ) => {
+    const deltas = await recordPaymentAdjustments(trx, stored.paymentId, reported)
+    if (deltas.refundDeltaCents > 0) {
+      await recordEvent(trx, stored.orderId, {
+        kind: 'PAYMENT_REFUNDED',
+        actorType: 'SYSTEM',
+        cause,
+        actorId,
+        details: {
+          paymentId: stored.paymentId,
+          amountCents: deltas.refundDeltaCents,
+          totalRefundedCents: deltas.totalRefundedCents,
+        },
+      })
+    }
+    if (deltas.chargebackDeltaCents > 0) {
+      await recordEvent(trx, stored.orderId, {
+        kind: 'PAYMENT_CHARGEBACK',
+        actorType: 'SYSTEM',
+        cause,
+        actorId,
+        details: {
+          paymentId: stored.paymentId,
+          amountCents: deltas.chargebackDeltaCents,
+          totalChargedBackCents: deltas.totalChargedBackCents,
+        },
+      })
+    }
+    return deltas
+  }
+
+  const logChargeback = (
+    stored: StoredPayment,
+    deltas: { chargebackDeltaCents: number; totalChargedBackCents: number },
+  ) => {
+    if (deltas.chargebackDeltaCents <= 0) return
+    logger.error(
+      {
+        paymentId: stored.paymentId,
+        orderId: stored.orderId,
+        amountCents: deltas.chargebackDeltaCents,
+        totalChargedBackCents: deltas.totalChargedBackCents,
+      },
+      'Mollie reported a payment chargeback: immediate operator attention required',
+    )
+  }
+
+  /**
    * Hands a paid payment to the order and records `PAID` on the payment in the same transaction,
    * so a paid transition that fails (the redemption, the production request) leaves the payment
    * under way and the next webhook or refresh confirms the order; a payment stored as `PAID` is
-   * never asked about again. The order lock comes first, then the payment row. `true` when the
-   * order is paid now or was already.
+   * never asked about again by refresh, while webhooks still check it for new refunds and
+   * chargebacks. The order lock comes first, then the payment row. `true` when the order is paid
+   * now or was already.
    */
   const confirmOrder = async (
     stored: StoredPayment,
+    reported: MolliePayment,
     cause: PaymentCause,
     actorId: number | null,
   ): Promise<boolean> => {
-    const result = await write(db, async (trx) => {
+    const { paid, deltas } = await write(db, async (trx) => {
       const paid = await transitions.markPaid(trx, stored.orderId, { actorType: 'SYSTEM', cause })
       await movePayment(trx, stored, 'PAID', cause, actorId)
-      return paid
+      const deltas = await recordAdjustments(trx, stored, reported, cause, actorId)
+      return { paid, deltas }
     })
-    if (result === 'paid' || result === 'alreadyPaid') return true
+    logChargeback(stored, deltas)
+    if (paid === 'paid' || paid === 'alreadyPaid') return true
     logger.error(
       { paymentId: stored.paymentId, orderId: stored.orderId, amountCents: stored.amountCents },
-      result === 'cancelled'
+      paid === 'cancelled'
         ? 'A payment was paid for a CANCELLED order: the amount has to be refunded by hand'
         : 'A payment was paid for an order that does not exist',
     )
@@ -138,7 +201,7 @@ export function createPaymentService({
   ): Promise<PaymentConfirmation> => {
     if (reported.status === 'PAID') {
       if (reported.amountCents === stored.amountCents) {
-        return (await confirmOrder(stored, cause, actorId)) ? 'confirmed' : 'notConfirmed'
+        return (await confirmOrder(stored, reported, cause, actorId)) ? 'confirmed' : 'notConfirmed'
       }
       logger.error(
         {
@@ -150,7 +213,11 @@ export function createPaymentService({
         'Mollie reports a payment as paid with another amount than the shop asked for: ' +
           'the order is not confirmed and needs a human',
       )
-      await write(db, (trx) => movePayment(trx, stored, 'PAID', cause, actorId))
+      const deltas = await write(db, async (trx) => {
+        await movePayment(trx, stored, 'PAID', cause, actorId)
+        return recordAdjustments(trx, stored, reported, cause, actorId)
+      })
+      logChargeback(stored, deltas)
       return 'notConfirmed'
     }
     if (isLive(reported.status)) {

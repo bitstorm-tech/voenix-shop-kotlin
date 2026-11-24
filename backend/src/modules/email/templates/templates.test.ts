@@ -388,6 +388,12 @@ describe('operations alert', () => {
         attemptCount: null,
         lastErrorCode: null,
       }),
+      finding('PAYMENT_CHARGEBACK', {
+        subjectType: 'PAYMENT',
+        subjectId: 11,
+        attemptCount: null,
+        lastErrorCode: null,
+      }),
       finding('PRODUCTION_REQUEST_STALLED', { subjectType: 'REQUEST', subjectId: 1 }),
       finding('JOB_GENERATION_STALLED', { lastErrorCode: 'MISSING_IMAGE' }),
       finding('DELIVERY_STALLED', { subjectType: 'DELIVERY', subjectId: 2 }),
@@ -399,18 +405,25 @@ describe('operations alert', () => {
         orderId: null,
         lastErrorCode: 'SWEEGO_UNAVAILABLE',
       }),
+      finding('EMAIL_FAILED_PERMANENTLY', {
+        subjectType: 'EMAIL',
+        subjectId: 7,
+        orderId: 42,
+        attemptCount: 1,
+        lastErrorCode: 'PROVIDER_HTTP_400',
+      }),
     ])
     expect(mail.kind).toBe('OPERATIONS_ALERT')
     expect(mail.recipient).toBe('ops@voenix.shop')
     expect(mail.recipientName).toBeNull()
-    expect(mail.subject).toBe('Betrieb: 8 neue Befunde')
+    expect(mail.subject).toBe('Betrieb: 10 neue Befunde')
     expectFramedWithLink(mail, `${BASE_URL}/admin/orders/41`)
     expect(mail.text).toBe(
       [
         'Neue Befunde im Betrieb',
         '========================================',
         '',
-        'Neu seit dem letzten Prüflauf: 8 neue Befunde. Alle offenen Befunde stehen in der Administration unter „Operations“.',
+        'Neu seit dem letzten Prüflauf: 10 neue Befunde. Alle offenen Befunde stehen in der Administration unter „Operations“.',
         '',
         '----------------------------------------',
         'Zahlung seit über einer Stunde ohne Ergebnis',
@@ -424,6 +437,15 @@ describe('operations alert', () => {
         '----------------------------------------',
         'Zahlung bezahlt, Bestellung aber nicht',
         'Betroffen:      PAYMENT 10',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       –',
+        'Fehlercode:     keine',
+        'Verlauf:        https://shop.example/admin/orders/42',
+        '',
+        '----------------------------------------',
+        'Rückbuchung (Chargeback) gemeldet',
+        'Betroffen:      PAYMENT 11',
         'Bestellnummer:  ORD-42',
         'Seit:           16.10.2026, 12:00',
         'Versuche:       –',
@@ -482,10 +504,19 @@ describe('operations alert', () => {
         'Seit:           16.10.2026, 12:00',
         'Versuche:       3',
         'Fehlercode:     SWEEGO_UNAVAILABLE',
+        '',
+        '----------------------------------------',
+        'E-Mail dauerhaft fehlgeschlagen',
+        'Betroffen:      EMAIL 7',
+        'Bestellnummer:  ORD-42',
+        'Seit:           16.10.2026, 12:00',
+        'Versuche:       1',
+        'Fehlercode:     PROVIDER_HTTP_400',
+        'Verlauf:        https://shop.example/admin/orders/42',
       ].join('\n'),
     )
     // A finding without an order has no timeline link.
-    expect(mail.html.match(/href=/g)).toHaveLength(7)
+    expect(mail.html.match(/href=/g)).toHaveLength(9)
   })
 
   test('a single finding names the count in the singular', () => {

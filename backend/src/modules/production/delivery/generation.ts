@@ -1,19 +1,51 @@
 import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { read, type Tables } from '@/platform/db/database'
 import { createLogger, errorDetails } from '@/platform/logging'
-import { type OrderLoader } from '../orders'
+import { type OrderLoader, type ProductionItem } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { renderProductionPdf } from '../pdf/renderer'
 import '../schema'
 
 const logger = createLogger('production-generation')
 
+interface SnapshotItem {
+  position: number
+  articleName: string
+  variantName: string
+  supplierArticleNumber: string | null
+  quantity: number
+}
+
+const normalizedSupplierArticleNumber = (value: string | null) =>
+  value?.trim() === '' ? null : value
+
 /**
- * The worker stage that turns every open SFTP job into its immutable artifact exactly once: render
- * the supplier's PDF, write it under the artifact root (temporary file plus atomic rename), then
- * record the digest, `generated_at`, and `prepared_at`. A crash between the file and the commit
- * leaves an open job whose next attempt replaces the file, so the recorded digest always describes
- * the bytes under the final path. A SPOD job never reaches this stage (SPOD fulfillment decision 2).
+ * Verifies that the live lines routed to this supplier still match the exact set snapshotted in
+ * `production_job_items` at split time. Reassigning an article to another supplier between split
+ * and generation would otherwise silently drop lines from the rendered PDF.
+ */
+function matchesJobSnapshot(share: readonly ProductionItem[], snapshot: readonly SnapshotItem[]) {
+  if (share.length === 0 || share.length !== snapshot.length) return false
+  return share.every((item, index) => {
+    const snap = snapshot[index]
+    return (
+      snap !== undefined &&
+      snap.position === index + 1 &&
+      snap.articleName === item.articleName &&
+      snap.variantName === item.variantName &&
+      snap.supplierArticleNumber === normalizedSupplierArticleNumber(item.supplierArticleNumber) &&
+      snap.quantity === item.quantity
+    )
+  })
+}
+
+/**
+ * The worker stage that turns every open SFTP job into its immutable artifact exactly once: verify
+ * the live lines against `production_job_items`, render the supplier's PDF, write it under the
+ * artifact root (temporary file plus atomic rename), then record the digest, `generated_at`, and
+ * `prepared_at`. A crash between the file and the commit leaves an open job whose next attempt
+ * replaces the file, so the recorded digest always describes the bytes under the final path. A
+ * SPOD job never reaches this stage (SPOD fulfillment decision 2).
  */
 export function createGenerationStage({
   db,
@@ -36,6 +68,22 @@ export function createGenerationStage({
   }
   const recordFailure = (jobId: number, code: string) =>
     updateOpenJob(jobId, { last_generation_error_code: code })
+
+  const jobItems = (jobId: number) =>
+    read(db, (trx) =>
+      trx
+        .selectFrom('production_job_items')
+        .select([
+          'position',
+          'article_name as articleName',
+          'variant_name as variantName',
+          'supplier_article_number as supplierArticleNumber',
+          'quantity',
+        ])
+        .where('production_job_id', '=', jobId)
+        .orderBy('position')
+        .execute(),
+    )
 
   return async (signal?: AbortSignal): Promise<void> => {
     const jobs = await read(db, (trx) =>
@@ -63,6 +111,16 @@ export function createGenerationStage({
       const loaded = await loadOrder(job.orderId)
       if (loaded.kind === 'failed') {
         await recordFailure(job.id, loaded.code)
+        continue
+      }
+      const snapshot = await jobItems(job.id)
+      const share = loaded.order.items.filter((item) => item.supplierId === job.supplierId)
+      if (!matchesJobSnapshot(share, snapshot)) {
+        logger.warn(
+          { jobId: job.id, orderId: job.orderId, supplierId: job.supplierId },
+          'Production job items no longer match the split snapshot; refusing PDF generation',
+        )
+        await recordFailure(job.id, 'ITEM_SET_CHANGED')
         continue
       }
       const rendered = await renderProductionPdf(loaded.order, job.supplierId)

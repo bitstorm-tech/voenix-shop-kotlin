@@ -295,16 +295,18 @@ what "stuck" means for that table, and nobody tunes them per deployment.
 | --- | --- | --- | --- |
 | `PAYMENT_UNRESOLVED` | order | payment | the order is `PENDING`, its current payment is under way (`OPEN`, `PENDING`, `AUTHORIZED`), and was created more than an hour ago |
 | `PAYMENT_PAID_ORDER_UNPAID` | order | payment | the current payment is `PAID` and the order is not (amount mismatch, or paid on a cancelled order) |
+| `PAYMENT_CHARGEBACK` | order | payment | Mollie reported a chargeback (`charged_back_amount_cents > 0`) |
 | `PRODUCTION_REQUEST_STALLED` | production | request | `processed_at IS NULL` and (older than 15 minutes or 3 attempts) |
-| `JOB_GENERATION_STALLED` | production | job | an SFTP job without its document, and (older than 15 minutes or 3 attempts) |
+| `JOB_GENERATION_STALLED` | production | job | an SFTP job without its document, and (older than 15 minutes, 3 attempts, or `ITEM_SET_CHANGED`) |
 | `JOB_WITHOUT_DESTINATION` | production | job | an SFTP job without any delivery (its supplier had no enabled destination at the split), not shipped |
 | `DELIVERY_STALLED` | production | delivery | undelivered, its job's document exists, and (the document is older than an hour or 3 attempts) |
-| `SPOD_SUBMISSION_STALLED` | production | job | a SPOD job, not prepared, not quarantined, and (older than an hour or 3 attempts) |
+| `SPOD_SUBMISSION_STALLED` | production | job | a SPOD job, not prepared, not quarantined, and (older than an hour, 3 attempts, or a `PERMANENT_FAILURES` code) |
 | `SPOD_QUARANTINED` | production | job | `create_state = 'OUTCOME_UNKNOWN'` |
 | `SPOD_REMOTE_ATTENTION` | production | job | the partner reported `NEEDS_ACTION` or `CANCELLED`, and the job is not shipped |
 | `SHIPMENT_OVERDUE` | production | job | prepared more than seven days ago and not shipped |
 | `SUPPLIER_WITHOUT_DESTINATION` | production | supplier | the supplier has no enabled destination of either channel; no order |
-| `EMAIL_STALLED` | email | mail | unsent, and (older than an hour or 3 attempts); carries the mail's own kind |
+| `EMAIL_STALLED` | email | mail | open unsent (`failed_permanently_at IS NULL`), and (older than an hour or 3 attempts); carries the mail's own kind |
+| `EMAIL_FAILED_PERMANENTLY` | email | mail | permanently failed (`4xx` except `408`/`429`, or exhausted retry cap) within the last seven days; carries the mail's own kind |
 
 In a deployment with `EMAIL_ENABLED=false` (the development default) every
 enqueued mail becomes an `EMAIL_STALLED` finding after an hour, because the
@@ -418,7 +420,7 @@ and reappears is a new row and is in the next mail again.
 
 | Mailed | Listed only (on the admin page, never in a mail, `alerted_at` stays `NULL`) |
 | --- | --- |
-| `PAYMENT_UNRESOLVED`, `PAYMENT_PAID_ORDER_UNPAID`, `PRODUCTION_REQUEST_STALLED`, `JOB_GENERATION_STALLED`, `JOB_WITHOUT_DESTINATION`, `DELIVERY_STALLED`, `SPOD_SUBMISSION_STALLED`, `SHIPMENT_OVERDUE`, `SUPPLIER_WITHOUT_DESTINATION`, `EMAIL_STALLED` of every mail kind but one | `SPOD_QUARANTINED`, `SPOD_REMOTE_ATTENTION`, and `EMAIL_STALLED` whose stalled mail is itself an `OPERATIONS_ALERT` |
+| `PAYMENT_UNRESOLVED`, `PAYMENT_PAID_ORDER_UNPAID`, `PAYMENT_CHARGEBACK`, `PRODUCTION_REQUEST_STALLED`, `JOB_GENERATION_STALLED`, `JOB_WITHOUT_DESTINATION`, `DELIVERY_STALLED`, `SPOD_SUBMISSION_STALLED`, `SHIPMENT_OVERDUE`, `SUPPLIER_WITHOUT_DESTINATION`, `EMAIL_STALLED` and `EMAIL_FAILED_PERMANENTLY` of every mail kind but one | `SPOD_QUARANTINED`, `SPOD_REMOTE_ATTENTION`, and `EMAIL_STALLED` / `EMAIL_FAILED_PERMANENTLY` whose affected mail is itself an `OPERATIONS_ALERT` |
 
 The table does not store the stalled mail's kind, so the rule is applied to
 the reported `Finding` objects (`EmailFinding.emailKind`) before the select,

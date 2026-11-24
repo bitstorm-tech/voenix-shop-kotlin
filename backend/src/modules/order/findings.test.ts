@@ -115,4 +115,39 @@ describe('orders.findings', () => {
       },
     ])
   })
+
+  test('reports a chargeback immediately as PAYMENT_CHARGEBACK, while refunds alone are not findings', async () => {
+    const refundedOrder = await seedOrder('PAID')
+    const refundedPayment = await seedPayment(refundedOrder, 'PAID', minutesAgo(30), minutesAgo(5))
+    await database.db
+      .updateTable('payments')
+      .set({ refunded_amount_cents: 1000 })
+      .where('id', '=', refundedPayment)
+      .execute()
+
+    const chargedBackOrder = await seedOrder('PAID')
+    const chargedBackPayment = await seedPayment(
+      chargedBackOrder,
+      'PAID',
+      minutesAgo(30),
+      minutesAgo(2),
+    )
+    await database.db
+      .updateTable('payments')
+      .set({ charged_back_amount_cents: 4470 })
+      .where('id', '=', chargedBackPayment)
+      .execute()
+
+    const { orders } = await orderModuleFor(database.db)
+    expect(await orders.findings(NOW)).toEqual([
+      {
+        kind: 'PAYMENT_CHARGEBACK',
+        subject: { type: 'PAYMENT', id: chargedBackPayment },
+        orderId: chargedBackOrder,
+        since: minutesAgo(2),
+        attemptCount: null,
+        lastErrorCode: null,
+      },
+    ])
+  })
 })

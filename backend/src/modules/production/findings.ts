@@ -1,5 +1,6 @@
 import type { Kysely, NotNull } from 'kysely'
 import { read, type Tables } from '@/platform/db/database'
+import { PERMANENT_FAILURES } from './spod/repository'
 import './schema'
 
 /**
@@ -125,7 +126,9 @@ export function productionFindings(
       if (
         job.fulfillment_channel === 'SFTP' &&
         job.generated_at === null &&
-        (olderThan(job.created_at, 15 * MINUTE) || job.generation_attempt_count >= STALLED_ATTEMPTS)
+        (olderThan(job.created_at, 15 * MINUTE) ||
+          job.generation_attempt_count >= STALLED_ATTEMPTS ||
+          job.last_generation_error_code === 'ITEM_SET_CHANGED')
       ) {
         jobFinding(
           'JOB_GENERATION_STALLED',
@@ -143,7 +146,9 @@ export function productionFindings(
         job.fulfillment_channel === 'SPOD' &&
         job.prepared_at === null &&
         job.create_state !== 'OUTCOME_UNKNOWN' &&
-        (olderThan(job.created_at, HOUR) || spodAttempts >= STALLED_ATTEMPTS)
+        (olderThan(job.created_at, HOUR) ||
+          spodAttempts >= STALLED_ATTEMPTS ||
+          (job.spod_error_code !== null && PERMANENT_FAILURES.has(job.spod_error_code)))
       ) {
         jobFinding('SPOD_SUBMISSION_STALLED', job.created_at, spodAttempts, job.spod_error_code)
       }

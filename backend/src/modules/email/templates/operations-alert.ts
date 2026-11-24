@@ -14,6 +14,7 @@ import {
 export type OperationsAlertKind =
   | 'PAYMENT_UNRESOLVED'
   | 'PAYMENT_PAID_ORDER_UNPAID'
+  | 'PAYMENT_CHARGEBACK'
   | 'PRODUCTION_REQUEST_STALLED'
   | 'JOB_GENERATION_STALLED'
   | 'JOB_WITHOUT_DESTINATION'
@@ -22,6 +23,7 @@ export type OperationsAlertKind =
   | 'SHIPMENT_OVERDUE'
   | 'SUPPLIER_WITHOUT_DESTINATION'
   | 'EMAIL_STALLED'
+  | 'EMAIL_FAILED_PERMANENTLY'
 
 /** One new finding of a scan, as the operations module recorded it. */
 export interface OperationsAlertFinding {
@@ -39,6 +41,7 @@ export interface OperationsAlertFinding {
 const KIND_NAMES: Record<OperationsAlertKind, string> = {
   PAYMENT_UNRESOLVED: 'Zahlung seit über einer Stunde ohne Ergebnis',
   PAYMENT_PAID_ORDER_UNPAID: 'Zahlung bezahlt, Bestellung aber nicht',
+  PAYMENT_CHARGEBACK: 'Rückbuchung (Chargeback) gemeldet',
   PRODUCTION_REQUEST_STALLED: 'Produktionsanfrage wird nicht aufgeteilt',
   JOB_GENERATION_STALLED: 'Produktions-PDF wird nicht erzeugt',
   JOB_WITHOUT_DESTINATION: 'Produktionsauftrag ohne Destination, wird nie übertragen',
@@ -47,6 +50,7 @@ const KIND_NAMES: Record<OperationsAlertKind, string> = {
   SHIPMENT_OVERDUE: 'Versand seit über sieben Tagen überfällig',
   SUPPLIER_WITHOUT_DESTINATION: 'Lieferant ohne aktive Destination',
   EMAIL_STALLED: 'E-Mail wird nicht versendet',
+  EMAIL_FAILED_PERMANENTLY: 'E-Mail dauerhaft fehlgeschlagen',
 }
 
 const TITLE = 'Neue Befunde im Betrieb'

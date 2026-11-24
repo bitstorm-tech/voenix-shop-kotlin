@@ -145,8 +145,13 @@ describe('production.findings', () => {
       generation_attempt_count: 3,
       last_generation_error_code: 'MISSING_IMAGE',
     })
+    const snapshotDrift = await seedJob({
+      created_at: minutesAgo(1),
+      generation_attempt_count: 1,
+      last_generation_error_code: 'ITEM_SET_CHANGED',
+    })
     const young = await seedJob({ created_at: minutesAgo(15), generation_attempt_count: 2 })
-    for (const { jobId } of [old, failing, young]) await seedDelivery(jobId, 0)
+    for (const { jobId } of [old, failing, snapshotDrift, young]) await seedDelivery(jobId, 0)
     // A SPOD job never has a document; it is not a generation finding.
     await seedJob({ created_at: minutesAgo(30), fulfillment_channel: 'SPOD' })
 
@@ -166,6 +171,14 @@ describe('production.findings', () => {
         since: minutesAgo(1),
         attemptCount: 3,
         lastErrorCode: 'MISSING_IMAGE',
+      },
+      {
+        kind: 'JOB_GENERATION_STALLED',
+        subject: { type: 'JOB', id: snapshotDrift.jobId },
+        orderId: snapshotDrift.orderId,
+        since: minutesAgo(1),
+        attemptCount: 1,
+        lastErrorCode: 'ITEM_SET_CHANGED',
       },
     ])
   })
@@ -224,6 +237,10 @@ describe('production.findings', () => {
     const failing = await seedJob(spod(1), {
       attempt_count: 3,
       last_error_code: 'PLACEMENT_UNAVAILABLE',
+    })
+    const rejectedOnce = await seedJob(spod(1), {
+      attempt_count: 1,
+      last_error_code: 'ORDER_CREATE_REJECTED',
     })
     await seedJob(spod(60), { attempt_count: 2 })
     const quarantined = await seedJob(spod(600), {
@@ -303,6 +320,14 @@ describe('production.findings', () => {
         since: minutesAgo(1),
         attemptCount: 3,
         lastErrorCode: 'PLACEMENT_UNAVAILABLE',
+      },
+      {
+        kind: 'SPOD_SUBMISSION_STALLED',
+        subject: { type: 'JOB', id: rejectedOnce.jobId },
+        orderId: rejectedOnce.orderId,
+        since: minutesAgo(1),
+        attemptCount: 1,
+        lastErrorCode: 'ORDER_CREATE_REJECTED',
       },
     ])
   })

@@ -496,7 +496,10 @@ produced.
 The second stage
 ([`generation.ts`](../../../../backend/src/modules/production/delivery/generation.ts))
 takes the SFTP jobs with `generated_at IS NULL` in id order, counts an attempt,
-renders the supplier's PDF from the order as it is now, and:
+verifies that the live lines routed to the job's supplier still match the exact
+set snapshotted in `production_job_items` (`ITEM_SET_CHANGED` if an article was
+reassigned after the split, reported immediately as `JOB_GENERATION_STALLED`),
+renders the supplier's PDF from the order, and:
 
 1. writes the bytes to a temporary file **in the final directory** and renames
    it atomically to `{artifactRoot}/{jobId}/ORD-{orderId}.pdf` (the job id
@@ -718,10 +721,10 @@ module's `ids` capability supplies; a supplier finding belongs to no order.
 | Kind | Subject | Rule | `since` | Attempts and code |
 | --- | --- | --- | --- | --- |
 | `PRODUCTION_REQUEST_STALLED` | the request | `processed_at IS NULL` and (`created_at` older than 15 minutes or `attempt_count >= 3`) | `created_at` | the request's |
-| `JOB_GENERATION_STALLED` | the job | an `SFTP` job, `generated_at IS NULL`, and (`created_at` older than 15 minutes or `generation_attempt_count >= 3`) | `created_at` | the generation's |
+| `JOB_GENERATION_STALLED` | the job | an `SFTP` job, `generated_at IS NULL`, and (`created_at` older than 15 minutes, `generation_attempt_count >= 3`, or `last_generation_error_code = 'ITEM_SET_CHANGED'`) | `created_at` | the generation's |
 | `JOB_WITHOUT_DESTINATION` | the job | an `SFTP` job without any delivery row and `shipped_at IS NULL`; at once, since the split writes a job and its deliveries in one transaction | `created_at` | none |
 | `DELIVERY_STALLED` | the delivery | `delivered_at IS NULL`, the job's `generated_at` is set, and (`generated_at` older than an hour or the delivery's `attempt_count >= 3`) | the job's `generated_at` | the delivery's |
-| `SPOD_SUBMISSION_STALLED` | the job | a `SPOD` job, `prepared_at IS NULL`, `create_state` is not `OUTCOME_UNKNOWN`, and (`created_at` older than an hour or the SPOD row's `attempt_count >= 3`) | the job's `created_at` | the SPOD row's (`0` before the first attempt, when the row does not exist yet) |
+| `SPOD_SUBMISSION_STALLED` | the job | a `SPOD` job, `prepared_at IS NULL`, `create_state` is not `OUTCOME_UNKNOWN`, and (`created_at` older than an hour, the SPOD row's `attempt_count >= 3`, or `last_error_code` is in `PERMANENT_FAILURES`) | the job's `created_at` | the SPOD row's (`0` before the first attempt, when the row does not exist yet) |
 | `SPOD_QUARANTINED` | the job | `create_state = 'OUTCOME_UNKNOWN'` | the job's `created_at` | the SPOD row's |
 | `SPOD_REMOTE_ATTENTION` | the job | `remote_state` is `NEEDS_ACTION` or `CANCELLED` and `shipped_at IS NULL` | the SPOD row's `created_at` (the state change has no timestamp of its own) | none |
 | `SHIPMENT_OVERDUE` | the job | `prepared_at` older than seven days and `shipped_at IS NULL`, any channel | `prepared_at` | none |

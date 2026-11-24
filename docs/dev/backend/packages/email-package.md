@@ -206,14 +206,19 @@ table, and deleting an order must never fail on an unrelated mail.
 The [operations module](operations-package.md) reads the outbox through two
 capabilities on `outbox`, both plain read transactions over `email_jobs`:
 
-- `findings(now)` reports every **stalled** mail as an `EmailFinding` of kind
-  `EMAIL_STALLED`: `sent_at IS NULL` and either `created_at` more than an hour
-  before `now` or `attempt_count >= 3`. The subject is the job (`EMAIL`, its
-  id), `since` its `created_at`, and the finding carries the mail's own kind
-  (`emailKind`, read from `payload->>'kind'`), so the operations module can
-  tell a stalled order mail from a stalled alert. In a deployment with
-  `EMAIL_ENABLED=false` (the development default) every enqueued mail becomes
-  a finding after an hour, because the email worker sends nothing.
+- `findings(now)` reports every **stalled** open mail as `EMAIL_STALLED`
+  (`sent_at IS NULL`, `failed_permanently_at IS NULL`, and either `created_at`
+  more than an hour before `now` or `attempt_count >= 3`) and every mail marked
+  **permanently failed** within the last seven days as
+  `EMAIL_FAILED_PERMANENTLY` (`failed_permanently_at >= now - 7 days`, `since`
+  is `failed_permanently_at`). The subject is the job (`EMAIL`, its id), and the
+  finding carries the mail's own kind (`emailKind`, read from `payload->>'kind'`),
+  so the operations module can tell an affected order mail from an alert. After
+  seven days a permanently failed mail stops being reported so `/admin/operations`
+  does not stay cluttered forever (it remains in the 7-day resolved history and
+  on the order timeline). In a deployment with `EMAIL_ENABLED=false` (the
+  development default) every enqueued mail becomes an `EMAIL_STALLED` finding
+  after an hour, because the email worker sends nothing.
 - `ofOrder(orderId)` lists the mails attributed to one order, oldest first,
   as `{ emailJobId, kind, recipient, attemptCount, lastErrorCode, createdAt,
   sentAt }`, without the subject, the HTML, or the text.
@@ -249,37 +254,57 @@ What this gives up:
 
 ## Worker lifecycle
 
-A job is **open** while `sent_at` is `NULL` and **sent** once Sweego accepted
-it.
+A job is **open** while both `sent_at` and `failed_permanently_at` are `NULL`,
+**sent** once Sweego accepted it, and **permanently failed** once Sweego refused
+it with a permanent `4xx` or it exhausted its retry cap.
 
 ```mermaid
 flowchart LR
-    Open["Open<br/>sent_at is NULL"]
+    Open["Open<br/>sent_at & failed_permanently_at are NULL"]
     Attempt["Attempt<br/>attempt_count + 1"]
     Sent["Sent<br/>sent_at is set"]
+    Failed["Permanently failed<br/>failed_permanently_at is set"]
 
-    Open -->|"next scan"| Attempt
-    Attempt -->|"delivery failure<br/>store safe error code"| Open
+    Open -->|"next scan (when due)"| Attempt
+    Attempt -->|"transient failure (< 10 attempts)<br/>exponential backoff in next_attempt_at"| Open
+    Attempt -->|"permanent 4xx (except 408/429)<br/>or 10th failed attempt"| Failed
     Attempt -->|"Sweego accepted"| Sent
 ```
 
 `worker.start()` scans at once and then every `EMAIL_POLL_INTERVAL_MINUTES`
-(5 by default). A scan reads every open job oldest first and, per job:
+(1 by default). A scan reads every due open job (`sent_at IS NULL`,
+`failed_permanently_at IS NULL`, `next_attempt_at IS NULL OR next_attempt_at <= now`)
+oldest first and, per job:
 
 1. increments `attempt_count` in SQL, only while the job is still open;
 2. delivers the payload with the campaign id `voenix-email-<job id>`;
-3. on acceptance sets `sent_at = now()` and clears `last_error_code`; on a
-   failure stores the bounded code (`PROVIDER_HTTP_503`, `REQUEST_TIMEOUT`,
-   `PROVIDER_UNAVAILABLE`, …) and leaves the job open. The adapter logs a
-   `REQUEST_TIMEOUT` or `PROVIDER_UNAVAILABLE` with `errorDetails`, so the
-   network cause (`ENOTFOUND`, `ConnectionRefused`) shows up in the log.
+3. on acceptance sets `sent_at = now()`, clears `last_error_code` and
+   `next_attempt_at`;
+4. on a **permanent** `4xx` refusal (`PROVIDER_HTTP_4xx` other than `408` and
+   `429`, such as `PROVIDER_HTTP_400` for invalid recipient syntax) or when
+   `attempt_count` reaches `MAX_EMAIL_ATTEMPTS` (`10`), stores `last_error_code`,
+   clears `next_attempt_at`, and sets `failed_permanently_at = now()` so the
+   worker stops sending that job to Sweego;
+5. on any other (**transient**) failure (`5xx`, `408`, `429`, `REQUEST_TIMEOUT`,
+   `PROVIDER_UNAVAILABLE`, …), stores the bounded code and sets
+   `next_attempt_at` with exponential backoff (`1, 2, 4, 8, 16, 32, 60, 60, 60`
+   minutes, capped at 60 minutes) before the 10th attempt marks it permanently
+   failed. The adapter logs a `REQUEST_TIMEOUT` or `PROVIDER_UNAVAILABLE` with
+   `errorDetails`, so the network cause (`ENOTFOUND`, `ConnectionRefused`) shows
+   up in the log.
 
-There is no retry maximum and no terminal failed state. An exception during a
-scan (the database is gone) is logged with `errorDetails`, never
-its message ([logging](../conventions/logging.md)), and the next scan
-tries again. With `EMAIL_ENABLED=false` a scan returns at once and every job
-stays untouched; `start()` then logs one warning, because nothing else in the
-log tells you that no mail goes out.
+*Changed from the earlier unbounded retry policy (go-live packet 5, `C19`):*
+unbounded 1-minute retries against Sweego `4xx` refusals burned requests forever
+and held `EMAIL_STALLED` permanently open. Exponential backoff still tolerates a
+multi-hour Sweego outage (~4 hours across 10 attempts), while permanent `4xx`
+refusals stop after attempt 1 and surface as `EMAIL_FAILED_PERMANENTLY` for
+seven days.
+
+An exception during a scan (the database is gone) is logged with `errorDetails`,
+never its message ([logging](../conventions/logging.md)), and the next scan tries
+again. With `EMAIL_ENABLED=false` a scan returns at once and every job stays
+untouched; `start()` then logs one warning, because nothing else in the log
+tells you that no mail goes out.
 
 `worker.stop()` aborts the `AbortController`: the sleep between scans ends
 immediately, a running scan stops before its next job, and the returned
@@ -347,7 +372,12 @@ reshaped it: `id`, `payload jsonb`, `attempt_count`, `last_error_code`,
 reference, and the kind and source-id checks.
 [`V33__operations_findings.sql`](../../../../backend/migrations/V33__operations_findings.sql)
 adds the nullable `order_id bigint` without a foreign key, with the index
-`ix_email_jobs_order_id` for `ofOrder`. `payload` is typed as
+`ix_email_jobs_order_id` for `ofOrder`.
+[`V40__go_live_db_hardening.sql`](../../../../backend/migrations/V40__go_live_db_hardening.sql)
+and [`V41__fulfillment_retry_and_chargebacks.sql`](../../../../backend/migrations/V41__fulfillment_retry_and_chargebacks.sql)
+add `next_attempt_at`, `failed_permanently_at` (mutually exclusive with
+`sent_at`), and narrow the partial index `ix_email_jobs_open` to
+`WHERE sent_at IS NULL AND failed_permanently_at IS NULL`. `payload` is typed as
 `JSONColumnType<RenderedEmail>`: it is written as a JSON string and read back
 as the object.
 
@@ -361,7 +391,7 @@ bun test src/modules/email
 
 | Test | What it states |
 | --- | --- |
-| [`outbox.test.ts`](../../../../backend/src/modules/email/outbox.test.ts) | The payload is stored in the caller's transaction, with the order id when one is passed, and a failing transaction leaves no job; `findings` reports an unsent mail older than an hour or failed three times, and nothing at the thresholds or once sent; `ofOrder` lists one order's mails; a disabled worker sends nothing; an enabled one sends and marks every job with its campaign id; a failure keeps the job open with its code and the next scan resends the stored mail, without an attempt maximum; `start` scans at once and `stop` ends the loop without waiting for the interval; `userEmails.send` sends once, stores nothing, is a no-op when disabled, and throws `EmailDeliveryError` on a refusal |
+| [`outbox.test.ts`](../../../../backend/src/modules/email/outbox.test.ts) | The payload is stored in the caller's transaction, with the order id when one is passed, and a failing transaction leaves no job; `findings` reports an open unsent mail older than an hour or failed three times as `EMAIL_STALLED`, a permanently failed mail within seven days as `EMAIL_FAILED_PERMANENTLY`, and nothing at the thresholds, after seven days, or once sent; `ofOrder` lists one order's mails; a disabled worker sends nothing; an enabled one sends and marks every job with its campaign id; transient failures (`503`, `429`, `408`) back off exponentially until due and stop at `MAX_EMAIL_ATTEMPTS`; permanent `4xx` errors (`400`, `422`) dead-letter immediately; `start` scans at once and `stop` ends the loop without waiting for the interval; `userEmails.send` sends once, stores nothing, is a no-op when disabled, and throws `EmailDeliveryError` on a refusal |
 | [`delivery/sweego.test.ts`](../../../../backend/src/modules/email/delivery/sweego.test.ts) | The exact request (URL, method, headers, body, `redirect: 'manual'`, timeout signal); an omitted campaign id; a `503` and a `302` as status codes without the body; timeout and unreachable provider |
 | [`templates/templates.test.ts`](../../../../backend/src/modules/email/templates/templates.test.ts) | One test per kind with its subject and, where the mail has one, the link built from the base URL as `href` and as text; exact plain texts; escaping; German money with thousands, discount, and free shipping; the producer greeting fallback; the shipping mail without prices or tracking; every ops-alert reason reads differently |
 

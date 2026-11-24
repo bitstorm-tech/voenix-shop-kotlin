@@ -13,13 +13,16 @@ const RESOLVED_LIST_DAYS = 7
 
 /**
  * Whether a finding is mailed. The two SPOD kinds are listed only, because the SPOD channel already
- * mails each of those state transitions; so is a stalled operations alert, because otherwise a
- * broken outbox would enqueue a new alert about the stalled alert on every scan.
+ * mails each of those state transitions; so is a stalled or permanently failed operations alert,
+ * because otherwise a broken outbox would enqueue a new alert about the failed alert on every scan.
  */
 const mailed = (finding: Finding) =>
   finding.kind !== 'SPOD_QUARANTINED' &&
   finding.kind !== 'SPOD_REMOTE_ATTENTION' &&
-  !(finding.kind === 'EMAIL_STALLED' && finding.emailKind === 'OPERATIONS_ALERT')
+  !(
+    (finding.kind === 'EMAIL_STALLED' || finding.kind === 'EMAIL_FAILED_PERMANENTLY') &&
+    finding.emailKind === 'OPERATIONS_ALERT'
+  )
 
 /** An open finding of a mailed kind that no alert named yet; `isNew` when this scan inserted it. */
 export type UnalertedFinding = OperationsAlertFinding & { id: number; isNew: boolean }

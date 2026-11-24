@@ -315,12 +315,21 @@ describe('the operations alert', () => {
     expect((await rows())[1]?.alerted_at).toEqual(payment?.alerted_at ?? null)
   })
 
-  test('the two SPOD kinds and a stalled operations alert are listed only', async () => {
+  test('the two SPOD kinds and a stalled or permanently failed operations alert are listed only', async () => {
     const { worker, answer } = scripted()
     answer.findings = [
       spodJob('SPOD_QUARANTINED', 5),
       spodJob('SPOD_REMOTE_ATTENTION', 6),
       stalledEmail(7, 'OPERATIONS_ALERT'),
+      {
+        kind: 'EMAIL_FAILED_PERMANENTLY',
+        subject: { type: 'EMAIL', id: 9 },
+        orderId: null,
+        since: SINCE,
+        attemptCount: 1,
+        lastErrorCode: 'PROVIDER_HTTP_400',
+        emailKind: 'OPERATIONS_ALERT',
+      },
     ]
     await worker.runOnce()
     expect(await mails()).toEqual([])
@@ -336,6 +345,7 @@ describe('the operations alert', () => {
       [5, true],
       [6, true],
       [7, true],
+      [9, true],
       [8, false],
     ])
   })

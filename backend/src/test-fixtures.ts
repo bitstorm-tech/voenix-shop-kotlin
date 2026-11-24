@@ -64,6 +64,8 @@ export function stubMollie() {
         id,
         status: 'OPEN',
         amountCents: order.totalCents,
+        refundedAmountCents: 0,
+        chargedBackAmountCents: 0,
         checkoutUrl: `https://mollie.test/checkout/${id}`,
       }
       reported.set(id, payment)

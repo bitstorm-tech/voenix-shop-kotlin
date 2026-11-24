@@ -21,12 +21,16 @@ export const PAYMENT_STATUSES = [
 ] as const
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number]
 
-/** What Mollie says about one payment, reduced to the four facts this module uses. */
+/** What Mollie says about one payment, reduced to the facts this module acts on. */
 export interface MolliePayment {
   id: string
   status: PaymentStatus
   /** The amount *Mollie* names, compared with the stored one before an order is confirmed. */
   amountCents: number
+  /** Cumulative refunded amount reported by Mollie in cents (`0` when absent). */
+  refundedAmountCents: number
+  /** Cumulative charged-back amount reported by Mollie in cents (`0` when absent). */
+  chargedBackAmountCents: number
   /** Present while the payment can still be paid; `create` refuses an answer without one. */
   checkoutUrl: string | null
 }
@@ -56,15 +60,20 @@ export const MOLLIE_PAYMENTS_URL = 'https://api.mollie.com/v2/payments'
 const REQUEST_TIMEOUT_MILLIS = 8_000
 const CURRENCY = 'EUR'
 
+const mollieAmount = z.object({ currency: z.string(), value: z.string() })
+
 /**
  * What Mollie answers, in the fields read here. `id`, `status`, and `amount` are required, so a
- * truncated answer is unusable rather than a payment with an empty id; `_links` is absent on a
- * payment that can no longer be paid. Unknown fields are ignored.
+ * truncated answer is unusable rather than a payment with an empty id; `amountRefunded` and
+ * `amountChargedBack` appear once refunds or chargebacks exist; `_links` is absent on a payment
+ * that can no longer be paid. Unknown fields are ignored.
  */
 const mollieAnswer = z.object({
   id: z.string(),
   status: z.string(),
-  amount: z.object({ currency: z.string(), value: z.string() }),
+  amount: mollieAmount,
+  amountRefunded: mollieAmount.nullish(),
+  amountChargedBack: mollieAmount.nullish(),
   _links: z.object({ checkout: z.object({ href: z.string().nullish() }).nullish() }).nullish(),
 })
 
@@ -102,13 +111,31 @@ export function createMolliePayments(
     const answer = mollieAnswer.parse(await response.json())
     const status = statusOf(answer.status)
     const amountCents = centsOf(answer.amount)
+    const refundedAmountCents = answer.amountRefunded == null ? 0 : centsOf(answer.amountRefunded)
+    const chargedBackAmountCents =
+      answer.amountChargedBack == null ? 0 : centsOf(answer.amountChargedBack)
     if (status === null) logger.error(`Mollie reported an unknown payment status while ${what}`)
     if (amountCents === null) logger.error(`Mollie reported an unusable amount while ${what}`)
-    if (status === null || amountCents === null) return null
+    if (refundedAmountCents === null) {
+      logger.error(`Mollie reported an unusable refunded amount while ${what}`)
+    }
+    if (chargedBackAmountCents === null) {
+      logger.error(`Mollie reported an unusable charged-back amount while ${what}`)
+    }
+    if (
+      status === null ||
+      amountCents === null ||
+      refundedAmountCents === null ||
+      chargedBackAmountCents === null
+    ) {
+      return null
+    }
     return {
       id: answer.id,
       status,
       amountCents,
+      refundedAmountCents,
+      chargedBackAmountCents,
       checkoutUrl: answer._links?.checkout?.href ?? null,
     }
   }

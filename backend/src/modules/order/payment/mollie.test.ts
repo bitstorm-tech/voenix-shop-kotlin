@@ -53,6 +53,8 @@ describe('create', () => {
       id: 'tr_created',
       status: 'OPEN',
       amountCents: 4070,
+      refundedAmountCents: 0,
+      chargedBackAmountCents: 0,
       checkoutUrl: 'https://www.mollie.com/checkout/tr_created',
     })
 
@@ -147,12 +149,30 @@ describe('find', () => {
       id: 'tr_created',
       status: 'PAID',
       amountCents: 4070,
+      refundedAmountCents: 0,
+      chargedBackAmountCents: 0,
+      checkoutUrl: null,
+    })
+    expect(
+      await find({
+        status: 'paid',
+        amountRefunded: { currency: 'EUR', value: '12.50' },
+        amountChargedBack: { currency: 'EUR', value: '40.70' },
+      }),
+    ).toEqual({
+      id: 'tr_created',
+      status: 'PAID',
+      amountCents: 4070,
+      refundedAmountCents: 1250,
+      chargedBackAmountCents: 4070,
       checkoutUrl: null,
     })
     expect((await find({ amount: { currency: 'EUR', value: '40.7' } }))?.amountCents).toBe(4070)
     expect(await find({ status: 'refunded-ish' })).toBeNull()
     expect(await find({ amount: { currency: 'USD', value: '40.70' } })).toBeNull()
     expect(await find({ amount: { currency: 'EUR', value: '40.701' } })).toBeNull()
+    expect(await find({ amountRefunded: { currency: 'USD', value: '10.00' } })).toBeNull()
+    expect(await find({ amountChargedBack: { currency: 'EUR', value: '10.001' } })).toBeNull()
     expect(await find({ id: 'tr_other' })).toBeNull()
   })
 

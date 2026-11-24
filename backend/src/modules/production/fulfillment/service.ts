@@ -201,7 +201,10 @@ export function createFulfillmentService({
 
   /**
    * The job a webhook event is about: the partner's order id first, then this shop's own
-   * reference, checked against the order and the channel of the job it claims.
+   * reference, checked against the order, the channel, and the stored partner order id. The
+   * shop-reference fallback is only allowed while the job has no stored `externalReference` yet
+   * (or when it matches the incoming partner id), so cancelling an orphaned SPOD order with the
+   * same shop reference can never cancel or overwrite the active job.
    */
   const resolveWebhookJob = async (event: SpodWebhookEvent): Promise<number | undefined> => {
     if (event.externalReference !== null) {
@@ -212,9 +215,15 @@ export function createFulfillmentService({
       event.shopReference === null ? null : parseSpodOrderReference(event.shopReference)
     if (claimed === null) return undefined
     const job = await repository.job(claimed.jobId, null)
-    return job?.orderId === claimed.orderId && job.fulfillmentChannel === 'SPOD'
-      ? job.id
-      : undefined
+    if (job?.orderId !== claimed.orderId || job.fulfillmentChannel !== 'SPOD') return undefined
+    if (job.externalReference !== null && job.externalReference !== event.externalReference) {
+      logger.warn(
+        { jobId: job.id },
+        'Ignored SPOD webhook shop-reference fallback because the job already holds another external reference',
+      )
+      return undefined
+    }
+    return job.id
   }
 
   return {

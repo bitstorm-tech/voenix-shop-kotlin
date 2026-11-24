@@ -96,9 +96,12 @@ export function createSpodOrderRepository({
 
   return {
     /**
-     * The SPOD jobs still to be prepared, oldest first. A job quarantined as `OUTCOME_UNKNOWN` is
-     * left out (no automatic call until a human looked), and so is one the partner cancelled (it
-     * will never leave that state). `NEEDS_ACTION` stays: someone resolves it in the backoffice.
+     * The SPOD jobs still to be prepared, oldest first. Three kinds of job are left out on purpose:
+     * a job quarantined as `OUTCOME_UNKNOWN` (no automatic call until a human looked), one the
+     * partner cancelled (it will never leave that state), and one holding a `PERMANENT_FAILURES`
+     * code (e.g. `ORDER_CREATE_REJECTED`), so rejected jobs stop hitting SPOD's 60 req/min rate
+     * limit until an operator clears `last_error_code`. `NEEDS_ACTION` stays: someone resolves it
+     * in the backoffice.
      */
     openJobs: () =>
       read(db, (trx) =>
@@ -124,6 +127,12 @@ export function createSpodOrderRepository({
           .where((eb) =>
             eb.or([eb('o.remote_state', 'is', null), eb('o.remote_state', '!=', 'CANCELLED')]),
           )
+          .where((eb) =>
+            eb.or([
+              eb('o.last_error_code', 'is', null),
+              eb('o.last_error_code', 'not in', [...PERMANENT_FAILURES]),
+            ]),
+          )
           .orderBy('j.id')
           .execute(),
       ),
@@ -144,21 +153,31 @@ export function createSpodOrderRepository({
       }),
 
     /**
-     * Records the bounded code of a failed attempt. A permanent code alerts the operator, once:
-     * the update only touches the row when the code differs from the stored one, so a code every
-     * scan records again sends no second mail.
+     * Records the bounded code of a failed attempt. A permanent code alerts the operator at most
+     * once per job (until an admin releases it): `blocked_alerted_at` is set under a row lock on
+     * the first permanent failure, so alternating permanent and transient errors cannot send
+     * repeated `SUBMISSION_BLOCKED` alerts.
      */
     recordFailure: (jobId: number, code: string) =>
       write(db, async (trx) => {
-        const result = await trx
-          .updateTable('production_spod_orders')
-          .set({ last_error_code: code })
+        const row = await trx
+          .selectFrom('production_spod_orders')
+          .select(['last_error_code', 'blocked_alerted_at'])
           .where('production_job_id', '=', jobId)
-          .where('last_error_code', 'is distinct from', code)
+          .forUpdate()
           .executeTakeFirst()
-        if (result.numUpdatedRows > 0n && PERMANENT_FAILURES.has(code)) {
-          await alert(trx, jobId, 'SUBMISSION_BLOCKED')
-        }
+        if (row === undefined) return
+        const shouldAlert = PERMANENT_FAILURES.has(code) && row.blocked_alerted_at === null
+        if (row.last_error_code === code && !shouldAlert) return
+        await trx
+          .updateTable('production_spod_orders')
+          .set({
+            last_error_code: code,
+            ...(shouldAlert ? { blocked_alerted_at: sql<Date>`now()` } : {}),
+          })
+          .where('production_job_id', '=', jobId)
+          .execute()
+        if (shouldAlert) await alert(trx, jobId, 'SUBMISSION_BLOCKED')
       }),
 
     /** The design ids already uploaded for this job, by item position. */
@@ -281,7 +300,7 @@ export function createSpodOrderRepository({
                 ? { external_reference: release.externalReference, create_state: 'CREATED' }
                 : { create_state: 'PENDING' },
             )
-            .set({ create_ambiguous_count: 0, last_error_code: null })
+            .set({ create_ambiguous_count: 0, last_error_code: null, blocked_alerted_at: null })
             .where('production_job_id', '=', jobId)
             .where('create_state', '=', 'OUTCOME_UNKNOWN')
             .returning(orderIdOfRow)
