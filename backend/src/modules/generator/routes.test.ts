@@ -13,11 +13,17 @@ import {
   testApp,
   testAuth,
 } from '@test-support/http'
+import { pngBytes } from '@test-support/values'
 
 const database = testDatabase()
 
+let IMAGE: Uint8Array<ArrayBuffer>
+let CUT_OUT: Uint8Array<ArrayBuffer>
+
 /** The signed-in visitors of these tests; `magic_coins.user_id` references `users`. */
 beforeAll(async () => {
+  IMAGE = new Uint8Array(await pngBytes('#336699'))
+  CUT_OUT = new Uint8Array(await pngBytes('#993366'))
   for (const id of [7, 8, 9, 10, 12, 13]) {
     await sql`INSERT INTO users (id, email, password_hash)
       VALUES (${id}, ${`customer-${String(id)}@example.com`}, 'hash')`.execute(database.db)
@@ -44,6 +50,11 @@ const app = (
   settings = { dummyMode: true, apiKey: '' },
   fetch: (url: string, init: RequestInit) => Promise<Response> = () =>
     Promise.reject(new Error('no network in this test')),
+  rateLimitOptions: {
+    limit?: number
+    globalLimit?: number
+    trustForwardedFor?: boolean
+  } = {},
 ) =>
   testApp(
     createGeneratorModule({
@@ -55,12 +66,11 @@ const app = (
       rateLimit: createClientIpRateLimiter({
         trustForwardedFor: false,
         peerAddress: () => '203.0.113.7',
+        ...rateLimitOptions,
       }).middleware,
       fetch,
     }).routes,
   )
-
-const IMAGE = new Uint8Array([4, 8, 15, 16, 23, 42])
 
 const upload = ({ promptId = '1', articleId = '1' } = {}) => {
   const form = new FormData()
@@ -128,10 +138,12 @@ describe('POST /api/generator/generate', () => {
     const article = await generate(app(), headers, upload({ articleId: '99' }))
     expect(article.status).toBe(404)
     expect(await jsonOf(article)).toEqual({ message: 'Article not found', errors: {} })
-    expect(await balanceOf(9)).toBe(10)
+    expect(await balanceOf(9)).toBeUndefined()
+    const balance = await app().request('/api/magic-coins/balance', { headers })
+    expect(await jsonOf(balance)).toEqual({ balance: 10 })
   })
 
-  test('a rejected upload names the field the client has to fix', async () => {
+  test('a rejected upload names the field the client has to fix, including non-image bytes', async () => {
     const form = new FormData()
     form.append('promptId', '1')
     const response = await generate(app(), await guestHeaders(), form)
@@ -140,9 +152,24 @@ describe('POST /api/generator/generate', () => {
       message: 'Validation failed',
       errors: { image: ['An image file is required'] },
     })
+
+    const fake = new FormData()
+    fake.append(
+      'image',
+      new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }),
+      'fake.png',
+    )
+    fake.append('promptId', '1')
+    fake.append('articleId', '1')
+    const fakeResponse = await generate(app(), await guestHeaders(), fake)
+    expect(fakeResponse.status).toBe(400)
+    expect(await jsonOf(fakeResponse)).toEqual({
+      message: 'Validation failed',
+      errors: { image: ['Unsupported or invalid image data'] },
+    })
   })
 
-  test('outside dummy mode the provider is asked, and its failure is a 502 that costs nothing', async () => {
+  test('outside dummy mode the provider is asked, and its failure is a 502 that refunds the coin', async () => {
     const requested: string[] = []
     const target = app({ dummyMode: false, apiKey: 'key' }, (url) => {
       requested.push(url)
@@ -153,6 +180,23 @@ describe('POST /api/generator/generate', () => {
     expect(await jsonOf(response)).toEqual({ message: 'Generator API error', errors: {} })
     expect(requested).toEqual(['https://fal.run/fal-ai/nano-banana-2/edit'])
     expect(await balanceOf(10)).toBe(10)
+  })
+
+  test('enforces the global hourly cap across rotating IPs', async () => {
+    const target = app({ dummyMode: true, apiKey: '' }, undefined, {
+      limit: 20,
+      globalLimit: 2,
+      trustForwardedFor: true,
+    })
+    const fromIp = async (ip: string) =>
+      generate(target, { ...(await guestHeaders()), 'X-Forwarded-For': ip })
+
+    expect((await fromIp('203.0.113.1')).status).toBe(200)
+    expect((await fromIp('203.0.113.2')).status).toBe(200)
+    const refused = await fromIp('203.0.113.3')
+    expect(refused.status).toBe(429)
+    expect(await jsonOf(refused)).toEqual({ message: 'Too many requests', errors: {} })
+    expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1)
   })
 
   test('the 21st generation of an IP is refused with Retry-After before anything runs', async () => {
@@ -194,17 +238,19 @@ describe('POST /api/generator/generate', () => {
 })
 
 describe('GET /api/magic-coins/balance', () => {
-  test('grants a new guest 10 coins once, never cached, and keeps the balance on repeated reads', async () => {
+  test('answers 10 for a passive visitor without setting a guest cookie or creating a DB row', async () => {
+    const before = (
+      await sql<{ count: string }>`SELECT COUNT(*) AS count FROM magic_coins`.execute(database.db)
+    ).rows[0]?.count
     const first = await app().request('/api/magic-coins/balance')
     expect(first.status).toBe(200)
     expect(first.headers.get('Cache-Control')).toBe('no-store')
     expect(await jsonOf(first)).toEqual({ balance: 10 })
-    expect(setCookies(first, GUEST_COOKIE)).toHaveLength(1)
-    const again = await app().request('/api/magic-coins/balance', {
-      headers: { Cookie: cookieHeader(first) },
-    })
-    expect(await jsonOf(again)).toEqual({ balance: 10 })
-    expect(setCookies(again, GUEST_COOKIE)).toEqual([])
+    expect(setCookies(first, GUEST_COOKIE)).toEqual([])
+    const after = (
+      await sql<{ count: string }>`SELECT COUNT(*) AS count FROM magic_coins`.execute(database.db)
+    ).rows[0]?.count
+    expect(after).toBe(before)
   })
 
   test('a signed-in user reads the account balance', async () => {
@@ -218,7 +264,9 @@ describe('GET /api/magic-coins/balance', () => {
   test('a failed balance lookup is a 500, never "no balance"', async () => {
     await sql`ALTER TABLE magic_coins RENAME TO magic_coins_away`.execute(database.db)
     try {
-      const balance = await app().request('/api/magic-coins/balance')
+      const balance = await app().request('/api/magic-coins/balance', {
+        headers: await signedInHeaders({ userId: 13, roles: [] }),
+      })
       expect(balance.status).toBe(500)
       expect(balance.headers.get('Cache-Control')).toBe('no-store')
       const generation = await generate(app(), await guestHeaders())
@@ -232,7 +280,6 @@ describe('GET /api/magic-coins/balance', () => {
 
 describe('POST /api/admin/images/background-removal', () => {
   const REMOVAL = '/api/admin/images/background-removal'
-  const CUT_OUT = new Uint8Array([9, 9, 9])
 
   // Bun's multipart parser takes a part's type from its file name, so the name carries the type.
   const form = (file?: Blob, name = 'photo.png') => {
@@ -289,12 +336,13 @@ describe('POST /api/admin/images/background-removal', () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(IMAGE)
   })
 
-  test('refuses a missing, empty, oversized, or non-image file on the file field', async () => {
+  test('refuses a missing, empty, oversized, corrupt, or non-image file on the file field', async () => {
     const { target, urls } = paidApp()
     for (const body of [
       form(),
       form(png(new Uint8Array())),
       form(png(new Uint8Array(10 * 1024 * 1024 + 1))),
+      form(png(new Uint8Array([1, 2, 3, 4]))),
       form(new Blob([IMAGE], { type: 'image/gif' }), 'photo.gif'),
     ]) {
       const response = await remove(target, await signedInHeaders(), body)

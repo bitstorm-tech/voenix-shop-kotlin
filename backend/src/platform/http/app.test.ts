@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { MAX_REQUEST_BODY_BYTES } from '@/platform/http/app'
+import { createApp, MAX_REQUEST_BODY_BYTES } from '@/platform/http/app'
 import { formBody, integerParam, jsonBody, respondResult } from '@/platform/http/respond'
 import { conflict, invalid, notFound, ok } from '@/platform/operation'
-import { jsonOf, testApp } from '@test-support/http'
+import { jsonOf, testApp, testAuth } from '@test-support/http'
 
 const widgetInput = z.strictObject({
   label: z.string({ error: 'Label is required' }).min(1, 'Label is required'),
@@ -253,5 +253,50 @@ describe('the request body limit', () => {
     })
     const response = await upload(probeApp(), body, { 'transfer-encoding': 'chunked' })
     expect(response.status).toBe(413)
+  })
+})
+
+describe('security headers', () => {
+  const withProbe = (https: boolean) => {
+    const app = createApp(testAuth, { https })
+    app.get('*', (c) => c.text('ok'))
+    return app
+  }
+
+  test('sets baseline headers without HSTS on local HTTP and enables HSTS on HTTPS', async () => {
+    const http = await withProbe(false).request('/products')
+    expect(http.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(http.headers.get('X-Frame-Options')).toBe('DENY')
+    expect(http.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin')
+    expect(http.headers.get('Strict-Transport-Security')).toBeNull()
+    const httpCsp = http.headers.get('Content-Security-Policy') ?? ''
+    expect(httpCsp).toContain("frame-ancestors 'none'")
+    expect(httpCsp).toContain("object-src 'none'")
+    expect(httpCsp).toContain("img-src 'self' data: blob:")
+    expect(httpCsp).not.toContain('upgrade-insecure-requests')
+
+    const https = await withProbe(true).request('/products')
+    expect(https.headers.get('Strict-Transport-Security')).toBe(
+      'max-age=31536000; includeSubDomains',
+    )
+    expect(https.headers.get('Content-Security-Policy')).toContain('upgrade-insecure-requests')
+  })
+
+  test('overrides Referrer-Policy to no-referrer on sensitive token routes', async () => {
+    const app = withProbe(true)
+    for (const path of [
+      '/order/secret-token-123',
+      '/confirm-email?userId=1&token=abc',
+      '/reset-password?email=a@b.c&token=abc',
+      '/confirm-change-email?userId=1&newEmail=a@b.c&token=abc',
+      '/set-password?email=a@b.c&token=abc',
+      '/api/order-lookup/secret-token-123',
+    ]) {
+      const response = await app.request(path)
+      expect(response.headers.get('Referrer-Policy')).toBe('no-referrer')
+    }
+    expect((await app.request('/orders')).headers.get('Referrer-Policy')).toBe(
+      'strict-origin-when-cross-origin',
+    )
   })
 })

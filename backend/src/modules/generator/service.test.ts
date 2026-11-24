@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { sql } from 'kysely'
 import pino from 'pino'
 import { testDatabase } from '@test-support/database'
+import { rejectionOf } from '@test-support/values'
 import type { ImageGenerator } from './image-generator'
 import { createMagicCoins } from './magic-coins'
 import { createGeneratorService } from './service'
@@ -49,21 +50,63 @@ describe('the order of one generation', () => {
     expect(calls).toEqual([])
   })
 
-  test('a spend that fails after the generation only logs and keeps the image', async () => {
-    const { service, calls, logged } = harness(async (image) => {
-      await sql`ALTER TABLE magic_coins RENAME TO magic_coins_away`.execute(database.db)
+  test('two parallel requests with one coin left invoke the provider at most once', async () => {
+    let providerCalls = 0
+    const { service } = harness(async (image) => {
+      providerCalls += 1
+      await Bun.sleep(50)
       return image
+    })
+    const owner = { kind: 'guest', token: 'one-coin-race' } as const
+    await sql`INSERT INTO magic_coins (guest_session_token, balance) VALUES ('one-coin-race', 1)`.execute(
+      database.db,
+    )
+    const outcomes = await Promise.all([
+      service.generate(owner, received),
+      service.generate(owner, received),
+    ])
+    expect(outcomes.map((outcome) => outcome.kind).sort()).toEqual([
+      'generated',
+      'insufficientCoins',
+    ])
+    expect(providerCalls).toBe(1)
+    expect(await createMagicCoins(database.db).readBalance(owner)).toBe(0)
+  })
+
+  test('a provider upstream failure refunds the upfront coin', async () => {
+    const { service } = harness(() => Promise.resolve(null))
+    const owner = { kind: 'guest', token: 'refund-upstream' } as const
+    await sql`INSERT INTO magic_coins (guest_session_token, balance) VALUES ('refund-upstream', 3)`.execute(
+      database.db,
+    )
+    expect(await service.generate(owner, received)).toEqual({ kind: 'upstreamFailure' })
+    expect(await createMagicCoins(database.db).readBalance(owner)).toBe(3)
+  })
+
+  test('an unexpected provider error refunds the upfront coin and rethrows', async () => {
+    const { service } = harness(() => Promise.reject(new Error('unexpected failure')))
+    const owner = { kind: 'guest', token: 'refund-throw' } as const
+    await sql`INSERT INTO magic_coins (guest_session_token, balance) VALUES ('refund-throw', 4)`.execute(
+      database.db,
+    )
+    expect(await rejectionOf(service.generate(owner, received))).toBe('unexpected failure')
+    expect(await createMagicCoins(database.db).readBalance(owner)).toBe(4)
+  })
+
+  test('a refund that fails after an upstream failure logs without leaking the guest token', async () => {
+    const { service, calls, logged } = harness(async () => {
+      await sql`ALTER TABLE magic_coins RENAME TO magic_coins_away`.execute(database.db)
+      return null
     })
     try {
       expect(await service.generate({ kind: 'guest', token: 'unlucky' }, received)).toEqual({
-        kind: 'generated',
-        image: IMAGE,
+        kind: 'upstreamFailure',
       })
     } finally {
       await sql`ALTER TABLE magic_coins_away RENAME TO magic_coins`.execute(database.db)
     }
     expect(calls).toEqual(['printFormats', 'composedText', 'generate'])
-    expect(logged.join('\n')).toContain('Magic Coin spend failed for guest owner')
+    expect(logged.join('\n')).toContain('Magic Coin refund failed for guest owner')
     expect(logged.join('\n')).not.toContain('unlucky')
   })
 })

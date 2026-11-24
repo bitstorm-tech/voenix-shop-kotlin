@@ -128,12 +128,12 @@ Anonymous endpoints (no session, no CSRF header):
 
 | Method and path | Success | Failure notes |
 | --- | --- | --- |
-| `POST /api/auth/register` | `204`, confirmation mail sent | `400` invalid input, `409` e-mail exists, `502` the provider did not accept the confirmation mail, `500` a failure of our own |
-| `POST /api/auth/login` | `204` + session cookie | `400` invalid input, `401` bad credentials (uniform), `403` e-mail not confirmed, `429` locked out |
+| `POST /api/auth/register` | `204`, confirmation mail sent (overwrites an existing unconfirmed registration to prevent pre-registration takeover) | `400` invalid input, `409` confirmed e-mail exists, `429` rate limit, `502` the provider did not accept the confirmation mail, `500` a failure of our own |
+| `POST /api/auth/login` | `204` + session cookie | `400` invalid input, `401` bad credentials (uniform), `403` e-mail not confirmed, `429` locked out or rate limit |
 | `POST /api/auth/confirm-email` | `204` | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
-| `POST /api/auth/resend-confirmation` | always `204` | only `400` invalid input, so the flow is enumeration-safe |
-| `POST /api/auth/forgot-password` | always `204` | only `400` invalid input, so the flow is enumeration-safe |
-| `POST /api/auth/reset-password` | `204` + notification mail | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
+| `POST /api/auth/resend-confirmation` | always `204` | `400` invalid input, `429` rate limit; enumeration-safe |
+| `POST /api/auth/forgot-password` | always `204` | `400` invalid input, `429` rate limit; enumeration-safe |
+| `POST /api/auth/reset-password` | `204` + notification mail; also confirms e-mail and clears any lockout | `400` invalid input, `400` + `"code": "INVALID_LINK"` for an invalid/expired link |
 | `POST /api/auth/confirm-change-email` | `204`, login e-mail replaced | `400` + `"code": "INVALID_LINK"` for an invalid/expired link, `409` e-mail taken meanwhile |
 
 The three link flows answer an invalid or expired link with `400` and the

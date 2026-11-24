@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { requireAdminOrToken, requireAuthenticated, type Auth } from '@/platform/auth/auth'
+import { requireAdmin, requireAdminOrToken, type Auth } from '@/platform/auth/auth'
 import { apiError, jsonBody, respondFailure } from '@/platform/http/respond'
 import type { OperationResult } from '@/platform/operation'
 import type { OrphanImages } from './orphans'
@@ -30,10 +30,10 @@ const CACHE_CONTROL: Record<ImageVisibility, string> = {
   private: 'private, max-age=3600',
 }
 
-/** The public delivery route and the private one, which needs any signed-in session. */
+/** The public delivery route and the private one, which is restricted to administrators. */
 export function imageRoutes(images: ImageService): Hono {
   const privateImages = new Hono()
-  privateImages.use(requireAuthenticated)
+  privateImages.use(requireAdmin)
   privateImages.get('/:size/:filename{.+}', async (c) =>
     respondImage(
       c,

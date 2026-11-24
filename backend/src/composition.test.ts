@@ -302,4 +302,33 @@ describe('a deployment', () => {
       expect(setCookies(await request(url), CSRF_COOKIE)[0]).toContain('Secure')
     }
   })
+
+  test('sets HTTP security headers with HSTS and strict referrer policy on token routes', async () => {
+    const home = await request('/')
+    expect(home.headers.get('Strict-Transport-Security')).toBe(
+      'max-age=31536000; includeSubDomains',
+    )
+    expect(home.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(home.headers.get('X-Frame-Options')).toBe('DENY')
+    expect(home.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin')
+
+    const orderLink = await request(`/order/${ORDER_TOKEN}`)
+    expect(orderLink.headers.get('Referrer-Policy')).toBe('no-referrer')
+  })
+
+  test('rate limits anonymous auth endpoints in the composed application', async () => {
+    const postForgot = () =>
+      request('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'nobody@example.com' }),
+      })
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await postForgot()).status).toBe(204)
+    }
+    const limited = await postForgot()
+    expect(limited.status).toBe(429)
+    expect(await jsonOf(limited)).toEqual({ message: 'Too many requests', errors: {} })
+    expect(Number(limited.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1)
+  })
 })

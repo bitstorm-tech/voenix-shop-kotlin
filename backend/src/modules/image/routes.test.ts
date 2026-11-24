@@ -99,16 +99,23 @@ describe('GET /api/images/public/{size}/{filename...}', () => {
 })
 
 describe('GET /api/images/private/{size}/{filename...}', () => {
-  test('needs a session and then serves the file as private', async () => {
+  test('is restricted to admins and serves the file as private', async () => {
     const app = testApp(images.routes)
     expect((await app.request('/api/images/private/200/private.png')).status).toBe(401)
+    expect(
+      (
+        await app.request('/api/images/private/200/private.png', {
+          headers: await signedInHeaders({ roles: ['CUSTOMER'] }),
+        })
+      ).status,
+    ).toBe(403)
     const response = await app.request('/api/images/private/200/private.png', {
-      headers: await signedInHeaders({ roles: ['CUSTOMER'] }),
+      headers: await signedInHeaders({ roles: ['ADMIN'] }),
     })
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('private, max-age=3600')
     const size = await app.request('/api/images/private/4096x4095/private.png', {
-      headers: await signedInHeaders({ roles: ['CUSTOMER'] }),
+      headers: await signedInHeaders({ roles: ['ADMIN'] }),
     })
     expect(size.status).toBe(400)
   })

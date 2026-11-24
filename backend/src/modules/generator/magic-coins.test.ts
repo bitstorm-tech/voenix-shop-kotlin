@@ -25,13 +25,26 @@ describe('magic coins', () => {
     expect(await rowsOf('first-contact')).toEqual([{ balance: 10 }])
   })
 
-  test('a spend takes one coin and is refused at zero', async () => {
+  test('readBalance returns the initial grant without creating a row', async () => {
+    const coins = createMagicCoins(database.db)
+    const owner = { kind: 'guest', token: 'passive-visitor' } as const
+    expect(await coins.readBalance(owner)).toBe(10)
+    expect(await rowsOf('passive-visitor')).toEqual([])
+  })
+
+  test('a spend creates a row on first contact, takes one coin, refuses at zero, and refund credits back', async () => {
     const coins = createMagicCoins(database.db)
     const owner = { kind: 'user', userId: 21 } as const
     await sql`INSERT INTO magic_coins (user_id, balance) VALUES (21, 1)`.execute(database.db)
     expect(await coins.spend(owner)).toBe(true)
     expect(await coins.spend(owner)).toBe(false)
-    expect(await coins.balance(owner)).toBe(0)
+    expect(await coins.readBalance(owner)).toBe(0)
+    await coins.refund(owner)
+    expect(await coins.readBalance(owner)).toBe(1)
+
+    const fresh = { kind: 'guest', token: 'first-spend' } as const
+    expect(await coins.spend(fresh)).toBe(true)
+    expect(await rowsOf('first-spend')).toEqual([{ balance: 9 }])
   })
 
   test('concurrent spends of the last coins never take the balance below zero', async () => {

@@ -5,8 +5,10 @@ import type { Tables } from '@/platform/db/database'
 import { createPasswordHasher, DEFAULT_PBKDF2_ITERATIONS, tokenHashOf } from './credentials'
 import { createAccountMails } from './mails'
 import { createAccountRepository } from './repository'
-import { accessTokenRoutes, accountRoutes } from './routes'
+import { accessTokenRoutes, accountRoutes, type AccountRateLimits } from './routes'
 import { createAccountService } from './service'
+
+export type { AccountRateLimits } from './routes'
 
 /**
  * The account module: registration, login (the one production caller of `auth.signIn`), profile,
@@ -21,6 +23,7 @@ export function createAccountModule({
   auth,
   userEmails,
   frontendBaseUrl,
+  rateLimits,
   now = () => new Date(),
   pbkdf2Iterations = DEFAULT_PBKDF2_ITERATIONS,
 }: {
@@ -28,6 +31,7 @@ export function createAccountModule({
   auth: Auth
   userEmails: EmailModule['userEmails']
   frontendBaseUrl: string
+  rateLimits?: AccountRateLimits
   now?: () => Date
   pbkdf2Iterations?: number
 }) {
@@ -39,7 +43,7 @@ export function createAccountModule({
     now,
   })
   const supplierAccounts: SupplierAccounts = { supplierIdOf: repository.findSupplierId }
-  const routes = accountRoutes(service, auth)
+  const routes = accountRoutes(service, auth, rateLimits)
   routes.route('/', accessTokenRoutes(repository))
   return { routes, supplierAccounts }
 }

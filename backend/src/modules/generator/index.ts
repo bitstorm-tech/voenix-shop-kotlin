@@ -29,7 +29,7 @@ export function createGeneratorModule({
   fetch = globalThis.fetch,
 }: {
   db: Kysely<Tables>
-  settings: Settings['generator']
+  settings: Pick<Settings['generator'], 'dummyMode' | 'apiKey'>
   articleCatalog: Pick<ArticleCatalog, 'printFormats'>
   promptCatalog: Pick<PromptCatalog, 'composedText'>
   guestTokens: Auth['guestTokens']

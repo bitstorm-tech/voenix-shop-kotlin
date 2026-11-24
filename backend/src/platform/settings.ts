@@ -67,6 +67,9 @@ const schema = z
 
     GENERATOR_DUMMY_MODE: booleanText.default(false),
     GENERATOR_API_KEY: optional,
+    GENERATOR_GLOBAL_MAX_PER_HOUR: integerText
+      .refine((value) => value >= 1, 'must be at least 1')
+      .default(200),
 
     MOLLIE_API_KEY: required,
     MOLLIE_WEBHOOK_URL: required.refine(
@@ -170,7 +173,11 @@ export function loadSettings(env: Record<string, string | undefined>) {
       /** Where the operations alert and the SPOD ops alert go, or `null` to only log them. */
       alertEmail: v.OPERATIONS_ALERT_EMAIL === '' ? null : v.OPERATIONS_ALERT_EMAIL,
     },
-    generator: { dummyMode: v.GENERATOR_DUMMY_MODE, apiKey: v.GENERATOR_API_KEY },
+    generator: {
+      dummyMode: v.GENERATOR_DUMMY_MODE,
+      apiKey: v.GENERATOR_API_KEY,
+      globalMaxPerHour: v.GENERATOR_GLOBAL_MAX_PER_HOUR,
+    },
     mollie: {
       apiKey: v.MOLLIE_API_KEY,
       /** Where Mollie sends the customer back: the confirmation page of the order they paid for. */

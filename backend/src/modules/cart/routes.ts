@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator'
-import { Hono, type Context } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import { readUploadedImage } from '@/modules/image'
 import { toApiError } from '@/modules/promotion'
@@ -63,13 +63,21 @@ const orderItemIdParam = zValidator('param', z.object({ orderItemId: pathId }), 
   result.success ? undefined : c.json(apiError(REORDER_RESPONSES.notFound), 404),
 )
 
+const noLimit: MiddlewareHandler = async (_c, next) => {
+  await next()
+}
+
 /**
  * The eight cart routes under `/api/cart`, guest-capable: every mutation needs a valid CSRF pair,
  * from guests and signed-in customers alike. A mutation calls `getOrCreate` and therefore hands
  * out the guest cookie; the read calls `tryGet` and never creates a guest, because looking at a
  * cart must not turn a visitor into a tracked one.
  */
-export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens']): Hono {
+export function cartRoutes(
+  carts: CartService,
+  guestTokens: Auth['guestTokens'],
+  promotionRateLimit: MiddlewareHandler = noLimit,
+): Hono {
   const mutatingOwner = async (c: Context): Promise<CartOwner> => ({
     guestToken: await guestTokens.getOrCreate(c),
     userId: c.var.principal?.userId ?? null,
@@ -145,7 +153,7 @@ export function cartRoutes(carts: CartService, guestTokens: Auth['guestTokens'])
     return respondResult(c, result, REORDER_RESPONSES)
   })
 
-  cart.post('/promotion', jsonBody(promotionCodeInput), async (c) => {
+  cart.post('/promotion', promotionRateLimit, jsonBody(promotionCodeInput), async (c) => {
     const result = await carts.applyPromotion(
       await mutatingOwner(c),
       c.req.valid('json').promotionCode,

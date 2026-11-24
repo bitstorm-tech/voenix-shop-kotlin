@@ -64,9 +64,8 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
 - [ ] **A16. [BLOCKER] Zahlungsinformationen fehlen vor/im Bestellprozess (§ 312j Abs. 1 BGB)** – `frontend/src/views/shop/PaymentView.vue`, `frontend/src/views/shop/CheckoutView.vue:370-380`
   `/payment` ist Platzhalter und die Kasse nennt die akzeptierten Zahlarten nicht.
   Fix: `/payment` mit den real aktiven Mollie-Zahlarten füllen und Zahlarten im Checkout sichtbar benennen.
-- [ ] **A17. [HOCH] 30-Tage-Cookie `voenix.guest` wird bei jedem passiven Seitenaufruf gesetzt (§ 25 TDDDG)** – `frontend/src/layouts/ShopLayout.vue:24`, `backend/src/modules/generator/magic-coins.ts:19-26`
-  Jeder Aufruf (auch `/imprint`, `/privacy`) ruft `GET /api/magic-coins/balance` auf → `guestTokens.getOrCreate()` setzt sofort einen 30-Tage-Cookie + DB-Eintrag. Untergräbt „kein Cookie-Banner nötig“.
-  Fix: `guestTokens.tryGet(c)` verwenden und `INITIAL_BALANCE` (10) liefern, ohne Cookie/DB-Zeile vor der ersten Aktion zu erstellen.
+- [x] **A17. [HOCH] 30-Tage-Cookie `voenix.guest` wird bei jedem passiven Seitenaufruf gesetzt (§ 25 TDDDG)** – `backend/src/modules/generator/routes.ts`, `backend/src/modules/generator/magic-coins.ts`
+  Erledigt: `GET /api/magic-coins/balance` nutzt `tryMagicCoinsOwner` (`guestTokens.tryGet(c)`) und `coins.readBalance(owner)`, liefert ohne Cookie `10` ohne `Set-Cookie` und ohne DB-Zeile; erst `POST /api/generator/generate` legt Gast-Cookie und DB-Zeile an.
 - [ ] **A18. [HOCH] Art. 13 DSGVO-Hinweise bei Kasse & Registrierung fehlen** – `frontend/src/views/shop/CheckoutView.vue:458-473`, `frontend/src/views/auth/RegisterView.vue:85-142`
   Weder Kasse noch Registrierung enthalten einen Datenschutz-Link zu `/privacy`.
   Fix: Hinweis mit Link zu `/privacy` (ohne unnötige Pflicht-Checkbox) direkt über dem Submit-Button ergänzen.
@@ -96,27 +95,21 @@ Prioritäten: **A, B und die Blocker in C/D vor dem Go-live**, übrige Punkte in
   Erledigt: `startPayment` prüft unter Order-Lock, ob eine aktive Promotion-Reservierung existiert, reserviert andernfalls vor dem Mollie-Call neu und lehnt fehlgeschlagene Reservierungen vor Mollie mit `promotionRejected` (`409` bei Limit) ab; Doku in `docs/dev/backend/packages/checkout-package.md` und `order-package.md` angepasst.
 - [x] **B4. [BLOCKER] Deaktivierte Artikel bleiben bestellbar (`TODO #3`)** – `backend/src/modules/order/service.ts`, `backend/src/modules/checkout/service.ts`, `backend/src/modules/cart/service.ts`
   Erledigt: Placement prüft `purchasable === true` und `grossSalesPriceCents !== null` (`409 CART_ITEM_UNAVAILABLE`), und der Checkout liest den Warenkorb-Snapshot über `lockActiveCart` erst nach dem Cart-Lock.
-- [ ] **B5. [BLOCKER] Kein Rate-Limit auf Auth- & Gutschein-Endpunkten (`TODO #8`)** – `backend/src/modules/account/routes.ts:202-259`, `backend/src/modules/cart/routes.ts:145-155`
-  Ermöglicht Sweego-Mail-Bombing (`register`/`forgot-password`/`resend-confirmation`), permanentes Admin-Aussperren (15 Fehlversuche = 10 min Lockout), PBKDF2-CPU-DoS (600k Iterationen) und Gutschein-Brute-Force.
-  Fix: `createClientIpRateLimiter` vor diese Routen schalten.
-- [ ] **B6. [BLOCKER] Keine HTTP-Sicherheits-Header** – `backend/src/platform/http/app.ts:24-56`
-  HSTS, `X-Content-Type-Options: nosniff`, Clickjacking-Schutz, `Referrer-Policy` und CSP fehlen.
-  Fix: Hono `secureHeaders()` aktivieren (`no-referrer` für `/order/*` und Auth-Link-Seiten).
-- [ ] **B7. [HOCH] Kontoübernahme vor Registrierung & unvollständiger Reset (`TODO #9`)** – `backend/src/modules/account/service.ts:127-142`, `backend/src/modules/account/repository.ts:293-307`
-  Registrierung auf unbestätigte E-Mail liefert 409 statt Passwort-Hash zu ersetzen; `resetPassword` setzt weder `email_confirmed = true` noch hebt es Lockouts auf.
-  Fix: Unbestätigte Registrierung überschreiben; `resetPassword` bestätigt E-Mail & entsperrt Konto.
+- [x] **B5. [BLOCKER] Kein Rate-Limit auf Auth- & Gutschein-Endpunkten (`TODO #8`)** – `backend/src/modules/account/routes.ts`, `backend/src/modules/cart/routes.ts`, `backend/src/composition.ts`
+  Erledigt: Getrennte `createClientIpRateLimiter`-Instanzen für `POST /api/auth/login` (20/15 min), `register`/`forgot-password`/`resend-confirmation` (je 5/h) und `POST /api/cart/promotion` (20/15 min, nach CSRF); liefern `429` + `Retry-After` im einheitlichen `ApiError`-Format.
+- [x] **B6. [BLOCKER] Keine HTTP-Sicherheits-Header** – `backend/src/platform/http/app.ts`, `backend/src/composition.ts`
+  Erledigt: Hono `secureHeaders()` aktiv (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, HSTS & `upgrade-insecure-requests` bei HTTPS/`secureCookies`, CSP mit `frame-ancestors 'none'`, `object-src 'none'`, `data:`/`blob:` für Editor), plus `Referrer-Policy: no-referrer` auf Token-Routen (`/order/*`, `/confirm-email`, `/reset-password`, `/confirm-change-email`, `/set-password`, `/api/order-lookup/*`).
+- [x] **B7. [HOCH] Kontoübernahme vor Registrierung & unvollständiger Reset (`TODO #9`)** – `backend/src/modules/account/service.ts`, `backend/src/modules/account/repository.ts`
+  Erledigt: `register` überschreibt bestehende unbestätigte Registrierungen (Passwort-Hash, Lockout-Felder, löscht alle alten Tokens und sendet neuen Bestätigungslink); `resetPassword` setzt zusätzlich `email_confirmed = true`, `failed_login_count = 0`, `locked_until = null`.
 
 ### Neu entdeckte Security-Punkte (Audit 2026-11-22)
 
-- [ ] **B8. [BLOCKER] `fal.ai`-Kosten-Missbrauch: Magic-Coins TOCTOU-Race + kein globales Limit (`TODO #10`)** – `backend/src/modules/generator/service.ts:70-78`, `backend/src/modules/generator/magic-coins.ts:43-71`, `backend/src/platform/ratelimit/client-ip-rate-limiter.ts:16-94`
-  `generate()` prüft `balance >= 1`, wartet 15–120 s auf fal.ai und bucht erst danach ab (und ignoriert `false`) → 20 parallele Requests mit 1 Coin lösen 20 bezahlte fal.ai-Calls aus. Zudem gibt es kein globales Stundenlimit (IP-Rotation = unbegrenzte Kosten), und Löschen von `voenix.guest` gibt immer wieder 10 neue Coins.
-  Fix: 1 Coin **atomar vor** dem fal.ai-Call abbuchen (`WHERE balance >= 1`), bei `upstreamFailure` erstatten (`+1`), plus globales Stundenlimit (z. B. `GENERATOR_GLOBAL_MAX_PER_HOUR`) einführen.
-- [ ] **B9. [HOCH] `/api/images/private/*` nutzt `requireAuthenticated` statt `requireAdmin`** – `backend/src/modules/image/routes.ts:34-43`
-  Die Route wird nur vom Admin-Orphan-UI verwendet, lässt aber jeden eingeloggten Kunden ohne Ownership-Check auf bekannte Pfade zugreifen.
-  Fix: `requireAuthenticated` durch `requireAdmin` ersetzen.
-- [ ] **B10. [MITTEL] Ungeprüfte Uploads an `fal.ai` & ungeprüfter Ergebnis-Download** – `backend/src/modules/generator/upload.ts:61-67`, `backend/src/modules/generator/fal.ts:112-136`
-  Vertraut nur Client-`Content-Type` statt Magic-Bytes/Dimensionen via `sharp`; Ergebnis-Download folgt Redirects ohne Magic-Byte-Prüfung.
-  Fix: Upload- und Download-Bytes mit `sharp` validieren + `nosniff`.
+- [x] **B8. [BLOCKER] `fal.ai`-Kosten-Missbrauch: Magic-Coins TOCTOU-Race + kein globales Limit (`TODO #10`)** – `backend/src/modules/generator/service.ts`, `backend/src/modules/generator/magic-coins.ts`, `backend/src/platform/ratelimit/client-ip-rate-limiter.ts`, `backend/src/platform/settings.ts`, `backend/src/composition.ts`
+  Erledigt: `coins.spend` bucht 1 Coin atomar vor dem `fal.ai`-Call ab (`WHERE balance >= 1 RETURNING balance`), bei `upstreamFailure` oder Fehler wird atomar erstattet (`+1`), plus globales Stundenlimit `GENERATOR_GLOBAL_MAX_PER_HOUR` (Default `200`).
+- [x] **B9. [HOCH] `/api/images/private/*` nutzt `requireAuthenticated` statt `requireAdmin`** – `backend/src/modules/image/routes.ts`
+  Erledigt: Auf `requireAdmin` umgestellt und im Test (`401` anonym, `403` Kunde, `200` Admin) abgesichert.
+- [x] **B10. [MITTEL] Ungeprüfte Uploads an `fal.ai` & ungeprüfter Ergebnis-Download** – `backend/src/modules/image/codec.ts`, `backend/src/modules/generator/upload.ts`, `backend/src/modules/generator/routes.ts`, `backend/src/modules/generator/fal.ts`
+  Erledigt: Uploads (`/api/generator/generate` & `/api/admin/images/background-removal`) werden vor dem `fal.ai`-Call mit `sharp` (`validateImageUpload`, ≤ 40 MP, Magic-Bytes + Dekodierung) geprüft; Ergebnis-Download prüft manuell bis 5 Redirects (nur externe `https:`-Ziele ohne interne/Loopback-/Private-IPs) und validiert die Bytes per `inspectImageBytes`.
 - [ ] **B11. [MITTEL] Gefährliche Produktiv-Defaults (`RATE_LIMIT_TRUST_FORWARDED_FOR` & `DATABASE_SSL_MODE`)** – `backend/src/platform/settings.ts:36-38,81`
   `RATE_LIMIT_TRUST_FORWARDED_FOR=false` führt hinter dem Sliplane-Proxy dazu, dass sich alle Besucher **ein** 20/h-Bucket teilen (sofortiger Shop-DoS!); `DATABASE_SSL_MODE` steht auf `disable`.
   Fix: In Prod zwingend explizit setzen (und Sliplane-Proxy-Hop-Count verifizieren) sowie Startup-Warnung/Fail-Fast bei `HTTPS`-`FRONTEND_BASE_URL` + `disable`.

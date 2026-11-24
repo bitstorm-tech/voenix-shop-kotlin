@@ -1,6 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { MiddlewareHandler } from 'hono'
 import { sql, type Kysely } from 'kysely'
 import { catalogKey, type ArticleVariantReference, type CatalogVariant } from '@/modules/article'
 import { createImageModule } from '@/modules/image'
@@ -92,7 +93,10 @@ export function fakeCatalogs() {
 }
 
 /** The module under test with its fakes and its private storage. */
-export async function cartModuleFor(db: Kysely<Tables>) {
+export async function cartModuleFor(
+  db: Kysely<Tables>,
+  options: { promotionRateLimit?: MiddlewareHandler } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'cart-test-'))
   const images = createImageModule({
     settings: {
@@ -131,6 +135,7 @@ export async function cartModuleFor(db: Kysely<Tables>) {
     orders,
     images,
     guestTokens,
+    ...options,
   })
   return { ...cart, ...catalogs, promotionCodes, privateStorage: images.privateStorage, root }
 }

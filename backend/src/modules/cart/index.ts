@@ -1,3 +1,4 @@
+import type { MiddlewareHandler } from 'hono'
 import type { Kysely } from 'kysely'
 import type { ArticleCatalog } from '@/modules/article'
 import type { ImageModule, PrintImageRegistry } from '@/modules/image'
@@ -30,6 +31,7 @@ export function createCartModule({
   orders,
   images,
   guestTokens,
+  promotionRateLimit,
 }: {
   db: Kysely<Tables>
   articleCatalog: Pick<ArticleCatalog, 'find'>
@@ -38,6 +40,7 @@ export function createCartModule({
   orders: Pick<Orders, 'orderItem' | 'printImageIds'>
   images: Pick<ImageModule, 'privateStorage'>
   guestTokens: Auth['guestTokens']
+  promotionRateLimit?: MiddlewareHandler
 }) {
   const repository = createCartRepository(db, promotionCodes)
   const service = createCartService({
@@ -49,7 +52,7 @@ export function createCartModule({
     privateStorage: images.privateStorage,
   })
   return {
-    routes: cartRoutes(service, guestTokens),
+    routes: cartRoutes(service, guestTokens, promotionRateLimit),
     guestImageResolver: repository.printImageFilename,
     printImageRegistry: {
       inUse: async () => repository.printImagesInUse(await orders.printImageIds()),

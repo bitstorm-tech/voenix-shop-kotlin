@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { write } from '@/platform/db/database'
+import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import { count, testDatabase } from '@test-support/database'
 import {
   guestHeaders,
@@ -426,6 +427,36 @@ describe('POST and DELETE /api/cart/promotion', () => {
 
   test('removing a code without a cart is not found', async () => {
     expect((await send('DELETE', '/api/cart/promotion', await guest())).status).toBe(404)
+  })
+
+  test('enforces its rate limit after CSRF and answers 429 with Retry-After', async () => {
+    const limited = await cartModuleFor(database.db, {
+      promotionRateLimit: createClientIpRateLimiter({
+        trustForwardedFor: false,
+        peerAddress: () => '203.0.113.60',
+        limit: 2,
+        windowSeconds: 60,
+      }).middleware,
+    })
+    const limitedApp = testApp(limited.routes)
+    const headers = await guest()
+    const postPromo = (reqHeaders: Record<string, string>) =>
+      limitedApp.request('/api/cart/promotion', {
+        method: 'POST',
+        headers: { ...reqHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ promotionCode: 'NOPE' }),
+      })
+
+    // Requests without CSRF fail with 400 and do not consume rate-limit slots.
+    for (let i = 0; i < 4; i += 1) {
+      expect((await postPromo({})).status).toBe(400)
+    }
+    expect((await postPromo(headers)).status).toBe(404)
+    expect((await postPromo(headers)).status).toBe(404)
+    const refused = await postPromo(headers)
+    expect(refused.status).toBe(429)
+    expect(await jsonOf(refused)).toEqual({ message: 'Too many requests', errors: {} })
+    expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1)
   })
 })
 

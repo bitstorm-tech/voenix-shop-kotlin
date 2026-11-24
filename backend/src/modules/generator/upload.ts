@@ -1,3 +1,4 @@
+import { validateImageUpload } from '@/modules/image'
 import { ALLOWED_IMAGE_CONTENT_TYPES, type RawImage } from './image-generator'
 
 /**
@@ -61,9 +62,12 @@ export async function readGenerationUpload(form: FormData): Promise<GenerationUp
   if (!ALLOWED_IMAGE_CONTENT_TYPES.has(image.type.trim().toLowerCase())) {
     return rejected(IMAGE_PART_NAME, 'Image must be a JPEG, PNG, or WebP file')
   }
+  const bytes = new Uint8Array(await image.arrayBuffer())
+  const validated = await validateImageUpload(bytes, image.type)
+  if ('rejection' in validated) return rejected(IMAGE_PART_NAME, validated.rejection)
   return {
     kind: 'received',
-    image: { bytes: new Uint8Array(await image.arrayBuffer()), contentType: image.type },
+    image: { bytes, contentType: validated.contentType },
     promptId,
     articleId,
   }

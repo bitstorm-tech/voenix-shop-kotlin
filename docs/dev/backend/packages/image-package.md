@@ -129,7 +129,7 @@ The exported surface of `index.ts`:
 | Method and path | Access | Successful cache policy |
 | --- | --- | --- |
 | `GET /api/images/public/{size}/{filename...}` | Anonymous | `public, max-age=86400` |
-| `GET /api/images/private/{size}/{filename...}` | Any authenticated session (the admin's orphan-image view) | `private, max-age=3600` |
+| `GET /api/images/private/{size}/{filename...}` | Admin (`requireAdmin`, the admin's orphan-image view) | `private, max-age=3600` |
 | `GET /api/images/guest/{size}/{id}` | Whoever the resolver accepts | `private, max-age=3600` |
 | `GET /api/admin/images/orphans` | Admin | `no-store` |
 | `POST /api/admin/images/orphans/delete` | Admin | `no-store` |

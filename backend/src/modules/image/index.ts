@@ -12,6 +12,7 @@ export type { PrintImageRegistry, PublicImageReferences } from './orphans'
 export type { GuestImageResolver } from './routes'
 export type { ImageStorage } from './service'
 export type { ImageUpload, UploadedImage } from './upload'
+export { inspectImageBytes, validateImageUpload } from './codec'
 export { exampleImageUpload, FILE_PART_NAME, readUploadedImage, uploadRejection } from './upload'
 
 /**

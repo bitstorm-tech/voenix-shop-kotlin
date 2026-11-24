@@ -6,6 +6,7 @@ import { createAccessTokens, createAccountModule } from '@/modules/account'
 import { EmailDeliveryError, type RenderedEmail, type UserEmailKind } from '@/modules/email'
 import { createAuth, requireAdminOrToken } from '@/platform/auth/auth'
 import { createApp } from '@/platform/http/app'
+import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import { seedUser, testDatabase } from '@test-support/database'
 import {
   cookieHeader,
@@ -136,12 +137,54 @@ describe('POST /api/auth/register and POST /api/auth/confirm-email', () => {
     expect(await jsonOf(duplicate)).toEqual({ message: 'Email already exists', errors: {} })
   })
 
-  test('two concurrent case-variant registrations leave one account and one 409', async () => {
+  test('re-registering an unconfirmed address overwrites its credentials and invalidates old links', async () => {
+    expect(
+      (await post('/api/auth/register', { email: 'victim@example.com', password: 'attacker-pw' }))
+        .status,
+    ).toBe(204)
+    const attackerLink = lastLink('/confirm-email')
+    expect((await post('/api/auth/forgot-password', { email: 'victim@example.com' })).status).toBe(
+      204,
+    )
+    const attackerReset = lastLink('/reset-password')
+
+    // Real owner registers the same address before the attacker's registration is confirmed.
+    expect(
+      (await post('/api/auth/register', { email: 'VICTIM@example.com', password: 'owner-pw-1' }))
+        .status,
+    ).toBe(204)
+    const ownerLink = lastLink('/confirm-email')
+
+    // Both of the attacker's previously mailed links are invalidated.
+    expect((await confirmLink(attackerLink)).status).toBe(400)
+    expect(
+      (
+        await post('/api/auth/reset-password', {
+          email: param(attackerReset, 'email'),
+          token: param(attackerReset, 'token'),
+          newPassword: 'attacker-pw-2',
+        })
+      ).status,
+    ).toBe(400)
+
+    // The owner confirms and signs in with their own password; the attacker's password fails.
+    expect((await confirmLink(ownerLink)).status).toBe(204)
+    expect(
+      (await post('/api/auth/login', { email: 'victim@example.com', password: 'attacker-pw' }))
+        .status,
+    ).toBe(401)
+    expect(
+      (await post('/api/auth/login', { email: 'victim@example.com', password: 'owner-pw-1' }))
+        .status,
+    ).toBe(204)
+  })
+
+  test('two concurrent case-variant registrations leave one account', async () => {
     const statuses = await Promise.all([
       post('/api/auth/register', { email: 'race@example.com', password: 'password-1' }),
       post('/api/auth/register', { email: 'Race@Example.com', password: 'password-2' }),
     ]).then((responses) => responses.map((response) => response.status).sort())
-    expect(statuses).toEqual([204, 409])
+    expect(statuses).toEqual([204, 204])
     const rows = await database.db
       .selectFrom('users')
       .select('id')
@@ -331,6 +374,111 @@ describe('POST /api/auth/forgot-password and POST /api/auth/reset-password', () 
     expect((await post('/api/auth/forgot-password', { email: 'quiet@example.com' })).status).toBe(
       204,
     )
+  })
+
+  test('resetting the password confirms an unconfirmed address and clears an active lockout', async () => {
+    // 1. Unconfirmed account: reset confirms it so login succeeds immediately.
+    expect(
+      (
+        await post('/api/auth/register', {
+          email: 'unconfirmed-reset@example.com',
+          password: 'pw-1-old',
+        })
+      ).status,
+    ).toBe(204)
+    await post('/api/auth/forgot-password', { email: 'unconfirmed-reset@example.com' })
+    const unconfirmedLink = lastLink('/reset-password')
+    expect(
+      (
+        await post('/api/auth/reset-password', {
+          email: param(unconfirmedLink, 'email'),
+          token: param(unconfirmedLink, 'token'),
+          newPassword: 'pw-1-new',
+        })
+      ).status,
+    ).toBe(204)
+    expect(
+      (
+        await post('/api/auth/login', {
+          email: 'unconfirmed-reset@example.com',
+          password: 'pw-1-new',
+        })
+      ).status,
+    ).toBe(204)
+
+    // 2. Locked-out account: reset clears failed_login_count and locked_until immediately.
+    await registerAndConfirm('locked-reset@example.com', 'password-1')
+    for (let i = 0; i < 15; i++) {
+      await post('/api/auth/login', { email: 'locked-reset@example.com', password: 'wrong' })
+    }
+    expect(
+      (await post('/api/auth/login', { email: 'locked-reset@example.com', password: 'password-1' }))
+        .status,
+    ).toBe(429)
+
+    await post('/api/auth/forgot-password', { email: 'locked-reset@example.com' })
+    const lockedLink = lastLink('/reset-password')
+    expect(
+      (
+        await post('/api/auth/reset-password', {
+          email: param(lockedLink, 'email'),
+          token: param(lockedLink, 'token'),
+          newPassword: 'password-2',
+        })
+      ).status,
+    ).toBe(204)
+    expect(
+      (await post('/api/auth/login', { email: 'locked-reset@example.com', password: 'password-2' }))
+        .status,
+    ).toBe(204)
+  })
+})
+
+describe('auth endpoint rate limits', () => {
+  test('each limited auth route enforces its own bucket and answers 429 with Retry-After', async () => {
+    const tight = () =>
+      createClientIpRateLimiter({
+        trustForwardedFor: false,
+        peerAddress: () => '203.0.113.50',
+        limit: 2,
+        windowSeconds: 60,
+      }).middleware
+    const limitedApp = testApp(
+      createAccountModule({
+        db: database.db,
+        auth: testAuth,
+        userEmails,
+        frontendBaseUrl: FRONTEND,
+        now: () => current,
+        pbkdf2Iterations: 1_000,
+        rateLimits: {
+          login: tight(),
+          register: tight(),
+          forgotPassword: tight(),
+          resendConfirmation: tight(),
+        },
+      }).routes,
+    )
+    const call = (path: string, body: unknown) =>
+      limitedApp.request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+    for (const [path, body, expectedStatus] of [
+      ['/api/auth/login', { email: 'nobody@example.com', password: 'wrong' }, 401],
+      ['/api/auth/register', { email: 'rl-reg@example.com', password: 'password-1' }, 204],
+      ['/api/auth/forgot-password', { email: 'nobody@example.com' }, 204],
+      ['/api/auth/resend-confirmation', { email: 'nobody@example.com' }, 204],
+    ] as const) {
+      expect((await call(path, body)).status).toBe(expectedStatus)
+      expect((await call(path, body)).status).toBe(expectedStatus)
+      const refused = await call(path, body)
+      expect(refused.status).toBe(429)
+      expect(await jsonOf(refused)).toEqual({ message: 'Too many requests', errors: {} })
+      expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1)
+    }
   })
 })
 

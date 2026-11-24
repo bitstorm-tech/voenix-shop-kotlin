@@ -15,6 +15,7 @@ const limiter = (
     limit?: number
     windowSeconds?: number
     maxTrackedIps?: number
+    globalLimit?: number
     trustForwardedFor?: boolean
   } = {},
 ) => createClientIpRateLimiter({ trustForwardedFor: false, peerAddress: () => IP, ...options })
@@ -70,6 +71,24 @@ describe('the counting', () => {
     expect(retryAfterSeconds(THIRD_IP, seconds(3660))).toBeNull()
     expect(retryAfterSeconds(FOURTH_IP, seconds(3900))).toBe(3600)
     expect(retryAfterSeconds(FOURTH_IP, seconds(4260))).toBeNull()
+  })
+
+  test('a global limit caps requests across rotating IPs and resets with the next window', () => {
+    const { retryAfterSeconds } = limiter({ limit: 5, globalLimit: 3 })
+    expect(retryAfterSeconds(IP, seconds(0))).toBeNull()
+    expect(retryAfterSeconds(OTHER_IP, seconds(10))).toBeNull()
+    expect(retryAfterSeconds(THIRD_IP, seconds(20))).toBeNull()
+    expect(retryAfterSeconds(FOURTH_IP, seconds(30))).toBe(3570)
+    expect(retryAfterSeconds(FOURTH_IP, seconds(3600))).toBeNull()
+  })
+
+  test('requests refused by a single IP limit do not consume the global budget', () => {
+    const { retryAfterSeconds } = limiter({ limit: 1, globalLimit: 2 })
+    expect(retryAfterSeconds(IP, seconds(0))).toBeNull()
+    expect(retryAfterSeconds(IP, seconds(1))).toBe(3599)
+    expect(retryAfterSeconds(IP, seconds(2))).toBe(3598)
+    expect(retryAfterSeconds(OTHER_IP, seconds(3))).toBeNull()
+    expect(retryAfterSeconds(THIRD_IP, seconds(4))).toBe(3596)
   })
 })
 

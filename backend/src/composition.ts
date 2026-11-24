@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 import { getConnInfo, serveStatic } from '@hono/bun'
 import { createAccessTokens, createAccountModule } from '@/modules/account'
 import { createArticleModule } from '@/modules/article'
@@ -43,14 +43,22 @@ export async function createApplication(
   overrides: {
     mollie?: MolliePayments
     fetch?: (url: string, init: RequestInit) => Promise<Response>
+    peerAddress?: (c: Context) => string
   } = {},
 ) {
   await migrate(settings.database)
   const db = createDatabase(settings.database)
   const fetch = overrides.fetch ?? globalThis.fetch
+  const peerAddress = overrides.peerAddress ?? bunPeerAddress
+  const rateLimit = (options: { limit: number; windowSeconds: number; globalLimit?: number }) =>
+    createClientIpRateLimiter({
+      trustForwardedFor: settings.rateLimit.trustForwardedFor,
+      peerAddress,
+      ...options,
+    }).middleware
   try {
     const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
-    const app = createApp(auth)
+    const app = createApp(auth, { https: settings.auth.secureCookies })
     const { guestTokens } = auth
     const frontendBaseUrl = settings.frontend.baseUrl
 
@@ -77,17 +85,29 @@ export async function createApplication(
       exampleImages: image.exampleImages,
     })
     // Account exports the supplier link the production routes resolve on every request.
-    const account = createAccountModule({ db, auth, userEmails: email.userEmails, frontendBaseUrl })
+    const account = createAccountModule({
+      db,
+      auth,
+      userEmails: email.userEmails,
+      frontendBaseUrl,
+      rateLimits: {
+        login: rateLimit({ limit: 20, windowSeconds: 15 * 60 }),
+        register: rateLimit({ limit: 5, windowSeconds: 60 * 60 }),
+        forgotPassword: rateLimit({ limit: 5, windowSeconds: 60 * 60 }),
+        resendConfirmation: rateLimit({ limit: 5, windowSeconds: 60 * 60 }),
+      },
+    })
     const generator = createGeneratorModule({
       db,
       settings: settings.generator,
       articleCatalog: article.articleCatalog,
       promptCatalog: prompt.promptCatalog,
       guestTokens,
-      rateLimit: createClientIpRateLimiter({
-        trustForwardedFor: settings.rateLimit.trustForwardedFor,
-        peerAddress: (c) => getConnInfo(c).remote.address ?? '',
-      }).middleware,
+      rateLimit: rateLimit({
+        limit: 20,
+        windowSeconds: 60 * 60,
+        globalLimit: settings.generator.globalMaxPerHour,
+      }),
       fetch,
     })
 
@@ -136,6 +156,7 @@ export async function createApplication(
       orders: order.orders,
       images: image,
       guestTokens,
+      promotionRateLimit: rateLimit({ limit: 20, windowSeconds: 15 * 60 }),
     })
     const legal = createLegalModule({ fetch })
     const checkout = createCheckoutModule({
@@ -222,4 +243,13 @@ function serveFrontend(app: Hono, distPath: string): void {
   app.use('*', serveStatic({ root, onFound }))
   const fallback = serveStatic({ root, path: 'index.html', onFound })
   app.get('*', (c, next) => (c.req.path.startsWith('/api/') ? next() : fallback(c, next)))
+}
+
+/** Reads the peer address from Bun's server; falls back to `''` when invoked via `app.request`. */
+function bunPeerAddress(c: Context): string {
+  try {
+    return getConnInfo(c).remote.address ?? ''
+  } catch {
+    return ''
+  }
 }

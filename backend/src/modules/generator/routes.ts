@@ -1,10 +1,15 @@
 import { Hono, type MiddlewareHandler } from 'hono'
-import { readUploadedImage } from '@/modules/image'
+import { readUploadedImage, validateImageUpload } from '@/modules/image'
 import { guestCapable, requireAdmin, type Auth } from '@/platform/auth/auth'
 import { apiError, formBody } from '@/platform/http/respond'
 import { assertNever } from '@/platform/operation'
 import { ALLOWED_IMAGE_CONTENT_TYPES, type BackgroundRemover } from './image-generator'
-import { magicCoinsOwner, type MagicCoins } from './magic-coins'
+import {
+  INITIAL_BALANCE,
+  magicCoinsOwner,
+  tryMagicCoinsOwner,
+  type MagicCoins,
+} from './magic-coins'
 import type { GeneratorService } from './service'
 import { readGenerationUpload } from './upload'
 
@@ -71,10 +76,10 @@ export function generatorRoutes({
       return refuse('Image must be a JPEG, PNG, or WebP file')
     }
     // Copied, because the upload's bytes are typed without the plain `ArrayBuffer` a body needs.
-    const result = await removeBackground({
-      bytes: new Uint8Array(upload.upload.bytes),
-      contentType,
-    })
+    const bytes = new Uint8Array(upload.upload.bytes)
+    const validated = await validateImageUpload(bytes, contentType)
+    if ('rejection' in validated) return refuse(validated.rejection)
+    const result = await removeBackground({ bytes, contentType: validated.contentType })
     if (result === null) return c.json(apiError('Background removal failed'), 502)
     return c.body(result.bytes, 200, { 'Content-Type': result.contentType })
   })
@@ -84,7 +89,9 @@ export function generatorRoutes({
   routes.route('/api/admin/images/background-removal', backgroundRemoval)
   routes.get('/api/magic-coins/balance', async (c) => {
     c.header('Cache-Control', 'no-store')
-    return c.json({ balance: await coins.balance(await magicCoinsOwner(c, guestTokens)) })
+    const owner = await tryMagicCoinsOwner(c, guestTokens)
+    const balance = owner === null ? INITIAL_BALANCE : await coins.readBalance(owner)
+    return c.json({ balance })
   })
   return routes
 }

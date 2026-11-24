@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator'
-import { Hono, type Context } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import {
   ACCESS_TOKEN_PREFIX,
@@ -191,26 +191,47 @@ const INVALID_LINK = 'INVALID_LINK'
 const CONFIRMATION_LINK_MESSAGE = 'Invalid or expired confirmation link'
 const RESET_LINK_MESSAGE = 'Invalid or expired password reset link'
 
+/** Optional per-endpoint IP rate-limit middlewares for anonymous auth routes. */
+export interface AccountRateLimits {
+  login?: MiddlewareHandler
+  register?: MiddlewareHandler
+  forgotPassword?: MiddlewareHandler
+  resendConfirmation?: MiddlewareHandler
+}
+
+const noLimit: MiddlewareHandler = async (_c, next) => {
+  await next()
+}
+
 /**
  * The visitor and customer routes under `/api/auth` and the administrator's supplier logins under
  * `/api/admin/supplier-logins`. The signed-in routes install `requireAuthenticated` one by one,
  * because a protection on a sub-app mounted at `/api/auth` would cover the anonymous routes too.
  */
-export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
+export function accountRoutes(
+  accounts: AccountService,
+  auth: Auth,
+  rateLimits: AccountRateLimits = {},
+): Hono {
   const routes = new Hono()
 
-  routes.post('/api/auth/register', jsonBody(registerInput), async (c) => {
-    switch (await accounts.register(c.req.valid('json'))) {
-      case 'registered':
-        return c.body(null, 204)
-      case 'emailTaken':
-        return c.json(apiError('Email already exists'), 409)
-      case 'deliveryFailed':
-        return c.json(apiError('Confirmation email could not be delivered'), 502)
-    }
-  })
+  routes.post(
+    '/api/auth/register',
+    rateLimits.register ?? noLimit,
+    jsonBody(registerInput),
+    async (c) => {
+      switch (await accounts.register(c.req.valid('json'))) {
+        case 'registered':
+          return c.body(null, 204)
+        case 'emailTaken':
+          return c.json(apiError('Email already exists'), 409)
+        case 'deliveryFailed':
+          return c.json(apiError('Confirmation email could not be delivered'), 502)
+      }
+    },
+  )
 
-  routes.post('/api/auth/login', jsonBody(loginInput), async (c) => {
+  routes.post('/api/auth/login', rateLimits.login ?? noLimit, jsonBody(loginInput), async (c) => {
     const result = await accounts.login(c.req.valid('json'))
     switch (result) {
       case 'invalidCredentials':
@@ -231,15 +252,25 @@ export function accountRoutes(accounts: AccountService, auth: Auth): Hono {
       : c.json(apiError(CONFIRMATION_LINK_MESSAGE, {}, INVALID_LINK), 400),
   )
 
-  routes.post('/api/auth/resend-confirmation', jsonBody(accountEmailInput), async (c) => {
-    await accounts.resendConfirmation(c.req.valid('json').email)
-    return c.body(null, 204)
-  })
+  routes.post(
+    '/api/auth/resend-confirmation',
+    rateLimits.resendConfirmation ?? noLimit,
+    jsonBody(accountEmailInput),
+    async (c) => {
+      await accounts.resendConfirmation(c.req.valid('json').email)
+      return c.body(null, 204)
+    },
+  )
 
-  routes.post('/api/auth/forgot-password', jsonBody(accountEmailInput), async (c) => {
-    await accounts.forgotPassword(c.req.valid('json').email)
-    return c.body(null, 204)
-  })
+  routes.post(
+    '/api/auth/forgot-password',
+    rateLimits.forgotPassword ?? noLimit,
+    jsonBody(accountEmailInput),
+    async (c) => {
+      await accounts.forgotPassword(c.req.valid('json').email)
+      return c.body(null, 204)
+    },
+  )
 
   routes.post('/api/auth/reset-password', jsonBody(resetPasswordInput), async (c) =>
     (await accounts.resetPassword(c.req.valid('json')))

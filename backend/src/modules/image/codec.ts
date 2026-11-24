@@ -74,15 +74,17 @@ export async function writeDerivative(
 const webp = (image: Sharp) =>
   image.webp({ quality: 85, alphaQuality: 100, effort: 4, smartSubsample: true })
 
+const isImageFormat = (format: string | undefined): format is ImageFormat =>
+  format === 'jpeg' || format === 'png' || format === 'webp'
+
 /**
- * The upload as WebP bytes, or the message its rejection reports on the `file` field: 1 byte
- * through 10 MiB, at most 40 megapixels, and a declared JPEG, PNG, or WebP content type that matches
- * the format sharp detects, so GIF is refused however it is offered.
+ * Checks an uploaded image's declared type, size, magic bytes, dimensions (≤ 40 MP), and that
+ * declared and detected formats match, without decoding pixels yet.
  */
-export async function normalizeToWebp(
+async function checkImageHeader(
   bytes: Uint8Array,
   contentType: string,
-): Promise<{ webp: Buffer } | { rejection: string }> {
+): Promise<{ format: ImageFormat; contentType: string } | { rejection: string }> {
   const declared = formatOfContentType(contentType)
   if (declared === null) return { rejection: 'Only JPEG, PNG, and WebP uploads are supported' }
   if (bytes.length === 0) return { rejection: 'Image must not be empty' }
@@ -96,12 +98,69 @@ export async function normalizeToWebp(
   if (metadata.width * metadata.height > MAX_DECODED_PIXELS) {
     return { rejection: 'Decoded image exceeds 40 megapixels' }
   }
-  if (!['jpeg', 'png', 'webp'].includes(metadata.format)) {
+  if (!isImageFormat(metadata.format)) {
     return { rejection: 'Invalid image data' }
   }
   if (metadata.format !== declared) {
     return { rejection: 'Declared and decoded image formats differ' }
   }
+  return { format: declared, contentType: CONTENT_TYPES[declared] }
+}
+
+/**
+ * Validates uploaded image bytes with sharp (format header, ≤ 40 megapixels, declared vs. detected
+ * match, and full pixel decode) without re-encoding. Used by uploads forwarded to external APIs.
+ */
+export async function validateImageUpload(
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<{ format: ImageFormat; contentType: string } | { rejection: string }> {
+  const header = await checkImageHeader(bytes, contentType)
+  if ('rejection' in header) return header
+  try {
+    await sharp(bytes, { limitInputPixels: MAX_DECODED_PIXELS }).stats()
+    return header
+  } catch {
+    return { rejection: 'Invalid image data' }
+  }
+}
+
+/**
+ * Inspects untrusted image bytes (such as a downloaded provider result) with sharp: enforces the
+ * 10 MiB and 40-megapixel caps, verifies the real format is JPEG, PNG, or WebP, and decodes the
+ * pixels. Answers the verified format and its MIME type, or `null` when invalid.
+ */
+export async function inspectImageBytes(
+  bytes: Uint8Array,
+): Promise<{ format: ImageFormat; contentType: string } | null> {
+  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) return null
+  let metadata: Metadata
+  try {
+    metadata = await sharp(bytes).metadata()
+  } catch {
+    return null
+  }
+  if (metadata.width * metadata.height > MAX_DECODED_PIXELS) return null
+  if (!isImageFormat(metadata.format)) return null
+  try {
+    await sharp(bytes, { limitInputPixels: MAX_DECODED_PIXELS }).stats()
+    return { format: metadata.format, contentType: CONTENT_TYPES[metadata.format] }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The upload as WebP bytes, or the message its rejection reports on the `file` field: 1 byte
+ * through 10 MiB, at most 40 megapixels, and a declared JPEG, PNG, or WebP content type that matches
+ * the format sharp detects, so GIF is refused however it is offered.
+ */
+export async function normalizeToWebp(
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<{ webp: Buffer } | { rejection: string }> {
+  const header = await checkImageHeader(bytes, contentType)
+  if ('rejection' in header) return header
   try {
     const upright = sharp(bytes, { limitInputPixels: MAX_DECODED_PIXELS }).autoOrient()
     return { webp: await webp(upright).toBuffer() }

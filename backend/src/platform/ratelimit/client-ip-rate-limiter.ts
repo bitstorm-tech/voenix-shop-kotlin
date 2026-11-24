@@ -4,8 +4,9 @@ import { apiError } from '@/platform/http/respond'
 
 /**
  * Counts requests per client IP in fixed windows and refuses the request past the limit with `429`
- * and a `Retry-After` header. It exists for one endpoint, the paid image generation, which can be
- * used without an account (docs/dev/backend/conventions/rate-limiting.md).
+ * and a `Retry-After` header. When `globalLimit` is set, also enforces a process-wide cap across
+ * all client IPs in the same window duration so IP rotation cannot bypass the cost bound
+ * (docs/dev/backend/conventions/rate-limiting.md).
  *
  * The state is in memory and therefore per process. The map is bounded twice: windows that have
  * ended are swept at most once per window, and at most `maxTrackedIps` addresses are remembered,
@@ -19,6 +20,7 @@ export function createClientIpRateLimiter({
   limit = 20,
   windowSeconds = 60 * 60,
   maxTrackedIps = 100_000,
+  globalLimit,
 }: {
   /**
    * Whether the client IP may be read from `X-Forwarded-For`. Only when exactly one trusted reverse
@@ -30,9 +32,12 @@ export function createClientIpRateLimiter({
   limit?: number
   windowSeconds?: number
   maxTrackedIps?: number
+  /** Optional process-wide maximum across all client IPs per window. */
+  globalLimit?: number
 }) {
   const windowMillis = windowSeconds * 1000
   const windows = new Map<string, { startedAt: number; count: number }>()
+  let globalWindow: { startedAt: number; count: number } | null = null
   let lastSweep = 0
 
   const dropEndedWindows = (now: number) => {
@@ -41,8 +46,20 @@ export function createClientIpRateLimiter({
     }
   }
 
+  /** Always at least one second: a `Retry-After: 0` would invite an immediate retry. */
+  const remainingSeconds = (startedAt: number, now: number) =>
+    Math.max(1, Math.ceil((startedAt + windowMillis - now) / 1000))
+
   /** `null` when the request may proceed, otherwise the seconds the caller has to wait. */
   const retryAfterSeconds = (clientIp: string, now: number): number | null => {
+    if (globalLimit !== undefined) {
+      if (globalWindow !== null && now >= globalWindow.startedAt + windowMillis) {
+        globalWindow = null
+      }
+      if (globalWindow !== null && globalWindow.count >= globalLimit) {
+        return remainingSeconds(globalWindow.startedAt, now)
+      }
+    }
     if (now - lastSweep >= windowMillis) {
       lastSweep = now
       dropEndedWindows(now)
@@ -52,14 +69,24 @@ export function createClientIpRateLimiter({
       dropEndedWindows(now)
       if (windows.size >= maxTrackedIps) return windowSeconds
     }
-    const open =
-      existing === undefined || now >= existing.startedAt + windowMillis
+    const active =
+      existing !== undefined && now < existing.startedAt + windowMillis ? existing : undefined
+    if (active !== undefined && active.count >= limit) {
+      return remainingSeconds(active.startedAt, now)
+    }
+    windows.set(
+      clientIp,
+      active === undefined
         ? { startedAt: now, count: 1 }
-        : { startedAt: existing.startedAt, count: Math.min(existing.count + 1, limit + 1) }
-    windows.set(clientIp, open)
-    if (open.count <= limit) return null
-    // Always at least one second: a `Retry-After: 0` would invite an immediate retry.
-    return Math.max(1, Math.ceil((open.startedAt + windowMillis - now) / 1000))
+        : { startedAt: active.startedAt, count: active.count + 1 },
+    )
+    if (globalLimit !== undefined) {
+      globalWindow =
+        globalWindow === null
+          ? { startedAt: now, count: 1 }
+          : { startedAt: globalWindow.startedAt, count: globalWindow.count + 1 }
+    }
+    return null
   }
 
   /**

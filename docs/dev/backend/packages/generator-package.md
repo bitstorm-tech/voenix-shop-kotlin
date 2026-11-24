@@ -143,8 +143,8 @@ Kotlin module closed its Ktor client on `ApplicationStopped`).
 
 | Method and path | Auth | Body | Success |
 | --- | --- | --- | --- |
-| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required (`guestCapable`), at most 20 calls per client IP per hour | `multipart/form-data` with a file part `image` and the text parts `promptId` and `articleId` | `200` with the raw image bytes and the generated image's `Content-Type` |
-| `GET /api/magic-coins/balance` | anonymous or signed in | none | `200` `{"balance": <int>}` with `Cache-Control: no-store`; issues the guest cookie on first contact |
+| `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required (`guestCapable`), at most 20 calls per client IP per hour and `GENERATOR_GLOBAL_MAX_PER_HOUR` (default 200) across all IPs | `multipart/form-data` with a file part `image` and the text parts `promptId` and `articleId` | `200` with the raw image bytes and the generated image's `Content-Type` |
+| `GET /api/magic-coins/balance` | anonymous or signed in | none | `200` `{"balance": <int>}` with `Cache-Control: no-store`; uses `guestTokens.tryGet(c)` and returns `10` for passive visitors without setting a guest cookie or creating a DB row |
 
 A generated image has no JSON envelope and no `Content-Disposition` header,
 because the frontend store `frontend/src/stores/shop/imageGeneration.ts` reads
@@ -181,21 +181,22 @@ The messages of the `400`:
 `routes.ts` runs the first step, resolves the owner, and hands the other five
 to `service.ts`. The order is a product decision, not an implementation detail:
 
-1. **Check the upload** (`readGenerationUpload`). A rejected upload never
-   touches the balance.
-2. **Check the balance** (`coins.balance(owner) >= 1`).
+1. **Check the upload** (`readGenerationUpload`, including `sharp` format/pixel validation via `validateImageUpload`). A rejected upload never touches the balance.
+2. **Read the balance** (`coins.readBalance(owner) >= 1`, read-only).
 3. **Look up the print format** with `articleCatalog.printFormats([articleId])`.
 4. **Load the prompt** with `promptCatalog.composedText(promptId)`.
-5. **Generate** through the `ImageGenerator`, in the article's aspect ratio.
-6. **Spend one coin** with `coins.spend(owner)`.
+5. **Atomically spend one coin** with `coins.spend(owner)` (`INSERT ... ON CONFLICT DO NOTHING` + `UPDATE ... WHERE balance >= 1 RETURNING balance`). If that updates zero rows, immediately answer `insufficientCoins` without calling the provider.
+6. **Generate** through the `ImageGenerator`, in the article's aspect ratio. If the provider returns `null` (`upstreamFailure`) or throws, atomically refund the coin (`coins.refund(owner)`).
 
 The coin check happens *before* anything is looked up, so a visitor with an
 empty balance is told so instead of being sent looking for a prompt or an
 article they could not use anyway. The article comes before the prompt because
 it decides the *shape* of the paid request, and an unknown article is the
-cheapest ending: no prompt loaded, no provider called, no coin spent. The spend
-happens *after* the generation, so nobody pays for an image the provider never
-delivered.
+cheapest ending: no prompt loaded, no provider called, no coin spent. The
+atomic spend happens *before* the paid provider call so concurrent requests
+with one coin left can never trigger multiple paid `fal.ai` calls, and a
+provider failure refunds the coin so nobody pays for an image the provider
+never delivered.
 
 The article is asked one question only: which aspect ratio it is printed in.
 Whether the visitor may *buy* it is deliberately not checked. An inactive
@@ -205,15 +206,14 @@ exception, because without a ratio there is no request to send.
 
 Two details of that flow are easy to get wrong:
 
-- **A broken balance lookup is never an empty balance.** `coins.balance`
+- **A broken balance lookup is never an empty balance.** `coins.readBalance`
   throws on a database failure, and the app's `onError` answers `500`.
   Answering a defect on our side with "not enough Magic Coins" would ask the
   customer to pay for it. A failing article or prompt lookup ends the same way.
-- **A failed spend keeps the image.** The service catches the failure of the
-  spend, logs it with the owner, and still answers the image. The image exists,
-  and withholding it would punish the customer for a defect on our side. A
-  spend that finds the balance already empty (a concurrent generation took the
-  last coin) only warns.
+- **A failed refund only logs.** If `coins.refund` fails after an upstream
+  error, the service logs it with `describeOwner(owner)` (never the guest
+  token) and still answers the upstream failure (`502`) or propagates the
+  original error.
 
 `GenerationOutcome` is the module's own union of the endings after the upload
 check: `generated`, `insufficientCoins`, `articleUnavailable`,
@@ -284,18 +284,21 @@ Five properties of the adapter are deliberate:
 
 - **No retry.** Every attempt costs money, and a retry would pay twice for a
   call that may well have succeeded on the provider's side.
-- **The paid call never follows a redirect; the download does.** The `POST`
-  uses `redirect: 'manual'`, so a `3xx` is a refusal and the key is never
-  replayed anywhere. The generated image usually lives behind a CDN that
-  redirects, so the download follows redirects; it carries no credential and
-  must start from an `https` URL, or it is not fetched at all.
+- **The paid call never follows a redirect; the download validates every hop.**
+  The `POST` uses `redirect: 'manual'`, so a `3xx` is a refusal and the key is
+  never replayed anywhere. The download also uses `redirect: 'manual'` and
+  follows at most 5 redirects, checking on every hop that the target is an
+  external `https:` URL with no embedded credentials and not pointing to
+  loopback, private, link-local, or local-only hosts.
 - **Both provider answers are treated as hostile.** The generation answer and
   the downloaded image are read chunk by chunk and dropped the moment they pass
   the 10 MiB a visitor may upload, whatever `Content-Length` announced. A
   refusal's body is never read.
-- **The result content type is allowlisted.** What fal.ai reports is used only
-  when it is JPEG, PNG, or WebP; anything else, or nothing, becomes
-  `image/jpeg`.
+- **The result image is verified with sharp.** Downloaded bytes are validated
+  with `inspectImageBytes` (≤ 10 MiB, ≤ 40 megapixels, real JPEG/PNG/WebP
+  format decoded); non-image or corrupt responses are rejected as `null`, and
+  the verified format determines `Content-Type` regardless of what the provider
+  reported.
 - **Nothing the provider wrote is logged.** A refusal is logged by its status,
   an unreadable answer and a transport failure by `errorDetails`: class, code,
   and stack frames, never the message ([logging](../conventions/logging.md)). The message of a
@@ -325,6 +328,7 @@ quality gate spend real money.
 | --- | --- | --- |
 | `GENERATOR_DUMMY_MODE` | `false` | `settings.generator.dummyMode` |
 | `GENERATOR_API_KEY` | empty | `settings.generator.apiKey` |
+| `GENERATOR_GLOBAL_MAX_PER_HOUR` | `200` | `settings.generator.globalMaxPerHour` |
 | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | `settings.rateLimit.trustForwardedFor` (platform) |
 
 A deployment that is not in dummy mode **must** carry an API key; the platform's
@@ -396,13 +400,13 @@ application-level locking:
   constraint is the final safety net. The spend does not create a row: the
   balance check of the same request already did.
 
-The check-then-spend flow around a generation is deliberately **not** one
+The spend-then-refund flow around a generation is deliberately **not** one
 transaction. The expensive provider call sits between the two, and holding a
-transaction open across it is not an option; exact accounting under
-concurrency would need a reserve/commit model, which is out of scope. Two
-concurrent generations from a balance of one coin may therefore both be
-generated while only one is charged. A free generation is acceptable, a paid
-failure is not.
+transaction open across it is not an option. Instead, `coins.spend` atomically
+deducts 1 coin (`WHERE balance >= 1`) *before* calling the provider so
+PostgreSQL serializes concurrent attempts and at most one paid provider call
+runs per available coin; if the provider fails or throws, `coins.refund`
+atomically credits the coin back (`+1`).
 
 The table comes from
 [`V10__create_magic_coins.sql`](../../../../backend/migrations/V10__create_magic_coins.sql);

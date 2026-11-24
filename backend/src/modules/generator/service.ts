@@ -24,11 +24,12 @@ export type GenerationOutcome =
 export type GeneratorService = ReturnType<typeof createGeneratorService>
 
 /**
- * The order of one generation after the upload was checked: the balance, the article's print
- * format, the prompt text, the generation, and only then the spend. A visitor without coins is told
- * so before anything is looked up; an unknown article is the cheapest ending and loads no prompt;
- * nobody pays for an image the provider never delivered. The article is asked for its ratio only:
- * whether it can be bought is the cart's question.
+ * The order of one generation after the upload was checked: a read-only balance check, the
+ * article's print format, the prompt text, an atomic upfront coin deduction, and then the provider
+ * call — refunding the coin if the provider fails or throws. A visitor without coins is told so
+ * before anything is looked up; an unknown article or prompt spends nothing; concurrent requests
+ * with one coin left can never trigger multiple paid provider calls; and nobody pays for an image
+ * the provider never delivered.
  */
 export function createGeneratorService({
   coins,
@@ -43,21 +44,13 @@ export function createGeneratorService({
   generateImage: ImageGenerator
   logger: Logger
 }) {
-  /**
-   * A failed spend only logs: the image exists, and withholding it would punish the customer for a
-   * defect on our side.
-   */
-  const spend = async (owner: MagicCoinsOwner) => {
+  const refund = async (owner: MagicCoinsOwner) => {
     try {
-      if (!(await coins.spend(owner))) {
-        logger.warn(
-          `Magic Coin spend skipped for ${describeOwner(owner)}: insufficient balance at spend time`,
-        )
-      }
+      await coins.refund(owner)
     } catch (error) {
       logger.error(
         { error: errorDetails(error) },
-        `Magic Coin spend failed for ${describeOwner(owner)}`,
+        `Magic Coin refund failed for ${describeOwner(owner)}`,
       )
     }
   }
@@ -67,14 +60,23 @@ export function createGeneratorService({
       owner: MagicCoinsOwner,
       upload: { image: RawImage; promptId: number; articleId: number },
     ): Promise<GenerationOutcome> => {
-      if ((await coins.balance(owner)) < GENERATION_COST) return { kind: 'insufficientCoins' }
+      if ((await coins.readBalance(owner)) < GENERATION_COST) return { kind: 'insufficientCoins' }
       const ratio = (await articleCatalog.printFormats([upload.articleId])).get(upload.articleId)
       if (ratio === undefined) return { kind: 'articleUnavailable' }
       const prompt = await promptCatalog.composedText(upload.promptId)
       if (prompt === null) return { kind: 'promptUnavailable' }
-      const generated = await generateImage(upload.image, prompt, ratio)
-      if (generated === null) return { kind: 'upstreamFailure' }
-      await spend(owner)
+      if (!(await coins.spend(owner))) return { kind: 'insufficientCoins' }
+      let generated: RawImage | null
+      try {
+        generated = await generateImage(upload.image, prompt, ratio)
+      } catch (error) {
+        await refund(owner)
+        throw error
+      }
+      if (generated === null) {
+        await refund(owner)
+        return { kind: 'upstreamFailure' }
+      }
       return { kind: 'generated', image: generated }
     },
   }

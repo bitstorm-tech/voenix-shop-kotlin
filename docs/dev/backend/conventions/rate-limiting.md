@@ -1,12 +1,22 @@
 # Rate limiting
 
-The backend limits one endpoint: `POST /api/generator/generate`. This is not a
-general "protect the API" limit but a cost bound: the generation endpoint is
-the only request that can be sent without an account and that pays fal.ai per
-call. The limit is:
+The backend limits the public endpoints where abuse either spends real money,
+sends mail, burns PBKDF2 CPU, locks out accounts, or brute-forces coupons:
 
-> 20 generations per client IP per hour. Request 21 is answered with
-> `429 Too Many Requests` and a `Retry-After` header.
+| Endpoint | Per-IP limit | Global cap |
+| --- | --- | --- |
+| `POST /api/generator/generate` | 20 / hour | `GENERATOR_GLOBAL_MAX_PER_HOUR` (default 200 / hour) |
+| `POST /api/auth/login` | 20 / 15 min | — |
+| `POST /api/auth/register` | 5 / hour | — |
+| `POST /api/auth/forgot-password` | 5 / hour | — |
+| `POST /api/auth/resend-confirmation` | 5 / hour | — |
+| `POST /api/cart/promotion` | 20 / 15 min | — |
+
+Every limited endpoint gets its own `createClientIpRateLimiter` instance so
+hitting one bucket never blocks another. Past the limit, the middleware answers
+`429 Too Many Requests` with a `Retry-After` header. When `globalLimit` is set,
+requests refused by a single IP's limit do not consume the global budget, and
+rotating IPs cannot bypass the process-wide hourly cap.
 
 ## Why the IP and not the visitor
 

@@ -128,17 +128,27 @@ export function createAccountService({
       email,
       password,
     }: Credentials): Promise<'registered' | 'emailTaken' | 'deliveryFailed'> => {
+      const passwordHash = await passwords.hash(password)
+      const createdAt = now()
       const stored = await repository.insertUser({
         email,
-        passwordHash: await passwords.hash(password),
+        passwordHash,
         role: CUSTOMER_ROLE,
-        createdAt: now(),
+        createdAt,
         emailConfirmed: false,
         supplierId: null,
       })
       // Without a supplier link the foreign key cannot fail: a refusal is the taken address.
-      if (typeof stored === 'string') return 'emailTaken'
-      return (await sendConfirmation(stored, email)) ? 'registered' : 'deliveryFailed'
+      // An unconfirmed address is overwritten so a pre-registration cannot trap the real owner.
+      let userId: number
+      if (typeof stored === 'string') {
+        const replaced = await repository.replaceUnconfirmedUser({ email, passwordHash, createdAt })
+        if (replaced === undefined) return 'emailTaken'
+        userId = replaced
+      } else {
+        userId = stored
+      }
+      return (await sendConfirmation(userId, email)) ? 'registered' : 'deliveryFailed'
     },
 
     login: async ({

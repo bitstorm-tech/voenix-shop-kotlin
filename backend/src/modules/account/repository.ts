@@ -92,6 +92,35 @@ export function createAccountRepository(db: Kysely<Tables>) {
           }),
       ),
 
+    /**
+     * Overwrites an existing **unconfirmed** registration with fresh credentials and clears any
+     * outstanding tokens, preventing pre-registration account takeover. Answers the user id when an
+     * unconfirmed row was updated, or `undefined` when the address is already confirmed (or absent).
+     */
+    replaceUnconfirmedUser: (user: {
+      email: string
+      passwordHash: string
+      createdAt: Date
+    }): Promise<number | undefined> =>
+      write(db, async (trx) => {
+        const row = await trx
+          .updateTable('users')
+          .set({
+            email: user.email,
+            password_hash: user.passwordHash,
+            created_at: user.createdAt,
+            failed_login_count: 0,
+            locked_until: null,
+          })
+          .where((eb) => eb(eb.fn('lower', ['email']), '=', eb.fn('lower', [eb.val(user.email)])))
+          .where('email_confirmed', '=', false)
+          .returning('id')
+          .executeTakeFirst()
+        if (row === undefined) return undefined
+        await trx.deleteFrom('account_tokens').where('user_id', '=', row.id).execute()
+        return row.id
+      }),
+
     findByEmail: (email: string): Promise<UserAccount | undefined> =>
       read(db, async (trx) => {
         const row = await trx
@@ -289,7 +318,10 @@ export function createAccountRepository(db: Kysely<Tables>) {
         return true
       }),
 
-    /** Consumes a valid reset token and stores the new password hash, atomically. */
+    /**
+     * Consumes a valid reset token, stores the new password hash, confirms the e-mail address
+     * (proving inbox ownership), and clears any lockout state, atomically.
+     */
     resetPassword: (
       userId: number,
       tokenHash: string,
@@ -300,8 +332,18 @@ export function createAccountRepository(db: Kysely<Tables>) {
         if (!(await consumeToken(trx, userId, 'RESET_PASSWORD', tokenHash, now, null))) return false
         await trx
           .updateTable('users')
-          .set({ password_hash: newPasswordHash })
+          .set({
+            password_hash: newPasswordHash,
+            email_confirmed: true,
+            failed_login_count: 0,
+            locked_until: null,
+          })
           .where('id', '=', userId)
+          .execute()
+        await trx
+          .deleteFrom('account_tokens')
+          .where('user_id', '=', userId)
+          .where('purpose', '=', 'CONFIRM_EMAIL')
           .execute()
         return true
       }),

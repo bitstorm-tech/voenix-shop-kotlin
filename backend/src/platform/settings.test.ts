@@ -47,6 +47,7 @@ describe('loadSettings', () => {
     expect(settings.email.fromName).toBe('Voenix Shop')
     expect(settings.production.spod).toBeNull()
     expect(settings.generator.dummyMode).toBe(true)
+    expect(settings.generator.globalMaxPerHour).toBe(200)
     expect(settings.rateLimit.trustForwardedFor).toBe(false)
     expect(settings.image.cacheRoot).toBe('./data/images/cache')
   })
@@ -145,6 +146,16 @@ describe('loadSettings', () => {
     expect(alone.production.spod).toBeNull()
     expect(failure({ ...development, OPERATIONS_ALERT_EMAIL: 'ops@example.com\nBcc: x@y.z' })).toBe(
       'Invalid configuration: OPERATIONS_ALERT_EMAIL must not contain control characters',
+    )
+  })
+
+  test('the generator global hourly limit defaults to 200 and must be at least 1', () => {
+    expect(
+      loadSettings({ ...development, GENERATOR_GLOBAL_MAX_PER_HOUR: '50' }).generator
+        .globalMaxPerHour,
+    ).toBe(50)
+    expect(failure({ ...development, GENERATOR_GLOBAL_MAX_PER_HOUR: '0' })).toBe(
+      'Invalid configuration: GENERATOR_GLOBAL_MAX_PER_HOUR must be at least 1',
     )
   })
 })
