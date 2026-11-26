@@ -1,6 +1,6 @@
 # Paket 7: Länderspezifische Versandkosten in `countries`
 
-**Enthaltene Punkte aus `GOLIVE-TODO.md`:** `D3` (Code-Teil), `A21` (dynamische Länder- & Versandkostenanzeige)  
+**Enthaltene Punkte aus [`docs/golive/README.md`](README.md):** `D3` (Code-Teil), `A21` (dynamische Länder- & Versandkostenanzeige)  
 **Risikoprofil:** Hoch (DB-Migration, Geld-/Checkout-Logik, modulübergreifend über `country`, `cart`, `checkout` und Frontend). Gemäß `AGENTS.md` über ein **Driving Issue + Council-Workflow** umsetzen.  
 **Abhängigkeiten:** Am saubersten **vor Paket 6B** (und abgestimmt mit Paket 6A in `CheckoutView.vue` / `CartSummary.vue`), damit `/shipping` und Checkout direkt die echten Länder-Versandkosten nutzen.
 
@@ -69,4 +69,4 @@ Der Shop startet in mehreren europäischen Ländern. Bisher rechnet `backend/src
 - [ ] `cd backend && bun run check` grün (inkl. Tests für DE vs. EU-Versand, Freigrenze `null` vs. gesetzt, Gutschein + EU-Versand, ungültiges Land).
 - [ ] `cd frontend && bun run build`, `bun run test:unit -- --run` und `bunx eslint .` grün.
 - [ ] `docs/dev/backend/packages/country-package.md`, `cart-package.md` und `checkout-package.md` aktualisiert.
-- [ ] Erledigte Teile von `D3` / `A21` in `GOLIVE-TODO.md` dokumentiert.
+- [ ] Paket 7 aus [`docs/golive/README.md`](README.md) entfernen (und Datei löschen), sobald gemergt.

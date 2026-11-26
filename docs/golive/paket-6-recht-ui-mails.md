@@ -1,8 +1,8 @@
 # Paket 6: Rechtliche Seiten, Kasse, Bestellmails, PAngV, GPSR & Katalog-UI
 
-**Enthaltene Punkte aus `GOLIVE-TODO.md`:** `A1` (Fallback/EN), `A2`, `A3`, `A4`, `A5`, `A7`, `A8`, `A10`, `A11`, `A13`, `A14`, `A16`, `A18`, `A20`, `A21`, `C1`, `C2`, `C4`  
-**Risikoprofil:** Mittel bis Hoch (rechtliche Pflichtangaben im Shop & in Bestellmails; berührt Frontend + Mail-Templates + ggf. Artikel-Schema für GPSR).  
-**Empfohlener Zeitpunkt:** **Nach Paket 3** (teilt sich `CheckoutView.vue`, `de.json`/`en.json`) und sobald die juristischen Texte & Produktentscheidungen vorliegen.
+**Enthaltene Punkte aus [`docs/golive/README.md`](README.md):** `A1` (Fallback/EN), `A2`, `A3`, `A4`, `A5`, `A7`, `A8`, `A10`, `A11`, `A13`, `A14`, `A16`, `A18`, `A20`, `A21`, `C1`, `C2`, `C4`  
+**Risikoprofil:** Mittel bis Hoch (rechtliche Pflichtangaben im Shop & in Bestellmails; berührt Frontend + Mail-Templates + Artikel-Schema für GPSR).  
+**Empfohlener Zeitpunkt:** **Teil 6A** sofort startbar (abgestimmt mit Paket 7 in `CheckoutView.vue` / `CartSummary.vue`); **Teil 6B** sobald Texte, Mollie-Zahlarten & Paket 7 vorliegen.
 
 ---
 
@@ -96,4 +96,4 @@
 - [ ] `cd backend && bun run check` (falls Backend-Teile wie `A1`, `A4`, `A13` geändert wurden) läuft grün.
 - [ ] `cd frontend && bun run build`, `bun run test:unit -- --run` und `bunx eslint .` laufen grün.
 - [ ] Sowohl deutsche (`de`) als auch englische (`en`) Oberfläche auf konsistente Texte, Preise und Links geprüft.
-- [ ] Alle erledigten Punkte in `GOLIVE-TODO.md` abgehakt.
+- [ ] Alle erledigten Punkte in [`docs/golive/README.md`](README.md) entfernt bzw. aktualisiert.

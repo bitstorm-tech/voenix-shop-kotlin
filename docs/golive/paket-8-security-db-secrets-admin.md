@@ -1,6 +1,6 @@
 # Paket 8: Security `B13` – Verschlüsselte DB-Secrets & Admin-Session-Revocation
 
-**Enthaltene Punkte aus `GOLIVE-TODO.md`:** `B13` (`TODO #11`)  
+**Enthaltene Punkte aus [`docs/golive/README.md`](README.md):** `B13`  
 **Risikoprofil:** Hoch (Kryptografie, Auth-Middleware, DB-Migration). Gemäß `AGENTS.md` über ein **Driving Issue + Council-Workflow** umsetzen.  
 **Parallelisierbar mit:** Paket 6A, Paket 6B, Paket 7 (keine Dateikonflikte im Frontend; minimale Schnittstelle in `backend/.env.example` / `settings.ts`).
 
@@ -49,6 +49,6 @@
 ## Abschluss-Checkliste
 
 - [ ] `cd backend && bun run check` grün (inkl. Krypto-Roundtrip-, Manipulations- und Admin-Revocation-Tests).
-- [ ] `backend/.env.example` und `docs/golive/fahrplan.md` (`E2`) um die neue Env-Variable für den Encryption-Key ergänzt.
+- [ ] `backend/.env.example` und [`docs/golive/README.md`](README.md) (`E2`) um die neue Env-Variable für den Encryption-Key ergänzt.
 - [ ] `docs/dev/backend/conventions/authentication-and-authorization.md` (und ggf. `production-package.md`) aktualisiert.
-- [ ] `B13` in `GOLIVE-TODO.md` abgehakt.
+- [ ] Paket 8 aus [`docs/golive/README.md`](README.md) entfernen (und Datei löschen), sobald gemergt.
