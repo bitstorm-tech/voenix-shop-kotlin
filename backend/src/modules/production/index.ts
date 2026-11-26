@@ -21,6 +21,7 @@ import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
+import { createSpodWebhooks, SPOD_WEBHOOK_PATH, type WebhookClient } from './spod/webhooks'
 import { productionOfOrder, unshippedOrderCount } from './timeline'
 
 export type { ProductionFinding } from './findings'
@@ -66,6 +67,7 @@ export async function createProductionModule({
   accounts,
   orders,
   alertEmail,
+  frontendBaseUrl,
 }: {
   db: Kysely<Tables>
   settings: Settings['production']
@@ -73,11 +75,13 @@ export async function createProductionModule({
   suppliers: Pick<SupplierModule, 'find' | 'ids'>
   articleCatalog: Pick<ArticleCatalog, 'find'>
   spodCatalogSync: Pick<SpodCatalogSync, 'start' | 'state'>
-  spod: SubmissionClient
+  spod: SubmissionClient & WebhookClient
   accounts: SupplierAccounts
   orders: ProductionOrders
   /** The operations address the SPOD ops alert goes to, `null` when none is set. */
   alertEmail: string | null
+  /** The public address of this deployment, which also serves the partner's webhook. */
+  frontendBaseUrl: string
 }) {
   const secrets = createSecretBox(settings.secretsKey)
   const destinations = createDestinationRepository(db, secrets)
@@ -119,7 +123,16 @@ export async function createProductionModule({
   routes.route(
     '/',
     destinationRoutes(
-      createDestinationService(destinations, settings.spod !== null, spodCatalogSync),
+      createDestinationService(
+        destinations,
+        settings.spod === null
+          ? null
+          : createSpodWebhooks(
+              spod,
+              `${frontendBaseUrl}${SPOD_WEBHOOK_PATH}${encodeURIComponent(settings.spod.webhookSecret)}`,
+            ),
+        spodCatalogSync,
+      ),
     ),
   )
   routes.route('/', fulfillmentRoutes(fulfillment, accounts, settings.spod?.webhookSecret ?? null))

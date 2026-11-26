@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import { SPOD_ENVIRONMENTS } from '@/modules/spod'
 import { requireAdmin } from '@/platform/auth/auth'
@@ -10,7 +10,7 @@ import {
   respondResult,
 } from '@/platform/http/respond'
 import type { DestinationDetail } from './repository'
-import type { DestinationInput, DestinationService } from './service'
+import type { DestinationInput, DestinationService, DestinationWebhookResult } from './service'
 
 const MAXIMUM_TEXT_LENGTH = 255
 
@@ -220,6 +220,13 @@ export function destinationRoutes(destinations: DestinationService): Hono {
         )
     }
   })
+  admin.get('/:id/webhooks', destinationId, async (c) =>
+    webhookAnswer(c, await destinations.webhookStatus(c.req.valid('param').id)),
+  )
+  // Up to eight paced partner calls, about eight seconds: short enough to answer in the request.
+  admin.post('/:id/webhooks', destinationId, async (c) =>
+    webhookAnswer(c, await destinations.registerWebhooks(c.req.valid('param').id)),
+  )
   admin.delete('/:id', destinationId, async (c) => {
     const result = await destinations.delete(c.req.valid('param').id)
     if (result.kind !== 'ok') return respondFailure(c, result, DESTINATION_RESPONSES)
@@ -229,4 +236,34 @@ export function destinationRoutes(destinations: DestinationService): Hono {
   const routes = new Hono()
   routes.route('/api/admin/production/destinations', admin)
   return routes
+}
+
+/** The status per event, or a `404`, a `409`, or the partner's bounded failure as a `502`. */
+function webhookAnswer(c: Context, result: DestinationWebhookResult) {
+  switch (result.kind) {
+    case 'answered':
+      return c.json(result.value)
+    case 'notFound':
+      return c.json(apiError(DESTINATION_RESPONSES.notFound), 404)
+    case 'notSyncable':
+      return c.json(
+        apiError(
+          'Only print-on-demand destinations have webhook subscriptions',
+          {},
+          'CHANNEL_WITHOUT_WEBHOOKS',
+        ),
+        409,
+      )
+    case 'notPublic':
+      return c.json(
+        apiError(
+          'FRONTEND_BASE_URL is not an HTTPS address, so Spreadconnect cannot reach this shop',
+          {},
+          'WEBHOOK_URL_NOT_PUBLIC',
+        ),
+        409,
+      )
+    case 'failed':
+      return c.json(apiError('Spreadconnect did not answer the call', {}, result.error), 502)
+  }
 }

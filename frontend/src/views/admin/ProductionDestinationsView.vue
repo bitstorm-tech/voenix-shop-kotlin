@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ChevronDown, Pencil, Plus, RefreshCw } from 'lucide-vue-next'
 import AdminProductionDestinationDialog from '@/components/admin/logistics/AdminProductionDestinationDialog.vue'
+import AdminSpodWebhooks from '@/components/admin/logistics/AdminSpodWebhooks.vue'
 import AdminPageHeader from '@/components/admin/shared/AdminPageHeader.vue'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -375,6 +376,12 @@ onMounted(async () => {
                       <Pencil class="size-4" />
                     </Button>
                   </div>
+                </TableCell>
+              </TableRow>
+
+              <TableRow v-if="destination.channel === 'SPOD'">
+                <TableCell colspan="7" class="bg-muted/30">
+                  <AdminSpodWebhooks :destination-id="destination.id" />
                 </TableCell>
               </TableRow>
 

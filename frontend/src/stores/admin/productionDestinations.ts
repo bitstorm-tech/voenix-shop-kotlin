@@ -174,6 +174,26 @@ export interface SpodSyncState {
   report: SpodSyncReport | null
 }
 
+/**
+ * Whether the partner calls this deployment for one event: `WRONG_URL` means subscribed, but to
+ * another address (an old secret or another host). `otherHosts` names those addresses' hosts.
+ */
+export interface SpodWebhookStatus {
+  eventType: string
+  state: 'ACTIVE' | 'MISSING' | 'WRONG_URL'
+  otherHosts: string[]
+}
+
+/** The codes of the webhook routes, in the words the admin screen shows. */
+const WEBHOOK_MESSAGES: Record<string, string> = {
+  WEBHOOK_URL_NOT_PUBLIC:
+    'FRONTEND_BASE_URL is not a public HTTPS address, so Spreadconnect cannot reach this shop.',
+  REFUSED: 'Spreadconnect refused the call; check the access token of this destination.',
+  RATE_LIMITED: 'Spreadconnect rate limit reached; try again in a minute.',
+  PROVIDER_UNAVAILABLE: 'Spreadconnect could not be reached.',
+  PROVIDER_ANSWER_UNREADABLE: 'Spreadconnect answered something this shop cannot read.',
+}
+
 /** How often a running sync is polled. A run takes seconds to many minutes. */
 const SYNC_POLL_INTERVAL_MS = 2000
 
@@ -458,6 +478,29 @@ export const useAdminProductionDestinationsStore = defineStore(
       }
     }
 
+    async function webhookCall(id: number, method: 'GET' | 'POST'): Promise<SpodWebhookStatus[]> {
+      try {
+        return await fetchJson<SpodWebhookStatus[]>(`${DESTINATIONS_PATH}/${id}/webhooks`, {
+          method,
+        })
+      } catch (err) {
+        const code = err instanceof ApiError ? (err.code ?? '') : ''
+        throw new Error(
+          WEBHOOK_MESSAGES[code] ?? (err instanceof Error ? err.message : 'Unknown error'),
+        )
+      }
+    }
+
+    /** Asks Spreadconnect whether it calls this deployment for every event the shop acts on. */
+    function webhookStatus(id: number): Promise<SpodWebhookStatus[]> {
+      return webhookCall(id, 'GET')
+    }
+
+    /** Subscribes the missing events and replaces stale subscriptions; answers the new status. */
+    function registerWebhooks(id: number): Promise<SpodWebhookStatus[]> {
+      return webhookCall(id, 'POST')
+    }
+
     return {
       destinations,
       isLoading,
@@ -472,6 +515,8 @@ export const useAdminProductionDestinationsStore = defineStore(
       syncProgress,
       syncArticles,
       loadSyncState,
+      webhookStatus,
+      registerWebhooks,
     }
   },
 )

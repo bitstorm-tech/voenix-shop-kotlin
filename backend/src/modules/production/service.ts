@@ -1,5 +1,5 @@
 import type { SpodCatalogSync } from '@/modules/article'
-import type { SpodEnvironment } from '@/modules/spod'
+import type { SpodAccess, SpodEnvironment } from '@/modules/spod'
 import {
   buildValidationErrors,
   invalid,
@@ -14,6 +14,7 @@ import type {
   DestinationWriteResult,
   StoredDestination,
 } from './repository'
+import type { SpodWebhooks, WebhookResult } from './spod/webhooks'
 
 /**
  * The validated create or replace body, as `routes.ts`'s schema produces it: trimmed, defaults
@@ -52,23 +53,41 @@ export type DestinationSyncResult =
   | { kind: 'notSyncable' }
   | { kind: 'busy' }
 
+/** A webhook request: the partner's answer, or why this destination has none. */
+export type DestinationWebhookResult =
+  | WebhookResult
+  | { kind: 'notFound' }
+  | { kind: 'notSyncable' }
+
 export type DestinationService = ReturnType<typeof createDestinationService>
 
 const UNCONFIGURED_SPOD =
   'This deployment has no production.spod configuration, so no SPOD destination can be stored'
 
 /**
- * The admin destination use cases. `spodConfigured` is the write side of the startup check: a
- * deployment without the SPOD settings would refuse to start once a SPOD destination exists, so
- * none may be stored, enabled or not.
+ * The admin destination use cases. `webhooks` is `null` in a deployment without the SPOD
+ * settings, and that is the write side of the startup check: such a deployment would refuse to
+ * start once a SPOD destination exists, so none may be stored, enabled or not.
  */
 export function createDestinationService(
   repository: DestinationRepository,
-  spodConfigured: boolean,
+  webhooks: SpodWebhooks | null,
   spodCatalogSync: Pick<SpodCatalogSync, 'start' | 'state'>,
 ) {
   const refusedSpod = (input: DestinationInput) =>
-    !spodConfigured && input.detail.channel === 'SPOD'
+    webhooks === null && input.detail.channel === 'SPOD'
+
+  /** Runs one webhook use case with the destination's SPOD access. */
+  const withAccess = async (
+    id: number,
+    use: (webhooks: SpodWebhooks, access: SpodAccess) => Promise<WebhookResult>,
+  ): Promise<DestinationWebhookResult> => {
+    const source = await repository.catalogSource(id)
+    if (source === 'notFound') return { kind: 'notFound' }
+    if (source === 'notSyncable') return { kind: 'notSyncable' }
+    if (webhooks === null) throw new Error('A SPOD destination exists without production.spod')
+    return use(webhooks, source.access)
+  }
 
   return {
     list: async (): Promise<DestinationResponse[]> => (await repository.list()).map(toResponse),
@@ -112,6 +131,12 @@ export function createDestinationService(
     },
 
     syncState: spodCatalogSync.state,
+
+    /** Whether the partner calls this deployment for every event it acts on. Opens no transaction. */
+    webhookStatus: (id: number) => withAccess(id, (hooks, access) => hooks.status(access)),
+
+    /** Brings the destination's subscriptions to this deployment's webhook URL. */
+    registerWebhooks: (id: number) => withAccess(id, (hooks, access) => hooks.register(access)),
   }
 }
 

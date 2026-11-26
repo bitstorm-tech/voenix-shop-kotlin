@@ -43,7 +43,7 @@ the article itself is in the
 | 1. `production.spod` configured | application configuration | the app refuses to start once a SPOD destination exists, and the admin UI refuses to create one |
 | 2. Supplier created | `/admin/suppliers/new` | no destination and no article can name it |
 | 3. SPOD destination created | `/admin/logistics/destinations` | the job is created but never submitted |
-| 4. Webhook subscriptions registered | partner API (`curl`) | orders are produced, but the shop never learns they shipped |
+| 4. Webhook subscriptions registered | `/admin/logistics/destinations` → *Register webhooks* | orders are produced, but the shop never learns they shipped |
 | 5. Article created in the backoffice, synced, and completed here | Spreadconnect backoffice → `/admin/logistics/destinations` → `/admin/articles/spod` | nothing to sell |
 | 6. Test order on staging | shop + `/admin/logistics` | you find the mistakes in step 3 and 5 with a paying customer |
 | 7. Destination switched to `PRODUCTION` and re-synced | `/admin/logistics/destinations` | the shop keeps talking to the staging installation |
@@ -147,20 +147,15 @@ rather than creating a second one; the job history stays attached to it.
 ## 4. The webhook subscriptions
 
 The partner reports shipments, cancellations, and open questions by calling
-the shop. Subscribing is done against the partner's API, once per environment,
-with the token from step 3 and the secret from step 1:
-
-```sh
-SPOD_BASE=https://rest.spod-staging.com   # or https://rest.spod.com
-SPOD_TOKEN=…                                       # the destination's access token
-SECRET=…                                           # production.spod.webhookSecret
-for event in Shipment.sent Order.cancelled Order.needs-action; do
-  curl -X POST "$SPOD_BASE/subscriptions" \
-    -H "X-SPOD-ACCESS-TOKEN: $SPOD_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"eventType\":\"$event\",\"url\":\"https://<shop-host>/api/production/webhooks/spod/$SECRET\"}"
-done
-```
+the shop. On `/admin/logistics/destinations` every SPOD destination has a
+*Webhooks* line below its row: one badge per event (`Shipment.sent`,
+`Order.cancelled`, `Order.needs-action`) that reads `active`, `missing`, or
+`wrong URL`. **Register webhooks** subscribes the missing events at
+`FRONTEND_BASE_URL` + `/api/production/webhooks/spod/` + the secret from
+step 1, and replaces the shop's own stale subscriptions (an old secret or host).
+Do it once per environment, and again after the secret or the shop's address
+changed. The Spreadconnect backoffice shows none of this; the partner offers
+subscriptions only through its API.
 
 Two checks that are worth the minute:
 
@@ -170,7 +165,8 @@ Two checks that are worth the minute:
 - The shop must be reachable from the public internet. A shop behind a VPN or
   on `localhost` gets no shipments and no error.
 
-For a local development setup there is no webhook: the job reaches
+For a local development setup there is no webhook (the button refuses a
+`FRONTEND_BASE_URL` that is not HTTPS): the job reaches
 `prepared_at` and stays there until someone marks it shipped by hand on the
 *Logistics* page.
 

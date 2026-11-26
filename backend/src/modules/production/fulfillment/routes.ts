@@ -7,6 +7,7 @@ import { apiError, jsonBody } from '@/platform/http/respond'
 import { carrierOf, SHIPPING_CARRIERS } from './carrier'
 import type { Shipment } from './repository'
 import type { ArtifactResult, FulfillmentService, ShipResult } from './service'
+import { SPOD_WEBHOOK_PATH } from '../spod/webhooks'
 import { parseSpodWebhookEvent, secretMatches } from './webhook'
 
 /**
@@ -127,7 +128,7 @@ export function fulfillmentRoutes(
     // The partner demands 202 `[accepted]` and redelivers anything else, so every processed event
     // and every no-op answers it. The secret is compared before the body is read; only a database
     // failure, the one thing a redelivery fixes, becomes a 500 by throwing.
-    routes.post('/api/production/webhooks/spod/:secret', async (c) => {
+    routes.post(`${SPOD_WEBHOOK_PATH}:secret`, async (c) => {
       if (!secretMatches(c.req.param('secret'), webhookSecret)) {
         return c.json(apiError('Forbidden'), 403)
       }

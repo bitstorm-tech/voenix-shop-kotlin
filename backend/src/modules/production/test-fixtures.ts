@@ -33,6 +33,7 @@ import {
 import { createArtifactStore } from './pdf/artifact-store'
 import { createSpodOrderRepository } from './spod/repository'
 import type { SubmissionClient } from './spod/submitter'
+import type { WebhookClient } from './spod/webhooks'
 
 /**
  * What the production tests share: the module wired to the real email outbox and supplier lookup
@@ -306,6 +307,21 @@ export function stubSpodClient(overrides: Partial<SubmissionClient> = {}): Submi
   }
 }
 
+/** The subscription calls of a SPOD client, failing the test unless the test scripts them. */
+export function stubWebhookClient(overrides: Partial<WebhookClient> = {}): WebhookClient {
+  const unexpected = <T>(): Promise<SpodResult<T>> =>
+    Promise.reject(new Error('No subscription call is expected in this test'))
+  return {
+    subscriptions: () => unexpected(),
+    subscribe: () => unexpected(),
+    unsubscribe: () => unexpected(),
+    ...overrides,
+  }
+}
+
+/** The public address the production test kit runs under. */
+export const FRONTEND_BASE_URL = 'https://voenix.test'
+
 /** The supplier logins of a test: user id → supplier id. */
 export function supplierLogins() {
   const logins = new Map<number, number>()
@@ -324,11 +340,15 @@ export async function productionTestKit(
   {
     spodSettings = SPOD_SETTINGS,
     client = stubSpodClient(),
+    webhookClient = stubWebhookClient(),
+    frontendBaseUrl = FRONTEND_BASE_URL,
     syncStart = 'busy',
     syncState = { running: false, progress: null, report: null },
   }: {
     spodSettings?: Settings['production']['spod']
     client?: SubmissionClient
+    webhookClient?: WebhookClient
+    frontendBaseUrl?: string
     syncStart?: 'started' | 'busy'
     syncState?: SpodSyncState
   } = {},
@@ -371,10 +391,11 @@ export async function productionTestKit(
       },
       state: () => syncState,
     },
-    spod: client,
+    spod: { ...client, ...webhookClient },
     accounts: logins.accounts,
     orders: orders.reads,
     alertEmail: ALERT_EMAIL,
+    frontendBaseUrl,
   })
   const artifacts = await createArtifactStore(settings.artifactRoot)
   const worker = createProductionWorker({

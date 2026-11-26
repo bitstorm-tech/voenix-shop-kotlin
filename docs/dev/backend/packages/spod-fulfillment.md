@@ -433,21 +433,30 @@ it, which keeps the job history attached.
 
 ### Registering the webhook subscriptions
 
-```sh
-SPOD_BASE=https://rest.spod-staging.com   # or https://rest.spod.com
-for event in Shipment.sent Order.cancelled Order.needs-action; do
-  curl -X POST "$SPOD_BASE/subscriptions" \
-    -H "X-SPOD-ACCESS-TOKEN: $SPOD_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"eventType\":\"$event\",\"url\":\"https://<shop-host>/api/production/webhooks/spod/$PRODUCTION_SPOD_WEBHOOK_SECRET\"}"
-done
-```
+The partner has subscriptions only in its API, so the admin does it from the
+destination row ([`spod/webhooks.ts`](../../../../backend/src/modules/production/spod/webhooks.ts)):
+
+- `GET …/destinations/{id}/webhooks` lists the account's subscriptions and
+  answers per event `ACTIVE` (one points at exactly this deployment's URL),
+  `WRONG_URL` (only others), or `MISSING`, plus the hosts of the others. The
+  expected URL is `FRONTEND_BASE_URL` + `/api/production/webhooks/spod/` + the
+  secret; it holds the secret, so neither it nor any subscribed path is
+  answered or logged.
+- `POST …/destinations/{id}/webhooks` deletes the subscriptions of the three
+  events whose path is this shop's webhook path but whose URL is not the
+  expected one (an old secret, an old host), subscribes every missing event,
+  and answers the new status. A subscription outside that path is left alone:
+  it belongs to some other receiver of the account. Every step is idempotent,
+  so a run that failed half-way is repeated; a partner failure is a `502` with
+  the bounded `SpodError` as `code`, a `FRONTEND_BASE_URL` that is not HTTPS a
+  `409 WEBHOOK_URL_NOT_PUBLIC`. The optional signature `secret` of the
+  partner is not sent; the path secret is the authentication (decision 5).
 
 Two checks: `curl -i -X POST https://<shop-host>/api/production/webhooks/spod/wrong-secret`
 must answer `403`, and the real secret `202` with `[accepted]` for any body.
 The URL must be reachable from the public internet; a shop behind a VPN gets
 no shipments and no error. Rotating the secret means deploying the new value
-and re-registering; the old URL answers `403` from then on.
+and pressing *Register webhooks*; the old URL answers `403` from then on.
 
 ### Reading a job's state
 

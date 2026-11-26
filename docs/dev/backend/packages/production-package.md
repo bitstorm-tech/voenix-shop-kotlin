@@ -260,6 +260,8 @@ writes):
 | `PUT /api/admin/production/destinations/{id}` | `200` | Fully replace a destination |
 | `POST /api/admin/production/destinations/{id}/sync-articles` | `202` + sync state | Start a background sync of this destination's SPOD catalog |
 | `GET /api/admin/production/destinations/{id}/sync-articles` | `200` + sync state | Whether the sync still runs, and the last finished run's report |
+| `GET /api/admin/production/destinations/{id}/webhooks` | `200` + status per event | Whether the partner calls this deployment for each event ([SPOD fulfillment](spod-fulfillment.md#registering-the-webhook-subscriptions)) |
+| `POST /api/admin/production/destinations/{id}/webhooks` | `200` + status per event | Subscribe the missing events, replace this shop's stale subscriptions |
 | `DELETE /api/admin/production/destinations/{id}` | `204` | Delete an unreferenced destination |
 
 | Failure | Answer |

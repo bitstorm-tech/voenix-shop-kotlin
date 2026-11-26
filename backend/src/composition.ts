@@ -148,6 +148,7 @@ export async function createApplication(
       accounts: account.supplierAccounts,
       orders: order.orders,
       alertEmail: settings.operations.alertEmail,
+      frontendBaseUrl,
     })
     // Operations looks across the pipeline through the findings of the three owning modules.
     const operations = createOperationsModule({

@@ -14,6 +14,7 @@ export {
   type SpodQuantityItem,
   type SpodResult,
   type SpodShipping,
+  type SpodSubscription,
 } from './client'
 export {
   downloadUrl,

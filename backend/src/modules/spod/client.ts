@@ -155,6 +155,22 @@ const designAnswer = z.object({ designId: lenientId })
 const createdOrderAnswer = z.object({ id: lenientId })
 const orderStateAnswer = z.object({ state: z.string() })
 const hotspotsAnswer = z.object({ hotspots: z.array(z.object({ name: z.string() })).default([]) })
+const subscriptionsAnswer = z.array(
+  z.object({
+    id: lenientId,
+    eventType: z.string(),
+    url: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? null),
+  }),
+)
+
+/**
+ * One webhook subscription of the account. Its `url` carries the receiver's secret in this shop's
+ * case, so it is compared and never logged or answered.
+ */
+export type SpodSubscription = z.output<typeof subscriptionsAnswer>[number]
 
 /** A download that is no usable image: not https, not an image, or over the cap. */
 const UNUSABLE_IMAGE: SpodFailure = {
@@ -228,7 +244,7 @@ export function createSpodClient({
     access: SpodAccess,
     what: string,
     path: string,
-    init: { method: 'GET' | 'POST'; body?: string | FormData; contentType?: string },
+    init: { method: 'GET' | 'POST' | 'DELETE'; body?: string | FormData; contentType?: string },
     read: (body: string) => T,
     signal?: AbortSignal,
   ): Promise<SpodResult<T>> => {
@@ -325,6 +341,35 @@ export function createSpodClient({
         'confirming an order',
         `/orders/${encodeURIComponent(orderId)}/confirm`,
         { method: 'POST' },
+        () => undefined,
+      ),
+
+    /** The account's webhook subscriptions, every event type. */
+    subscriptions: (access: SpodAccess) =>
+      call(access, 'listing subscriptions', '/subscriptions', { method: 'GET' }, (body) =>
+        json(subscriptionsAnswer)(body),
+      ),
+
+    /** Subscribes `url` to one event type, without the partner's optional signature secret. */
+    subscribe: (access: SpodAccess, eventType: string, url: string) =>
+      call(
+        access,
+        'creating a subscription',
+        '/subscriptions',
+        {
+          method: 'POST',
+          contentType: 'application/json',
+          body: JSON.stringify({ eventType, url }),
+        },
+        () => undefined,
+      ),
+
+    unsubscribe: (access: SpodAccess, subscriptionId: string) =>
+      call(
+        access,
+        'deleting a subscription',
+        `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+        { method: 'DELETE' },
         () => undefined,
       ),
 

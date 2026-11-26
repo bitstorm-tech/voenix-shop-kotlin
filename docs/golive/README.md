@@ -132,7 +132,7 @@ flowchart LR
   - `OPERATIONS_ALERT_EMAIL=<überwachtes Ops-Postfach>`
   - Start-Logs prüfen: Mollie-Modus `live`, keine Konfigurations-`WARN`-Logs.
 - [ ] **`E2` Fulfillment live schalten (Admin `/admin/logistics/destinations`):**
-  - SPOD von `STAGING` auf `PRODUCTION` + Live-Token umstellen, Katalog neu synchronisieren, Live-Webhooks registrieren (`Shipment.sent`, `Order.cancelled`, `Order.needs-action`).
+  - SPOD von `STAGING` auf `PRODUCTION` + Live-Token umstellen, Katalog neu synchronisieren, Live-Webhooks registrieren (Knopf *Register webhooks* auf `/admin/logistics/destinations`, alle drei Events `active`).
   - Tassen-SFTP-Zugang + SHA-256-Host-Key-Fingerprint verifizieren; SFTP-Passwort und SPOD-Token im Admin neu eingeben (Migration `V43` hat alle Klartext-Secrets geleert).
 
 ### Domain-Umzug & Live-Abnahme (T0, vor Traffic/Werbung)

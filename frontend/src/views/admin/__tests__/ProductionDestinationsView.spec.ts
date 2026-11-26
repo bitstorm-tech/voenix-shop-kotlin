@@ -54,6 +54,8 @@ const mocks = vi.hoisted(() => {
       syncProgress: vi.fn(),
       syncArticles: vi.fn(),
       loadSyncState: vi.fn(),
+      webhookStatus: vi.fn(),
+      registerWebhooks: vi.fn(),
     },
     suppliersState: {
       suppliers: [{ id: 3, name: 'Acme' }],
@@ -127,6 +129,8 @@ function resetStoreState() {
   mocks.storeState.syncProgress.mockReset().mockReturnValue(null)
   mocks.storeState.syncArticles.mockReset().mockResolvedValue(undefined)
   mocks.storeState.loadSyncState.mockReset().mockResolvedValue(undefined)
+  mocks.storeState.webhookStatus.mockReset().mockResolvedValue([])
+  mocks.storeState.registerWebhooks.mockReset().mockResolvedValue([])
   mocks.suppliersState.fetchSuppliers.mockReset().mockResolvedValue(undefined)
 }
 
@@ -349,6 +353,32 @@ describe('ProductionDestinationsView', () => {
     await flushPromises()
 
     expect(mocks.storeState.syncArticles).toHaveBeenCalledWith(1)
+  })
+
+  it('shows the webhook status of SPOD rows only and registers the missing ones', async () => {
+    mocks.storeState.destinations = [spodDestination, sftpDestination]
+    mocks.storeState.webhookStatus.mockResolvedValue([
+      { eventType: 'Shipment.sent', state: 'ACTIVE', otherHosts: [] },
+      { eventType: 'Order.cancelled', state: 'WRONG_URL', otherHosts: ['old.example'] },
+    ])
+    mocks.storeState.registerWebhooks.mockResolvedValue([
+      { eventType: 'Shipment.sent', state: 'ACTIVE', otherHosts: [] },
+      { eventType: 'Order.cancelled', state: 'ACTIVE', otherHosts: [] },
+    ])
+    const wrapper = await mountView()
+
+    const webhooks = wrapper.get('[data-testid="destination-webhooks-1"]')
+    expect(webhooks.text()).toContain('Shipment.sent: active')
+    expect(webhooks.text()).toContain('Order.cancelled: wrong URL')
+    expect(wrapper.find('[data-testid="destination-webhooks-2"]').exists()).toBe(false)
+    expect(mocks.storeState.webhookStatus).toHaveBeenCalledWith(1)
+
+    await wrapper.get('[data-testid="destination-webhooks-register-1"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.storeState.registerWebhooks).toHaveBeenCalledWith(1)
+    expect(webhooks.text()).toContain('Order.cancelled: active')
+    expect(wrapper.find('[data-testid="destination-webhooks-register-1"]').exists()).toBe(false)
   })
 
   it('keeps a disabled destination syncable', async () => {

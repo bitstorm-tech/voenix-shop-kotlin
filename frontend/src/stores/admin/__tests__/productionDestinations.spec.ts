@@ -369,6 +369,27 @@ describe('admin production destinations store', () => {
     expect(store.isSyncing(1)).toBe(false)
   })
 
+  it('reads and registers the webhooks on the item route and names a failure in this shop words', async () => {
+    const statuses = [{ eventType: 'Shipment.sent', state: 'ACTIVE', otherHosts: [] }]
+    const fetchMock = stubFetch(() => jsonResponse(statuses))
+    const store = useAdminProductionDestinationsStore()
+
+    expect(await store.webhookStatus(1)).toEqual(statuses)
+    expect(await store.registerWebhooks(1)).toEqual(statuses)
+    const calls = fetchMock.mock.calls.filter(([url]) => url !== '/api/antiforgery/token')
+    expect(calls.map(([url, init]) => `${init?.method ?? 'GET'} ${String(url)}`)).toEqual([
+      'GET /api/admin/production/destinations/1/webhooks',
+      'POST /api/admin/production/destinations/1/webhooks',
+    ])
+
+    stubFetch(() =>
+      jsonResponse({ message: 'not https', code: 'WEBHOOK_URL_NOT_PUBLIC' }, { status: 409 }),
+    )
+    await expect(store.registerWebhooks(1)).rejects.toThrow('FRONTEND_BASE_URL is not a public')
+    stubFetch(() => jsonResponse({ message: 'Spreadconnect did not answer' }, { status: 502 }))
+    await expect(store.webhookStatus(1)).rejects.toThrow('Spreadconnect did not answer')
+  })
+
   it('translates an unknown destination on the sync route into a not-found error', async () => {
     stubFetch(() => jsonResponse({ message: 'Production destination not found' }, { status: 404 }))
     const store = useAdminProductionDestinationsStore()

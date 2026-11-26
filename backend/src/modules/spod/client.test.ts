@@ -189,6 +189,37 @@ describe('the order calls', () => {
     ])
   })
 
+  test('subscriptions are listed, created without a signature secret, and deleted by id', async () => {
+    const answers = [
+      jsonAnswer(
+        '[{"id":"sub-1","eventType":"Shipment.sent","url":"https://a.test/x"},{"id":2,"eventType":"Order.cancelled"}]',
+      ),
+      new Response(null, { status: 201 }),
+      new Response(null, { status: 200 }),
+    ]
+    const spod = harness(() => answers.shift() ?? refusal(500))
+
+    expect(await spod.client.subscriptions(access())).toEqual({
+      kind: 'answered',
+      value: [
+        { id: 'sub-1', eventType: 'Shipment.sent', url: 'https://a.test/x' },
+        { id: '2', eventType: 'Order.cancelled', url: null },
+      ],
+    })
+    await spod.client.subscribe(access(), 'Order.cancelled', 'https://shop.test/hook')
+    await spod.client.unsubscribe(access(), 'sub/1')
+
+    expect(spod.requests.map((request) => `${request.method} ${request.url}`)).toEqual([
+      'GET https://rest.spod-staging.com/subscriptions',
+      'POST https://rest.spod-staging.com/subscriptions',
+      'DELETE https://rest.spod-staging.com/subscriptions/sub%2F1',
+    ])
+    expect(await spod.requests[1]?.json()).toEqual({
+      eventType: 'Order.cancelled',
+      url: 'https://shop.test/hook',
+    })
+  })
+
   test('an order id typed by an admin is encoded into one path segment', async () => {
     const spod = harness(() => jsonAnswer('{"id":"x","state":"NEW"}'))
 

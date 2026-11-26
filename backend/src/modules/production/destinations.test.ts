@@ -3,6 +3,7 @@ import type { SpodSyncReport } from '@/modules/article'
 import { testDatabase } from '@test-support/database'
 import { jsonOf, signedInHeaders, testApp, testSecrets } from '@test-support/http'
 import { rejectionOf } from '@test-support/values'
+import type { SpodAccess, SpodSubscription } from '@/modules/spod'
 import {
   productionTestKit,
   resetProduction,
@@ -10,6 +11,8 @@ import {
   seedSftpDestination,
   seedSpodDestination,
   seedSupplier,
+  stubWebhookClient,
+  WEBHOOK_SECRET,
 } from './test-fixtures'
 
 const database = testDatabase()
@@ -293,5 +296,108 @@ describe('…/{id}/sync-articles', () => {
     const answer = await call('GET', `${PATH}/1/sync-articles`)
     expect(answer.status).toBe(200)
     expect(await jsonOf(answer)).toEqual({ running: false, progress: null, report })
+  })
+})
+
+describe('…/{id}/webhooks', () => {
+  const OWN = `https://voenix.test/api/production/webhooks/spod/${WEBHOOK_SECRET}`
+  const OLD_SECRET = 'https://voenix.test/api/production/webhooks/spod/rotated-away'
+
+  /** A partner account holding `subscriptions`, recording every write. */
+  function partner(subscriptions: SpodSubscription[]) {
+    const calls: string[] = []
+    const accesses: SpodAccess[] = []
+    const answered = <T>(value: T) => Promise.resolve({ kind: 'answered' as const, value })
+    const client = stubWebhookClient({
+      subscriptions: (access) => {
+        accesses.push(access)
+        return answered(subscriptions.map((item) => ({ ...item })))
+      },
+      subscribe: (_, eventType, url) => {
+        calls.push(`subscribe ${eventType} ${url}`)
+        subscriptions.push({ id: `new-${eventType}`, eventType, url })
+        return answered(undefined)
+      },
+      unsubscribe: (_, id) => {
+        calls.push(`unsubscribe ${id}`)
+        subscriptions.splice(
+          subscriptions.findIndex((item) => item.id === id),
+          1,
+        )
+        return answered(undefined)
+      },
+    })
+    return { client, calls, accesses }
+  }
+
+  /** One own, one stale, and one foreign subscription; `Order.needs-action` has none. */
+  const mixed = (): SpodSubscription[] => [
+    { id: 'own', eventType: 'Shipment.sent', url: OWN },
+    { id: 'foreign', eventType: 'Shipment.sent', url: 'https://other.example/hook' },
+    { id: 'stale', eventType: 'Order.cancelled', url: OLD_SECRET },
+  ]
+
+  test('GET compares every event with this deployment and answers no URL', async () => {
+    const account = partner(mixed())
+    const { call } = await adminApp({ webhookClient: account.client })
+    const destinationId = await seedSpodDestination(database.db, supplierId)
+    const answer = await call('GET', `${PATH}/${String(destinationId)}/webhooks`)
+    expect(answer.status).toBe(200)
+    const body = await answer.text()
+    expect(body).not.toContain(WEBHOOK_SECRET)
+    expect(body).not.toContain('rotated-away')
+    expect(JSON.parse(body)).toEqual([
+      { eventType: 'Shipment.sent', state: 'ACTIVE', otherHosts: ['other.example'] },
+      { eventType: 'Order.cancelled', state: 'WRONG_URL', otherHosts: ['voenix.test'] },
+      { eventType: 'Order.needs-action', state: 'MISSING', otherHosts: [] },
+    ])
+    expect(account.accesses).toEqual([
+      { destinationId, environment: 'STAGING', accessToken: 'spod-token', timeoutSeconds: 5 },
+    ])
+  })
+
+  test('POST replaces stale subscriptions, adds missing ones, keeps foreign ones, and is idempotent', async () => {
+    const account = partner(mixed())
+    const { call } = await adminApp({ webhookClient: account.client })
+    const destinationId = await seedSpodDestination(database.db, supplierId)
+    const answer = await call('POST', `${PATH}/${String(destinationId)}/webhooks`)
+    expect(answer.status).toBe(200)
+    expect(account.calls).toEqual([
+      'unsubscribe stale',
+      `subscribe Order.cancelled ${OWN}`,
+      `subscribe Order.needs-action ${OWN}`,
+    ])
+    expect(await jsonOf(answer)).toEqual([
+      { eventType: 'Shipment.sent', state: 'ACTIVE', otherHosts: ['other.example'] },
+      { eventType: 'Order.cancelled', state: 'ACTIVE', otherHosts: [] },
+      { eventType: 'Order.needs-action', state: 'ACTIVE', otherHosts: [] },
+    ])
+    await call('POST', `${PATH}/${String(destinationId)}/webhooks`)
+    expect(account.calls.length).toBe(3)
+  })
+
+  test('unknown, not print-on-demand, not public, and a partner failure', async () => {
+    const refused = stubWebhookClient({
+      subscriptions: () => Promise.resolve({ kind: 'failed', error: 'REFUSED', ambiguous: false }),
+    })
+    const { call } = await adminApp({ webhookClient: refused })
+    expect((await call('GET', `${PATH}/99/webhooks`)).status).toBe(404)
+    const sftpId = await seedSftpDestination(database.db, {
+      supplierId,
+      port: 22,
+      fingerprint: 'x',
+    })
+    const sftp = await call('POST', `${PATH}/${String(sftpId)}/webhooks`)
+    expect(sftp.status).toBe(409)
+    expect(await jsonOf(sftp)).toMatchObject({ code: 'CHANNEL_WITHOUT_WEBHOOKS' })
+    const spodId = await seedSpodDestination(database.db, supplierId)
+    const failed = await call('GET', `${PATH}/${String(spodId)}/webhooks`)
+    expect(failed.status).toBe(502)
+    expect(await jsonOf(failed)).toMatchObject({ code: 'REFUSED' })
+
+    const local = await adminApp({ frontendBaseUrl: 'http://localhost:5173' })
+    const notPublic = await local.call('POST', `${PATH}/${String(spodId)}/webhooks`)
+    expect(notPublic.status).toBe(409)
+    expect(await jsonOf(notPublic)).toMatchObject({ code: 'WEBHOOK_URL_NOT_PUBLIC' })
   })
 })
