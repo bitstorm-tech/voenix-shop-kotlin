@@ -468,12 +468,13 @@ to production:
    [SPOD fulfillment](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob/kotlin-backend/docs/dev/backend/packages/spod-fulfillment.md#the-bounded-error-codes)
    says what each one means. The one you will meet during set-up is `REFUSED`:
    the token does not belong to the destination's environment.
-4. Simulate the shipment with the partner's staging **simulation endpoints**
-   (see the *Simulation* section of the API reference; they exist only on
-   staging) and check that the job turns *shipped* and the customer's shipping
+4. Simulate the shipment on `/admin/logistics/spod-simulation`, which calls
+   the partner's staging-only simulation endpoints (*Simulate Events* in the
+   API reference), and check that the job turns *shipped* and the customer's shipping
    mail is enqueued. That proves the webhook URL and secret. Simulate
-   `Order.cancelled` and `Order.needs-action` once too, and check that the
-   ops alert arrives at `OPERATIONS_ALERT_EMAIL` exactly once per job.
+   `Order.cancelled` once too, and check that the ops alert arrives at
+   `OPERATIONS_ALERT_EMAIL` exactly once per job. `Order.needs-action` has no
+   simulation endpoint.
 
 ## 7. Moving from staging to production
 

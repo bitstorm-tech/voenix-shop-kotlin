@@ -148,6 +148,14 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'logistics/spod-simulation',
+        name: 'admin-spod-simulation',
+        component: () => import('@/views/admin/SpodSimulationView.vue'),
+        meta: {
+          title: 'SPOD Simulation',
+        },
+      },
+      {
         path: 'countries',
         name: 'admin-countries',
         component: () => import('@/views/admin/CountriesView.vue'),

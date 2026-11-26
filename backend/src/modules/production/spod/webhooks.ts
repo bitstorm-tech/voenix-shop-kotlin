@@ -6,7 +6,10 @@ export const SPOD_WEBHOOK_EVENTS = ['Shipment.sent', 'Order.cancelled', 'Order.n
 /** The path the partner calls; the configured secret is its last segment. */
 export const SPOD_WEBHOOK_PATH = '/api/production/webhooks/spod/'
 
-export type WebhookClient = Pick<SpodClient, 'subscriptions' | 'subscribe' | 'unsubscribe'>
+export type WebhookClient = Pick<
+  SpodClient,
+  'subscriptions' | 'subscribe' | 'unsubscribe' | 'simulate'
+>
 
 /** `WRONG_URL`: subscribed, but to a URL other than this deployment's, e.g. an old secret. */
 export type WebhookState = 'ACTIVE' | 'MISSING' | 'WRONG_URL'

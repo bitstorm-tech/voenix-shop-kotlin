@@ -113,6 +113,11 @@ export const adminNavigationItems: AdminNavItem[] = [
       },
       {
         type: 'link',
+        title: 'SPOD Simulation',
+        to: '/admin/logistics/spod-simulation',
+      },
+      {
+        type: 'link',
         title: 'Countries',
         to: '/admin/countries',
       },

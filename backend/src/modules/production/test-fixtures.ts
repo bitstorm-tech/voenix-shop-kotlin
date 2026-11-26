@@ -318,6 +318,7 @@ export function stubWebhookClient(overrides: Partial<WebhookClient> = {}): Webho
     subscriptions: () => unexpected(),
     subscribe: () => unexpected(),
     unsubscribe: () => unexpected(),
+    simulate: () => unexpected(),
     ...overrides,
   }
 }

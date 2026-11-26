@@ -20,6 +20,7 @@ import { createDestinationRepository } from './repository'
 import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
+import { spodSimulationRoutes } from './spod/simulation'
 import type { SubmissionClient } from './spod/submitter'
 import { createSpodWebhooks, SPOD_WEBHOOK_PATH, type WebhookClient } from './spod/webhooks'
 import { productionOfOrder, unshippedOrderCount } from './timeline'
@@ -133,6 +134,7 @@ export async function createProductionModule({
     ),
   )
   routes.route('/', fulfillmentRoutes(fulfillment, accounts, settings.spod?.webhookSecret ?? null))
+  routes.route('/', spodSimulationRoutes(db, secrets, spod))
   return {
     routes,
     productionPdfGenerator: createProductionPdfGenerator(loadOrder),

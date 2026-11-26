@@ -143,6 +143,13 @@ export interface SpodConfigurationImage {
   designId: string
 }
 
+/**
+ * The staging simulations of the events this shop acts on (`Order.needs-action` has none, and
+ * `Order.processed` is not subscribed). The values are the partner's path segments.
+ */
+export const SPOD_SIMULATED_EVENTS = ['shipment-sent', 'order-cancelled'] as const
+export type SpodSimulatedEvent = (typeof SPOD_SIMULATED_EVENTS)[number]
+
 /** The partner allows 60 requests per minute; the extra 50 ms absorb the scheduling jitter. */
 const MIN_REQUEST_INTERVAL_MILLIS = 1050
 const ACCESS_TOKEN_HEADER = 'X-SPOD-ACCESS-TOKEN'
@@ -372,6 +379,23 @@ export function createSpodClient({
         { method: 'DELETE' },
         () => undefined,
       ),
+
+    /**
+     * Makes the partner send one webhook event for an order without changing the order. The
+     * endpoints exist on staging only, so a production access is a programming error.
+     */
+    simulate: (access: SpodAccess, orderId: string, event: SpodSimulatedEvent) => {
+      if (access.environment !== 'STAGING') {
+        throw new Error('SPOD events can only be simulated on the staging installation')
+      }
+      return call(
+        access,
+        `simulating ${event}`,
+        `/orders/${encodeURIComponent(orderId)}/simulate/${event}`,
+        { method: 'POST' },
+        () => undefined,
+      )
+    },
 
     /** The placement names this product type offers for this design. */
     availableHotspots: (

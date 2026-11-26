@@ -189,6 +189,21 @@ describe('the order calls', () => {
     ])
   })
 
+  test('an event is simulated on staging and never sent to production', async () => {
+    const spod = harness(() => new Response(null, { status: 202 }))
+
+    const simulated = await spod.client.simulate(access(), 'spod-42', 'shipment-sent')
+
+    expect(simulated).toEqual({ kind: 'answered', value: undefined })
+    expect(spod.request().url).toBe(
+      'https://rest.spod-staging.com/orders/spod-42/simulate/shipment-sent',
+    )
+    expect(() =>
+      spod.client.simulate({ ...access(), environment: 'PRODUCTION' }, 'spod-42', 'shipment-sent'),
+    ).toThrow('staging')
+    expect(spod.requests).toHaveLength(1)
+  })
+
   test('subscriptions are listed, created without a signature secret, and deleted by id', async () => {
     const answers = [
       jsonAnswer(

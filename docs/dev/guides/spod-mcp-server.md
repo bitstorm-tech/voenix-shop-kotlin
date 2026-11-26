@@ -98,7 +98,7 @@ claude mcp add --transport stdio spod-prod \
 - `GET /articles?limit=10&offset=0` – Backoffice-Artikel inspizieren
 - `GET /productTypes/2973`, `/views`, `/size-chart` – Produkttyp-Metadaten, Druckflächen, Größentabellen
 - `GET /subscriptions` – registrierte Webhooks prüfen
-- `POST /orders/{id}/simulate-shipment` – Versand-Webhook auf Staging simulieren
+- `POST /orders/{id}/simulate/shipment-sent` (bzw. `order-cancelled`, `order-processed`) – Webhook-Event auf Staging simulieren
 
 ## Tests
 

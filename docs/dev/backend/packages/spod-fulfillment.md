@@ -460,6 +460,31 @@ The URL must be reachable from the public internet; a shop behind a VPN gets
 no shipments and no error. Rotating the secret means deploying the new value
 and pressing *Register webhooks*; the old URL answers `403` from then on.
 
+### Simulating events on staging
+
+The partner offers staging-only endpoints that make it send a webhook event
+for an order without changing that order. The admin page *SPOD Simulation*
+(`/admin/logistics/spod-simulation`,
+[`spod/simulation.ts`](../../../../backend/src/modules/production/spod/simulation.ts))
+calls them for the two events this shop acts on:
+
+- `GET /api/admin/production/spod-simulation` lists the newest 100 SPOD jobs
+  that have a partner order id and whose supplier's enabled SPOD destination
+  is `STAGING`.
+- `POST /api/admin/production/spod-simulation/{jobId}` with
+  `{ "event": "shipment-sent" | "order-cancelled" }` calls
+  `POST /orders/{id}/simulate/{event}` and answers `202`; the event then
+  arrives through the webhook like a real one. A job outside that list is a
+  `404`, a partner failure a `502` with the bounded `SpodError`.
+
+`Order.needs-action` has no simulation endpoint, and `Order.processed` is not
+subscribed, so neither is offered. The order row does not record its
+installation; the supplier's current destination stands in for it. That needs
+no column, and nothing can go wrong with it: after a switch to `PRODUCTION`
+the staging orders simply leave the list, and the client refuses to simulate
+anything with a production access, because the endpoints exist only on
+staging.
+
 ### Reading a job's state
 
 The admin page *Logistics* (`GET /api/admin/production/jobs`) shows per job
@@ -734,6 +759,7 @@ false alarm, accepted until issue #225 compares ids. Orders stay
 | --- | --- |
 | [`spod/submitter.ts`](../../../../backend/src/modules/production/spod/submitter.ts) | the stage (line checks, uploads, creation, confirmation), the order request, `spodOrderReference` and its parser |
 | [`spod/repository.ts`](../../../../backend/src/modules/production/spod/repository.ts) | the two tables, the scan, the guarded writes with their alerts, the admin's `release`, the destination read, `PERMANENT_FAILURES` |
+| [`spod/simulation.ts`](../../../../backend/src/modules/production/spod/simulation.ts) | the admin's staging-only event simulation |
 | [`spod/print-image.ts`](../../../../backend/src/modules/production/spod/print-image.ts) | WebP → PNG with both budgets |
 | [`fulfillment/webhook.ts`](../../../../backend/src/modules/production/fulfillment/webhook.ts) | the payload reduced to bounded values, the secret comparison |
 | [`fulfillment/routes.ts`](../../../../backend/src/modules/production/fulfillment/routes.ts) | the webhook route next to the two job surfaces |

@@ -2,6 +2,8 @@ export {
   createSpodClient,
   spodEnvironmentOfStoredValue,
   SPOD_ENVIRONMENTS,
+  SPOD_SIMULATED_EVENTS,
+  type SpodSimulatedEvent,
   type SpodAccess,
   type SpodAddress,
   type SpodClient,
