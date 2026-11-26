@@ -177,6 +177,11 @@ export function createSpodOrderRepository({
           })
           .where('production_job_id', '=', jobId)
           .execute()
+        if (PERMANENT_FAILURES.has(code)) {
+          logger.error({ jobId, code }, 'SPOD job submission blocked permanently')
+        } else {
+          logger.warn({ jobId, code }, 'SPOD job submission failed')
+        }
         if (shouldAlert) await alert(trx, jobId, 'SUBMISSION_BLOCKED')
       }),
 

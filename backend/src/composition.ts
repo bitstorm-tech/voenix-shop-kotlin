@@ -26,8 +26,11 @@ import { migrate } from '@/platform/db/migrate'
 import { createApp } from '@/platform/http/app'
 import { databaseReadyCheck, healthRoutes } from '@/platform/http/health'
 import { legacyRedirectRoutes } from '@/platform/http/legacy-redirects'
+import { createLogger } from '@/platform/logging'
 import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import type { Settings } from '@/platform/settings'
+
+const log = createLogger('composition')
 
 /**
  * The composition root: the whole application from one `Settings` object. It migrates the database
@@ -48,7 +51,10 @@ export async function createApplication(
     peerAddress?: (c: Context) => string
   } = {},
 ) {
-  await migrate(settings.database)
+  const appliedMigrations = await migrate(settings.database)
+  if (appliedMigrations.length > 0) {
+    log.info({ applied: appliedMigrations }, 'Applied database migrations')
+  }
   const db = createDatabase(settings.database)
   const fetch = overrides.fetch ?? globalThis.fetch
   const peerAddress = overrides.peerAddress ?? bunPeerAddress

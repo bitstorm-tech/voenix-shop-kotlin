@@ -1,5 +1,8 @@
 import { stat } from 'node:fs/promises'
 import sharp from 'sharp'
+import { createLogger, errorDetails } from '@/platform/logging'
+
+const logger = createLogger('production-spod')
 
 /** The partner scales a design onto the garment; beyond this many pixels nothing improves. */
 export const MAX_EDGE_PIXELS = 4096
@@ -90,7 +93,8 @@ export async function printImagePng(
         .toBuffer({ resolveWithObject: true })
     }
     return { kind: 'converted', png: png.data }
-  } catch {
+  } catch (error) {
+    logger.warn({ error: errorDetails(error) }, 'A SPOD print image could not be encoded')
     return { kind: 'failed', error: 'PRINT_IMAGE_UNREADABLE' }
   }
 }

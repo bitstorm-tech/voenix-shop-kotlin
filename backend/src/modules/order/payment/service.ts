@@ -111,20 +111,37 @@ export function createPaymentService({
     return deltas
   }
 
-  const logChargeback = (
+  const logAdjustments = (
     stored: StoredPayment,
-    deltas: { chargebackDeltaCents: number; totalChargedBackCents: number },
+    deltas: {
+      refundDeltaCents: number
+      totalRefundedCents: number
+      chargebackDeltaCents: number
+      totalChargedBackCents: number
+    },
   ) => {
-    if (deltas.chargebackDeltaCents <= 0) return
-    logger.error(
-      {
-        paymentId: stored.paymentId,
-        orderId: stored.orderId,
-        amountCents: deltas.chargebackDeltaCents,
-        totalChargedBackCents: deltas.totalChargedBackCents,
-      },
-      'Mollie reported a payment chargeback: immediate operator attention required',
-    )
+    if (deltas.refundDeltaCents > 0) {
+      logger.info(
+        {
+          paymentId: stored.paymentId,
+          orderId: stored.orderId,
+          amountCents: deltas.refundDeltaCents,
+          totalRefundedCents: deltas.totalRefundedCents,
+        },
+        'Mollie reported a payment refund',
+      )
+    }
+    if (deltas.chargebackDeltaCents > 0) {
+      logger.error(
+        {
+          paymentId: stored.paymentId,
+          orderId: stored.orderId,
+          amountCents: deltas.chargebackDeltaCents,
+          totalChargedBackCents: deltas.totalChargedBackCents,
+        },
+        'Mollie reported a payment chargeback: immediate operator attention required',
+      )
+    }
   }
 
   /**
@@ -147,7 +164,7 @@ export function createPaymentService({
       const deltas = await recordAdjustments(trx, stored, reported, cause, actorId)
       return { paid, deltas }
     })
-    logChargeback(stored, deltas)
+    logAdjustments(stored, deltas)
     if (paid === 'paid' || paid === 'alreadyPaid') return true
     logger.error(
       { paymentId: stored.paymentId, orderId: stored.orderId, amountCents: stored.amountCents },
@@ -180,6 +197,10 @@ export function createPaymentService({
       actorId,
       details: { paymentId: stored.paymentId, from, to },
     })
+    logger.info(
+      { orderId: stored.orderId, paymentId: stored.paymentId, from, to, cause },
+      'Payment status changed',
+    )
     return true
   }
 
@@ -217,7 +238,7 @@ export function createPaymentService({
         await movePayment(trx, stored, 'PAID', cause, actorId)
         return recordAdjustments(trx, stored, reported, cause, actorId)
       })
-      logChargeback(stored, deltas)
+      logAdjustments(stored, deltas)
       return 'notConfirmed'
     }
     if (isLive(reported.status)) {

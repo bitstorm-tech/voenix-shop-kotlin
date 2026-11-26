@@ -43,7 +43,10 @@ export function createAccountMails({
       return true
     } catch (error) {
       if (!(error instanceof EmailDeliveryError)) throw error
-      log.warn({ userId, kind: email.kind }, 'Required account mail was not delivered')
+      log.warn(
+        { userId, kind: email.kind, code: error.code },
+        'Required account mail was not delivered',
+      )
       return false
     }
   }

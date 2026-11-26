@@ -290,29 +290,45 @@ describe('the operations scan', () => {
 
 describe('the operations alert', () => {
   test('several new findings are one mail in the scan, and a finding seen again is not mailed again', async () => {
-    const { worker, answer } = scripted()
-    answer.findings = [stalledJob(1, null), unresolvedPayment]
-    await worker.runOnce()
-    const [mail, ...others] = await mails()
-    expect(others).toEqual([])
-    expect(mail).toMatchObject({
-      kind: 'OPERATIONS_ALERT',
-      recipient: ALERT_EMAIL,
-      subject: 'Betrieb: 2 neue Befunde',
-    })
-    expect(mail?.text).toContain('Produktions-PDF wird nicht erzeugt')
-    expect(mail?.text).toContain('Zahlung seit über einer Stunde ohne Ergebnis')
-    expect(mail?.text).toContain('https://shop.example/admin/orders/42')
-    const [job, payment] = await rows()
-    expect(job?.alerted_at).toEqual(job?.first_seen_at ?? null)
-    expect(payment?.alerted_at).toEqual(payment?.first_seen_at ?? null)
+    const warn = spyOn(logger, 'warn').mockImplementation(() => undefined)
+    try {
+      const { worker, answer } = scripted()
+      answer.findings = [stalledJob(1, null), unresolvedPayment]
+      await worker.runOnce()
+      const [mail, ...others] = await mails()
+      expect(others).toEqual([])
+      expect(mail).toMatchObject({
+        kind: 'OPERATIONS_ALERT',
+        recipient: ALERT_EMAIL,
+        subject: 'Betrieb: 2 neue Befunde',
+      })
+      expect(mail?.text).toContain('Produktions-PDF wird nicht erzeugt')
+      expect(mail?.text).toContain('Zahlung seit über einer Stunde ohne Ergebnis')
+      expect(mail?.text).toContain('https://shop.example/admin/orders/42')
+      expect(warn.mock.calls).toEqual([
+        [
+          { kind: 'JOB_GENERATION_STALLED', subjectType: 'JOB', subjectId: 3, orderId: 42 },
+          'New operations finding detected',
+        ],
+        [
+          { kind: 'PAYMENT_UNRESOLVED', subjectType: 'PAYMENT', subjectId: 9, orderId: 41 },
+          'New operations finding detected',
+        ],
+      ])
+      const [job, payment] = await rows()
+      expect(job?.alerted_at).toEqual(job?.first_seen_at ?? null)
+      expect(payment?.alerted_at).toEqual(payment?.first_seen_at ?? null)
 
-    answer.findings = [stalledJob(4, 'MISSING_IMAGE'), unresolvedPayment]
-    await worker.runOnce()
-    answer.findings = [unresolvedPayment]
-    await worker.runOnce()
-    expect(await mails()).toHaveLength(1)
-    expect((await rows())[1]?.alerted_at).toEqual(payment?.alerted_at ?? null)
+      answer.findings = [stalledJob(4, 'MISSING_IMAGE'), unresolvedPayment]
+      await worker.runOnce()
+      answer.findings = [unresolvedPayment]
+      await worker.runOnce()
+      expect(await mails()).toHaveLength(1)
+      expect(warn.mock.calls).toHaveLength(2)
+      expect((await rows())[1]?.alerted_at).toEqual(payment?.alerted_at ?? null)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   test('the two SPOD kinds and a stalled or permanently failed operations alert are listed only', async () => {

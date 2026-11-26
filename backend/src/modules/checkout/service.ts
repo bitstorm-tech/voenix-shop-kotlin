@@ -176,7 +176,12 @@ export function createCheckoutService({
     ): Promise<CheckoutResult> => {
       if (guestToken === null && userId === null) return { kind: 'emptyCart' }
       const placement = await place(guestToken, userId, request)
-      if (placement.kind !== 'payable') return placement
+      if (placement.kind !== 'payable') {
+        if (placement.kind === 'started') {
+          logger.info({ orderId: placement.orderId }, 'Checkout settled without payment')
+        }
+        return placement
+      }
       const { order } = placement
       logger.info({ orderId: order.orderId }, 'Checkout proceeds with order')
       const started = await orders.startPayment(order, { cancelOnFailure: true })
@@ -211,6 +216,7 @@ export function createCheckoutService({
         case 'free':
           return { kind: 'notPayable' }
         case 'payable': {
+          logger.info({ orderId }, 'Retrying payment for order')
           const started = await orders.startPayment(payable.order, { cancelOnFailure: false })
           if (started.kind === 'promotionRejected') {
             return { kind: 'promotionRejected', rejection: started.rejection }

@@ -63,6 +63,7 @@ export function createOrderTransitions({
       await setOrderStatus(trx, orderId, 'PAID')
       await recordEvent(trx, orderId, { kind: 'ORDER_PAID', ...by })
       await requestProduction(trx, orderId)
+      logger.info({ orderId, actorType: by.actorType, cause: by.cause }, 'Order marked as PAID')
       return 'paid'
     },
 
@@ -92,6 +93,7 @@ export function createOrderTransitions({
         actorType: 'SYSTEM',
         cause: 'PAYMENT_START_REFUSED',
       })
+      logger.info({ orderId }, 'Order cancelled')
       return 'cancelled'
     },
 

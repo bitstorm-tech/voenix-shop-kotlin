@@ -27,6 +27,16 @@ export type SftpDeliveryError =
 const logger = createLogger('production-sftp')
 const NO_SUCH_FILE = 2
 
+type SftpFailureReason = 'session_timeout' | 'connection_closed' | 'step_timeout'
+
+class SftpStepTimeoutError extends Error {
+  readonly code = 'STEP_TIMEOUT'
+  constructor() {
+    super('An SFTP step ran into the destination timeout')
+    this.name = 'SftpStepTimeoutError'
+  }
+}
+
 /**
  * Uploads one artifact: password authentication, the pinned host key verified before any
  * credential is sent (no permissive fallback), the bytes written to `{name}.part`, an earlier
@@ -49,7 +59,7 @@ export function deliverOverSftp(
   let sessionTimer: ReturnType<typeof setTimeout> | undefined
 
   return new Promise<SftpDeliveryError | null>((resolve) => {
-    const finish = (error: unknown) => {
+    const finish = (error: unknown, explicitReason?: SftpFailureReason) => {
       if (settled) return
       settled = true
       clearTimeout(sessionTimer)
@@ -65,8 +75,15 @@ export function deliverOverSftp(
           : stage === 'authenticate'
             ? 'AUTH_FAILED'
             : 'TRANSFER_FAILED'
+      const reason =
+        explicitReason ?? (error instanceof SftpStepTimeoutError ? 'step_timeout' : undefined)
       logger.warn(
-        { destinationId: destination.id, code, error: errorDetails(error) },
+        {
+          destinationId: destination.id,
+          code,
+          ...(reason === undefined ? {} : { reason }),
+          error: errorDetails(error),
+        },
         'SFTP delivery failed',
       )
       resolve(code)
@@ -81,7 +98,10 @@ export function deliverOverSftp(
         // ssh2 drops `readyTimeout` once authenticated, and the step timers start only with the
         // session: a server that never answers the subsystem request needs a deadline of its own.
         sessionTimer = setTimeout(() => {
-          finish(new Error('The SFTP session did not open within the destination timeout'))
+          finish(
+            new Error('The SFTP session did not open within the destination timeout'),
+            'session_timeout',
+          )
         }, timeoutMillis)
         client.sftp((error, sftp) => {
           clearTimeout(sessionTimer)
@@ -96,7 +116,10 @@ export function deliverOverSftp(
       })
       .on('error', finish)
       .on('close', () => {
-        finish(new Error('The SFTP connection closed before the upload finished'))
+        finish(
+          new Error('The SFTP connection closed before the upload finished'),
+          'connection_closed',
+        )
       })
       .connect({
         host: destination.host,
@@ -127,7 +150,7 @@ async function transfer(
   const step = (run: (done: (error?: Error | null) => void) => void, tolerate?: number) =>
     new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error('An SFTP step ran into the destination timeout'))
+        reject(new SftpStepTimeoutError())
       }, timeoutMillis)
       run((error) => {
         clearTimeout(timer)

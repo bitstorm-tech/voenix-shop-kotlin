@@ -47,6 +47,19 @@ export function createOperationsWorker({
       }
       return false
     }
+    for (const finding of findings) {
+      if (!finding.isNew) continue
+      logger.warn(
+        {
+          kind: finding.kind,
+          subjectType: finding.subjectType,
+          subjectId: finding.subjectId,
+          orderId: finding.orderId,
+          ...(finding.lastErrorCode === null ? {} : { lastErrorCode: finding.lastErrorCode }),
+        },
+        'New operations finding detected',
+      )
+    }
     await outbox.enqueue(
       trx,
       renderOperationsAlert({ recipient: alertEmail, frontendBaseUrl, findings }),

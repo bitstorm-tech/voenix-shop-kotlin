@@ -299,6 +299,7 @@ describe('a deployment', () => {
     const info = spyOn(httpLog, 'info')
     try {
       const post = { method: 'POST' }
+      expect((await request('/api/health')).status).toBe(200)
       expect((await request(`/api/payments/webhook/${WEBHOOK_SECRET}`, post)).status).toBe(400)
       expect((await request('/api/payments/webhook/wrong-secret', post)).status).toBe(403)
       expect((await request(`/api/production/webhooks/spod/${SPOD_SECRET}`, post)).status).toBe(202)

@@ -13,6 +13,9 @@ import {
   type UserSession,
 } from '@/platform/auth/cookies'
 import { apiError } from '@/platform/http/respond'
+import { createLogger } from '@/platform/logging'
+
+const log = createLogger('auth')
 
 /** The two role names the platform authorizes against; `CUSTOMER` stays in the account module. */
 export const AuthRoles = { ADMIN: 'ADMIN', SUPPLIER: 'SUPPLIER' } as const
@@ -90,7 +93,11 @@ export function createAuth({
 
   const middleware = createMiddleware(async (c, next) => {
     const now = epochSeconds()
-    const session = await cookies.session.open(getCookie(c, SESSION_COOKIE))
+    const rawSessionCookie = getCookie(c, SESSION_COOKIE)
+    const session = await cookies.session.open(rawSessionCookie)
+    if (rawSessionCookie !== undefined && rawSessionCookie !== '' && session === null) {
+      log.warn('Session cookie could not be opened')
+    }
     const valid = session !== null && session.expiresAtEpochSeconds > now ? session : null
     c.set('principal', valid === null ? null : { userId: valid.userId, roles: valid.roles })
     c.set('csrfSession', await cookies.csrf.open(getCookie(c, CSRF_COOKIE)))
@@ -177,16 +184,27 @@ const epochSeconds = () => Math.floor(Date.now() / 1000)
  */
 function failClosed(
   authorize: (c: Context) => Promise<Response | null> | Response | null,
-  csrfValid: (c: Context) => boolean = userCsrfValid,
+  csrfFailure: (c: Context) => CsrfFailureReason | null = userCsrfFailure,
 ) {
   const protection = createMiddleware(async (c, next) => {
     if (c.var.principal !== null && c.var.principal === c.var.tokenPrincipal) {
+      log.warn(
+        { userId: c.var.principal.userId },
+        'Request refused: access token not allowed on session-only route',
+      )
       return authRefusal(c, 401, 'Authentication required')
     }
     const refusal = await authorize(c)
     if (refusal !== null) return refusal
-    if (MUTATING_METHODS.has(c.req.method) && !csrfValid(c)) {
-      return c.json(apiError('Invalid CSRF token'), 400)
+    if (MUTATING_METHODS.has(c.req.method)) {
+      const reason = csrfFailure(c)
+      if (reason !== null) {
+        log.warn(
+          { userId: c.var.principal?.userId ?? null, reason },
+          'Request refused: invalid CSRF token',
+        )
+        return c.json(apiError('Invalid CSRF token'), 400)
+      }
     }
     await next()
   })
@@ -214,8 +232,10 @@ export const requireAuthenticated = failClosed((c) =>
 /** The exact role `ADMIN`. */
 export const requireAdmin = failClosed((c) => {
   if (c.var.principal === null) return authRefusal(c, 401, 'Authentication required')
-  if (!c.var.principal.roles.includes(AuthRoles.ADMIN))
+  if (!c.var.principal.roles.includes(AuthRoles.ADMIN)) {
+    log.warn({ userId: c.var.principal.userId }, 'Request refused: user lacks ADMIN role')
     return authRefusal(c, 403, 'Admin access required')
+  }
   return null
 })
 
@@ -229,8 +249,14 @@ export const requireAdmin = failClosed((c) => {
 export const requireAdminOrToken = createMiddleware(async (c, next) => {
   const token = c.var.tokenPrincipal
   if (token === undefined) return requireAdmin(c, next)
-  if (token === null) return authRefusal(c, 401, 'Authentication required')
-  if (!token.roles.includes(AuthRoles.ADMIN)) return authRefusal(c, 403, 'Admin access required')
+  if (token === null) {
+    log.warn('Request refused: invalid or revoked access token')
+    return authRefusal(c, 401, 'Authentication required')
+  }
+  if (!token.roles.includes(AuthRoles.ADMIN)) {
+    log.warn({ userId: token.userId }, 'Request refused: access token user lacks ADMIN role')
+    return authRefusal(c, 403, 'Admin access required')
+  }
   await token.markUsed()
   c.set('principal', token)
   await next()
@@ -240,7 +266,7 @@ export const requireAdminOrToken = createMiddleware(async (c, next) => {
  * Guests and signed-in users alike. Mutating requests still need a valid CSRF pair, and a request
  * with a user session must use a token minted for that user.
  */
-export const guestCapable = failClosed(() => null, guestCsrfValid)
+export const guestCapable = failClosed(() => null, guestCsrfFailure)
 
 /**
  * Answers which supplier a signed-in user acts for, or `null` when the user is not a supplier
@@ -260,38 +286,44 @@ export function requireSupplier(accounts: SupplierAccounts) {
   return failClosed(async (c) => {
     const principal = c.var.principal
     if (principal === null) return authRefusal(c, 401, 'Authentication required')
-    const supplierId = principal.roles.includes(AuthRoles.SUPPLIER)
-      ? await accounts.supplierIdOf(principal.userId)
-      : null
-    if (supplierId === null) return authRefusal(c, 403, 'Supplier access required')
+    const hasRole = principal.roles.includes(AuthRoles.SUPPLIER)
+    const supplierId = hasRole ? await accounts.supplierIdOf(principal.userId) : null
+    if (supplierId === null) {
+      log.warn(
+        { userId: principal.userId, reason: hasRole ? 'no_supplier_link' : 'missing_role' },
+        'Request refused: supplier access required',
+      )
+      return authRefusal(c, 403, 'Supplier access required')
+    }
     c.set('supplierId', supplierId)
     return null
   })
 }
 
-function userCsrfValid(c: Context): boolean {
+type CsrfFailureReason = 'missing_cookie' | 'user_mismatch' | 'missing_header' | 'token_mismatch'
+
+function userCsrfFailure(c: Context): CsrfFailureReason | null {
   const principal = c.var.principal
   const csrf = c.var.csrfSession
-  return (
-    principal !== null &&
-    csrf !== null &&
-    csrf.userId === principal.userId &&
-    headerMatches(c, csrf)
-  )
+  if (csrf === null) return 'missing_cookie'
+  if (principal === null || csrf.userId !== principal.userId) return 'user_mismatch'
+  return headerFailure(c, csrf)
 }
 
-function guestCsrfValid(c: Context): boolean {
+function guestCsrfFailure(c: Context): CsrfFailureReason | null {
   const csrf = c.var.csrfSession
-  if (csrf === null) return false
+  if (csrf === null) return 'missing_cookie'
   const userId = c.var.principal?.userId ?? null
-  if (userId !== null && csrf.userId !== userId) return false
-  return headerMatches(c, csrf)
+  if (userId !== null && csrf.userId !== userId) return 'user_mismatch'
+  return headerFailure(c, csrf)
 }
 
-function headerMatches(c: Context, csrf: CsrfSession): boolean {
+function headerFailure(c: Context, csrf: CsrfSession): CsrfFailureReason | null {
   const supplied = c.req.header(CSRF_HEADER)
-  if (supplied === undefined) return false
+  if (supplied === undefined) return 'missing_header'
   const expected = Buffer.from(csrf.token)
   const actual = Buffer.from(supplied)
   return expected.length === actual.length && timingSafeEqual(expected, actual)
+    ? null
+    : 'token_mismatch'
 }

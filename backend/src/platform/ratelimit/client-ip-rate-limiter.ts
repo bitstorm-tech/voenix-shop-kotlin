@@ -1,6 +1,11 @@
 import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { apiError } from '@/platform/http/respond'
+import { createLogger } from '@/platform/logging'
+
+const log = createLogger('ratelimit')
+
+type RefusalScope = 'global' | 'maxTrackedIps' | 'ip'
 
 /**
  * Counts requests per client IP in fixed windows and refuses the request past the limit with `429`
@@ -50,14 +55,17 @@ export function createClientIpRateLimiter({
   const remainingSeconds = (startedAt: number, now: number) =>
     Math.max(1, Math.ceil((startedAt + windowMillis - now) / 1000))
 
-  /** `null` when the request may proceed, otherwise the seconds the caller has to wait. */
-  const retryAfterSeconds = (clientIp: string, now: number): number | null => {
+  /** `null` when the request may proceed, otherwise the refusal scope and wait in seconds. */
+  const evaluate = (
+    clientIp: string,
+    now: number,
+  ): { scope: RefusalScope; retryAfter: number } | null => {
     if (globalLimit !== undefined) {
       if (globalWindow !== null && now >= globalWindow.startedAt + windowMillis) {
         globalWindow = null
       }
       if (globalWindow !== null && globalWindow.count >= globalLimit) {
-        return remainingSeconds(globalWindow.startedAt, now)
+        return { scope: 'global', retryAfter: remainingSeconds(globalWindow.startedAt, now) }
       }
     }
     if (now - lastSweep >= windowMillis) {
@@ -67,12 +75,14 @@ export function createClientIpRateLimiter({
     const existing = windows.get(clientIp)
     if (existing === undefined && windows.size >= maxTrackedIps) {
       dropEndedWindows(now)
-      if (windows.size >= maxTrackedIps) return windowSeconds
+      if (windows.size >= maxTrackedIps) {
+        return { scope: 'maxTrackedIps', retryAfter: windowSeconds }
+      }
     }
     const active =
       existing !== undefined && now < existing.startedAt + windowMillis ? existing : undefined
     if (active !== undefined && active.count >= limit) {
-      return remainingSeconds(active.startedAt, now)
+      return { scope: 'ip', retryAfter: remainingSeconds(active.startedAt, now) }
     }
     windows.set(
       clientIp,
@@ -88,6 +98,10 @@ export function createClientIpRateLimiter({
     }
     return null
   }
+
+  /** `null` when the request may proceed, otherwise the seconds the caller has to wait. */
+  const retryAfterSeconds = (clientIp: string, now: number): number | null =>
+    evaluate(clientIp, now)?.retryAfter ?? null
 
   /**
    * With the flag enabled the **last** entry of `X-Forwarded-For` counts: every proxy appends the
@@ -110,9 +124,25 @@ export function createClientIpRateLimiter({
     retryAfterSeconds,
     /** Install it after the route protection, so a refused request spends no slot of the limit. */
     middleware: createMiddleware(async (c, next) => {
-      const wait = retryAfterSeconds(clientIp(c), Date.now())
-      if (wait !== null) {
-        c.header('Retry-After', String(wait))
+      const refused = evaluate(clientIp(c), Date.now())
+      if (refused !== null) {
+        if (refused.scope === 'global') {
+          log.warn(
+            { scope: refused.scope, limit: globalLimit, retryAfterSeconds: refused.retryAfter },
+            'Global rate limit exceeded',
+          )
+        } else if (refused.scope === 'maxTrackedIps') {
+          log.warn(
+            { scope: refused.scope, maxTrackedIps, retryAfterSeconds: refused.retryAfter },
+            'Rate limiter IP table full; refusing untracked client',
+          )
+        } else {
+          log.warn(
+            { scope: refused.scope, limit, retryAfterSeconds: refused.retryAfter },
+            'Client rate limit exceeded',
+          )
+        }
+        c.header('Retry-After', String(refused.retryAfter))
         return c.json(apiError('Too many requests'), 429)
       }
       await next()

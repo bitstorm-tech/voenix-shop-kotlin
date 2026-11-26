@@ -46,7 +46,15 @@ export function createApp(auth: Auth, { https = false }: { https?: boolean } = {
   const app = new Hono()
   app.onError((error, c) => {
     // Hono's own refusals (a malformed form body, for example) keep their status and message.
-    if (error instanceof HTTPException) return c.json(apiError(error.message), error.status)
+    if (error instanceof HTTPException) {
+      if (error.status >= 500) {
+        httpLog.error(
+          { status: error.status, error: errorDetails(error) },
+          'Unhandled HTTP exception',
+        )
+      }
+      return c.json(apiError(error.message), error.status)
+    }
     httpLog.error({ error: errorDetails(error) }, 'Unhandled server error')
     return c.json(apiError('Internal server error'), 500)
   })
@@ -94,10 +102,11 @@ export function createApp(auth: Auth, { https = false }: { https?: boolean } = {
     withRequestId(crypto.randomUUID().slice(0, 8), async () => {
       const started = performance.now()
       await next()
+      const route = routePath(c)
+      // Successful liveness probes fire every few seconds and would drown out API lines.
+      if (route === '/api/health' && c.res.status === 200) return
       const milliseconds = Math.round(performance.now() - started)
-      httpLog.info(
-        `${c.req.method} ${routePath(c)} ${String(c.res.status)} ${String(milliseconds)}ms`,
-      )
+      httpLog.info(`${c.req.method} ${route} ${String(c.res.status)} ${String(milliseconds)}ms`)
     }),
   )
   app.use(

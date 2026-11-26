@@ -306,6 +306,7 @@ export function createFulfillmentService({
         return
       }
       if (event.kind === 'remoteState') {
+        logger.warn({ jobId, state: event.state }, 'SPOD reported a remote order state change')
         await spodOrders.recordRemoteState(jobId, event.state)
         return
       }

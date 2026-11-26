@@ -402,11 +402,12 @@ describe('userEmails.send', () => {
     expect(sent).toEqual([])
   })
 
-  test('a provider failure becomes the secret-free EmailDeliveryError', async () => {
+  test('a provider failure becomes the secret-free EmailDeliveryError with its bounded code', async () => {
     const { delivery } = recordingDelivery([{ kind: 'failed', code: 'PROVIDER_HTTP_503' }])
     const failure = await createUserEmails(settings(true), delivery)
       .send(mail)
       .catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(EmailDeliveryError)
+    expect((failure as EmailDeliveryError).code).toBe('PROVIDER_HTTP_503')
   })
 })

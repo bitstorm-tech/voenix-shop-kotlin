@@ -9,9 +9,13 @@ import type { RenderedEmail, UserEmailKind } from './templates/layout'
  * why callers catch this class and nothing wider.
  */
 export class EmailDeliveryError extends Error {
-  constructor() {
+  /** Bounded provider failure code (e.g. `PROVIDER_HTTP_503`, `REQUEST_TIMEOUT`). */
+  readonly code: string
+
+  constructor(code = 'PROVIDER_UNAVAILABLE') {
     super('Email provider acceptance was not confirmed')
     this.name = 'EmailDeliveryError'
+    this.code = code
   }
 }
 
@@ -24,7 +28,7 @@ export function createUserEmails(settings: Settings['email'], delivery: EmailDel
     send: async (email: RenderedEmail<UserEmailKind>): Promise<void> => {
       if (!settings.enabled) return
       const result = await delivery.deliver(email, null)
-      if (result.kind === 'failed') throw new EmailDeliveryError()
+      if (result.kind === 'failed') throw new EmailDeliveryError(result.code)
     },
   }
 }

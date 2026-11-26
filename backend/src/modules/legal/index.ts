@@ -17,6 +17,18 @@ const iubendaAnswer = z.object({ success: z.literal(true), content: z.string().m
 
 const logger = createLogger('legal')
 
+class IubendaHttpError extends Error {
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number) {
+    super(`iubenda answered HTTP ${String(status)}`)
+    this.name = 'IubendaHttpError'
+    this.status = status
+    this.code = `HTTP_${String(status)}`
+  }
+}
+
 export interface PrivacyDocuments {
   privacyPolicy: string
   cookiePolicy: string
@@ -38,7 +50,7 @@ export function createLegalModule({ fetch, now = Date.now }: { fetch: Fetch; now
       redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MILLIS),
     })
-    if (!response.ok) throw new Error(`iubenda answered HTTP ${String(response.status)}`)
+    if (!response.ok) throw new IubendaHttpError(response.status)
     return iubendaAnswer.parse(await response.json()).content
   }
 
@@ -48,7 +60,11 @@ export function createLegalModule({ fetch, now = Date.now }: { fetch: Fetch; now
         cached = { documents: { privacyPolicy, cookiePolicy }, fetchedAt: now() }
       })
       .catch((error: unknown) => {
-        logger.warn({ error: errorDetails(error) }, 'iubenda could not be read')
+        if (error instanceof IubendaHttpError) {
+          logger.warn({ status: error.status }, 'iubenda refused policy request')
+        } else {
+          logger.warn({ error: errorDetails(error) }, 'iubenda could not be read')
+        }
       })
       .finally(() => {
         refreshing = null

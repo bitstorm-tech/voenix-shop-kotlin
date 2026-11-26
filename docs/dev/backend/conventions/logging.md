@@ -14,7 +14,10 @@ POST /api/payments/webhook/:secret 200 12ms
 The line carries `routePath(c)` (`hono/route`) read after the handler ran: the pattern of
 the route that answered, also inside a sub-app mounted with `app.route()`. A
 request no API route matched logs a catch-all (`/*`), and a request a
-middleware refused logs that middleware's pattern. The real path stays out: the
+middleware refused logs that middleware's pattern. Successful liveness probes
+(`GET /api/health` answering `200`) are omitted so periodic platform probes do
+not drown out API lines; non-`200` responses and `/api/ready` remain logged, and
+a failed or timed-out readiness probe logs its cause at `warn`. The real path stays out: the
 Mollie and SPOD webhook secrets and the order link token are path segments, and
 any line that reaches Render's log stays there. The query string stays out for
 the same reason. Before November 2026 the line carried `c.req.path`, with the
@@ -55,6 +58,37 @@ rule stayed.
 
 **Why not the whole error.** pino's `err` serializer writes every enumerable
 property, which includes the message and Postgres' `detail`.
+
+**Carry safe diagnostic reasons in fields, never only in `Error.message`.**
+Because `errorDetails` drops every message, an internal error that knows a safe,
+bounded reason (an upstream HTTP status, a provider error code like
+`PROVIDER_HTTP_503`, or an SFTP timeout reason) must attach it as a structured
+field (`code` on the error, or a dedicated field in the log call) instead of
+embedding it only in `new Error(…)`.
+
+## Operational and security signals
+
+Beyond unhandled errors and upstream client failures, the backend logs bounded,
+secret-free signals for events that are otherwise invisible or ambiguous in the
+HTTP status line:
+
+- **Database**: idle `pg.Pool` client errors (`error`), and applied migrations on
+  startup (`info`).
+- **Auth & CSRF**: unreadable session cookies, CSRF refusals with their bounded
+  reason (`missing_cookie`, `user_mismatch`, `missing_header`, `token_mismatch`),
+  invalid/revoked access tokens, and role or supplier-link refusals (`warn`).
+  Ordinary anonymous `401` responses are not logged as warnings.
+- **Rate limiting**: refusals with `scope` (`ip`, `global`, or `maxTrackedIps`)
+  and `retryAfterSeconds`, never the client IP (`warn`).
+- **Orders, payments, and fulfillment**: order paid/cancelled transitions,
+  payment status transitions and refunds (`info`), payment chargebacks (`error`),
+  unsupported or reference-less SPOD webhooks and remote state changes (`warn`),
+  SPOD print-image encoding errors (`warn`), and production delivery/submission
+  failure transitions (logged once per error-code change so polling workers do
+  not spam).
+- **Operations worker**: every newly detected finding at `warn` even when an
+  alert e-mail is enqueued (and `error` when no `OPERATIONS_ALERT_EMAIL` is
+  configured).
 
 ## The request id
 

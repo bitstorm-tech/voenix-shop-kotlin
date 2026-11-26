@@ -1,6 +1,16 @@
 import { Hono } from 'hono'
 import { sql, type Kysely } from 'kysely'
 import type { Tables } from '@/platform/db/database'
+import { createLogger, errorDetails } from '@/platform/logging'
+
+const log = createLogger('health')
+
+class ReadinessTimeoutError extends Error {
+  constructor() {
+    super('Readiness check timed out')
+    this.name = 'ReadinessTimeoutError'
+  }
+}
 
 /** Maximum time `/api/ready` waits for PostgreSQL before answering `503`. */
 export const DEFAULT_READY_TIMEOUT_MS = 2_000
@@ -33,12 +43,17 @@ export function healthRoutes(
         probe,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
-            reject(new Error('Readiness check timed out'))
+            reject(new ReadinessTimeoutError())
           }, timeoutMs)
         }),
       ])
       return c.json({ status: 'ready' }, 200)
-    } catch {
+    } catch (error) {
+      if (error instanceof ReadinessTimeoutError) {
+        log.warn({ timeoutMs }, 'Readiness check timed out')
+      } else {
+        log.warn({ error: errorDetails(error) }, 'Readiness check failed')
+      }
       return c.json({ status: 'unavailable' }, 503)
     } finally {
       if (timer !== undefined) clearTimeout(timer)

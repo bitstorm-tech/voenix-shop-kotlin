@@ -77,7 +77,13 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
   switch (parsed.eventType) {
     case 'Shipment.sent': {
       const named = reference(parsed.shipment)
-      if (named === null) return null
+      if (named === null) {
+        logger.warn(
+          { eventType: parsed.eventType },
+          'Ignored SPOD webhook without an order reference',
+        )
+        return null
+      }
       const reported = parsed.shipment?.carrier?.trim() ?? ''
       const trackingNumber = bounded(parsed.shipment?.trackingCode ?? null)
       return {
@@ -94,11 +100,18 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
     case 'Order.cancelled':
     case 'Order.needs-action': {
       const named = reference(parsed.order)
-      if (named === null) return null
+      if (named === null) {
+        logger.warn(
+          { eventType: parsed.eventType },
+          'Ignored SPOD webhook without an order reference',
+        )
+        return null
+      }
       const state = parsed.eventType === 'Order.cancelled' ? 'CANCELLED' : 'NEEDS_ACTION'
       return { ...named, kind: 'remoteState', state }
     }
     default:
+      logger.warn('Ignored SPOD webhook with unsupported event type')
       return null
   }
 }

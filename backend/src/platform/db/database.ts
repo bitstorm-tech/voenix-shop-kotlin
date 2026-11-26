@@ -1,5 +1,8 @@
 import { Kysely, PostgresDialect, type Transaction } from 'kysely'
 import { Pool, types } from 'pg'
+import { createLogger, errorDetails } from '@/platform/logging'
+
+const log = createLogger('database')
 
 /**
  * Every table of the application, keyed by name, as Kysely types queries against it. The platform
@@ -54,6 +57,9 @@ export function createDatabase(settings: DatabaseSettings): Kysely<Tables> {
     max: settings.maximumPoolSize,
     options: `${CONNECTION_OPTIONS} -c search_path=${settings.searchPath}`,
     ssl: sslOption(settings.sslMode),
+  })
+  pool.on('error', (error) => {
+    log.error({ error: errorDetails(error) }, 'Idle PostgreSQL client failed')
   })
   return new Kysely<Tables>({ dialect: new PostgresDialect({ pool }) })
 }

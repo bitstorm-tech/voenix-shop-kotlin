@@ -154,6 +154,7 @@ export function createDeliveryStage({
           'v.id',
           'v.destination_id as destinationId',
           'v.attempt_count as attemptCount',
+          'v.last_error_code as lastErrorCode',
           'j.id as jobId',
           'j.file_name as fileName',
           'j.content_sha256 as contentSha256',
@@ -170,10 +171,22 @@ export function createDeliveryStage({
       if (!started) continue
       const target = await destination(delivery.destinationId)
       if (target === undefined) {
+        if (delivery.lastErrorCode !== 'DESTINATION_MISSING') {
+          logger.warn(
+            { deliveryId: delivery.id, destinationId: delivery.destinationId },
+            'Production delivery destination is missing',
+          )
+        }
         await recordFailure(delivery.id, 'DESTINATION_MISSING')
         continue
       }
       if (!target.enabled) {
+        if (delivery.lastErrorCode !== 'DESTINATION_DISABLED') {
+          logger.warn(
+            { deliveryId: delivery.id, destinationId: delivery.destinationId },
+            'Production delivery destination is disabled',
+          )
+        }
         await recordFailure(delivery.id, 'DESTINATION_DISABLED')
         continue
       }
@@ -183,10 +196,14 @@ export function createDeliveryStage({
         delivery.contentSha256 ?? '',
       )
       if (artifact.kind !== 'loaded') {
-        await recordFailure(
-          delivery.id,
-          artifact.kind === 'missing' ? 'ARTIFACT_MISSING' : 'ARTIFACT_DIGEST_MISMATCH',
-        )
+        const code = artifact.kind === 'missing' ? 'ARTIFACT_MISSING' : 'ARTIFACT_DIGEST_MISMATCH'
+        if (delivery.lastErrorCode !== code) {
+          logger.error(
+            { deliveryId: delivery.id, jobId: delivery.jobId, code },
+            'Production artifact unavailable for delivery',
+          )
+        }
+        await recordFailure(delivery.id, code)
         continue
       }
       let outcome: string | null
@@ -210,6 +227,12 @@ export function createDeliveryStage({
               ?.orderDate ?? null)
       if (target.notificationEmail !== null && orderDate === null) {
         // The upload stands (it is at least once anyway); the next scan repeats it with the mail.
+        if (delivery.lastErrorCode !== 'SOURCE_NOT_FOUND') {
+          logger.error(
+            { deliveryId: delivery.id, orderId: delivery.orderId },
+            'Uploaded production artifact could not be finalized: order not found',
+          )
+        }
         await recordFailure(delivery.id, 'SOURCE_NOT_FOUND')
         continue
       }
