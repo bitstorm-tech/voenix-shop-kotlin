@@ -244,7 +244,7 @@ function validateDateWindow() {
 }
 
 function parseOptionalLimit(field: 'usageLimitTotal' | 'usageLimitPerUser') {
-  const raw = form[field].trim()
+  const raw = String(form[field]).trim()
   if (raw === '') {
     return null
   }
