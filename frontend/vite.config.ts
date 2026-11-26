@@ -7,6 +7,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // vue-i18n's default message compiler uses new Function(), which the CSP (no 'unsafe-eval') blocks.
+  define: {
+    __INTLIFY_JIT_COMPILATION__: true,
+  },
   plugins: [
     vue(),
     tailwindcss(),
