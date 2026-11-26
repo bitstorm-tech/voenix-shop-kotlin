@@ -46,6 +46,17 @@ export interface TokenPrincipal extends UserPrincipal {
   markUsed(): Promise<void>
 }
 
+/**
+ * Answers who a session stands for right now: the user's current roles, or `null` when the user
+ * no longer exists or `sessionVersion` is not the user's current one (a password change or reset
+ * moves it on). The account module implements it; the middleware asks on every request that
+ * carries a session, so a removed role, a deleted account, or a changed password counts from the
+ * very next request on.
+ */
+export interface SessionAccounts {
+  principalOf(userId: number, sessionVersion: number): Promise<UserPrincipal | null>
+}
+
 declare module 'hono' {
   interface ContextVariableMap {
     /** The session cookie's identity; never a bearer token's. */
@@ -65,18 +76,20 @@ export type Auth = ReturnType<typeof createAuth>
 
 /**
  * Everything the application needs to authenticate a request: the middleware that reads the two
- * sealed cookies into `c.var.principal` and `c.var.csrfSession` and renews a session past half its
- * life, the antiforgery route, the login and logout cookie writes, and the guest identity.
+ * sealed cookies into `c.var.principal` (with the roles `sessions` answers) and `c.var.csrfSession`
+ * and renews a session past half its life, the antiforgery route, the login and logout cookie writes, and the guest identity.
  */
 export function createAuth({
   sessionSecret,
   secureCookies,
   accessTokens,
+  sessions,
 }: {
   sessionSecret: string
   /** `Secure` on every cookie; from the settings, never the request, which a proxy or client sets. */
   secureCookies: boolean
   accessTokens: AccessTokens
+  sessions: SessionAccounts
 }) {
   const cookies = authCookies(sessionSecret)
   /** Browser-session cookies: no Max-Age. */
@@ -98,8 +111,17 @@ export function createAuth({
     if (rawSessionCookie !== undefined && rawSessionCookie !== '' && session === null) {
       log.warn('Session cookie could not be opened')
     }
-    const valid = session !== null && session.expiresAtEpochSeconds > now ? session : null
-    c.set('principal', valid === null ? null : { userId: valid.userId, roles: valid.roles })
+    const unexpired = session !== null && session.expiresAtEpochSeconds > now ? session : null
+    const principal =
+      unexpired === null
+        ? null
+        : await sessions.principalOf(unexpired.userId, unexpired.sessionVersion)
+    if (unexpired !== null && principal === null) {
+      log.info({ userId: unexpired.userId }, 'Session refused: user removed or session revoked')
+      deleteCookie(c, SESSION_COOKIE, { path: '/' })
+    }
+    const valid = principal === null ? null : unexpired
+    c.set('principal', principal)
     c.set('csrfSession', await cookies.csrf.open(getCookie(c, CSRF_COOKIE)))
     const bearer = /^Bearer(?:\s+(.*))?$/i.exec(c.req.header('authorization') ?? '')
     const token = bearer?.[1]?.trim() ?? ''
@@ -135,12 +157,15 @@ export function createAuth({
   return {
     middleware,
     routes,
-    /** Writes a fresh 24-hour session; the one production caller is the account module's login. */
-    signIn: (c: Context, userId: number, roles: string[]) => {
+    /**
+     * Writes a fresh 24-hour session for the user's current `sessionVersion`; the production callers
+     * are the account module's login and its password change, which keeps the changing session.
+     */
+    signIn: (c: Context, userId: number, sessionVersion: number) => {
       const now = epochSeconds()
       return writeSession(c, {
         userId,
-        roles,
+        sessionVersion,
         issuedAtEpochSeconds: now,
         expiresAtEpochSeconds: now + SESSION_DURATION_SECONDS,
       })
@@ -229,7 +254,10 @@ export const requireAuthenticated = failClosed((c) =>
   c.var.principal === null ? authRefusal(c, 401, 'Authentication required') : null,
 )
 
-/** The exact role `ADMIN`. */
+/**
+ * The exact role `ADMIN`, as the database answers it for this request's session: a revoked role, a
+ * deleted account, or a changed password refuses an admin cookie issued before.
+ */
 export const requireAdmin = failClosed((c) => {
   if (c.var.principal === null) return authRefusal(c, 401, 'Authentication required')
   if (!c.var.principal.roles.includes(AuthRoles.ADMIN)) {

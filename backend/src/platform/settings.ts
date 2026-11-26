@@ -65,6 +65,10 @@ const schema = z
 
     PRODUCTION_ARTIFACT_ROOT: required.default('./data/production/artifacts'),
     PRODUCTION_SPOD_WEBHOOK_SECRET: optional,
+    PRODUCTION_SECRETS_KEY: required.refine(
+      (value) => Buffer.byteLength(value, 'utf8') >= 32,
+      'must contain at least 32 UTF-8 bytes',
+    ),
 
     OPERATIONS_ALERT_EMAIL: optional,
 
@@ -111,6 +115,9 @@ const schema = z
     }
     if (spodConfigured && env.OPERATIONS_ALERT_EMAIL === '') {
       issue('OPERATIONS_ALERT_EMAIL', 'is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set')
+    }
+    if (env.PRODUCTION_SECRETS_KEY === env.AUTH_SESSION_SECRET) {
+      issue('PRODUCTION_SECRETS_KEY', 'must differ from AUTH_SESSION_SECRET')
     }
     if (!noControlCharacters(env.OPERATIONS_ALERT_EMAIL)) {
       issue('OPERATIONS_ALERT_EMAIL', 'must not contain control characters')
@@ -166,6 +173,8 @@ export function loadSettings(env: Record<string, string | undefined>) {
     },
     production: {
       artifactRoot: v.PRODUCTION_ARTIFACT_ROOT,
+      /** Encrypts the SFTP passwords and SPOD access tokens stored in the destination tables. */
+      secretsKey: v.PRODUCTION_SECRETS_KEY,
       /** The print-on-demand channel, or `null` in a deployment without that supplier. */
       spod:
         v.PRODUCTION_SPOD_WEBHOOK_SECRET === ''

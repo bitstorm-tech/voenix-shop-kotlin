@@ -102,6 +102,7 @@ needs:
 | --- | --- |
 | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | the PostgreSQL connection; `DATABASE_SSL_MODE=require` for a managed database |
 | `AUTH_SESSION_SECRET` | at least 32 bytes |
+| `PRODUCTION_SECRETS_KEY` | at least 32 bytes, different from `AUTH_SESSION_SECRET`; losing it makes stored destination secrets unreadable |
 | `FRONTEND_BASE_URL` | the public HTTPS address of the service; every mailed link and the Mollie return to `/order-confirmation` point back to it; HTTPS also marks the auth cookies `Secure` |
 | `EMAIL_ENABLED` and, when `true`, `EMAIL_API_KEY` and `EMAIL_FROM_EMAIL` | mail delivery |
 | `GENERATOR_DUMMY_MODE` and, when `false`, `GENERATOR_API_KEY` | image generation |
@@ -140,6 +141,7 @@ docker run --rm -p 8080:8080 \
   -e DATABASE_USERNAME=voenix \
   -e DATABASE_PASSWORD=… \
   -e AUTH_SESSION_SECRET=… \
+  -e PRODUCTION_SECRETS_KEY=… \
   -e FRONTEND_BASE_URL=http://localhost:8080 \
   -e EMAIL_ENABLED=false \
   -e GENERATOR_DUMMY_MODE=true \

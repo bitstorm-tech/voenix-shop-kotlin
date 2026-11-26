@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import type { SpodSyncReport } from '@/modules/article'
 import { testDatabase } from '@test-support/database'
-import { jsonOf, signedInHeaders, testApp } from '@test-support/http'
+import { jsonOf, signedInHeaders, testApp, testSecrets } from '@test-support/http'
 import { rejectionOf } from '@test-support/values'
 import {
   productionTestKit,
@@ -59,14 +59,22 @@ const spodBody = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const secrets = () =>
-  database.db
+/** The stored secrets, opened: each one must be sealed, or opening throws. */
+const secrets = async () => {
+  const rows = await database.db
     .selectFrom('production_destinations as d')
     .leftJoin('production_destination_sftp as f', 'f.id', 'd.id')
     .leftJoin('production_destination_spod as s', 's.id', 'd.id')
     .select(['d.id', 'f.password', 's.access_token'])
     .orderBy('d.id')
     .execute()
+  const open = (value: string | null) => (value === null ? null : testSecrets.open(value))
+  return rows.map((row) => ({
+    id: row.id,
+    password: open(row.password),
+    access_token: open(row.access_token),
+  }))
+}
 
 describe('destination CRUD', () => {
   test('create, list, read, replace, disable, and delete an SFTP destination', async () => {

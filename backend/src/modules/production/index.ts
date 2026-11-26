@@ -5,6 +5,7 @@ import type { EmailModule } from '@/modules/email'
 import type { SupplierModule } from '@/modules/supplier'
 import type { SupplierAccounts } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
+import { createSecretBox } from '@/platform/secret-box'
 import type { Settings } from '@/platform/settings'
 import { requestProduction } from './delivery/requests'
 import { createProductionWorker } from './delivery/worker'
@@ -78,7 +79,8 @@ export async function createProductionModule({
   /** The operations address the SPOD ops alert goes to, `null` when none is set. */
   alertEmail: string | null
 }) {
-  const destinations = createDestinationRepository(db)
+  const secrets = createSecretBox(settings.secretsKey)
+  const destinations = createDestinationRepository(db, secrets)
   if (settings.spod === null && (await destinations.hasSpodDestination())) {
     throw new Error(
       'A print-on-demand destination exists, so production.spod.webhookSecret and ' +
@@ -92,6 +94,7 @@ export async function createProductionModule({
     outbox: email.outbox,
     orders,
     alertEmail,
+    secrets,
   })
   const worker = createProductionWorker({
     db,
@@ -101,6 +104,7 @@ export async function createProductionModule({
     orders,
     spodOrders,
     spod,
+    secrets,
   })
 
   const fulfillment = createFulfillmentService({

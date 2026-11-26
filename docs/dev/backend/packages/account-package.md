@@ -12,8 +12,11 @@ separate billing address), change their e-mail with re-confirmation, change
 their password, and recover access with a password reset link.
 
 The package is the **trusted credential verifier** of the platform auth: a
-successful login is the one production code path that calls
-`auth.signIn(c, userId, roles)`. Session mechanics, CSRF, and the route
+successful login (and a password change, for the changing session) calls
+`auth.signIn(c, userId, sessionVersion)`. It also answers the platform's
+`SessionAccounts` lookup (`createSessionAccounts(db)`): the current roles of a
+session's user, or `null` when the user is gone or `users.session_version`
+(incremented by a password change or reset) moved past the cookie's version. Session mechanics, CSRF, and the route
 protections stay in the platform and are reused, never reimplemented (see
 [Authentication and authorization](../conventions/authentication-and-authorization.md)).
 
@@ -444,7 +447,11 @@ needs the auth and the auth needs the lookup (the pattern of the cart's
 `createPrintImageReads(db)`):
 
 ```ts
-const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
+const auth = createAuth({
+  ...settings.auth,
+  accessTokens: createAccessTokens(db),
+  sessions: createSessionAccounts(db),
+})
 ```
 
 `createAccessTokens(db).principalOf(token)` hashes the token and answers the

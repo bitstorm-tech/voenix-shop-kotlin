@@ -25,7 +25,7 @@ export interface ProductionDestinationSftpTable {
   host: string
   port: Generated<number>
   username: string
-  /** Write-only: selected by the delivery read alone. */
+  /** Sealed (`enc:v1:`, `platform/secret-box.ts`); selected by the delivery read alone. */
   password: string
   host_key_fingerprint: string
   remote_path: Generated<string>
@@ -36,7 +36,7 @@ export interface ProductionDestinationSpodTable {
   id: number
   channel: Generated<string>
   environment: string
-  /** Write-only: selected by the submission and the sync reads alone. */
+  /** Sealed (`enc:v1:`, `platform/secret-box.ts`); selected by the submission and the sync reads alone. */
   access_token: string
   timeout_seconds: number
 }

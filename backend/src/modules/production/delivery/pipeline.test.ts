@@ -4,6 +4,7 @@ import { createServer, type Server as NetServer } from 'node:net'
 import { join } from 'node:path'
 import { write } from '@/platform/db/database'
 import { testDatabase } from '@test-support/database'
+import { testSecrets } from '@test-support/http'
 import { rejectionOf } from '@test-support/values'
 import {
   line,
@@ -344,6 +345,7 @@ describe('the production worker', () => {
       artifacts: kit.artifacts,
       outbox: { enqueue: () => Promise.reject(new Error('the outbox is down')) },
       orders: kit.orders.reads,
+      secrets: testSecrets,
     })
     expect(await rejectionOf(failing())).toBe('the outbox is down')
     expect(await deliveries()).toMatchObject([{ deliveredAt: null }])

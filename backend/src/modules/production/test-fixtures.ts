@@ -18,6 +18,7 @@ import type { SpodResult } from '@/modules/spod'
 import { createSupplierModule } from '@/modules/supplier'
 import type { Tables } from '@/platform/db/database'
 import type { Settings } from '@/platform/settings'
+import { TEST_SECRETS_KEY, testSecrets } from '@test-support/http'
 import { createProductionWorker } from './delivery/worker'
 import { createProductionModule } from './index'
 import {
@@ -106,7 +107,7 @@ export async function seedSftpDestination(
       host: '127.0.0.1',
       port: values.port,
       username: SFTP_USERNAME,
-      password: SFTP_PASSWORD,
+      password: testSecrets.seal(SFTP_PASSWORD),
       host_key_fingerprint: values.fingerprint,
       remote_path: '/incoming',
       timeout_seconds: 5,
@@ -127,7 +128,12 @@ export async function seedSpodDestination(
     .executeTakeFirstOrThrow()
   await db
     .insertInto('production_destination_spod')
-    .values({ id, environment: 'STAGING', access_token: 'spod-token', timeout_seconds: 5 })
+    .values({
+      id,
+      environment: 'STAGING',
+      access_token: testSecrets.seal('spod-token'),
+      timeout_seconds: 5,
+    })
     .execute()
   return id
 }
@@ -328,7 +334,11 @@ export async function productionTestKit(
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'production-test-'))
-  const settings = { artifactRoot: join(root, 'artifacts'), spod: spodSettings }
+  const settings = {
+    artifactRoot: join(root, 'artifacts'),
+    secretsKey: TEST_SECRETS_KEY,
+    spod: spodSettings,
+  }
   const orders = fakeOrders()
   const catalog = fakeCatalog()
   const logins = supplierLogins()
@@ -378,8 +388,10 @@ export async function productionTestKit(
       outbox: email.outbox,
       orders: orders.reads,
       alertEmail: ALERT_EMAIL,
+      secrets: testSecrets,
     }),
     spod: client,
+    secrets: testSecrets,
   })
   return { module, worker, orders, catalog, logins, syncCalls, artifacts, root }
 }

@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
 import type { Tables } from '@/platform/db/database'
+import type { SecretBox } from '@/platform/secret-box'
 import { createLogger, errorDetails } from '@/platform/logging'
 import { type OrderLoader, type ProductionItem, type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
@@ -88,6 +89,7 @@ export function createProductionWorker({
   orders,
   spodOrders,
   spod,
+  secrets,
 }: {
   db: Kysely<Tables>
   loadOrder: OrderLoader
@@ -96,11 +98,12 @@ export function createProductionWorker({
   orders: Pick<ProductionOrders, 'fulfillmentOrders'>
   spodOrders: SpodOrderRepository
   spod: SubmissionClient
+  secrets: SecretBox
 }) {
   const stages = [
     createSplitStage(createRequestRepository(db), loadOrder),
     createGenerationStage({ db, loadOrder, artifacts }),
-    createDeliveryStage({ db, artifacts, outbox, orders }),
+    createDeliveryStage({ db, artifacts, outbox, orders, secrets }),
     createSubmissionStage({ loadOrder, orders: spodOrders, client: spod }),
   ]
   const runOnce = async (signal?: AbortSignal) => {

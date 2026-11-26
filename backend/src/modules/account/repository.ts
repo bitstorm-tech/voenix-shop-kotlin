@@ -29,6 +29,8 @@ export interface UserAccount {
   createdAt: Date
   failedLoginCount: number
   lockedUntil: Date | null
+  /** The version a session cookie must carry; a password change or reset increments it. */
+  sessionVersion: number
   roles: string[]
   shippingAddress: Address | null
   billingAddress: Address | null
@@ -334,6 +336,7 @@ export function createAccountRepository(db: Kysely<Tables>) {
           .updateTable('users')
           .set({
             password_hash: newPasswordHash,
+            session_version: sql`session_version + 1`,
             email_confirmed: true,
             failed_login_count: 0,
             locked_until: null,
@@ -480,13 +483,33 @@ export function createAccountRepository(db: Kysely<Tables>) {
         .execute()
     },
 
-    updatePasswordHash: async (userId: number, passwordHash: string): Promise<void> => {
-      await db
+    /** Stores a new hash and ends every older session; answers the new session version. */
+    updatePasswordHash: async (userId: number, passwordHash: string): Promise<number> => {
+      const row = await db
         .updateTable('users')
-        .set({ password_hash: passwordHash })
+        .set({ password_hash: passwordHash, session_version: sql`session_version + 1` })
         .where('id', '=', userId)
-        .execute()
+        .returning('session_version')
+        .executeTakeFirstOrThrow()
+      return row.session_version
     },
+
+    /**
+     * The user and current roles behind a session, or `null` when the user is gone or the session
+     * carries an outdated version. One query, read on every request that carries a session.
+     */
+    sessionPrincipal: (userId: number, sessionVersion: number) =>
+      read(db, async (trx) => {
+        const rows = await trx
+          .selectFrom('users as u')
+          .leftJoin('user_roles as r', 'r.user_id', 'u.id')
+          .select('r.role')
+          .where('u.id', '=', userId)
+          .where('u.session_version', '=', sessionVersion)
+          .execute()
+        if (rows.length === 0) return null
+        return { userId, roles: rows.flatMap(({ role }) => (role === null ? [] : [role])) }
+      }),
   }
 }
 
@@ -554,6 +577,7 @@ async function toUserAccount(
     createdAt: row.created_at,
     failedLoginCount: row.failed_login_count,
     lockedUntil: row.locked_until,
+    sessionVersion: row.session_version,
     roles: roles.map(({ role }) => role),
     shippingAddress: storedAddress({
       firstName: row.shipping_first_name,

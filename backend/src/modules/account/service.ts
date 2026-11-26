@@ -62,7 +62,7 @@ export interface AccountProfile {
 /** A successful login: what the route writes into the session, and nothing else. */
 export interface SignedIn {
   userId: number
-  roles: string[]
+  sessionVersion: number
 }
 
 const CUSTOMER_ROLE = 'CUSTOMER'
@@ -184,7 +184,7 @@ export function createAccountService({
       if (user.failedLoginCount > 0 || user.lockedUntil !== null) {
         await repository.resetLockout(user.id)
       }
-      return { userId: user.id, roles: user.roles }
+      return { userId: user.id, sessionVersion: user.sessionVersion }
     },
 
     /** Answers whether the link was valid; an invalid one changes nothing. */
@@ -259,13 +259,16 @@ export function createAccountService({
     changePassword: async (
       userId: number,
       { currentPassword, newPassword }: ChangePasswordInput,
-    ): Promise<'changed' | 'notFound' | 'wrongPassword'> => {
+    ): Promise<SignedIn | 'notFound' | 'wrongPassword'> => {
       const user = await repository.findById(userId)
       if (user === undefined) return 'notFound'
       if (!(await passwords.verify(currentPassword, user.passwordHash))) return 'wrongPassword'
-      await repository.updatePasswordHash(userId, await passwords.hash(newPassword))
+      const sessionVersion = await repository.updatePasswordHash(
+        userId,
+        await passwords.hash(newPassword),
+      )
       await mails.sendPasswordChanged(user.email)
-      return 'changed'
+      return { userId, sessionVersion }
     },
 
     /**

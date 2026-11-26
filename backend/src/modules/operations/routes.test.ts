@@ -21,6 +21,10 @@ beforeAll(async () => {
   composed = await composedApplication(database.settings)
 })
 
+/** The session of the seeded user who holds `roles`: the admin 11, or the non-admin 12. */
+const sessionOf = (roles: string[]) =>
+  signedInHeaders({ userId: roles.includes('ADMIN') ? 11 : 12 })
+
 const FINDINGS = '/api/admin/operations/findings'
 const ORDERS = '/api/admin/orders'
 
@@ -50,11 +54,19 @@ const app = () => {
   return composed.app
 }
 const get = async (path: string, roles = ['ADMIN']) =>
-  app().request(path, { headers: await signedInHeaders({ roles }) })
+  app().request(path, { headers: await sessionOf(roles) })
 
 beforeEach(async () => {
   await sql`TRUNCATE operations_findings, operations_last_scan, orders, carts, payments, production_requests,
     production_destinations, suppliers, email_jobs RESTART IDENTITY CASCADE`.execute(database.db)
+  // The cascade from suppliers empties users. The composed auth reads roles from the database:
+  // user 11 is the admin, user 12 is not.
+  await sql`INSERT INTO users (id, email, password_hash) VALUES
+    (11, 'admin@voenix.example', 'v1$1$salt$hash'),
+    (12, 'user@voenix.example', 'v1$1$salt$hash')`.execute(database.db)
+  await sql`INSERT INTO user_roles (user_id, role) VALUES (11, 'ADMIN'), (12, 'USER')`.execute(
+    database.db,
+  )
 })
 
 /** An order placed at `createdAt` by `email`, with one line; its access token is `token-{n}`. */
@@ -569,7 +581,7 @@ const post = async (
   body?: unknown,
   { roles = ['ADMIN'], csrf = true }: { roles?: string[]; csrf?: boolean } = {},
 ) => {
-  const { [CSRF_HEADER]: token, ...headers } = await signedInHeaders({ roles })
+  const { [CSRF_HEADER]: token, ...headers } = await sessionOf(roles)
   return app().request(path, {
     method: 'POST',
     headers: {

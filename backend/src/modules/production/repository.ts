@@ -4,6 +4,7 @@ import { spodEnvironmentOfStoredValue, type SpodEnvironment } from '@/modules/sp
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
 import { conflict, notFound, ok, type OperationResult } from '@/platform/operation'
+import type { SecretBox } from '@/platform/secret-box'
 import './schema'
 
 /** The channel-shaped half of a destination, secret excluded: the same shape in and out. */
@@ -50,9 +51,10 @@ export type DestinationRepository = ReturnType<typeof createDestinationRepositor
 /**
  * Destination persistence across the base table and the two per-channel detail tables (SPOD
  * fulfillment decision 3). Both rows are written in one transaction; the composite foreign key
- * `(id, channel)` refuses a detail row of the wrong channel. Reads never select a secret column.
+ * `(id, channel)` refuses a detail row of the wrong channel. Reads never select a secret column but
+ * for the catalog source; a secret is sealed by `secrets` before it is written and opened only there.
  */
-export function createDestinationRepository(db: Kysely<Tables>) {
+export function createDestinationRepository(db: Kysely<Tables>, secrets: SecretBox) {
   const find = (trx: Transaction<Tables>, id?: number) => {
     let query = trx
       .selectFrom('production_destinations as d')
@@ -129,7 +131,7 @@ export function createDestinationRepository(db: Kysely<Tables>) {
         access: {
           destinationId: id,
           environment: spodEnvironmentOfStoredValue(detailValue(row.environment)),
-          accessToken: detailValue(row.access_token),
+          accessToken: secrets.open(detailValue(row.access_token)),
           timeoutSeconds: detailValue(row.timeout_seconds),
         },
       }
@@ -145,7 +147,7 @@ export function createDestinationRepository(db: Kysely<Tables>) {
               .values(baseValues(destination))
               .returning('id')
               .executeTakeFirstOrThrow()
-            await insertDetail(trx, id, destination.detail, secret)
+            await insertDetail(trx, id, destination.detail, secrets.seal(secret))
             return { id, ...destination }
           }),
       ),
@@ -168,7 +170,12 @@ export function createDestinationRepository(db: Kysely<Tables>) {
               .set({ ...baseValues(destination), updated_at: sql<Date>`now()` })
               .where('id', '=', id)
               .execute()
-            await updateDetail(trx, id, destination.detail, newSecret)
+            await updateDetail(
+              trx,
+              id,
+              destination.detail,
+              newSecret === null ? null : secrets.seal(newSecret),
+            )
             return { id, ...destination }
           }),
       ),

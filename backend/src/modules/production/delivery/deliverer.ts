@@ -2,6 +2,7 @@ import { sql, type Kysely, type UpdateObject } from 'kysely'
 import { renderProducerPdfNotification, type EmailModule } from '@/modules/email'
 import { read, write, type Tables } from '@/platform/db/database'
 import { createLogger, errorDetails } from '@/platform/logging'
+import type { SecretBox } from '@/platform/secret-box'
 import { type ProductionOrders } from '../orders'
 import type { ArtifactStore } from '../pdf/artifact-store'
 import { deliverOverSftp, type SftpDestination } from './sftp'
@@ -29,11 +30,13 @@ export function createDeliveryStage({
   artifacts,
   outbox,
   orders,
+  secrets,
 }: {
   db: Kysely<Tables>
   artifacts: ArtifactStore
   outbox: Pick<EmailModule['outbox'], 'enqueue'>
   orders: Pick<ProductionOrders, 'fulfillmentOrders'>
+  secrets: SecretBox
 }) {
   const updateOpen = async (
     executor: Kysely<Tables>,
@@ -51,7 +54,11 @@ export function createDeliveryStage({
   const recordFailure = (deliveryId: number, code: string) =>
     updateOpen(db, deliveryId, { last_error_code: code })
 
-  /** The destination with its password, or `undefined` when the row or its detail row is gone. */
+  /**
+   * The destination with its sealed password, or `undefined` when the row or its detail row is gone.
+   * The password is opened only for the upload, where a stored value that does not open fails this
+   * one delivery.
+   */
   const destination = (destinationId: number): Promise<DeliveryDestination | undefined> =>
     read(db, async (trx) => {
       const row = await trx
@@ -208,7 +215,8 @@ export function createDeliveryStage({
       }
       let outcome: string | null
       try {
-        outcome = await deliverOverSftp(target, delivery.fileName, artifact.bytes)
+        const account = { ...target, password: secrets.open(target.password) }
+        outcome = await deliverOverSftp(account, delivery.fileName, artifact.bytes)
       } catch (error) {
         logger.error(
           { deliveryId: delivery.id, error: errorDetails(error) },

@@ -36,11 +36,14 @@ install a protection and never implement security themselves.
 ## Where sessions come from
 
 The auth code **validates and uses** a session but never verifies credentials.
-The account module's login is the one production path that calls
-`auth.signIn(c, userId, roles)`; the session stores the user's numeric database
-id as a number plus the roles granted at login, so a handler reads it as
-`c.var.principal?.userId ?? null` without parsing it. Tests mint sessions directly
-through `signedInHeaders` of the test support.
+The account module's login (and its password change, which keeps the changing
+session) calls `auth.signIn(c, userId, sessionVersion)`; the session stores the
+user's numeric database id and the user's session version at login, never the
+roles. On every request with a session, the middleware asks the account module's
+`SessionAccounts.principalOf(userId, sessionVersion)` for the user's **current**
+roles; a handler reads the result as `c.var.principal?.userId ?? null` without
+parsing anything. Tests mint sessions directly through `signedInHeaders` of the
+test support.
 
 ## The five-minute mental model
 
@@ -54,8 +57,8 @@ flowchart LR
     Handler["route handler<br/>id · body · operation"]
 
     Request --> Middleware
-    Middleware -->|"missing, tampered, or expired"| Anonymous["principal = null"]
-    Middleware -->|"valid"| Principal
+    Middleware -->|"missing, tampered, expired,<br/>user gone, or version outdated"| Anonymous["principal = null"]
+    Middleware -->|"valid: roles from the database"| Principal
     Anonymous --> Role
     Principal --> Role
     Role -->|"no principal"| Unauthorized["401"]
@@ -72,13 +75,13 @@ a malformed id receives `400 Invalid country id` without the body being read.
 ## What `createAuth` builds
 
 [`auth.ts`](../../../../backend/src/platform/auth/auth.ts) exports one
-factory. `createAuth({ sessionSecret, secureCookies, accessTokens })` returns:
+factory. `createAuth({ sessionSecret, secureCookies, accessTokens, sessions })` returns:
 
 | Member | What it does |
 | --- | --- |
-| `middleware` | Runs on every request (installed by `createApp`): opens the two cookies into `c.var.principal` and `c.var.csrfSession`, renews a session past half its life, and resolves an `Authorization: Bearer` header into `c.var.tokenPrincipal`. |
+| `middleware` | Runs on every request (installed by `createApp`): opens the two cookies, resolves the session through `sessions` into `c.var.principal` (clearing the cookie of a refused one), opens `c.var.csrfSession`, renews a session past half its life, and resolves an `Authorization: Bearer` header into `c.var.tokenPrincipal`. |
 | `routes` | `GET /api/antiforgery/token`, which mints a CSRF token. |
-| `signIn(c, userId, roles)` | Writes a fresh 24-hour session cookie. |
+| `signIn(c, userId, sessionVersion)` | Writes a fresh 24-hour session cookie. |
 | `signOut(c)` | Clears it. |
 | `guestTokens.tryGet(c)`, `guestTokens.getOrCreate(c)` | The guest identity below. |
 
@@ -101,7 +104,7 @@ fresh guest, exactly as before.
 
 | Cookie | Carries | Type |
 | --- | --- | --- |
-| `voenix.auth` | `userId`, `roles`, `issuedAtEpochSeconds`, `expiresAtEpochSeconds` | `UserSession` |
+| `voenix.auth` | `userId`, `sessionVersion`, `issuedAtEpochSeconds`, `expiresAtEpochSeconds` | `UserSession` |
 | `XSRF-TOKEN` | the token and the `userId` it was minted for (`null` for a guest) | `CsrfSession` |
 | `voenix.guest` | a random 48-byte token | string |
 
@@ -283,11 +286,34 @@ only HTTP and production cookies went out without `Secure`. The request's
 setting no request can change was the remaining choice. The session has its own server-checked expiry: a
 new session lasts 24 hours; once more than half of that has elapsed, any
 request, also a public one, renews it for another 24 hours; an expired session
-is anonymous and is not renewed. Roles are not reloaded from the database
-during a session's lifetime; there is no server-side revocation list.
+is anonymous and is not renewed.
+
+### Revocation: the database decides on every request
+
+A session cookie only says who signed in. Its roles come from the database on
+every request (one indexed query on `users` joined with `user_roles`), and only
+while the cookie's `sessionVersion` equals `users.session_version`. So with the
+very next request:
+
+- a removed role is gone (`requireAdmin` answers `403`),
+- a deleted account is anonymous (`401`) and its cookie is cleared,
+- a password change or reset increments `session_version`, which ends **every**
+  older session of that user (`401`); the changing session continues on the
+  cookie the change answers.
+
+This replaced the earlier rule "roles are not reloaded during a session's
+lifetime" (go-live packet 8, `B13`): a stateless admin cookie stayed valid for
+up to 24 hours after its role was revoked. Alternatives that lost: checking the
+database only in `requireAdmin` (every route reads `c.var.principal`, and a
+deleted customer kept a working cookie too), and a server-side session table
+(more state than one version counter needs). A logout does not increment the
+version: it clears this browser's cookie and leaves the user's other devices
+signed in.
 
 `AUTH_SESSION_SECRET` must contain at least 32 UTF-8 bytes; `.env.development`
 carries a fixed development value, a deployment supplies its own.
+`PRODUCTION_SECRETS_KEY`, which encrypts stored destination credentials (see the
+production package guide), must differ from it.
 
 ## Guest identity
 
@@ -328,8 +354,12 @@ every rule of this guide on probe routes: the five protections and their
 refusals, the bearer token on every protection (also next to a session
 cookie, and below an open sub-app), CSRF accepted and rejected, the token
 binding, expiry and sliding renewal, the cookie flags with `Secure` on and off, sign-in and sign-out, and the guest
-cookie. Module tests use `signedInHeaders({ userId, roles })`,
-`tokenHeaders(principal)` (a token registered with the in-memory lookup of
-`testAuth`), and `guestHeaders()` from `@test-support/http` and never repeat
-these cases. The account module's tests run a real token against a real
-`requireAdminOrToken` route.
+cookie, and that the session lookup decides the roles. Module tests use
+`signedInHeaders({ userId, roles })` (which registers `roles` with the in-memory
+session lookup of `testAuth`; the composed application reads them from its
+database instead, so its tests seed the user), `tokenHeaders(principal)` (a token
+registered with the in-memory lookup of `testAuth`), and `guestHeaders()` from
+`@test-support/http` and never repeat these cases. The account module's tests
+run a real token against a real `requireAdminOrToken` route and the revocation
+cases (removed role, deleted account, password reset, password change on another
+device) against the real session lookup.

@@ -3,6 +3,7 @@ import { renderSpodOpsAlert, type EmailModule, type SpodOpsAlertReason } from '@
 import { spodEnvironmentOfStoredValue, type SpodAccess } from '@/modules/spod'
 import { read, write, type Tables } from '@/platform/db/database'
 import { executePostgresWrite } from '@/platform/db/postgres-write'
+import type { SecretBox } from '@/platform/secret-box'
 import { createLogger } from '@/platform/logging'
 import { conflict, ok, type OperationResult } from '@/platform/operation'
 import type { ProductionOrders } from '../orders'
@@ -63,10 +64,13 @@ export function createSpodOrderRepository({
   outbox,
   orders,
   alertEmail,
+  secrets,
 }: {
   db: Kysely<Tables>
   outbox: EmailModule['outbox']
   orders: Pick<ProductionOrders, 'recordEvent'>
+  /** Opens the stored access token of the destination a job is submitted through. */
+  secrets: SecretBox
   /** `null` in a deployment without SPOD settings, which then has no one to alert. */
   alertEmail: string | null
 }) {
@@ -374,7 +378,7 @@ export function createSpodOrderRepository({
         access: {
           destinationId: enabled.id,
           environment: spodEnvironmentOfStoredValue(enabled.environment),
-          accessToken: enabled.access_token,
+          accessToken: secrets.open(enabled.access_token),
           timeoutSeconds: enabled.timeout_seconds,
         },
       }

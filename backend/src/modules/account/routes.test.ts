@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { sql } from 'kysely'
-import { createAccessTokens, createAccountModule } from '@/modules/account'
+import { createAccessTokens, createAccountModule, createSessionAccounts } from '@/modules/account'
 import { EmailDeliveryError, type RenderedEmail, type UserEmailKind } from '@/modules/email'
-import { createAuth, requireAdminOrToken } from '@/platform/auth/auth'
+import { createAuth, requireAdmin, requireAdminOrToken } from '@/platform/auth/auth'
 import { createApp } from '@/platform/http/app'
 import { createClientIpRateLimiter } from '@/platform/ratelimit/client-ip-rate-limiter'
 import { seedUser, testDatabase } from '@test-support/database'
@@ -14,8 +14,6 @@ import {
   setCookies,
   signedInHeaders,
   TEST_SESSION_SECRET,
-  testApp,
-  testAuth,
 } from '@test-support/http'
 
 const database = testDatabase()
@@ -43,17 +41,33 @@ beforeEach(() => {
   failure = null
 })
 
+/** The auth with the real token and session lookups: roles and session versions come from the database. */
+let auth: ReturnType<typeof createAuth> | undefined
+const accountAuth = () =>
+  (auth ??= createAuth({
+    sessionSecret: TEST_SESSION_SECRET,
+    secureCookies: false,
+    accessTokens: createAccessTokens(database.db),
+    sessions: createSessionAccounts(database.db),
+  }))
+/** `routes` behind the platform middleware of `accountAuth`. */
+const accountApp = (routes: Hono) => {
+  const app = createApp(accountAuth())
+  app.route('/', routes)
+  return app
+}
+
 let module: ReturnType<typeof createAccountModule> | undefined
 const accounts = () =>
   (module ??= createAccountModule({
     db: database.db,
-    auth: testAuth,
+    auth: accountAuth(),
     userEmails,
     frontendBaseUrl: FRONTEND,
     now: () => current,
     pbkdf2Iterations: 1_000,
   }))
-const app = () => testApp(accounts().routes)
+const app = () => accountApp(accounts().routes)
 
 const send = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
   app().request(path, {
@@ -443,10 +457,10 @@ describe('auth endpoint rate limits', () => {
         limit: 2,
         windowSeconds: 60,
       }).middleware
-    const limitedApp = testApp(
+    const limitedApp = accountApp(
       createAccountModule({
         db: database.db,
-        auth: testAuth,
+        auth: accountAuth(),
         userEmails,
         frontendBaseUrl: FRONTEND,
         now: () => current,
@@ -537,7 +551,11 @@ describe('GET /api/auth/me and PUT /api/auth/profile', () => {
     const headers = await customer(99_999)
     const me = await app().request('/api/auth/me', { headers })
     expect(me.status).toBe(401)
-    expect(await jsonOf(me)).toEqual({ message: 'User not found', errors: {} })
+    expect(await jsonOf(me)).toEqual({
+      success: false,
+      message: 'Authentication required',
+      code: null,
+    })
     const put = await send('PUT', '/api/auth/profile', { shippingAddress: {} }, headers)
     expect(put.status).toBe(401)
   })
@@ -635,8 +653,15 @@ describe('POST /api/auth/change-password', () => {
     expect(await jsonOf(wrong)).toEqual({ message: 'Invalid password', errors: {} })
 
     failure = () => new Error('a rendering bug of ours')
-    expect((await change('password-1')).status).toBe(204)
-    expect((await app().request('/api/auth/me', { headers })).status).toBe(200)
+    const changed = await change('password-1')
+    expect(changed.status).toBe(204)
+    // The changing session continues on the cookie the change answers; the older one is ended.
+    expect((await app().request('/api/auth/me', { headers })).status).toBe(401)
+    const csrf = (headers.Cookie ?? '')
+      .split('; ')
+      .filter((pair) => !pair.startsWith('voenix.auth='))
+    const renewed = { ...headers, Cookie: [cookieHeader(changed), ...csrf].join('; ') }
+    expect((await app().request('/api/auth/me', { headers: renewed })).status).toBe(200)
     failure = null
     expect(
       (await post('/api/auth/login', { email: 'rotate@example.com', password: 'password-2' }))
@@ -646,7 +671,17 @@ describe('POST /api/auth/change-password', () => {
 })
 
 describe('/api/admin/supplier-logins', () => {
-  const admin = () => signedInHeaders({ userId: 1, roles: ['ADMIN'] })
+  let adminId: number | undefined
+  const admin = async () => {
+    if (adminId === undefined) {
+      adminId = await seedUser(database.db, 'admin@voenix.example')
+      await database.db
+        .insertInto('user_roles')
+        .values({ user_id: adminId, role: 'ADMIN' })
+        .execute()
+    }
+    return signedInHeaders({ userId: adminId })
+  }
   const supplier = async (name: string) => {
     const { rows } = await sql<{
       id: number
@@ -838,16 +873,10 @@ describe('/api/admin/supplier-logins', () => {
 describe('/api/admin/access-tokens', () => {
   /** The account routes and a probe behind `requireAdminOrToken`, with the real token lookup. */
   const tokenApp = () => {
-    const auth = createAuth({
-      sessionSecret: TEST_SESSION_SECRET,
-      secureCookies: false,
-      accessTokens: createAccessTokens(database.db),
-    })
     const probe = new Hono()
     probe.use(requireAdminOrToken)
     probe.on(['GET', 'POST'], '/', (c) => c.text(`admin ${String(c.var.principal?.userId)}`))
-    const app = createApp(auth)
-    app.route('/', accounts().routes)
+    const app = accountApp(accounts().routes)
     app.route('/probe', probe)
     return app
   }
@@ -1014,5 +1043,77 @@ describe('/api/admin/access-tokens', () => {
         .execute(),
     ).toEqual([])
     expect((await tokenApp().request('/probe', { headers: bearer(token) })).status).toBe(401)
+  })
+})
+
+describe('admin session revocation', () => {
+  /** The account routes and two probes: one behind `requireAdmin`, one behind `requireAdminOrToken`. */
+  const probeApp = () => {
+    const adminOnly = new Hono()
+    adminOnly.use(requireAdmin)
+    adminOnly.get('/', (c) => c.text('admin'))
+    const adminOrToken = new Hono()
+    adminOrToken.use(requireAdminOrToken)
+    adminOrToken.get('/', (c) => c.text('admin'))
+    const app = accountApp(accounts().routes)
+    app.route('/probe/admin', adminOnly)
+    app.route('/probe/admin-or-token', adminOrToken)
+    return app
+  }
+  const status = async (path: string, headers: Record<string, string>) =>
+    (await probeApp().request(path, { headers })).status
+  const signedInAdmin = async (email: string) => {
+    const id = await registerAndConfirm(email, 'password-1')
+    await database.db.insertInto('user_roles').values({ user_id: id, role: 'ADMIN' }).execute()
+    return { id, headers: await signIn(email, 'password-1') }
+  }
+
+  test('a removed ADMIN role refuses the issued cookie with the very next request', async () => {
+    const { id, headers } = await signedInAdmin('demoted@voenix.example')
+    expect(await status('/probe/admin', headers)).toBe(200)
+    expect(await status('/probe/admin-or-token', headers)).toBe(200)
+    await database.db
+      .deleteFrom('user_roles')
+      .where('user_id', '=', id)
+      .where('role', '=', 'ADMIN')
+      .execute()
+    expect(await status('/probe/admin', headers)).toBe(403)
+    expect(await status('/probe/admin-or-token', headers)).toBe(403)
+  })
+
+  test('a deleted account refuses the issued cookie and clears it', async () => {
+    const { id, headers } = await signedInAdmin('deleted@voenix.example')
+    await database.db.deleteFrom('users').where('id', '=', id).execute()
+    const refused = await probeApp().request('/probe/admin', { headers })
+    expect(refused.status).toBe(401)
+    expect(setCookies(refused, 'voenix.auth')[0]).toContain('Max-Age=0')
+    expect(await status('/probe/admin-or-token', headers)).toBe(401)
+  })
+
+  test('a password reset ends every older session; a new login works', async () => {
+    const { headers } = await signedInAdmin('reset-admin@voenix.example')
+    await post('/api/auth/forgot-password', { email: 'reset-admin@voenix.example' })
+    const link = lastLink('/reset-password')
+    const reset = await post('/api/auth/reset-password', {
+      email: param(link, 'email'),
+      token: param(link, 'token'),
+      newPassword: 'password-2',
+    })
+    expect(reset.status).toBe(204)
+    expect(await status('/probe/admin', headers)).toBe(401)
+    const fresh = await signIn('reset-admin@voenix.example', 'password-2')
+    expect(await status('/probe/admin', fresh)).toBe(200)
+  })
+
+  test('a password change on one device ends the session on another', async () => {
+    const { headers: laptop } = await signedInAdmin('two-devices@voenix.example')
+    const phone = await signIn('two-devices@voenix.example', 'password-1')
+    const changed = await post(
+      '/api/auth/change-password',
+      { currentPassword: 'password-1', newPassword: 'password-2' },
+      phone,
+    )
+    expect(changed.status).toBe(204)
+    expect(await status('/probe/admin', laptop)).toBe(401)
   })
 })

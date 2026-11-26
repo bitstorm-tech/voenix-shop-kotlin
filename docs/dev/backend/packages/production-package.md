@@ -329,6 +329,22 @@ The SFTP password and the SPOD access token are one mechanism:
    and `update`, so no printable value holds it.
 4. Log lines carry ids only, and a rejected body's field errors never echo a
    value.
+5. At rest, both columns hold the secret sealed with AES-256-GCM
+   ([`secret-box.ts`](../../../../backend/src/platform/secret-box.ts)): `enc:v1:`
+   and base64url of a random 12-byte IV, the ciphertext, and the tag, under
+   SHA-256 of `production-secrets:<PRODUCTION_SECRETS_KEY>`. The repository seals
+   on `insert` and `update`; the three internal reads open. A value that does not
+   open (blank, plaintext, tampered, or sealed under another key) throws without
+   the value in the message, so that one delivery records `DELIVERY_FAILED`,
+   that one SPOD job `SUBMISSION_FAILED`, and a sync answers `500`; there is no
+   plaintext fallback. `V43` blanked every plaintext value, so a destination
+   created before it needs its secret entered again.
+
+`PRODUCTION_SECRETS_KEY` (required, at least 32 UTF-8 bytes, different from
+`AUTH_SESSION_SECRET`) is its own key, so rotating the session secret never
+touches stored credentials. Losing or changing it makes every stored secret
+unreadable until an admin enters each one again; keep it in the password
+manager next to the database backups, never in them.
 
 A replace without a secret (absent, `null`, or blank) keeps the stored one; a
 non-blank secret is stored exactly as typed, spaces included. A create requires

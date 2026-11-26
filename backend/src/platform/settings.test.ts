@@ -16,6 +16,7 @@ const development = {
   DATABASE_USERNAME: 'voenix',
   DATABASE_PASSWORD: 'voenix',
   AUTH_SESSION_SECRET: 'development-only-session-secret-not-for-production',
+  PRODUCTION_SECRETS_KEY: 'development-only-production-secrets-key-not-for-production',
   FRONTEND_BASE_URL: 'http://localhost:5173',
   GENERATOR_DUMMY_MODE: 'true',
   MOLLIE_API_KEY: 'test_development-placeholder',
@@ -82,6 +83,18 @@ describe('loadSettings', () => {
     expect(
       loadSettings({ ...development, AUTH_SESSION_SECRET: 'é'.repeat(16) }).auth.sessionSecret,
     ).toBe('é'.repeat(16))
+  })
+
+  test('the production secrets key needs 32 UTF-8 bytes and its own value', () => {
+    expect(failure({ ...development, PRODUCTION_SECRETS_KEY: undefined })).toBe(
+      'Invalid configuration: PRODUCTION_SECRETS_KEY is required',
+    )
+    expect(failure({ ...development, PRODUCTION_SECRETS_KEY: 'x'.repeat(31) })).toBe(
+      'Invalid configuration: PRODUCTION_SECRETS_KEY must contain at least 32 UTF-8 bytes',
+    )
+    expect(
+      failure({ ...development, PRODUCTION_SECRETS_KEY: development.AUTH_SESSION_SECRET }),
+    ).toBe('Invalid configuration: PRODUCTION_SECRETS_KEY must differ from AUTH_SESSION_SECRET')
   })
 
   test('the frontend base URL is normalized and must be HTTPS outside local hosts', () => {

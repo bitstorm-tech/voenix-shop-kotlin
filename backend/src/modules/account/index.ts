@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
-import type { AccessTokens, Auth, SupplierAccounts } from '@/platform/auth/auth'
+import type { AccessTokens, Auth, SessionAccounts, SupplierAccounts } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
 import { createPasswordHasher, DEFAULT_PBKDF2_ITERATIONS, tokenHashOf } from './credentials'
 import { createAccountMails } from './mails'
@@ -58,4 +58,12 @@ export function createAccessTokens(db: Kysely<Tables>): AccessTokens {
     principalOf: (token) => repository.accessTokenPrincipal(tokenHashOf(token)),
     markUsed: (token) => repository.markAccessTokenUsed(tokenHashOf(token)),
   }
+}
+
+/**
+ * The lookup `createAuth` resolves a session cookie with, created before the auth for the same
+ * reason as `createAccessTokens`.
+ */
+export function createSessionAccounts(db: Kysely<Tables>): SessionAccounts {
+  return { principalOf: createAccountRepository(db).sessionPrincipal }
 }

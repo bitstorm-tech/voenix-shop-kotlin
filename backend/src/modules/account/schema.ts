@@ -12,6 +12,8 @@ export interface UsersTable {
   created_at: Generated<Date>
   failed_login_count: Generated<number>
   locked_until: Date | null
+  /** Incremented by a password change or reset; a session cookie of an older version is refused. */
+  session_version: Generated<number>
   shipping_first_name: string | null
   shipping_last_name: string | null
   shipping_street: string | null

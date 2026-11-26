@@ -16,7 +16,6 @@ Zentrale Arbeitsliste für alle **noch offenen** Aufgaben bis zum Go-Live (konso
 | **`/royal-dog`** | `C4` | Für den Launch **vorerst ausblenden** ([Paket 6A](paket-6-recht-ui-mails.md)). |
 | **Footer-Seiten** | `C1` | **Alle** Seiten (`/about`, `/faq`, `/contact`, `/support`, `/payment`, `/terms`, `/returns`) bekommen Inhalte (DE + EN). |
 | **Rechnungen & Buchhaltung** | `D1` | **Externer Workflow** zum Start (Mollie → Lexoffice/sevDesk + manuelles PDF auf Anfrage im Support-SOP). |
-| **DB-Secrets & Admin-Auth** | `B13` | **Vor Go-Live lösen** — AES-256-GCM at-rest + DB-Prüfung in `requireAdmin` ([Paket 8](paket-8-security-db-secrets-admin.md)). |
 | **Streichpreise / Rabatte** | `A19` | Zum Launch **deaktiviert** lassen, bis 30-Tage-Tiefstpreis-Historie (Issue `#239`) existiert. |
 
 ---
@@ -27,13 +26,11 @@ Jedes Paket ist für eine eigene Session (bei Bedarf in getrennten Worktrees) ge
 
 | Paket | Schwerpunkt | Enthaltene Punkte | Workflow / Reihenfolge |
 |---|---|---|---|
-| **[Paket 8](paket-8-security-db-secrets-admin.md)** | Verschlüsselte DB-Secrets (SFTP/SPOD) & DB-gestützte Admin-Session-Revocation | `B13` | **Vollständig parallel** zu Paket 6. DB-Migration + Security → **Council empfohlen** (`AGENTS.md`). |
 | **[Paket 6 (6A + 6B)](paket-6-recht-ui-mails.md)** | **6A** (sofort ohne externe Texte): PAngV, Button-Lösung, EU-GPSR, UWG, Upload-/DSGVO-Hinweise, Legal-Leiste, iubenda-Fallback, `C2`, `C4`. **6B** (nach Text-Zulieferung): Rechtsseiten, Footer-Seiten, Bestellmail. | `A1`–`A5`, `A7`–`A8`, `A10`–`A11`, `A13`–`A14`, `A16`, `A18`, `A20`–`A21`, `C1`, `C2`, `C4` | **6A** sofort; **6B** sobald alle Texte & Mollie-Zahlarten vorliegen. |
 
 ```mermaid
 flowchart LR
     S1A["1A: Recht, EU-EPR & Texte (Kritischer Pfad)"]
-    S1C["1C: Paket 8 (Security B13)"]
     S1D["1D: Paket 6A (GPSR, PAngV, C2, C4)"]
     S1E["1E: Katalog & Admin-Daten"]
     S2A["2A: Paket 6B (Texte, Seiten & Mails)"]
@@ -46,7 +43,6 @@ flowchart LR
     S1A --> S2A
     S1D --> S2A
     S1D --> S1E
-    S1C --> S2C
     S1E --> S2C
     S2A --> S2C
     S2B --> P3
@@ -79,8 +75,7 @@ flowchart LR
   - **Support-Postfach** (`write-us@voenix.shop`) & Telefonnummer besetzen; kurzes **Support-SOP** festhalten (manuelle Refunds im Mollie-Dashboard, Reklamation/Neudruck, manuelle Kundenrechnungen auf Anfrage, `SPOD_QUARANTINED`, Chargebacks).
   - **BFSG-Kleinstunternehmer-Ausnahme** (<10 MA & ≤2 Mio. € Umsatz, § 3 Abs. 3 BFSG) intern dokumentieren.
 
-### Strang 1C–1D: Offene Code-Pakete (Phase 1)
-- [ ] **[Paket 8](paket-8-security-db-secrets-admin.md):** AES-256-GCM-Verschlüsselung für SFTP-/SPOD-Secrets in PostgreSQL + DB-gestützte Admin-Prüfung (`B13`).
+### Strang 1D: Offene Code-Pakete (Phase 1)
 - [ ] **[Paket 6 – Teil 6A](paket-6-recht-ui-mails.md):** `A1`-Fallback/EN, `A7`, `A8`, `A10`, `A11`-Streichungen („Poster“/„Als Karte“), `A13` (EU-GPSR), `A14`, `A18`, `A20`, `C2`, `C4`.
 
 ### Strang 1E: Katalog & Admin-Daten bereinigen
@@ -129,7 +124,7 @@ flowchart LR
 - [ ] **`E2` Produktiv-Konfiguration & Secret-Rotation (alle Variablen explizit setzen!):**
   - `FRONTEND_BASE_URL=https://voenix.shop` *(zwingend HTTPS, sonst sind `Secure`-Cookies still deaktiviert!)*
   - `MOLLIE_API_KEY=live_...` & `MOLLIE_WEBHOOK_URL=https://voenix.shop/api/payments/webhook/<NEUES_SECRET>`
-  - **Neu generierte/rotierte Secrets:** `AUTH_SESSION_SECRET` (≥32 Bytes), `MOLLIE_WEBHOOK_SECRET` (rotieren!), `PRODUCTION_SPOD_WEBHOOK_SECRET` (rotieren!), plus **neuer Encryption-Key aus Paket 8 (`B13`)** *(sicher im Passwort-Manager/Backup ablegen!)*
+  - **Neu generierte/rotierte Secrets:** `AUTH_SESSION_SECRET` (≥32 Bytes), `MOLLIE_WEBHOOK_SECRET` (rotieren!), `PRODUCTION_SPOD_WEBHOOK_SECRET` (rotieren!), plus **neuer `PRODUCTION_SECRETS_KEY`** (≥32 Bytes, ≠ `AUTH_SESSION_SECRET`) *(sicher im Passwort-Manager ablegen, nicht im DB-Backup — ohne ihn sind die gespeicherten SFTP-/SPOD-Zugangsdaten unlesbar)*
   - `EMAIL_ENABLED=true`, `EMAIL_API_KEY=<live>`, `EMAIL_FROM_EMAIL=<verifiziert>`, `EMAIL_POLL_INTERVAL_MINUTES=1`
   - `GENERATOR_DUMMY_MODE=false`, `GENERATOR_API_KEY=<live fal.ai>`
   - `RATE_LIMIT_TRUST_FORWARDED_FOR=true` *(nach Proxy-Hop-Check auf Sliplane)*
@@ -138,7 +133,7 @@ flowchart LR
   - Start-Logs prüfen: Mollie-Modus `live`, keine Konfigurations-`WARN`-Logs.
 - [ ] **`E2` Fulfillment live schalten (Admin `/admin/logistics/destinations`):**
   - SPOD von `STAGING` auf `PRODUCTION` + Live-Token umstellen, Katalog neu synchronisieren, Live-Webhooks registrieren (`Shipment.sent`, `Order.cancelled`, `Order.needs-action`).
-  - Tassen-SFTP-Zugang + SHA-256-Host-Key-Fingerprint verifizieren.
+  - Tassen-SFTP-Zugang + SHA-256-Host-Key-Fingerprint verifizieren; SFTP-Passwort und SPOD-Token im Admin neu eingeben (Migration `V43` hat alle Klartext-Secrets geleert).
 
 ### Domain-Umzug & Live-Abnahme (T0, vor Traffic/Werbung)
 - [ ] **`E1` DNS & Kanonisierung:** `voenix.shop` umstellen; `www.voenix.shop` ↔ `voenix.shop` kanonisch per 301 weiterleiten; HTTPS & Legacy-301-Redirects (`/impressum`, `/pdf/AGBs.pdf`, etc.) stichprobenartig testen.
@@ -176,8 +171,8 @@ flowchart LR
 
 1. **Recht & Content (DE + EN):** Impressum (inkl. Telefon & § 36 VSBG), aktuelle iubenda-DSGVO (DE/EN + Fallback), neue AGB, Widerrufshinweis, PAngV-Preisangaben, Button-Lösung, GPSR-Herstellerdaten, beide Upload-Hinweise, Bestellmail mit Pflichtangaben, keine Fake-Reviews, alle Footer-Seiten gefüllt.
 2. **EU & Extern:** LUCID + Duales System (DE) **und** nationale EPR-Pflichten für **jedes** aktivierte EU-Land erfüllt; AVVs (inkl. fal.ai) geschlossen; Mollie-KYC & aktive Zahlarten deckungsgleich mit Shop; fal.ai-Spend-Limit & Buchhaltungs-Workflow aktiv.
-3. **Security, Versand & Katalog:** Paket 8 (`B13`) & Paket 7 (Versandkosten in `countries`) live; keine Testtexte/Tippfehler/Marken-Stilnamen; keine Rabatte aktiv; Stil-Aufpreis (`C2`) korrekt berechnet; `/royal-dog` ausgeblendet.
+3. **Versand & Katalog:** Versandkosten in `countries` gepflegt; keine Testtexte/Tippfehler/Marken-Stilnamen; keine Rabatte aktiv; Stil-Aufpreis (`C2`) korrekt berechnet; `/royal-dog` ausgeblendet.
 4. **Release-Gate grün:** Backend `bun run check`, Frontend Build/Tests/Lint, kritische `bun audit`-Findings behoben.
 5. **Infra gehärtet:** Sliplane exakt **1 Instanz**, Postgres-Backup + Restore getestet, `/app/data`-Backup aktiv, externes `/api/ready`-Monitoring & Error-Tracking aktiv.
-6. **Secrets & Mail:** Alle Prod-Env-Vars inkl. `B13`-Key gesetzt, Webhook-/Session-Secrets rotiert, Sweego SPF/DKIM/DMARC im Inbox-Test bestanden.
+6. **Secrets & Mail:** Alle Prod-Env-Vars inkl. `PRODUCTION_SECRETS_KEY` gesetzt, Webhook-/Session-Secrets rotiert, Sweego SPF/DKIM/DMARC im Inbox-Test bestanden.
 7. **Live-E2E bestanden:** Echte Live-Bestellungen (Tasse SFTP + DE + Stil-Aufpreis, Textil SPOD + EU-Versandkosten + EN, Abbruch+Retry) auf echten Mobilgeräten komplett durchgelaufen.

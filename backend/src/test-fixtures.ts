@@ -5,7 +5,7 @@ import { createApplication } from '@/composition'
 import type { MolliePayment, MolliePayments } from '@/modules/order'
 import type { DatabaseSettings } from '@/platform/db/database'
 import { loadSettings, type Settings } from '@/platform/settings'
-import { TEST_SESSION_SECRET } from '@test-support/http'
+import { TEST_SECRETS_KEY, TEST_SESSION_SECRET } from '@test-support/http'
 
 /**
  * What the composed tests share: the settings a deployment would carry pointed at a test database
@@ -33,6 +33,7 @@ export function composedSettings(
     DATABASE_MAXIMUM_POOL_SIZE: '8',
     // The secret of `testAuth`, so its sessions, CSRF pairs, and guest cookies are read here.
     AUTH_SESSION_SECRET: TEST_SESSION_SECRET,
+    PRODUCTION_SECRETS_KEY: TEST_SECRETS_KEY,
     GENERATOR_DUMMY_MODE: 'true',
     MOLLIE_API_KEY: 'test_composed_mollie_key',
     MOLLIE_WEBHOOK_URL: `https://voenix.test/api/payments/webhook/${WEBHOOK_SECRET}`,

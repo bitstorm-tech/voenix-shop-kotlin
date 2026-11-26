@@ -2,7 +2,7 @@ import { statSync } from 'node:fs'
 import { basename, extname, join, resolve } from 'node:path'
 import type { Context, Hono } from 'hono'
 import { getConnInfo, serveStatic } from '@hono/bun'
-import { createAccessTokens, createAccountModule } from '@/modules/account'
+import { createAccessTokens, createAccountModule, createSessionAccounts } from '@/modules/account'
 import { createArticleModule } from '@/modules/article'
 import { createCartModule, createPrintImageReads } from '@/modules/cart'
 import { createCheckoutModule } from '@/modules/checkout'
@@ -65,7 +65,11 @@ export async function createApplication(
       ...options,
     }).middleware
   try {
-    const auth = createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })
+    const auth = createAuth({
+      ...settings.auth,
+      accessTokens: createAccessTokens(db),
+      sessions: createSessionAccounts(db),
+    })
     const app = createApp(auth, { https: settings.auth.secureCookies })
     const { guestTokens } = auth
     const frontendBaseUrl = settings.frontend.baseUrl

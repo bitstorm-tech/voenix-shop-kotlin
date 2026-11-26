@@ -24,6 +24,7 @@ import {
   signedInHeaders,
   TEST_SESSION_SECRET,
   testAuth,
+  testSessions,
   tokenHeaders,
 } from '@test-support/http'
 import { createApp } from '@/platform/http/app'
@@ -36,7 +37,7 @@ function probeApp(lookups: number[] = [], auth = testAuth) {
   const routes = new Hono()
   routes.get('/probe/public', (c) => c.text('public'))
   routes.post('/probe/sign-in', async (c) => {
-    await auth.signIn(c, 11, ['ADMIN'])
+    await auth.signIn(c, 11, 0)
     return c.text('signed in')
   })
   routes.post('/probe/sign-out', (c) => {
@@ -128,6 +129,7 @@ function recordingAuth(asked: string[], known: Record<string, UserPrincipal> = {
         return Promise.resolve()
       },
     },
+    sessions: testSessions,
   })
 }
 const accessTokens = { principalOf: () => Promise.resolve(null), markUsed: () => Promise.resolve() }
@@ -191,6 +193,34 @@ describe('the admin protection', () => {
     expect(await status(['ADMIN'])).toBe(200)
     expect(await status(['CUSTOMER', 'ADMIN'])).toBe(200)
     expect((await app.request('/probe/admin')).status).toBe(401)
+  })
+
+  test('the session lookup decides: current roles, and a refused session is anonymous and cleared', async () => {
+    const lookups: [number, number][] = []
+    let current: UserPrincipal | null = { userId: 41, roles: ['ADMIN'] }
+    const auth = createAuth({
+      sessionSecret: TEST_SESSION_SECRET,
+      secureCookies: false,
+      accessTokens,
+      sessions: {
+        principalOf: (userId, sessionVersion) => {
+          lookups.push([userId, sessionVersion])
+          return Promise.resolve(current)
+        },
+      },
+    })
+    const app = probeApp([], auth)
+    const headers = await signedInHeaders({ userId: 41, roles: ['ADMIN'], sessionVersion: 3 })
+    expect((await app.request('/probe/admin', { headers })).status).toBe(200)
+    expect(lookups).toEqual([[41, 3]])
+
+    current = { userId: 41, roles: ['CUSTOMER'] }
+    expect((await app.request('/probe/admin', { headers })).status).toBe(403)
+
+    current = null
+    const revoked = await app.request('/probe/admin', { headers })
+    expect(revoked.status).toBe(401)
+    expect(setCookies(revoked, SESSION_COOKIE)[0]).toContain('Max-Age=0')
   })
 
   test('requires the CSRF pair for every mutating method', async () => {
@@ -482,7 +512,12 @@ describe('the session cookie', () => {
     for (const secure of [false, true]) {
       const app = probeApp(
         [],
-        createAuth({ sessionSecret: TEST_SESSION_SECRET, secureCookies: secure, accessTokens }),
+        createAuth({
+          sessionSecret: TEST_SESSION_SECRET,
+          secureCookies: secure,
+          accessTokens,
+          sessions: testSessions,
+        }),
       )
       // The scheme and host of the request do not matter: TLS ends at the proxy.
       for (const origin of ['http://localhost', 'https://localhost', 'http://shop.example.com']) {
@@ -501,6 +536,7 @@ describe('the session cookie', () => {
 
   test('a signed-in cookie round-trips and a sign-out clears it', async () => {
     const app = probeApp()
+    await signedInHeaders({ userId: 11, roles: ['ADMIN'] }) // the roles `testAuth` answers for 11
     const signedIn = await app.request('/probe/sign-in', { method: 'POST' })
     const admin = await app.request('/probe/admin', { headers: { Cookie: cookieHeader(signedIn) } })
     expect(admin.status).toBe(200)

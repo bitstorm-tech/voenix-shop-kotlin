@@ -366,8 +366,9 @@ partner's backoffice, never in code.
 The token is per supplier and changes as often as a supplier does, so it is
 master data. The secret is one per deployment, the last path segment of the
 callback URL, and must survive a database restore independently, so it is
-configuration. The token is write-only everywhere: stored as entered, answered
-by no read, and kept when an update leaves it empty.
+configuration. The token is write-only everywhere: stored AES-256-GCM sealed
+with `PRODUCTION_SECRETS_KEY` (production package guide, "The write-only
+secrets"), answered by no read, and kept when an update leaves it empty.
 
 ### Configuration
 

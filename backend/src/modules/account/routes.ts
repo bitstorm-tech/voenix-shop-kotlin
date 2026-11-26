@@ -241,7 +241,7 @@ export function accountRoutes(
       case 'lockedOut':
         return c.json(apiError('Too many failed login attempts'), 429)
       default:
-        await auth.signIn(c, result.userId, result.roles)
+        await auth.signIn(c, result.userId, result.sessionVersion)
         return c.body(null, 204)
     }
   })
@@ -332,13 +332,16 @@ export function accountRoutes(
     async (c) => {
       const userId = c.var.principal?.userId
       if (userId === undefined) return authenticationRequired(c)
-      switch (await accounts.changePassword(userId, c.req.valid('json'))) {
-        case 'changed':
-          return c.body(null, 204)
+      const result = await accounts.changePassword(userId, c.req.valid('json'))
+      switch (result) {
         case 'notFound':
           return userNotFound(c)
         case 'wrongPassword':
           return c.json(apiError('Invalid password'), 401)
+        default:
+          // The change ended every older session; this one continues on the new version.
+          await auth.signIn(c, result.userId, result.sessionVersion)
+          return c.body(null, 204)
       }
     },
   )

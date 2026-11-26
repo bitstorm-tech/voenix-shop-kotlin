@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
-import { ACCESS_TOKEN_PREFIX, createAuth, type UserPrincipal } from '@/platform/auth/auth'
+import {
+  ACCESS_TOKEN_PREFIX,
+  createAuth,
+  type SessionAccounts,
+  type UserPrincipal,
+} from '@/platform/auth/auth'
 import {
   authCookies,
   CSRF_COOKIE,
@@ -10,11 +15,30 @@ import {
   SESSION_DURATION_SECONDS,
 } from '@/platform/auth/cookies'
 import { createApp } from '@/platform/http/app'
+import { createSecretBox } from '@/platform/secret-box'
 
 export const TEST_SESSION_SECRET = 'test-session-secret-with-at-least-32-bytes'
+export const TEST_SECRETS_KEY = 'test-production-secrets-key-with-at-least-32-bytes'
+
+/** The secret box of `TEST_SECRETS_KEY`: seals what a fixture writes, opens what a test reads. */
+export const testSecrets = createSecretBox(TEST_SECRETS_KEY)
 
 /** The access tokens `testAuth` knows: token → principal, registered by `tokenHeaders`. */
 const testAccessTokens = new Map<string, UserPrincipal>()
+
+/**
+ * The roles of the users `signedInHeaders` minted a session for, standing in for the account
+ * module's database lookup; the last minted session of a user decides.
+ */
+const testSessionRoles = new Map<number, string[]>()
+
+/** The session lookup of `testAuth`, for a test that builds its own auth. */
+export const testSessions: SessionAccounts = {
+  principalOf: (userId) => {
+    const roles = testSessionRoles.get(userId)
+    return Promise.resolve(roles === undefined ? null : { userId, roles })
+  },
+}
 
 /** The one auth instance every test app and every minted cookie share. */
 export const testAuth = createAuth({
@@ -24,6 +48,7 @@ export const testAuth = createAuth({
     principalOf: (token) => Promise.resolve(testAccessTokens.get(token) ?? null),
     markUsed: () => Promise.resolve(),
   },
+  sessions: testSessions,
 })
 const cookies = authCookies(TEST_SESSION_SECRET)
 
@@ -34,18 +59,28 @@ export function testApp(...routes: Hono[]): Hono {
   return app
 }
 
-/** The headers of a signed-in client: a session cookie plus a CSRF cookie and header minted for that user. */
+/**
+ * The headers of a signed-in client: a session cookie plus a CSRF cookie and header minted for that
+ * user. `testAuth` answers `roles` for the user; the composed application reads the user's roles
+ * and session version (0 for a fresh user) from its database instead.
+ */
 export async function signedInHeaders({
   userId = 11,
   roles = ['ADMIN'],
+  sessionVersion = 0,
   issuedAt = epochSeconds(),
   expiresAt = issuedAt + SESSION_DURATION_SECONDS,
-}: { userId?: number; roles?: string[]; issuedAt?: number; expiresAt?: number } = {}): Promise<
-  Record<string, string>
-> {
+}: {
+  userId?: number
+  roles?: string[]
+  sessionVersion?: number
+  issuedAt?: number
+  expiresAt?: number
+} = {}): Promise<Record<string, string>> {
+  testSessionRoles.set(userId, roles)
   const session = await cookies.session.seal({
     userId,
-    roles,
+    sessionVersion,
     issuedAtEpochSeconds: issuedAt,
     expiresAtEpochSeconds: expiresAt,
   })

@@ -23,6 +23,7 @@ services:
       DATABASE_USERNAME: voenix
       DATABASE_PASSWORD: voenix
       AUTH_SESSION_SECRET: compose-only-session-secret-not-for-production
+      PRODUCTION_SECRETS_KEY: compose-only-production-secrets-key-not-for-production
       FRONTEND_BASE_URL: http://localhost:${APP_PORT:-8080}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}

@@ -6,10 +6,14 @@ export const CSRF_HEADER = 'X-XSRF-TOKEN'
 export const GUEST_COOKIE = 'voenix.guest'
 export const SESSION_DURATION_SECONDS = 24 * 60 * 60
 
-/** What the auth cookie carries: a claim, created by the account module at login. */
+/**
+ * What the auth cookie carries: who signed in, created by the account module at login. No roles:
+ * the middleware reads them from the database on every request, as long as `sessionVersion` is
+ * still the user's current one.
+ */
 export interface UserSession {
   userId: number
-  roles: string[]
+  sessionVersion: number
   issuedAtEpochSeconds: number
   expiresAtEpochSeconds: number
 }

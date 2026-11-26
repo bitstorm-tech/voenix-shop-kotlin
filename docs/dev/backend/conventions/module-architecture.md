@@ -293,7 +293,7 @@ order the capabilities allow, with no late binding anywhere:
    the production module reads a table while it is created, and every module
    must see the schema it was written for. Then `createDatabase` for the one
    pool.
-2. `createAuth({ ...settings.auth, accessTokens: createAccessTokens(db) })` and
+2. `createAuth({ ...settings.auth, accessTokens: createAccessTokens(db), sessions: createSessionAccounts(db) })` and
    `createApp(auth)`: the error answer, the body limit, the authentication
    middleware, the antiforgery route. The access token lookup is the account
    module's, created on its own before the auth, like the cart's
