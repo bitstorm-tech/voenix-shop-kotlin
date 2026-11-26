@@ -288,7 +288,13 @@ quarantined as `OUTCOME_UNKNOWN` whose order an admin adopted with a release. So
 the statement sets `prepared_at = COALESCE(prepared_at, now())`.
 
 [`webhook.ts`](../../../../backend/src/modules/production/fulfillment/webhook.ts)
-reduces the untrusted body to bounded values. Ids may arrive as numbers or
+reduces the untrusted body to bounded values. The partner wraps every event as
+`{ eventType, data: { pointOfSaleId, order | shipment, errorReason? } }`, where
+`order` and `shipment` are the objects of its `getOrder` and `getShipments`
+answers. The shop reads `order.id` and `order.externalOrderReference`, or
+`shipment.orderId`, `shipment.externalOrderReference`,
+`shipment.shipping.type.company` (the carrier), and the first
+`shipment.tracking[].code`. Ids may arrive as numbers or
 strings and are read as text; a field of any other shape counts as absent;
 unknown fields are ignored. The job is found by the partner's order id
 (`production_spod_orders.external_reference`) first and, **only when the matched

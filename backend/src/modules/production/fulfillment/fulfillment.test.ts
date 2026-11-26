@@ -365,15 +365,22 @@ describe('the admin surface', () => {
 })
 
 describe('the SPOD webhook', () => {
-  const shipment = (orderId: string, extra: Record<string, unknown> = {}) => ({
+  // The partner's envelope: `data.shipment` is the object of its getShipments answer.
+  const shipment = (orderId: number | string) => ({
     eventType: 'Shipment.sent',
-    shipment: {
-      orderId,
-      carrier: 'deutsche post',
-      trackingCode: 'TRACK-1',
-      trackingUrl: 'https://evil.test',
-      ...extra,
+    data: {
+      pointOfSaleId: '123',
+      shipment: {
+        id: 7,
+        orderId,
+        shipping: { type: { id: 1, company: 'deutsche post', name: 'Standard' } },
+        tracking: [{ code: 'TRACK-1', url: 'https://evil.test' }],
+      },
     },
+  })
+  const orderEvent = (eventType: string, order: Record<string, unknown>) => ({
+    eventType,
+    data: { pointOfSaleId: '123', order },
   })
 
   // With a Content-Length the platform's body limit only reads the header; a chunked body is
@@ -441,10 +448,18 @@ describe('the SPOD webhook', () => {
     const reference = `ORD-${String(orderId)}-JOB-${String(job.id)}`
     const mismatch = `ORD-${String(orderId + 1)}-JOB-${String(job.id)}`
     expect(
-      (await webhook({ eventType: 'Shipment.sent', externalOrderReference: mismatch })).status,
+      (
+        await webhook({
+          eventType: 'Shipment.sent',
+          data: { shipment: { externalOrderReference: mismatch } },
+        })
+      ).status,
     ).toBe(202)
     expect((await jobOf(orderId, spodSupplier)).shipped_by_channel).toBeNull()
-    await webhook({ eventType: 'Shipment.sent', shipment: { externalOrderReference: reference } })
+    await webhook({
+      eventType: 'Shipment.sent',
+      data: { shipment: { externalOrderReference: reference } },
+    })
     expect(await jobOf(orderId, spodSupplier)).toMatchObject({
       shipped_by_channel: 'SPOD',
       shipping_carrier: 'OTHER',
@@ -458,17 +473,15 @@ describe('the SPOD webhook', () => {
     const reference = `ORD-${String(orderId)}-JOB-${String(job.id)}`
 
     // Cancelling an orphaned SPOD order that shares our shop reference must not cancel the active job.
-    const orphanCancel = await webhook({
-      eventType: 'Order.cancelled',
-      order: { orderId: 'spod-orphan', externalOrderReference: reference },
-    })
+    const orphanCancel = await webhook(
+      orderEvent('Order.cancelled', { id: 'spod-orphan', externalOrderReference: reference }),
+    )
     expect([orphanCancel.status, await orphanCancel.text()]).toEqual([202, '[accepted]'])
 
     // A webhook carrying only the shop reference (no externalReference) is also ignored once bound.
-    const shopRefOnlyCancel = await webhook({
-      eventType: 'Order.cancelled',
-      order: { externalOrderReference: reference },
-    })
+    const shopRefOnlyCancel = await webhook(
+      orderEvent('Order.cancelled', { externalOrderReference: reference }),
+    )
     expect([shopRefOnlyCancel.status, await shopRefOnlyCancel.text()]).toEqual([202, '[accepted]'])
 
     const spodRow = await database.db
@@ -483,11 +496,14 @@ describe('the SPOD webhook', () => {
 
   test('remote states alert and are recorded once per transition; no-ops are accepted all the same', async () => {
     const orderId = await processedOrder([shirt()])
-    const cancelled = { eventType: 'Order.cancelled', order: { orderId: 'spod-1' } }
+    const cancelled = orderEvent('Order.cancelled', { id: 'spod-1' })
     await webhook(cancelled)
     await webhook(cancelled)
     expect((await mailsOf('SPOD_OPS_ALERT')).map((mail) => mail.recipient)).toEqual([ALERT_EMAIL])
-    await webhook({ eventType: 'Order.needs-action', order: { orderId: 'spod-1' } })
+    await webhook({
+      eventType: 'Order.needs-action',
+      data: { pointOfSaleId: '123', errorReason: 'Bitte prüfen', order: { id: 'spod-1' } },
+    })
     const alerts = await mailsOf('SPOD_OPS_ALERT')
     expect(alerts.length).toBe(2)
     expect(alerts[0]?.text).toContain('storniert')
@@ -509,7 +525,7 @@ describe('the SPOD webhook', () => {
 
     for (const body of [
       'not json',
-      { eventType: 'Order.created', order: { orderId: 'spod-1' } },
+      orderEvent('Order.processed', { id: 'spod-1' }),
       shipment('unknown'),
       { eventType: 'Shipment.sent' },
     ]) {

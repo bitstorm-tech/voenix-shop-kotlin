@@ -30,21 +30,34 @@ const text = z
   .catch(null)
   .transform((value) => value ?? null)
 
-const orderPart = z
-  .object({ orderId: text, externalOrderReference: text, carrier: text, trackingCode: text })
-  .nullish()
-  .catch(null)
-  .transform((value) => value ?? null)
+/** A nested part of the wrong shape counts as absent rather than failing the event. */
+const absentOr = <T extends z.ZodType>(schema: T) =>
+  schema
+    .nullish()
+    .catch(null)
+    .transform((value) => value ?? null)
 
 /**
- * The few fields this shop reads, nothing else: unknown fields are ignored, and the partner's
- * `trackingUrl` is not a field at all, so it can never be stored. The shop builds its own links.
+ * The few fields this shop reads, in the partner's `{ eventType, data }` envelope, whose `order`
+ * and `shipment` are the objects of its `getOrder` and `getShipments` answers. Unknown fields are
+ * ignored, and the partner's tracking `url` is not a field at all, so it can never be stored. The
+ * shop builds its own links.
  */
 const payload = z.object({
   eventType: text,
-  shipment: orderPart,
-  order: orderPart,
-  externalOrderReference: text,
+  data: absentOr(
+    z.object({
+      order: absentOr(z.object({ id: text, externalOrderReference: text })),
+      shipment: absentOr(
+        z.object({
+          orderId: text,
+          externalOrderReference: text,
+          shipping: absentOr(z.object({ type: absentOr(z.object({ company: text })) })),
+          tracking: absentOr(z.array(z.object({ code: text }))),
+        }),
+      ),
+    }),
+  ),
 })
 
 /** Trimmed, non-empty, and within the column width, or `null`. */
@@ -66,17 +79,18 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
     logger.warn({ error: errorDetails(error) }, 'A SPOD webhook body could not be read')
     return null
   }
-  const reference = (part: z.output<typeof orderPart>) => {
-    const externalReference = bounded(part?.orderId ?? null)
-    const shopReference =
-      bounded(part?.externalOrderReference ?? null) ?? bounded(parsed.externalOrderReference)
+  const reference = (partnerId: string | null, shopId: string | null) => {
+    const externalReference = bounded(partnerId)
+    const shopReference = bounded(shopId)
     return externalReference === null && shopReference === null
       ? null
       : { externalReference, shopReference }
   }
+  const shipment = parsed.data?.shipment ?? null
+  const order = parsed.data?.order ?? null
   switch (parsed.eventType) {
     case 'Shipment.sent': {
-      const named = reference(parsed.shipment)
+      const named = reference(shipment?.orderId ?? null, shipment?.externalOrderReference ?? null)
       if (named === null) {
         logger.warn(
           { eventType: parsed.eventType },
@@ -84,8 +98,9 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
         )
         return null
       }
-      const reported = parsed.shipment?.carrier?.trim() ?? ''
-      const trackingNumber = bounded(parsed.shipment?.trackingCode ?? null)
+      const reported = shipment?.shipping?.type?.company?.trim() ?? ''
+      // shortcut: one parcel per job, so only the first tracking code is kept.
+      const trackingNumber = bounded(shipment?.tracking?.[0]?.code ?? null)
       return {
         ...named,
         kind: 'shipment',
@@ -99,7 +114,7 @@ export function parseSpodWebhookEvent(body: string): SpodWebhookEvent | null {
     }
     case 'Order.cancelled':
     case 'Order.needs-action': {
-      const named = reference(parsed.order)
+      const named = reference(order?.id ?? null, order?.externalOrderReference ?? null)
       if (named === null) {
         logger.warn(
           { eventType: parsed.eventType },
