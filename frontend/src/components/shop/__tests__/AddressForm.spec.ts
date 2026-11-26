@@ -12,8 +12,20 @@ vi.mock('vue-i18n', () => ({
 }))
 
 const countries: Country[] = [
-  { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
-  { name: 'France', countryCode: 'FR', dialCode: '+33' },
+  {
+    name: 'Germany',
+    countryCode: 'DE',
+    dialCode: '+49',
+    shippingCostCents: 490,
+    freeShippingThresholdCents: 5000,
+  },
+  {
+    name: 'France',
+    countryCode: 'FR',
+    dialCode: '+33',
+    shippingCostCents: 990,
+    freeShippingThresholdCents: null,
+  },
 ]
 
 /** Reka's Select is a listbox; a native select keeps the same contract testable in jsdom. */

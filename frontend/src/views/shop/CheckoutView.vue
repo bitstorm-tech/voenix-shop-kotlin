@@ -8,6 +8,7 @@ import { type Address, createEmptyAddress, useCheckoutStore } from '@/stores/sho
 import { useCountriesStore } from '@/stores/shop/countries'
 import { useAuthStore } from '@/stores/shared/auth'
 import { checkoutErrorKeys } from '@/lib/checkoutErrors'
+import { calculateCartTotals } from '@/lib/cartTotals'
 import { formatPrice } from '@/lib/formatPrice'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -181,7 +182,25 @@ const submitError = computed(() => {
   return checkoutStore.error ? t('checkout.errors.generic') : null
 })
 
-const isZeroTotal = computed(() => cartStore.totalPrice === 0)
+const selectedShippingCountry = computed(() =>
+  countriesStore.countryByCode(checkoutStore.shippingAddress.country),
+)
+
+/**
+ * Live checkout totals for the currently selected shipping country, using the exact same formula as
+ * `backend/src/modules/cart/totals.ts` so shipping, coupon discount, and total match order placement.
+ */
+const checkoutTotals = computed(() =>
+  calculateCartTotals(
+    cartStore.subtotal,
+    cartStore.appliedPromotion,
+    selectedShippingCountry.value ?? { shippingCostCents: 0, freeShippingThresholdCents: null },
+  ),
+)
+
+const isZeroTotal = computed(
+  () => selectedShippingCountry.value !== null && checkoutTotals.value.totalCents === 0,
+)
 const paymentHint = computed(() =>
   t(isZeroTotal.value ? 'checkout.paymentNotRequiredHint' : 'checkout.paymentHint'),
 )
@@ -463,29 +482,39 @@ async function handleSubmit() {
             <dl class="mt-4 space-y-3 border-t border-border pt-4 text-sm">
               <div class="flex justify-between">
                 <dt class="text-muted-foreground">{{ t('cart.subtotal') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  {{ formatPrice(cartStore.subtotal) }}
+                <dd class="font-medium tabular-nums" data-testid="checkout-subtotal">
+                  {{ formatPrice(checkoutTotals.subtotalCents) }}
                 </dd>
               </div>
               <div class="flex justify-between">
                 <dt class="text-muted-foreground">{{ t('cart.shipping') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  <span v-if="cartStore.shippingCost === 0" class="text-success">
+                <dd class="font-medium tabular-nums" data-testid="checkout-shipping-cost">
+                  <span v-if="selectedShippingCountry === null" class="text-muted-foreground">
+                    —
+                  </span>
+                  <span v-else-if="checkoutTotals.shippingCostCents === 0" class="text-success">
                     {{ t('cart.shippingFree') }}
                   </span>
-                  <span v-else>{{ formatPrice(cartStore.shippingCost) }}</span>
+                  <span v-else>{{ formatPrice(checkoutTotals.shippingCostCents) }}</span>
                 </dd>
               </div>
-              <div v-if="cartStore.discountAmount > 0" class="flex justify-between text-success">
+              <div
+                v-if="checkoutTotals.discountCents > 0"
+                class="flex justify-between text-success"
+              >
                 <dt>{{ t('cart.discount') }}</dt>
-                <dd class="font-medium tabular-nums">
-                  -{{ formatPrice(cartStore.discountAmount) }}
+                <dd class="font-medium tabular-nums" data-testid="checkout-discount-amount">
+                  -{{ formatPrice(checkoutTotals.discountCents) }}
                 </dd>
               </div>
               <hr class="border-border" />
               <div class="flex justify-between text-base font-semibold">
                 <dt>{{ t('cart.total') }}</dt>
-                <dd class="tabular-nums">{{ formatPrice(cartStore.totalPrice) }}</dd>
+                <dd class="tabular-nums" data-testid="checkout-total">
+                  {{
+                    selectedShippingCountry === null ? '—' : formatPrice(checkoutTotals.totalCents)
+                  }}
+                </dd>
               </div>
             </dl>
 

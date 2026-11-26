@@ -5,6 +5,9 @@ import { requireAdminOrToken } from '@/platform/auth/auth'
 import { integerParam, jsonBody, respondFailure, respondResult } from '@/platform/http/respond'
 import type { Country, CountryInput, CountryRepository } from './repository'
 
+/** Fits PostgreSQL `integer` cents without overflow. */
+const MAX_SHIPPING_CENTS = 2_147_483_647
+
 /** The create and update body. A missing, `null`, or non-string field answers its required message. */
 export const countryInput = z.strictObject({
   name: z
@@ -18,6 +21,21 @@ export const countryInput = z.strictObject({
     .min(1, { error: 'Country code is required', abort: true })
     .length(2, { error: 'Country code must be exactly 2 characters', abort: true })
     .regex(/^[A-Za-z]+$/, 'Country code must contain only letters'),
+  shippingCostCents: z
+    .int({
+      error: (issue) =>
+        issue.input === undefined || issue.input === null
+          ? 'Shipping cost is required'
+          : 'Shipping cost must be a whole number of cents',
+    })
+    .min(0, 'Shipping cost must not be negative')
+    .max(MAX_SHIPPING_CENTS, 'Shipping cost is too large'),
+  freeShippingThresholdCents: z
+    .int({ error: 'Free shipping threshold must be a whole number of cents' })
+    .positive('Free shipping threshold must be positive')
+    .max(MAX_SHIPPING_CENTS, 'Free shipping threshold is too large')
+    .nullable()
+    .default(null),
 }) satisfies z.ZodType<CountryInput>
 
 const COUNTRY_RESPONSES = {
@@ -26,12 +44,19 @@ const COUNTRY_RESPONSES = {
 }
 const countryId = integerParam('id', 'Invalid country id')
 
-/** The public response: no id, and the dial code when the region is known. */
-function toPublicCountry({ name, countryCode }: Country) {
+/** The public response: no id, with dial code and shipping policy. */
+function toPublicCountry({
+  name,
+  countryCode,
+  shippingCostCents,
+  freeShippingThresholdCents,
+}: Country) {
   return {
     name,
     countryCode,
     dialCode: isSupportedCountry(countryCode) ? `+${getCountryCallingCode(countryCode)}` : null,
+    shippingCostCents,
+    freeShippingThresholdCents,
   }
 }
 

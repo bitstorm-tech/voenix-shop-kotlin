@@ -13,6 +13,7 @@ import { createCartService } from './service'
 
 export type { CheckoutCart, CheckoutCartLine } from './service'
 export { createPrintImageReads } from './repository'
+export { cartTotals, type CartTotals, type ShippingPolicy } from './totals'
 
 /**
  * The cart module: the eight `/api/cart` routes and the three things it exports. `guestImageResolver`

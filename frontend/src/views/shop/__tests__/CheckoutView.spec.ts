@@ -164,9 +164,8 @@ describe('CheckoutView', () => {
     const cartStore = useCartStore()
     cartStore.items = [item]
     cartStore.subtotal = 1200
-    cartStore.shippingCost = 490
-    cartStore.discountAmount = 169
-    cartStore.totalPrice = 1521
+    cartStore.discountAmount = 120
+    cartStore.totalPrice = 1080
     cartStore.appliedPromotion = {
       id: 9,
       name: 'Checkout promotion',
@@ -178,8 +177,20 @@ describe('CheckoutView', () => {
 
     const countriesStore = useCountriesStore()
     countriesStore.countries = [
-      { name: 'Austria', countryCode: 'AT', dialCode: '+43' },
-      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
+      {
+        name: 'Austria',
+        countryCode: 'AT',
+        dialCode: '+43',
+        shippingCostCents: 1190,
+        freeShippingThresholdCents: null,
+      },
+      {
+        name: 'Germany',
+        countryCode: 'DE',
+        dialCode: '+49',
+        shippingCostCents: 490,
+        freeShippingThresholdCents: 5000,
+      },
     ]
     vi.spyOn(countriesStore, 'fetchCountries').mockResolvedValue()
 
@@ -422,10 +433,36 @@ describe('CheckoutView', () => {
     expect(router.currentRoute.value.name).toBe('order-confirmation')
   })
 
+  it('recalculates shipping, coupon discount, and total live when switching the shipping country', async () => {
+    const checkoutStore = useCheckoutStore()
+    const { wrapper } = await mountCheckout()
+
+    // DE: 1200 subtotal + 490 shipping = 1690; 10% off = 169; total = 1521 (15,21 €)
+    expect(wrapper.get('[data-testid="checkout-shipping-cost"]').text()).toContain('4,90')
+    expect(wrapper.get('[data-testid="checkout-discount-amount"]').text()).toContain('1,69')
+    expect(wrapper.get('[data-testid="checkout-total"]').text()).toContain('15,21')
+
+    // Switch to AT (1190 shipping, no free threshold): 1200 + 1190 = 2390; 10% off = 239; total = 2151 (21,51 €)
+    addressForm(wrapper, 0).vm.$emit('update:modelValue', {
+      ...checkoutStore.shippingAddress,
+      country: 'AT',
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="checkout-shipping-cost"]').text()).toContain('11,90')
+    expect(wrapper.get('[data-testid="checkout-discount-amount"]').text()).toContain('2,39')
+    expect(wrapper.get('[data-testid="checkout-total"]').text()).toContain('21,51')
+  })
+
   it('shows the Cart discount and opens confirmation directly for a zero-total Order', async () => {
     const cartStore = useCartStore()
-    cartStore.discountAmount = 1690
-    cartStore.totalPrice = 0
+    cartStore.appliedPromotion = {
+      id: 9,
+      name: 'Checkout promotion',
+      promotionCode: 'SAVE10',
+      discountType: 'PERCENTAGE',
+      discountValue: 100,
+    }
     const checkoutStore = useCheckoutStore()
     vi.spyOn(checkoutStore, 'submitCheckout').mockResolvedValue({
       orderId: 8,
@@ -438,7 +475,7 @@ describe('CheckoutView', () => {
     )
     expect(wrapper.get('[data-testid="checkout-applied-promotion"]').text()).toContain('SAVE10')
     expect(wrapper.text()).toContain('cart.discount')
-    expect(wrapper.text()).toContain('16,90 €')
+    expect(wrapper.text()).toContain('16,90\u00a0€')
     expect(wrapper.text()).toContain('checkout.paymentNotRequiredHint')
     expect(wrapper.text()).toContain('checkout.submitFree')
 
@@ -480,8 +517,20 @@ describe('CheckoutView', () => {
     checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, ...createEmptyAddress() }
     const countriesStore = useCountriesStore()
     countriesStore.countries = [
-      { name: 'France', countryCode: 'FR', dialCode: '+33' },
-      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
+      {
+        name: 'France',
+        countryCode: 'FR',
+        dialCode: '+33',
+        shippingCostCents: 990,
+        freeShippingThresholdCents: null,
+      },
+      {
+        name: 'Germany',
+        countryCode: 'DE',
+        dialCode: '+49',
+        shippingCostCents: 490,
+        freeShippingThresholdCents: 5000,
+      },
     ]
 
     await mountCheckout()
@@ -493,7 +542,15 @@ describe('CheckoutView', () => {
     const checkoutStore = useCheckoutStore()
     checkoutStore.shippingAddress = { ...checkoutStore.shippingAddress, country: '' }
     const countriesStore = useCountriesStore()
-    countriesStore.countries = [{ name: 'France', countryCode: 'FR', dialCode: '+33' }]
+    countriesStore.countries = [
+      {
+        name: 'France',
+        countryCode: 'FR',
+        dialCode: '+33',
+        shippingCostCents: 990,
+        freeShippingThresholdCents: null,
+      },
+    ]
 
     await mountCheckout()
 

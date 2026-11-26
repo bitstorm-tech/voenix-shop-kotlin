@@ -81,6 +81,7 @@ const order = (orderId: number) =>
       'guest_session_token',
       'promotion_id',
       'phone',
+      'shipping_cost_cents',
       'discount_cents',
       'total_cents',
     ])
@@ -144,6 +145,7 @@ describe('POST /api/checkout', () => {
       guest_session_token: 'guest-a',
       promotion_id: null,
       phone: null,
+      shipping_cost_cents: 490,
       discount_cents: 0,
       total_cents: TOTAL_CENTS,
     })
@@ -231,12 +233,43 @@ describe('POST /api/checkout', () => {
         errors: { 'shippingAddress.country': ['We do not ship to this country'] },
       })
     } finally {
-      await sql`INSERT INTO countries (name, country_code) VALUES ('Germany', 'DE')`.execute(
-        database.db,
-      )
+      await sql`INSERT INTO countries (name, country_code, shipping_cost_cents, free_shipping_threshold_cents)
+        VALUES ('Germany', 'DE', 490, 5000)`.execute(database.db)
     }
     expect(await count(database.db, 'orders')).toBe(0)
     expect(await cartStatus(cartId)).toBe('ACTIVE')
+  })
+
+  test('applies the destination country shipping cost, optional free threshold, and coupon together', async () => {
+    await sql`UPDATE countries SET shipping_cost_cents = 1190, free_shipping_threshold_cents = NULL
+      WHERE country_code = 'AT'`.execute(database.db)
+    await sql`UPDATE countries SET shipping_cost_cents = 890, free_shipping_threshold_cents = 1000
+      WHERE country_code = 'FR'`.execute(database.db)
+    try {
+      // AT: 1000 subtotal + 1190 shipping (no threshold) = 2190; 10% coupon -> 219 discount -> 1971 total.
+      const promotionId = await seedPromotion(database.db, 'EU10')
+      await seedCart(database.db, { guestToken: 'eu-at' }, { promotionId })
+      const austria = await checkout(await guest('eu-at'), checkoutBody({ country: 'AT' }))
+      expect(austria.status).toBe(201)
+      expect(await order((await answerOf(austria)).orderId)).toMatchObject({
+        shipping_cost_cents: 1190,
+        discount_cents: 219,
+        total_cents: 1971,
+      })
+
+      // FR: 1000 subtotal meets the 1000-cent free threshold -> 0 shipping.
+      await seedCart(database.db, { guestToken: 'eu-fr' })
+      const france = await checkout(await guest('eu-fr'), checkoutBody({ country: 'FR' }))
+      expect(france.status).toBe(201)
+      expect(await order((await answerOf(france)).orderId)).toMatchObject({
+        shipping_cost_cents: 0,
+        discount_cents: 0,
+        total_cents: 1000,
+      })
+    } finally {
+      await sql`UPDATE countries SET shipping_cost_cents = 490, free_shipping_threshold_cents = 5000
+        WHERE country_code IN ('AT', 'FR')`.execute(database.db)
+    }
   })
 
   test('a SPOD line needs a phone number, which the order then stores trimmed', async () => {

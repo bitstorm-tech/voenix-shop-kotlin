@@ -10,7 +10,7 @@ Zentrale Arbeitsliste für alle **noch offenen** Aufgaben bis zum Go-Live (konso
 
 | Thema | Ref. | Entscheidung |
 |---|---|---|
-| **Versandländer & Kosten** | `D3`, `A21`, `F3` | Start in **mehreren EU-Ländern** mit **länderspezifischen Versandkosten in `countries`** ([Paket 7](paket-7-versandkosten-countries.md)). |
+| **Versandländer & Kosten** | `D3`, `A21`, `F3` | Start in **mehreren EU-Ländern** mit **länderspezifischen Versandkosten in `countries`** *(Code umgesetzt; EU-Werte im Admin pflegen)*. |
 | **Stil-Aufpreis** | `C2` | **Aktiv** — `promptId` bis `addToCart` durchreichen ([Paket 6A](paket-6-recht-ui-mails.md)). |
 | **Werbeaussagen** | `A11` | **„Made in Germany“** und **„DHL aus Deutschland“** bleiben; nur nicht existierende Produkte („Poster“, „Als Karte“) entfernen. |
 | **`/royal-dog`** | `C4` | Für den Launch **vorerst ausblenden** ([Paket 6A](paket-6-recht-ui-mails.md)). |
@@ -27,14 +27,12 @@ Jedes Paket ist für eine eigene Session (bei Bedarf in getrennten Worktrees) ge
 
 | Paket | Schwerpunkt | Enthaltene Punkte | Workflow / Reihenfolge |
 |---|---|---|---|
-| **[Paket 7](paket-7-versandkosten-countries.md)** | Länderspezifische Versandkosten in `countries` (DB, `cart/totals.ts`, Checkout, Admin, `/shipping`) | `D3`-Code, `A21`-Daten | **Zuerst** (Basis für Checkout/`/shipping` in Paket 6). DB-Migration + Geld → **Council empfohlen** (`AGENTS.md`). |
-| **[Paket 8](paket-8-security-db-secrets-admin.md)** | Verschlüsselte DB-Secrets (SFTP/SPOD) & DB-gestützte Admin-Session-Revocation | `B13` | **Vollständig parallel** zu Paket 6 & 7. DB-Migration + Security → **Council empfohlen** (`AGENTS.md`). |
-| **[Paket 6 (6A + 6B)](paket-6-recht-ui-mails.md)** | **6A** (sofort ohne externe Texte): PAngV, Button-Lösung, EU-GPSR, UWG, Upload-/DSGVO-Hinweise, Legal-Leiste, iubenda-Fallback, `C2`, `C4`. **6B** (nach Text-Zulieferung & Paket 7): Rechtsseiten, Footer-Seiten, Bestellmail. | `A1`–`A5`, `A7`–`A8`, `A10`–`A11`, `A13`–`A14`, `A16`, `A18`, `A20`–`A21`, `C1`, `C2`, `C4` | **6A** parallel/nach Paket 7; **6B** sobald alle Texte & Mollie-Zahlarten vorliegen. |
+| **[Paket 8](paket-8-security-db-secrets-admin.md)** | Verschlüsselte DB-Secrets (SFTP/SPOD) & DB-gestützte Admin-Session-Revocation | `B13` | **Vollständig parallel** zu Paket 6. DB-Migration + Security → **Council empfohlen** (`AGENTS.md`). |
+| **[Paket 6 (6A + 6B)](paket-6-recht-ui-mails.md)** | **6A** (sofort ohne externe Texte): PAngV, Button-Lösung, EU-GPSR, UWG, Upload-/DSGVO-Hinweise, Legal-Leiste, iubenda-Fallback, `C2`, `C4`. **6B** (nach Text-Zulieferung): Rechtsseiten, Footer-Seiten, Bestellmail. | `A1`–`A5`, `A7`–`A8`, `A10`–`A11`, `A13`–`A14`, `A16`, `A18`, `A20`–`A21`, `C1`, `C2`, `C4` | **6A** sofort; **6B** sobald alle Texte & Mollie-Zahlarten vorliegen. |
 
 ```mermaid
 flowchart LR
     S1A["1A: Recht, EU-EPR & Texte (Kritischer Pfad)"]
-    S1B["1B: Paket 7 (Versandkosten in countries)"]
     S1C["1C: Paket 8 (Security B13)"]
     S1D["1D: Paket 6A (GPSR, PAngV, C2, C4)"]
     S1E["1E: Katalog & Admin-Daten"]
@@ -46,9 +44,7 @@ flowchart LR
     P5["Phase 5: Post-Launch"]
 
     S1A --> S2A
-    S1B --> S2A
     S1D --> S2A
-    S1B --> S1E
     S1D --> S1E
     S1C --> S2C
     S1E --> S2C
@@ -83,8 +79,7 @@ flowchart LR
   - **Support-Postfach** (`write-us@voenix.shop`) & Telefonnummer besetzen; kurzes **Support-SOP** festhalten (manuelle Refunds im Mollie-Dashboard, Reklamation/Neudruck, manuelle Kundenrechnungen auf Anfrage, `SPOD_QUARANTINED`, Chargebacks).
   - **BFSG-Kleinstunternehmer-Ausnahme** (<10 MA & ≤2 Mio. € Umsatz, § 3 Abs. 3 BFSG) intern dokumentieren.
 
-### Strang 1B–1D: Offene Code-Pakete (Phase 1)
-- [ ] **[Paket 7](paket-7-versandkosten-countries.md):** Länderspezifische Versandkosten in `countries`, `cart/totals.ts`, Checkout, Admin-UI & `/shipping` (`D3`, `A21`).
+### Strang 1C–1D: Offene Code-Pakete (Phase 1)
 - [ ] **[Paket 8](paket-8-security-db-secrets-admin.md):** AES-256-GCM-Verschlüsselung für SFTP-/SPOD-Secrets in PostgreSQL + DB-gestützte Admin-Prüfung (`B13`).
 - [ ] **[Paket 6 – Teil 6A](paket-6-recht-ui-mails.md):** `A1`-Fallback/EN, `A7`, `A8`, `A10`, `A11`-Streichungen („Poster“/„Als Karte“), `A13` (EU-GPSR), `A14`, `A18`, `A20`, `C2`, `C4`.
 
@@ -95,7 +90,7 @@ flowchart LR
   - Tippfehler in Stilnamen beheben (`Stylizet Anime`, `Expressive Oil Paining`).
   - Saisonale Kategorie „Valentinstag“ (7,08 €) und „Western Comic“ (0,00 €) prüfen/deaktivieren.
   - Stil-/Kategorienamen sprachlich vereinheitlichen; Marge, MwSt. und Lieferanten-Zuordnung je aktivem Artikel prüfen.
-- [ ] **`D3` Länder & Versandkosten im Admin pflegen (nach Paket 7):** Genau die EPR-fertigen EU-Länder mit realen Versandkosten und Versandfreigrenzen eintragen.
+- [ ] **`D3` Länder & Versandkosten im Admin pflegen:** Genau die EPR-fertigen EU-Länder mit realen Versandkosten und Versandfreigrenzen in `/admin/countries` eintragen.
 - [ ] **`A19` Rabatte prüfen:** Sicherstellen, dass zum Go-Live keine Artikel-/Prompt-Streichpreise aktiv sind.
 - [ ] **`A13` GPSR-Herstellerdaten pflegen (nach Paket 6A):** Herstellername, Anschrift, E-Mail (+ ggf. Warnhinweise) für alle aktiven Artikel eintragen.
 

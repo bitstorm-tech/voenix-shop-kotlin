@@ -12,6 +12,8 @@ export interface Country {
   name: string
   countryCode: string
   dialCode: string | null
+  shippingCostCents: number
+  freeShippingThresholdCents: number | null
 }
 
 interface FetchCountriesOptions {
@@ -24,10 +26,27 @@ function normalizeCountry(country: Country): Country | null {
     return null
   }
 
+  if (
+    typeof country.shippingCostCents !== 'number' ||
+    !Number.isInteger(country.shippingCostCents) ||
+    country.shippingCostCents < 0
+  ) {
+    return null
+  }
+
+  const freeShippingThresholdCents =
+    typeof country.freeShippingThresholdCents === 'number' &&
+    Number.isInteger(country.freeShippingThresholdCents) &&
+    country.freeShippingThresholdCents > 0
+      ? country.freeShippingThresholdCents
+      : null
+
   return {
     name: country.name.trim(),
     countryCode,
     dialCode: normalizeDialCode(country.dialCode),
+    shippingCostCents: country.shippingCostCents,
+    freeShippingThresholdCents,
   }
 }
 
@@ -102,8 +121,17 @@ export const useCountriesStore = defineStore('countries', () => {
 
   /** Answers the shipping question only: is this a country the shop ships to? */
   function isSupportedCountry(countryCode: string | null | undefined): boolean {
+    return countryByCode(countryCode) !== null
+  }
+
+  /** Returns the loaded country record for `countryCode`, or `null` when unknown. */
+  function countryByCode(countryCode: string | null | undefined): Country | null {
     const normalizedCountryCode = countryCode?.trim().toUpperCase()
-    return countries.value.some((country) => country.countryCode === normalizedCountryCode)
+    if (!normalizedCountryCode) {
+      return null
+    }
+
+    return countries.value.find((country) => country.countryCode === normalizedCountryCode) ?? null
   }
 
   /**
@@ -128,6 +156,7 @@ export const useCountriesStore = defineStore('countries', () => {
     hasLoaded,
     defaultCountryCode,
     fetchCountries,
+    countryByCode,
     isSupportedCountry,
     resolveCountryCode,
   }

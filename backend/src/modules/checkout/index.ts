@@ -25,7 +25,7 @@ export function createCheckoutModule({
   checkoutCarts: CheckoutCarts
   promotionCodes: Pick<PromotionCodes, 'reserve' | 'release'>
   orders: Pick<Orders, 'place' | 'payable' | 'confirmFree' | 'startPayment'>
-  countries: Pick<CountryModule, 'isShippable'>
+  countries: Pick<CountryModule, 'shippingPolicy'>
   guestTokens: Auth['guestTokens']
 }) {
   const service = createCheckoutService({

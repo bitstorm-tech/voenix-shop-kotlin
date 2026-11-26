@@ -25,9 +25,34 @@ describe('countries store', () => {
   it('loads and normalizes the bare country array of the public API', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse([
-        { name: ' Germany ', countryCode: 'de', dialCode: '49' },
-        { name: 'France', countryCode: 'FR', dialCode: '+33' },
-        { name: 'Invalid', countryCode: 'FRA', dialCode: '+999' },
+        {
+          name: ' Germany ',
+          countryCode: 'de',
+          dialCode: '49',
+          shippingCostCents: 490,
+          freeShippingThresholdCents: 5000,
+        },
+        {
+          name: 'France',
+          countryCode: 'FR',
+          dialCode: '+33',
+          shippingCostCents: 990,
+          freeShippingThresholdCents: null,
+        },
+        {
+          name: 'Invalid',
+          countryCode: 'FRA',
+          dialCode: '+999',
+          shippingCostCents: 490,
+          freeShippingThresholdCents: null,
+        },
+        {
+          name: 'BadShipping',
+          countryCode: 'BS',
+          dialCode: null,
+          shippingCostCents: -1,
+          freeShippingThresholdCents: null,
+        },
       ]),
     )
     vi.stubGlobal('fetch', fetchMock)
@@ -37,19 +62,47 @@ describe('countries store', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/countries')
     expect(store.countries).toEqual([
-      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
-      { name: 'France', countryCode: 'FR', dialCode: '+33' },
+      {
+        name: 'Germany',
+        countryCode: 'DE',
+        dialCode: '+49',
+        shippingCostCents: 490,
+        freeShippingThresholdCents: 5000,
+      },
+      {
+        name: 'France',
+        countryCode: 'FR',
+        dialCode: '+33',
+        shippingCostCents: 990,
+        freeShippingThresholdCents: null,
+      },
     ])
     expect(store.defaultCountryCode).toBe('DE')
+    expect(store.countryByCode(' fr ')).toEqual({
+      name: 'France',
+      countryCode: 'FR',
+      dialCode: '+33',
+      shippingCostCents: 990,
+      freeShippingThresholdCents: null,
+    })
+    expect(store.countryByCode('XX')).toBeNull()
     expect(store.error).toBeNull()
   })
 
   it('uses the first backend country as default when Germany is not available', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(jsonResponse([{ name: 'France', countryCode: 'FR', dialCode: '+33' }])),
+      vi.fn().mockResolvedValue(
+        jsonResponse([
+          {
+            name: 'France',
+            countryCode: 'FR',
+            dialCode: '+33',
+            shippingCostCents: 990,
+            freeShippingThresholdCents: null,
+          },
+        ]),
+      ),
     )
     const store = useCountriesStore()
 
@@ -83,7 +136,17 @@ describe('countries store', () => {
 
     const first = store.fetchCountries()
     const second = store.fetchCountries()
-    resolveResponse(jsonResponse([{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }]))
+    resolveResponse(
+      jsonResponse([
+        {
+          name: 'Germany',
+          countryCode: 'DE',
+          dialCode: '+49',
+          shippingCostCents: 490,
+          freeShippingThresholdCents: 5000,
+        },
+      ]),
+    )
     await Promise.all([first, second])
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -94,9 +157,27 @@ describe('countries store', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        jsonResponse([{ name: 'Germany', countryCode: 'DE', dialCode: '+49' }]),
+        jsonResponse([
+          {
+            name: 'Germany',
+            countryCode: 'DE',
+            dialCode: '+49',
+            shippingCostCents: 490,
+            freeShippingThresholdCents: 5000,
+          },
+        ]),
       )
-      .mockResolvedValueOnce(jsonResponse([{ name: 'France', countryCode: 'FR', dialCode: '+33' }]))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            name: 'France',
+            countryCode: 'FR',
+            dialCode: '+33',
+            shippingCostCents: 990,
+            freeShippingThresholdCents: null,
+          },
+        ]),
+      )
     vi.stubGlobal('fetch', fetchMock)
     const store = useCountriesStore()
 
@@ -105,7 +186,15 @@ describe('countries store', () => {
     await store.fetchCountries({ force: true })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(store.countries).toEqual([{ name: 'France', countryCode: 'FR', dialCode: '+33' }])
+    expect(store.countries).toEqual([
+      {
+        name: 'France',
+        countryCode: 'FR',
+        dialCode: '+33',
+        shippingCostCents: 990,
+        freeShippingThresholdCents: null,
+      },
+    ])
   })
 
   it('records an error when the API fails', async () => {

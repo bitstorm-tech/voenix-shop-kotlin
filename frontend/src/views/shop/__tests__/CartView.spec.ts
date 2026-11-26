@@ -21,7 +21,8 @@ const stubs = {
   Badge: { template: '<span v-bind="$attrs"><slot /></span>' },
   Card: { template: '<section><slot /></section>' },
   CartPromotionForm: true,
-  RouterLink: { template: '<a><slot /></a>' },
+  I18nT: { template: '<span><slot name="link" /></span>' },
+  RouterLink: { props: ['to'], template: '<a v-bind="$attrs"><slot /></a>' },
 }
 
 async function mountCart() {
@@ -30,6 +31,7 @@ async function mountCart() {
     routes: [
       { path: '/cart', name: 'cart', component: CartView },
       { path: '/checkout', name: 'checkout', component: { template: '<div />' } },
+      { path: '/shipping', name: 'shipping', component: { template: '<div />' } },
     ],
   })
   await router.push('/cart')
@@ -45,13 +47,12 @@ describe('CartView', () => {
     setActivePinia(createPinia())
   })
 
-  it('renders the lines of the fetched cart with their print images', async () => {
+  it('renders the lines of the fetched cart with their print images and country-dependent shipping hint', async () => {
     const cart = createCartView()
     const store = useCartStore()
     vi.spyOn(store, 'fetchCart').mockImplementation(async () => {
       store.items = cart.items
       store.subtotal = cart.subtotal
-      store.shippingCost = cart.shippingCost
       store.discountAmount = cart.discountAmount
       store.totalPrice = cart.total
     })
@@ -63,6 +64,9 @@ describe('CartView', () => {
     expect(wrapper.get('img').attributes('src')).toBe('/api/images/guest/400/77')
     expect(wrapper.text()).toContain('Classic')
     expect(wrapper.text()).toContain('39,80')
+    expect(wrapper.get('[data-testid="cart-shipping-note"]').text()).toBe('cart.shippingByCountry')
+    expect(wrapper.find('[data-testid="cart-shipping-link"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('4,90')
   })
 
   it('marks a line the catalog no longer answers for and blocks its quantity buttons', async () => {

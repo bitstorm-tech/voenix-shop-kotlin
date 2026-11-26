@@ -9,6 +9,7 @@ import { uploadRejection, type ImageStorage, type UploadedImage } from '@/module
 import type { Orders, PlaceOrderInput } from '@/modules/order'
 import type {
   ApplicablePromotion,
+  Discount,
   DiscountType,
   PromotionCodes,
   PromotionRejection,
@@ -18,19 +19,19 @@ import type { Tables } from '@/platform/db/database'
 import { createLogger, errorDetails } from '@/platform/logging'
 import { conflict, invalid, notFound, ok, type OperationResult } from '@/platform/operation'
 import type { CartOwner, CartRepository, StoredCart } from './repository'
-import { cartTotals, type CartTotals } from './totals'
+import { cartTotals, NO_SHIPPING_POLICY, type CartTotals } from './totals'
 
 /**
  * The one answer every cart operation but the upload gives: the complete, recalculated cart. A
- * mutation never answers only what it changed, because the browser cannot compute shipping
- * thresholds and discount caps itself.
+ * cart has no shipping country yet, so shipping costs are intentionally omitted here and calculated
+ * at checkout once the customer picks a destination. `discountAmount` and `total` therefore cover
+ * the merchandise subtotal only.
  */
 export interface CartView {
   /** `null` while the caller has no cart yet, so a client can tell "no cart" from cart `0`. */
   id: number | null
   items: CartLine[]
   subtotal: number
-  shippingCost: number
   discountAmount: number
   total: number
   totalItems: number
@@ -79,16 +80,16 @@ export interface AddItemInput {
 }
 
 /**
- * The priced active cart a checkout places its order from. It is shaped so that the checkout
- * builds its `PlaceOrderInput` from it without a second read: the caller's identity as it asked,
- * the cart and promotion ids, the lines with their price snapshots, and the four totals the
- * customer was shown. Each line also carries its current `articleType` (`null` when the catalog no
- * longer resolves it), which the checkout's phone rule for SPOD articles asks about.
+ * The locked active cart a checkout places its order from. It carries the caller's identity, the
+ * cart and promotion ids, the lines with their price snapshots and current `articleType` (`null`
+ * when the catalog no longer resolves it, which the checkout's SPOD phone rule asks about), and the
+ * resolved coupon `discount`. The checkout resolves the destination country's shipping policy and
+ * computes final totals with `cartTotals`.
  */
 export interface CheckoutCart
-  extends Pick<PlaceOrderInput, 'cartId' | 'userId' | 'guestToken' | 'promotionId'>,
-    CartTotals {
+  extends Pick<PlaceOrderInput, 'cartId' | 'userId' | 'guestToken' | 'promotionId'> {
   lines: CheckoutCartLine[]
+  discount: Discount | undefined
 }
 
 export type CheckoutCartLine = PlaceOrderInput['lines'][number] & {
@@ -104,7 +105,6 @@ const EMPTY_CART: CartView = {
   id: null,
   items: [],
   subtotal: 0,
-  shippingCost: 0,
   discountAmount: 0,
   total: 0,
   totalItems: 0,
@@ -150,7 +150,12 @@ export function createCartService({
       stored.promotionId === null
         ? undefined
         : (await promotionCodes.find([stored.promotionId])).get(stored.promotionId)
-    return { stored, variants, promotion, totals: cartTotals(stored.lines, promotion?.discount) }
+    return {
+      stored,
+      variants,
+      promotion,
+      totals: cartTotals(stored.lines, promotion?.discount, NO_SHIPPING_POLICY),
+    }
   }
 
   const view = async (stored: StoredCart): Promise<CartView> => toCartView(await price(stored))
@@ -317,7 +322,7 @@ export function createCartService({
     ): Promise<CheckoutCart | null> => {
       const stored = await repository.lockActiveCart(trx, { guestToken, userId })
       if (stored === undefined) return null
-      const { variants, totals } = await price(stored)
+      const { variants, promotion } = await price(stored)
       return {
         cartId: stored.id,
         userId,
@@ -333,7 +338,7 @@ export function createCartService({
           printImageId: line.printImageId,
           articleType: variants.get(catalogKey(line))?.articleType ?? null,
         })),
-        ...totals,
+        discount: promotion?.discount,
       }
     },
   }
@@ -362,7 +367,6 @@ function toCartView({ stored, variants, promotion, totals }: PricedCart): CartVi
       }
     }),
     subtotal: totals.subtotalCents,
-    shippingCost: totals.shippingCostCents,
     discountAmount: totals.discountCents,
     total: totals.totalCents,
     totalItems: stored.lines.reduce((sum, line) => sum + line.quantity, 0),

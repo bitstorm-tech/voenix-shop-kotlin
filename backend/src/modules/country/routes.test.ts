@@ -14,20 +14,22 @@ const postCountry = async (body: string) =>
     body,
   })
 
+const DEFAULT_SHIPPING = { shippingCostCents: 490, freeShippingThresholdCents: 5000 }
+
 describe('GET /api/countries', () => {
-  test('answers the sorted public list with dial codes on its canonical path only', async () => {
+  test('answers the sorted public list with dial codes and shipping policy on its canonical path only', async () => {
     const response = await app().request('/api/countries')
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toStartWith('application/json')
     expect(await jsonOf(response)).toEqual([
-      { name: 'Austria', countryCode: 'AT', dialCode: '+43' },
-      { name: 'Belgium', countryCode: 'BE', dialCode: '+32' },
-      { name: 'Germany', countryCode: 'DE', dialCode: '+49' },
-      { name: 'Spain', countryCode: 'ES', dialCode: '+34' },
-      { name: 'France', countryCode: 'FR', dialCode: '+33' },
-      { name: 'Italy', countryCode: 'IT', dialCode: '+39' },
-      { name: 'Netherlands', countryCode: 'NL', dialCode: '+31' },
-      { name: 'Sweden', countryCode: 'SE', dialCode: '+46' },
+      { name: 'Austria', countryCode: 'AT', dialCode: '+43', ...DEFAULT_SHIPPING },
+      { name: 'Belgium', countryCode: 'BE', dialCode: '+32', ...DEFAULT_SHIPPING },
+      { name: 'Germany', countryCode: 'DE', dialCode: '+49', ...DEFAULT_SHIPPING },
+      { name: 'Spain', countryCode: 'ES', dialCode: '+34', ...DEFAULT_SHIPPING },
+      { name: 'France', countryCode: 'FR', dialCode: '+33', ...DEFAULT_SHIPPING },
+      { name: 'Italy', countryCode: 'IT', dialCode: '+39', ...DEFAULT_SHIPPING },
+      { name: 'Netherlands', countryCode: 'NL', dialCode: '+31', ...DEFAULT_SHIPPING },
+      { name: 'Sweden', countryCode: 'SE', dialCode: '+46', ...DEFAULT_SHIPPING },
     ])
     expect((await app().request('/API/COUNTRIES')).status).toBe(404)
     expect((await app().request('/api/countries/')).status).toBe(404)
@@ -35,15 +37,17 @@ describe('GET /api/countries', () => {
 })
 
 describe('GET /api/admin/countries', () => {
-  test('answers the admin list with ids', async () => {
+  test('answers the admin list with ids and shipping policy', async () => {
     const response = await app().request('/api/admin/countries', { headers: await admin() })
     expect(response.status).toBe(200)
     const countries = (await jsonOf(response)) as {
       id: number
       name: string
       countryCode: string
+      shippingCostCents: number
+      freeShippingThresholdCents: number | null
     }[]
-    expect(countries[0]).toEqual({ id: 4, name: 'Austria', countryCode: 'AT' })
+    expect(countries[0]).toEqual({ id: 4, name: 'Austria', countryCode: 'AT', ...DEFAULT_SHIPPING })
     expect(countries.map((country) => country.countryCode)).toEqual([
       'AT',
       'BE',
@@ -68,22 +72,40 @@ describe('GET /api/admin/countries', () => {
 })
 
 describe('POST /api/admin/countries', () => {
-  test('creates a normalized country and answers 201 with a Location header', async () => {
-    const created = await postCountry('{"name":" Denmark ","countryCode":" dk "}')
+  test('creates a normalized country with shipping policy and answers 201 with a Location header', async () => {
+    const created = await postCountry(
+      '{"name":" Denmark ","countryCode":" dk ","shippingCostCents":990,"freeShippingThresholdCents":null}',
+    )
     expect(created.status).toBe(201)
-    const country = (await jsonOf(created)) as { id: number; name: string; countryCode: string }
-    expect(country).toEqual({ id: country.id, name: 'Denmark', countryCode: 'DK' })
+    const country = (await jsonOf(created)) as {
+      id: number
+      name: string
+      countryCode: string
+      shippingCostCents: number
+      freeShippingThresholdCents: number | null
+    }
+    expect(country).toEqual({
+      id: country.id,
+      name: 'Denmark',
+      countryCode: 'DK',
+      shippingCostCents: 990,
+      freeShippingThresholdCents: null,
+    })
     expect(created.headers.get('Location')).toBe(`/api/admin/countries/${String(country.id)}`)
   })
 
   test('a duplicate name or a duplicate code answers 409', async () => {
-    const sameName = await postCountry('{"name":"germany","countryCode":"GE"}')
+    const sameName = await postCountry(
+      '{"name":"germany","countryCode":"GE","shippingCostCents":490,"freeShippingThresholdCents":5000}',
+    )
     expect(sameName.status).toBe(409)
     expect(await jsonOf(sameName)).toEqual({
       message: 'Country name or code already exists',
       errors: {},
     })
-    const sameCode = await postCountry('{"name":"Deutschland","countryCode":"de"}')
+    const sameCode = await postCountry(
+      '{"name":"Deutschland","countryCode":"de","shippingCostCents":490,"freeShippingThresholdCents":5000}',
+    )
     expect(sameCode.status).toBe(409)
   })
 })
@@ -92,7 +114,12 @@ describe('GET /api/admin/countries/:id', () => {
   test('answers the country, 404 for an unknown id, and 400 for a malformed one', async () => {
     const found = await app().request('/api/admin/countries/1', { headers: await admin() })
     expect(found.status).toBe(200)
-    expect(await jsonOf(found)).toEqual({ id: 1, name: 'Germany', countryCode: 'DE' })
+    expect(await jsonOf(found)).toEqual({
+      id: 1,
+      name: 'Germany',
+      countryCode: 'DE',
+      ...DEFAULT_SHIPPING,
+    })
     const missing = await app().request('/api/admin/countries/999', { headers: await admin() })
     expect(missing.status).toBe(404)
     expect(await jsonOf(missing)).toEqual({ message: 'Country not found', errors: {} })
@@ -105,26 +132,40 @@ describe('GET /api/admin/countries/:id', () => {
 })
 
 describe('PUT /api/admin/countries/:id', () => {
-  test('updates a country and answers 404 for an unknown id', async () => {
-    const created = (await jsonOf(await postCountry('{"name":"Norway","countryCode":"NO"}'))) as {
+  test('updates a country and its shipping policy and answers 404 for an unknown id', async () => {
+    const created = (await jsonOf(
+      await postCountry(
+        '{"name":"Norway","countryCode":"NO","shippingCostCents":1290,"freeShippingThresholdCents":null}',
+      ),
+    )) as {
       id: number
     }
     const put = async (id: number) =>
       app().request(`/api/admin/countries/${String(id)}`, {
         method: 'PUT',
         headers: { ...(await admin()), 'content-type': 'application/json' },
-        body: '{"name":" Norge ","countryCode":" no "}',
+        body: '{"name":" Norge ","countryCode":" no ","shippingCostCents":990,"freeShippingThresholdCents":7500}',
       })
     const updated = await put(created.id)
     expect(updated.status).toBe(200)
-    expect(await jsonOf(updated)).toEqual({ id: created.id, name: 'Norge', countryCode: 'NO' })
+    expect(await jsonOf(updated)).toEqual({
+      id: created.id,
+      name: 'Norge',
+      countryCode: 'NO',
+      shippingCostCents: 990,
+      freeShippingThresholdCents: 7500,
+    })
     expect((await put(999)).status).toBe(404)
   })
 })
 
 describe('DELETE /api/admin/countries/:id', () => {
   test('answers 204 without a body and then 404 for the same id', async () => {
-    const created = (await jsonOf(await postCountry('{"name":"Finland","countryCode":"FI"}'))) as {
+    const created = (await jsonOf(
+      await postCountry(
+        '{"name":"Finland","countryCode":"FI","shippingCostCents":990,"freeShippingThresholdCents":null}',
+      ),
+    )) as {
       id: number
     }
     const remove = async () =>

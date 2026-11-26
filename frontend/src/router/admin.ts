@@ -148,6 +148,14 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'countries',
+        name: 'admin-countries',
+        component: () => import('@/views/admin/CountriesView.vue'),
+        meta: {
+          title: 'Countries',
+        },
+      },
+      {
         path: 'vat',
         name: 'admin-vat',
         component: () => import('@/views/admin/VatView.vue'),

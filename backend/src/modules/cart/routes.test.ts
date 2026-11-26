@@ -105,7 +105,6 @@ describe('GET /api/cart', () => {
       id: null,
       items: [],
       subtotal: 0,
-      shippingCost: 0,
       discountAmount: 0,
       total: 0,
       totalItems: 0,
@@ -143,11 +142,10 @@ describe('the cart journey', () => {
           promptPrice: 500,
         },
       ],
-      // 2 × (1490 + 500) = 3980, below the free-shipping threshold.
+      // 2 × (1490 + 500) = 3980; shipping is decided at checkout by country.
       subtotal: 3980,
-      shippingCost: 490,
       discountAmount: 0,
-      total: 4470,
+      total: 3980,
       totalItems: 2,
       appliedPromotion: null,
     })
@@ -369,9 +367,9 @@ describe('POST and DELETE /api/cart/promotion', () => {
         discountType: 'PERCENTAGE',
         discountValue: 10,
       },
-      // 1490 + 490 shipping = 1980; ten percent of that is 198.
-      discountAmount: 198,
-      total: 1782,
+      // 10% of 1490 merchandise subtotal is 149; shipping is added at checkout.
+      discountAmount: 149,
+      total: 1341,
     })
 
     const removed = await send('DELETE', '/api/cart/promotion', headers)

@@ -1,12 +1,8 @@
 import { ref, shallowRef } from 'vue'
 import { fetchJson } from '@/lib/api'
+import type { AdminCountryDto } from '@/stores/admin/countries'
 
-/** The admin `Country` representation (`docs/dev/backend/packages/country-package.md`). */
-export interface AdminCountryDto {
-  id: number
-  name: string
-  countryCode: string
-}
+export type { AdminCountryDto }
 
 /** Lazily loads the country list used by admin forms (e.g. the supplier dialog). */
 export function useAdminCountries() {

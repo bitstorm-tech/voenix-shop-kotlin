@@ -138,14 +138,18 @@ An example answer:
       "promptId": 4, "promptPrice": 500 }
   ],
   "subtotal": 3980,
-  "shippingCost": 490,
-  "discountAmount": 447,
-  "total": 4023,
+  "discountAmount": 398,
+  "total": 3582,
   "totalItems": 2,
   "appliedPromotion": { "id": 3, "name": "Summer", "promotionCode": "SAVE10",
                         "discountType": "PERCENTAGE", "discountValue": 10 }
 }
 ```
+
+Shipping costs depend on the destination country selected at checkout, so
+`CartView` intentionally omits `shippingCost`: `discountAmount` and `total`
+cover merchandise only, and checkout applies the destination country's
+`ShippingPolicy` (with the coupon applying to `subtotal + shipping`).
 
 `price` and `promptPrice` are snapshots taken when the line was added; the
 rest of a line is **current master data, resolved on every read** in one
@@ -381,12 +385,18 @@ are accepted, like the example-image orphans of article and prompt.
 
 ## Totals
 
-`cartTotals(lines, discount)` in `totals.ts` is pure arithmetic on whole cents:
+`cartTotals(lines, discount, shippingPolicy)` in `totals.ts` is pure arithmetic
+on whole cents, exported by the cart module so checkout uses the exact same
+formula:
 
 - **Subtotal**: article price plus prompt price, times the quantity, per line.
-- **Shipping**: `0` for an empty cart and from 5000 cents on, `490` in between.
-  It is calculated from the pre-coupon subtotal, so applying a coupon can
-  never take free shipping away again.
+- **Shipping**: `0` when `subtotal <= 0`, `0` when `freeShippingThresholdCents
+  !== null` and `subtotal >= freeShippingThresholdCents`, and
+  `shippingCostCents` otherwise. It is calculated from the pre-coupon subtotal,
+  so applying a coupon can never take free shipping away again. In `CartView`,
+  before a shipping country is chosen, `NO_SHIPPING_POLICY` (`shippingCostCents:
+  0`, `freeShippingThresholdCents: null`) is used so the cart reports
+  merchandise totals without assuming a flat shipping rate.
 - **Discount**: the base is subtotal **plus** shipping. A percentage above 100
   counts as 100, halves round up (`percentOfCents` and `roundHalfUp` of
   [`money.ts`](../../../../backend/src/platform/money.ts)), and the result
@@ -510,15 +520,15 @@ checkoutCarts.markCheckedOut(trx, cartId)             // Promise<boolean>: ACTIV
   from the order while the cart is closed. It answers `null` when there is no
   active cart, and a cart without lines is a snapshot with an empty list, so
   "no cart" and "empty cart" can become the same `CART_EMPTY` answer. The
-  `CheckoutCart` is shaped so the checkout builds its `PlaceOrderInput` without
-  a second read: `cartId`, the caller's `userId` and `guestToken` as asked,
-  `promotionId`, the lines as `{ articleId, variantId, quantity, priceCents,
-  promptPriceCents, promptId, printImageId, articleType }`, and
-  `subtotalCents`, `shippingCostCents`, `discountCents`, `totalCents`. The
-  totals come from the same `cartTotals` and the same promotion lookup the cart
-  answer uses, so the checkout charges what the customer saw. `articleType` is
-  the catalog's current answer (`null` for a reference it no longer resolves)
-  and is what the checkout's phone rule for SPOD articles asks about.
+  `CheckoutCart` carries `cartId`, the caller's `userId` and `guestToken` as
+  asked, `promotionId`, the resolved coupon `discount`, and the lines as
+  `{ articleId, variantId, quantity, priceCents, promptPriceCents, promptId,
+  printImageId, articleType }`. The checkout resolves the destination country's
+  `ShippingPolicy` and calls `cartTotals(cart.lines, cart.discount,
+  shippingPolicy)` inside TX1 so shipping, discount, and total reflect the
+  chosen country. `articleType` is the catalog's current answer (`null` for a
+  reference it no longer resolves) and is what the checkout's phone rule for
+  SPOD articles asks about.
 - `markCheckedOut` closes the cart with `UPDATE … WHERE status = 'ACTIVE'`.
   The predicate makes it idempotent: `true` means this call did it, `false`
   that it was already done or the cart does not exist, and neither is a

@@ -344,6 +344,10 @@ invents no `generatedEditedImageId` any more.
 | `stores/admin/prices.ts` | `GET /api/admin/prices/default` | same | #87 |
 | `stores/admin/prices.ts` | `POST /api/admin/prices/calculate` | same | #87 |
 | `composables/useAdminCountries.ts` | `GET /api/admin/countries` | same | #87 |
+| `stores/admin/countries.ts` | `GET /api/admin/countries` | same | Paket 7 |
+| `stores/admin/countries.ts` | `POST /api/admin/countries` | same | Paket 7 |
+| `stores/admin/countries.ts` | `PUT /api/admin/countries/{id}` | same | Paket 7 |
+| `stores/admin/countries.ts` | `DELETE /api/admin/countries/{id}` | same | Paket 7 |
 
 The VAT store was the only admin surface that already read a bare array, which is
 why its rows carry no ticket. It is listed anyway: "already correct" is a result
@@ -705,7 +709,7 @@ decision, not an oversight.
 
 | Backend route | Disposition |
 | --- | --- |
-| `GET /api/admin/countries/{id}`, `POST /api/admin/countries`, `PUT /api/admin/countries/{id}`, `DELETE /api/admin/countries/{id}` | **Out of scope.** The frontend only needs the admin *list*, for dropdowns. A country admin UI is not part of #84, and the `countries` activation flag is a backend follow-up in `docs/migration/all-post-migration.md`. |
+| `GET /api/admin/countries/{id}` | **Out of scope.** The `/admin/countries` CRUD dialog edits the row already loaded by `GET /api/admin/countries`. |
 | `POST /api/payments/webhook/{secret}` | **Must stay uncalled.** Mollie calls this, never a browser. |
 | `POST /api/production/webhooks/spod/{secret}` | **Must stay uncalled.** The print-on-demand partner calls this, never a browser; the secret in the path is its whole authentication (`docs/dev/backend/packages/spod-fulfillment.md`). |
 
@@ -713,8 +717,8 @@ decision, not an oversight.
 
 | | Count |
 | --- | --- |
-| Frontend rows, all matching | 156 |
-| Backend routes with no caller, all dispositioned | 7 |
+| Frontend rows, all matching | 160 |
+| Backend routes with no caller, all dispositioned | 3 |
 | Call sites with an open contract gap | 0 |
 
 The closing sweep (issue #101) re-ran the grep of "How this map is kept honest"

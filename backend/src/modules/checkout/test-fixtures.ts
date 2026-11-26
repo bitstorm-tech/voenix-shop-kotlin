@@ -140,7 +140,7 @@ export async function seedCart(
 }
 
 /** The request body the Vue store posts today, `phone: ""` and all. */
-export function checkoutBody(overrides: { phone?: string; email?: string } = {}) {
+export function checkoutBody(overrides: { phone?: string; email?: string; country?: string } = {}) {
   return {
     shippingAddress: {
       firstName: 'Ada',
@@ -149,7 +149,7 @@ export function checkoutBody(overrides: { phone?: string; email?: string } = {})
       houseNumber: '12a',
       postalCode: '80331',
       city: 'München',
-      country: 'DE',
+      country: overrides.country ?? 'DE',
       email: overrides.email ?? 'ada@example.org',
       phone: overrides.phone ?? '',
     },

@@ -60,9 +60,8 @@ describe('cart store', () => {
     expect(store.items[0]?.imageId).toBe(77)
     expect(store.items[0]?.promptPrice).toBe(500)
     expect(store.subtotal).toBe(3980)
-    expect(store.shippingCost).toBe(490)
-    expect(store.discountAmount).toBe(447)
-    expect(store.totalPrice).toBe(4023)
+    expect(store.discountAmount).toBe(398)
+    expect(store.totalPrice).toBe(3582)
     expect(store.appliedPromotion).toEqual(cart.appliedPromotion)
     expect(store.hasUnavailableItem).toBe(false)
   })
@@ -100,7 +99,7 @@ describe('cart store', () => {
       imageId: 42,
     })
     expect(store.items).toEqual(cart.items)
-    expect(store.totalPrice).toBe(4023)
+    expect(store.totalPrice).toBe(3582)
   })
 
   it('submits a line without an image when nothing is uploaded', async () => {
@@ -301,9 +300,8 @@ describe('cart store', () => {
     const appliedCart = createCartView({
       items: [createCartItem({ quantity: 1, promptPrice: 0, price: 1200 })],
       subtotal: 1200,
-      shippingCost: 490,
-      discountAmount: 169,
-      total: 1521,
+      discountAmount: 120,
+      total: 1080,
       totalItems: 1,
       appliedPromotion: {
         id: 9,
@@ -334,9 +332,8 @@ describe('cart store', () => {
     )
     expect(store.appliedPromotion).toEqual(appliedCart.appliedPromotion)
     expect(store.subtotal).toBe(1200)
-    expect(store.shippingCost).toBe(490)
-    expect(store.discountAmount).toBe(169)
-    expect(store.totalPrice).toBe(1521)
+    expect(store.discountAmount).toBe(120)
+    expect(store.totalPrice).toBe(1080)
   })
 
   it('removes the applied Promotion and restores server-calculated totals', async () => {
@@ -345,7 +342,7 @@ describe('cart store', () => {
       antiforgeryOr((input, init) => {
         if (input === '/api/cart/promotion' && init?.method === 'DELETE') {
           return jsonResponse(
-            createCartView({ appliedPromotion: null, discountAmount: 0, total: 4470 }),
+            createCartView({ appliedPromotion: null, discountAmount: 0, total: 3980 }),
           )
         }
 
@@ -358,7 +355,7 @@ describe('cart store', () => {
 
     expect(store.appliedPromotion).toBeNull()
     expect(store.discountAmount).toBe(0)
-    expect(store.totalPrice).toBe(4470)
+    expect(store.totalPrice).toBe(3980)
   })
 
   it('exposes the backend Promotion error code for guest login messaging', async () => {

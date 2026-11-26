@@ -113,6 +113,11 @@ export const adminNavigationItems: AdminNavItem[] = [
       },
       {
         type: 'link',
+        title: 'Countries',
+        to: '/admin/countries',
+      },
+      {
+        type: 'link',
         title: 'VAT',
         to: '/admin/vat',
         activePatterns: ['/admin/vat', '/admin/vat/new', '/admin/vat/:id'],

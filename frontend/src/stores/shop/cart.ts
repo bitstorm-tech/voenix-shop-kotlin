@@ -54,12 +54,14 @@ export interface AppliedPromotion {
   discountValue: number
 }
 
-/** The complete recalculated cart every cart route answers with, the upload apart. */
+/**
+ * The complete recalculated cart every cart route answers with, the upload apart. Shipping costs
+ * depend on the destination country selected at checkout, so the cart carries merchandise totals only.
+ */
 export interface CartView {
   id: number | null
   items: CartItem[]
   subtotal: number
-  shippingCost: number
   discountAmount: number
   total: number
   totalItems: number
@@ -132,7 +134,6 @@ export const useCartStore = defineStore('cart', () => {
   const isLoading = shallowRef(false)
   const error = shallowRef<string | null>(null)
   const subtotal = shallowRef(0)
-  const shippingCost = shallowRef(0)
   const discountAmount = shallowRef(0)
   const totalPrice = shallowRef(0)
   const appliedPromotion = shallowRef<AppliedPromotion | null>(null)
@@ -170,7 +171,6 @@ export const useCartStore = defineStore('cart', () => {
   function applyCartView(cart: CartView) {
     items.value = cart.items
     subtotal.value = cart.subtotal
-    shippingCost.value = cart.shippingCost
     discountAmount.value = cart.discountAmount
     totalPrice.value = cart.total
     appliedPromotion.value = cart.appliedPromotion
@@ -343,7 +343,6 @@ export const useCartStore = defineStore('cart', () => {
     error,
     totalItems,
     subtotal,
-    shippingCost,
     discountAmount,
     totalPrice,
     appliedPromotion,

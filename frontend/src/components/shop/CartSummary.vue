@@ -8,11 +8,13 @@ import CartPromotionForm from '@/components/shop/CartPromotionForm.vue'
 import { formatPrice } from '@/lib/formatPrice'
 import type { AppliedPromotion, PromotionApplicationErrorCode } from '@/stores/shop/cart'
 
-/** The server-calculated totals of the current `CartView`; nothing here is recomputed locally. */
+/**
+ * The server-calculated merchandise totals of the current `CartView`. Shipping costs depend on the
+ * destination country selected at checkout, so no flat shipping fee is assumed here.
+ */
 withDefaults(
   defineProps<{
     subtotal: number
-    shippingCost: number
     discountAmount: number
     total: number
     appliedPromotion: AppliedPromotion | null
@@ -32,7 +34,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const FREE_SHIPPING_THRESHOLD_IN_CENTS = 5000
 </script>
 
 <template>
@@ -58,18 +59,21 @@ const FREE_SHIPPING_THRESHOLD_IN_CENTS = 5000
         <dt>{{ t('cart.discount') }}</dt>
         <dd class="font-medium tabular-nums">-{{ formatPrice(discountAmount) }}</dd>
       </div>
-      <div class="flex justify-between">
+      <div class="flex justify-between gap-4">
         <dt class="text-muted-foreground">{{ t('cart.shipping') }}</dt>
-        <dd class="font-medium tabular-nums">
-          <span v-if="shippingCost === 0" class="text-success">{{ t('cart.shippingFree') }}</span>
-          <span v-else>{{ formatPrice(shippingCost) }}</span>
+        <dd class="text-right text-muted-foreground" data-testid="cart-shipping-note">
+          {{ t('cart.shippingByCountry') }}
         </dd>
       </div>
       <div class="flex justify-between border-t border-border pt-4 text-base font-bold">
-        <dt>{{ t('cart.total') }}</dt>
+        <dt>{{ t('cart.totalExclShipping') }}</dt>
         <dd class="tabular-nums">{{ formatPrice(total) }}</dd>
       </div>
     </dl>
+
+    <p v-if="appliedPromotion" class="mt-2 text-xs text-muted-foreground">
+      {{ t('cart.promotion.shippingDiscountHint') }}
+    </p>
 
     <Button
       class="mt-6 w-full"
@@ -88,9 +92,21 @@ const FREE_SHIPPING_THRESHOLD_IN_CENTS = 5000
     </Button>
 
     <div class="mt-6 space-y-2 border-t border-border pt-5 text-xs text-muted-foreground">
-      <p class="flex items-center gap-2">
-        <Truck class="size-3.5 shrink-0" />
-        {{ t('cart.shippingFreeHint', { amount: formatPrice(FREE_SHIPPING_THRESHOLD_IN_CENTS) }) }}
+      <p class="flex items-start gap-2">
+        <Truck class="mt-0.5 size-3.5 shrink-0" />
+        <span>
+          <i18n-t keypath="cart.shippingCountryHint" tag="span">
+            <template #link>
+              <RouterLink
+                :to="{ name: 'shipping' }"
+                class="underline hover:text-foreground"
+                data-testid="cart-shipping-link"
+              >
+                {{ t('cart.shippingInfoLink') }}
+              </RouterLink>
+            </template>
+          </i18n-t>
+        </span>
       </p>
       <p class="flex items-center gap-2">
         <ShieldCheck class="size-3.5 shrink-0" />

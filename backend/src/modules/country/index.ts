@@ -3,19 +3,19 @@ import type { Tables } from '@/platform/db/database'
 import { createCountryRepository } from './repository'
 import { countryRoutes } from './routes'
 
-export type { Country } from './repository'
+export type { Country, ShippingPolicy } from './repository'
 
 /**
  * The country module: its routes, and the two capabilities other modules consume. `find` resolves
- * the countries a supplier points at; `isShippable` answers whether a checkout may send a parcel
- * to a code.
+ * the countries a supplier points at; `shippingPolicy` answers whether a checkout may send a parcel
+ * to a code and under which shipping conditions.
  */
 export function createCountryModule({ db }: { db: Kysely<Tables> }) {
   const repository = createCountryRepository(db)
   return {
     routes: countryRoutes(repository),
     find: repository.find,
-    isShippable: repository.isShippable,
+    shippingPolicy: repository.shippingPolicy,
   }
 }
 

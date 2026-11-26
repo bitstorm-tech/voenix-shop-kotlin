@@ -113,7 +113,6 @@ function reloadCart() {
           <CartSummary
             class="lg:sticky lg:top-24"
             :subtotal="cartStore.subtotal"
-            :shipping-cost="cartStore.shippingCost"
             :discount-amount="cartStore.discountAmount"
             :total="cartStore.totalPrice"
             :applied-promotion="cartStore.appliedPromotion"

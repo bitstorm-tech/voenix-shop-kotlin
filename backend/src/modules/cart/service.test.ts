@@ -244,11 +244,7 @@ describe('checkoutCarts', () => {
           articleType: null,
         },
       ],
-      // 2 × 1990 + 2 × 2500 + 100 = 9080, shipped free; ten percent off.
-      subtotalCents: 9080,
-      shippingCostCents: 0,
-      discountCents: 908,
-      totalCents: 8172,
+      discount: { discountType: 'PERCENTAGE', discountValue: 10 },
     })
   })
 
@@ -261,7 +257,7 @@ describe('checkoutCarts', () => {
       cartId: added.id,
       userId: 7,
       lines: [],
-      totalCents: 0,
+      discount: undefined,
     })
     expect(await lockActiveCart('any-token', null)).toBeNull()
   })

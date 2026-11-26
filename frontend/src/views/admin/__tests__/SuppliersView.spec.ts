@@ -61,7 +61,15 @@ vi.mock('@/composables/useToast', () => ({
 
 vi.mock('@/composables/useAdminCountries', () => ({
   useAdminCountries: () => ({
-    countries: ref([{ id: 1, name: 'Germany', countryCode: 'DE' }]),
+    countries: ref([
+      {
+        id: 1,
+        name: 'Germany',
+        countryCode: 'DE',
+        shippingCostCents: 490,
+        freeShippingThresholdCents: 5000,
+      },
+    ]),
     error: shallowRef(null),
     isLoading: shallowRef(false),
     loadCountries: vi.fn(),

@@ -176,14 +176,24 @@ describe('admin_read and admin_write', () => {
     const created = await call(client, 'admin_write', {
       method: 'POST',
       path: '/api/admin/countries',
-      body: { name: 'Mcpland', countryCode: 'MQ' },
+      body: {
+        name: 'Mcpland',
+        countryCode: 'MQ',
+        shippingCostCents: 690,
+        freeShippingThresholdCents: null,
+      },
     })
     expect(created.text).toStartWith('HTTP 201\n')
     const { id } = JSON.parse(created.text.slice('HTTP 201\n'.length)) as { id: number }
     const changed = await call(client, 'admin_write', {
       method: 'PUT',
       path: `/api/admin/countries/${String(id)}`,
-      body: { name: 'Mcp Land', countryCode: 'MQ' },
+      body: {
+        name: 'Mcp Land',
+        countryCode: 'MQ',
+        shippingCostCents: 790,
+        freeShippingThresholdCents: 6000,
+      },
     })
     expect(changed.text).toContain('"name":"Mcp Land"')
     const deleted = await call(client, 'admin_write', {
@@ -226,6 +236,7 @@ describe('admin_read and admin_write', () => {
       errors: {
         name: ['Name is required'],
         countryCode: ['Country code must contain only letters'],
+        shippingCostCents: ['Shipping cost is required'],
         extra: ['Unknown property'],
       },
     })

@@ -1,5 +1,5 @@
 import type { Kysely, Transaction } from 'kysely'
-import type { CheckoutCart, CheckoutCarts } from '@/modules/cart'
+import { cartTotals, type CartTotals, type CheckoutCart, type CheckoutCarts } from '@/modules/cart'
 import type { CountryModule } from '@/modules/country'
 import type { OrderAddress, Orders, PayableOrder, PlaceOrderInput } from '@/modules/order'
 import type { PromotionCodes, PromotionRejection } from '@/modules/promotion'
@@ -87,7 +87,7 @@ export function createCheckoutService({
   carts: CheckoutCarts
   promotionCodes: Pick<PromotionCodes, 'reserve' | 'release'>
   orders: Pick<Orders, 'place' | 'payable' | 'confirmFree' | 'startPayment'>
-  countries: Pick<CountryModule, 'isShippable'>
+  countries: Pick<CountryModule, 'shippingPolicy'>
 }) {
   const logger = createLogger('checkout')
 
@@ -102,7 +102,7 @@ export function createCheckoutService({
     }
   }
 
-  /** TX1: lock & read the active cart, guard, reserve, place, and settle a free order. */
+  /** TX1: lock & read the active cart, guard, resolve country shipping, reserve, place, and settle a free order. */
   const place = (
     guestToken: string | null,
     userId: number | null,
@@ -111,12 +111,14 @@ export function createCheckoutService({
     write(db, async (trx) => {
       const cart = await carts.lockActiveCart(trx, guestToken, userId)
       if (cart === null || cart.lines.length === 0) return { kind: 'emptyCart' }
-      if (cart.subtotalCents + cart.shippingCostCents > MAX_ORDER_CENTS) {
-        return { kind: 'totalTooLarge' }
-      }
       // Only the shipping address is checked; an invoice may go anywhere.
-      if (!(await countries.isShippable(request.shippingAddress.country))) {
+      const shippingPolicy = await countries.shippingPolicy(request.shippingAddress.country)
+      if (shippingPolicy === null) {
         return { kind: 'shippingCountryUnavailable' }
+      }
+      const totals = cartTotals(cart.lines, cart.discount, shippingPolicy)
+      if (totals.subtotalCents + totals.shippingCostCents > MAX_ORDER_CENTS) {
+        return { kind: 'totalTooLarge' }
       }
       // The print-on-demand partner refuses an order without a phone number. What decides is the
       // resolved type of the stored lines; a line the catalog no longer resolves is not a SPOD
@@ -140,7 +142,7 @@ export function createCheckoutService({
         }
         reserved = true
       }
-      const placed = await orders.place(trx, placeOrderInput(cart, request))
+      const placed = await orders.place(trx, placeOrderInput(cart, totals, request))
       if (placed.kind === 'unavailableArticle') {
         // No order exists and none ever will for this cart as it stands: the hold is given back
         // now, because a reservation has no expiry and a customer who gives up never frees it.
@@ -223,11 +225,15 @@ export function createCheckoutService({
 }
 
 /**
- * The placement input: the stored cart owns the lines and the four amounts the customer was shown
- * (the discount included, calculated by the cart from the coupon TX1 has just reserved), the
- * request owns the two addresses and the contact.
+ * The placement input: the stored cart owns the lines, `totals` carries the country-specific
+ * subtotal, shipping, and discount snapshot calculated inside TX1, and the request owns the two
+ * addresses and the contact.
  */
-function placeOrderInput(cart: CheckoutCart, request: CheckoutInput): PlaceOrderInput {
+function placeOrderInput(
+  cart: CheckoutCart,
+  totals: CartTotals,
+  request: CheckoutInput,
+): PlaceOrderInput {
   return {
     cartId: cart.cartId,
     userId: cart.userId,
@@ -237,9 +243,9 @@ function placeOrderInput(cart: CheckoutCart, request: CheckoutInput): PlaceOrder
     billingAddress: request.billingAddress === null ? null : toOrderAddress(request.billingAddress),
     email: request.shippingAddress.email,
     phone: request.shippingAddress.phone,
-    subtotalCents: cart.subtotalCents,
-    shippingCostCents: cart.shippingCostCents,
-    discountCents: cart.discountCents,
+    subtotalCents: totals.subtotalCents,
+    shippingCostCents: totals.shippingCostCents,
+    discountCents: totals.discountCents,
     lines: cart.lines,
   }
 }

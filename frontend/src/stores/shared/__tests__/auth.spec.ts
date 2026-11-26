@@ -38,7 +38,6 @@ const emptyCart = {
   id: null,
   items: [],
   subtotal: 0,
-  shippingCost: 0,
   discountAmount: 0,
   total: 0,
   totalItems: 0,

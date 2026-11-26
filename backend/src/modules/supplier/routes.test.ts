@@ -22,7 +22,20 @@ const send = async (method: string, path: string, body?: string) =>
 const create = async (body: string) =>
   (await jsonOf(await send('POST', '/api/admin/suppliers', body))) as { id: number }
 
-const germany = { id: 1, name: 'Germany', countryCode: 'DE' }
+const germany = {
+  id: 1,
+  name: 'Germany',
+  countryCode: 'DE',
+  shippingCostCents: 490,
+  freeShippingThresholdCents: 5000,
+}
+const france = {
+  id: 2,
+  name: 'France',
+  countryCode: 'FR',
+  shippingCostCents: 490,
+  freeShippingThresholdCents: 5000,
+}
 const emptySupplier = {
   title: null,
   firstName: null,
@@ -92,7 +105,7 @@ describe('GET /api/admin/suppliers', () => {
     expect(ours.map(({ id, country }) => ({ id, country }))).toEqual([
       { id: acme.id, country: germany },
       { id: secondAcme.id, country: null },
-      { id: zulu.id, country: { id: 2, name: 'France', countryCode: 'FR' } },
+      { id: zulu.id, country: france },
     ])
   })
 })
@@ -120,7 +133,7 @@ describe('PUT /api/admin/suppliers/:id', () => {
       id,
       name: 'Globex',
       countryId: 2,
-      country: { id: 2, name: 'France', countryCode: 'FR' },
+      country: france,
     }
     expect(await jsonOf(replaced)).toEqual(globex)
 

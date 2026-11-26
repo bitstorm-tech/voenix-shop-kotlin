@@ -7,13 +7,14 @@ copies its shape, its test layout, and its conventions.
 
 ## What this package does
 
-- a public, read-only list of countries and telephone dial codes;
+- a public, read-only list of countries, telephone dial codes, and per-country
+  shipping conditions (`shippingCostCents`, `freeShippingThresholdCents`);
 - admin endpoints for listing, creating, reading, updating, and deleting
   countries;
 - validation and normalization of country input;
 - PostgreSQL persistence through Kysely; and
 - two capabilities for other modules: `find(ids)` for Supplier and
-  `isShippable(code)` for Checkout.
+  `shippingPolicy(code)` for Checkout.
 
 Application-wide authentication, the error answers, and the database startup
 stay in the platform.
@@ -63,9 +64,9 @@ The boundaries are:
 
 ```text
 country/
-|- index.ts            createCountryModule({ db }) → { routes, find, isShippable }; export type Country
+|- index.ts            createCountryModule({ db }) → { routes, find, shippingPolicy }; export type Country, ShippingPolicy
 |- routes.ts           countryInput schema, COUNTRY_RESPONSES, countryId, toPublicCountry, countryRoutes(repository)
-|- repository.ts       createCountryRepository(db); Country, CountryInput
+|- repository.ts       createCountryRepository(db); Country, CountryInput, ShippingPolicy
 |- schema.ts           CountriesTable, merged into the platform's Tables
 |- routes.test.ts      one happy path per route and the module-specific errors
 |- repository.test.ts  conflicts, concurrency, the stored code, the two capabilities
@@ -78,7 +79,7 @@ The composition root calls the factory and mounts the routes:
 const countries = createCountryModule({ db })
 app.route('/', countries.routes)
 // later: createSupplierModule({ db, countries: { find: countries.find } })
-//        createCheckoutModule({ …, isShippable: countries.isShippable })
+//        createCheckoutModule({ …, countries }) // uses countries.shippingPolicy
 ```
 
 ## HTTP API
@@ -123,6 +124,8 @@ Create and update share one schema, declared in `routes.ts`:
 export const countryInput = z.strictObject({
   name: z.string({ error: 'Name is required' }).trim().min(1, 'Name is required').max(255, …),
   countryCode: z.string({ error: 'Country code is required' }).trim().min(1, …).length(2, …).regex(…),
+  shippingCostCents: z.int(…).min(0, …).max(2_147_483_647, …),
+  freeShippingThresholdCents: z.int(…).positive(…).max(2_147_483_647, …).nullable().default(null),
 }) satisfies z.ZodType<CountryInput>
 ```
 
@@ -130,6 +133,8 @@ export const countryInput = z.strictObject({
 | --- | --- | --- |
 | `name` | required after trimming; at most 255 characters | trimmed by the schema |
 | `countryCode` | required; exactly two ASCII letters | trimmed by the schema, upper-cased by the repository on write |
+| `shippingCostCents` | required non-negative integer cents (`0..2147483647`) | none |
+| `freeShippingThresholdCents` | optional/nullable positive integer cents (`1..2147483647`); `null` = no free-shipping threshold | omitted defaults to `null` |
 
 A missing, `null`, or non-string field answers its "is required" message; an
 unknown property answers `Unknown property` under its name. See
@@ -159,33 +164,35 @@ An admin posts `{"name":" Denmark ","countryCode":" dk "}`:
 ## Admin and public representations
 
 ```text
-Country:            id, name, countryCode
-public country:         name, countryCode, dialCode
+Country:            id, name, countryCode, shippingCostCents, freeShippingThresholdCents
+public country:         name, countryCode, dialCode, shippingCostCents, freeShippingThresholdCents
 ```
 
-`toPublicCountry` in `routes.ts` hides the id and adds the dial code through
-`libphonenumber-js` (`+49` for `DE`); an unknown region has `dialCode: null`.
-The code needs no conversion there: the repository stores every code
-upper-case. Lists are ordered by `country_code`, then `id`, and are bare
-JSON arrays.
+`toPublicCountry` in `routes.ts` hides the id, keeps the shipping policy so the
+storefront can render `/shipping` and live checkout totals, and adds the dial
+code through `libphonenumber-js` (`+49` for `DE`); an unknown region has
+`dialCode: null`. The code needs no conversion there: the repository stores
+every code upper-case. Lists are ordered by `country_code`, then `id`, and are
+bare JSON arrays.
 
 ## The two capabilities
 
 ```ts
 find: (ids: Iterable<number>) => Promise<Map<number, Country>>
-isShippable: (countryCode: string) => Promise<boolean>
+shippingPolicy: (countryCode: string) => Promise<ShippingPolicy | null>
 ```
 
 `find` answers the countries with these ids keyed by id; unknown ids are
-absent. `isShippable` answers whether the shop ships to a code: exactly when a
-row with it exists, because the `countries` table *is* the list of
+absent. `shippingPolicy` answers the destination's `{ shippingCostCents,
+freeShippingThresholdCents }` when a row with the code exists, or `null` when
+the shop does not ship there, because the `countries` table *is* the list of
 destinations (there is no `active` column). The code is trimmed and
 upper-cased first, so `de`, `DE`, and `" de "` ask the same question; a blank,
-an unknown, or a three-letter code answers `false`. The admin opens a
+an unknown, or a three-letter code answers `null`. The admin opens a
 destination by creating the row and closes it by deleting it. Deleting a
 country also blanks `suppliers.country_id` (`ON DELETE SET NULL`) and shrinks
 the public list the frontend's address form is rendered from; it never
-touches an order, whose country is plain text.
+touches an order, whose country and shipping cost are stored snapshots.
 
 Both are the repository's functions, exported directly from the factory's
 result. An exception in either surfaces to the caller, which answers it with
@@ -204,10 +211,12 @@ concurrent creates that leave one row and one conflict.
 
 `schema.ts` maps the `countries` table of
 [`V1__create_countries.sql`](../../../../backend/migrations/V1__create_countries.sql)
-(`id bigint identity`, `name varchar(255)`, `country_code varchar(2)`) and
-merges it into the platform's `Tables`. Ids arrive as numbers because the
-platform's pool parses `bigint` columns to `number`. The repository selects
-`country_code as countryCode`, so a row is already a `Country`.
+and [`V42__country_shipping_costs.sql`](../../../../backend/migrations/V42__country_shipping_costs.sql)
+(`id bigint identity`, `name varchar(255)`, `country_code varchar(2)`,
+`shipping_cost_cents integer >= 0`, `free_shipping_threshold_cents integer NULL > 0`)
+and merges it into the platform's `Tables`. Ids arrive as numbers because the
+platform's pool parses `bigint` columns to `number`. The repository aliases the
+snake_case columns to camelCase, so a row is already a `Country`.
 
 ## Tests
 

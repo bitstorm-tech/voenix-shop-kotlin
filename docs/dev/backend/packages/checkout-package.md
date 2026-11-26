@@ -26,7 +26,7 @@ that module exports:
 | the priced locked cart and closing the cart | `checkoutCarts.lockActiveCart(trx, …)` / `markCheckedOut(trx, …)` | cart |
 | holding the coupon's capacity, giving it back | `promotionCodes.reserve(trx, …)` / `release(trx, …)` | promotion |
 | placing the order, confirming a free one, reading a payable one, starting its payment | `orders.place(trx, …)` / `confirmFree(trx, …)` / `payable` / `startPayment` | order |
-| may we ship to this country? | `countries.isShippable` | country |
+| may we ship to this country, and at what cost? | `countries.shippingPolicy` | country |
 
 What the cart's lines *are* (the phone rule below) is answered by the cart
 snapshot itself: every `CheckoutCartLine` carries its current `articleType`, so
@@ -215,10 +215,13 @@ it is placed, so its retry is the "already paid" answer too.
 In four lines:
 
 1. **Identity check & TX1**: no identity → `CART_EMPTY`; otherwise open TX1,
-   lock and price the active cart (`lockActiveCart`, empty → `CART_EMPTY`),
-   check the integer bound, `isShippable`, and the phone rule, `reserve` when
-   the cart carries a coupon, `orders.place`; for a free order: `confirmFree`
-   and `markCheckedOut`; for a live order already paid: `markCheckedOut`.
+   lock the active cart (`lockActiveCart`, empty → `CART_EMPTY`), resolve
+   `countries.shippingPolicy(shippingAddress.country)` (`null` → field error on
+   `shippingAddress.country`), compute `cartTotals(cart.lines, cart.discount,
+   shippingPolicy)`, check the integer bound and the phone rule, `reserve` when
+   the cart carries a coupon, `orders.place` with the country-specific totals
+   snapshot; for a free order: `confirmFree` and `markCheckedOut`; for a live
+   order already paid: `markCheckedOut`.
 2. **Outside this module's transactions**: `orders.startPayment(order, {
    cancelOnFailure: true })`, which runs the provider call and stores the
    payment in its own transaction under the order row lock; `notStarted`
@@ -293,7 +296,7 @@ const checkout = createCheckoutModule({
   checkoutCarts: cart.checkoutCarts,
   promotionCodes: promotion.promotionCodes,   // reserve, release
   orders: order.orders,                       // place, payable, confirmFree, startPayment
-  countries: country,                         // isShippable
+  countries: country,                         // shippingPolicy
   guestTokens: auth.guestTokens,
 })
 app.route('/', checkout.routes)

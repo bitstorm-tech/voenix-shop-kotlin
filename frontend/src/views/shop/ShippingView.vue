@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { ArrowRight, BadgeCheck, Globe, Mail, PackageCheck, Truck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, Globe, Loader2, Mail, RefreshCw, Truck } from 'lucide-vue-next'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-
-interface ShippingCard {
-  id: string
-  label: string
-  badge: string
-  carrier: string
-  price: string
-  freeFrom: string
-  details: string
-}
+import { Card } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { formatPrice } from '@/lib/formatPrice'
+import { type Country, useCountriesStore } from '@/stores/shop/countries'
 
 interface ShippingContent {
   eyebrow: string
@@ -21,13 +23,18 @@ interface ShippingContent {
   lead: string
   intro: string
   sectionOverview: string
+  countryColumn: string
   priceLabel: string
   thresholdLabel: string
   supportedCountriesLabel: string
-  supportedCountries: string[]
   overviewLabel: string
   overviewValue: string
-  cards: ShippingCard[]
+  loadingCountries: string
+  loadError: string
+  retry: string
+  noCountries: string
+  alwaysFree: string
+  noFreeThreshold: string
   requestTitle: string
   requestText: string
   requestHint: string
@@ -40,9 +47,32 @@ interface ShippingContent {
   legalParagraphs: string[]
 }
 
-const { tm } = useI18n()
+const { t, tm, locale } = useI18n()
+const countriesStore = useCountriesStore()
 
 const pageContent = computed(() => tm('footerPages.shipping.content') as unknown as ShippingContent)
+const regionNames = computed(() => new Intl.DisplayNames([locale.value], { type: 'region' }))
+
+function localizedCountryName(country: Country): string {
+  return regionNames.value.of(country.countryCode) ?? country.name
+}
+
+/** Germany first when present, then all other destinations alphabetically in the active locale. */
+const sortedCountries = computed(() =>
+  [...countriesStore.countries].sort((a, b) => {
+    if (a.countryCode === 'DE' && b.countryCode !== 'DE') return -1
+    if (b.countryCode === 'DE' && a.countryCode !== 'DE') return 1
+    return localizedCountryName(a).localeCompare(localizedCountryName(b), locale.value)
+  }),
+)
+
+onMounted(() => {
+  void countriesStore.fetchCountries()
+})
+
+function retryCountries() {
+  void countriesStore.fetchCountries({ force: true })
+}
 </script>
 
 <template>
@@ -68,15 +98,6 @@ const pageContent = computed(() => tm('footerPages.shipping.content') as unknown
           <p class="mt-5 max-w-2xl text-base leading-7 text-foreground-muted">
             {{ pageContent.intro }}
           </p>
-
-          <div class="mt-6 flex flex-wrap gap-3">
-            <div
-              class="inline-flex items-center gap-2 rounded-md border border-border bg-background-soft px-4 py-2 text-sm font-semibold text-foreground-soft"
-            >
-              <PackageCheck class="size-4" />
-              <span>{{ pageContent.cards[0]?.freeFrom }}</span>
-            </div>
-          </div>
         </div>
 
         <aside class="grid gap-4">
@@ -95,15 +116,31 @@ const pageContent = computed(() => tm('footerPages.shipping.content') as unknown
               <span>{{ pageContent.supportedCountriesLabel }}</span>
             </div>
 
-            <ul class="mt-4 flex flex-wrap gap-2">
+            <div
+              v-if="countriesStore.isLoading && sortedCountries.length === 0"
+              class="mt-4 flex items-center gap-2 text-sm text-foreground-muted"
+            >
+              <Loader2 class="size-4 animate-spin" />
+              <span>{{ pageContent.loadingCountries }}</span>
+            </div>
+
+            <ul
+              v-else-if="sortedCountries.length > 0"
+              class="mt-4 flex flex-wrap gap-2"
+              data-testid="shipping-supported-countries"
+            >
               <li
-                v-for="country in pageContent.supportedCountries"
-                :key="country"
+                v-for="country in sortedCountries"
+                :key="country.countryCode"
                 class="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground-soft"
               >
-                {{ country }}
+                {{ localizedCountryName(country) }}
               </li>
             </ul>
+
+            <p v-else class="mt-4 text-sm text-foreground-muted">
+              {{ pageContent.noCountries }}
+            </p>
           </div>
         </aside>
       </header>
@@ -115,45 +152,86 @@ const pageContent = computed(() => tm('footerPages.shipping.content') as unknown
           </div>
         </header>
 
-        <div class="grid gap-4 lg:grid-cols-2">
-          <article
-            v-for="card in pageContent.cards"
-            :key="card.id"
-            class="rounded-lg border border-border bg-background-soft p-5 shadow-sm"
-          >
-            <div class="flex items-center justify-between text-primary">
-              <span
-                class="rounded-sm bg-primary/10 px-2 py-1 text-xs font-bold uppercase tracking-[0.08em] text-primary"
-              >
-                {{ card.badge }}
-              </span>
-              <PackageCheck class="size-5" />
-            </div>
+        <Card
+          v-if="countriesStore.isLoading && sortedCountries.length === 0"
+          class="flex items-center justify-center gap-2 px-5 py-12 text-sm text-muted-foreground"
+        >
+          <Loader2 class="size-4 animate-spin" />
+          <span>{{ pageContent.loadingCountries }}</span>
+        </Card>
 
-            <h3 class="mt-5 text-2xl font-extrabold leading-tight text-foreground">
-              {{ card.label }}
-            </h3>
-            <p class="mt-2 text-base font-semibold leading-7 text-foreground">
-              {{ card.carrier }}
-            </p>
-            <p class="mt-3 leading-7 text-foreground-muted">{{ card.details }}</p>
+        <Alert
+          v-else-if="countriesStore.error && sortedCountries.length === 0"
+          variant="destructive"
+          data-testid="shipping-countries-error"
+        >
+          <div class="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <p class="m-0 text-sm">{{ pageContent.loadError }}</p>
+            <Button variant="outline" size="sm" @click="retryCountries">
+              <RefreshCw class="size-4" />
+              {{ pageContent.retry }}
+            </Button>
+          </div>
+        </Alert>
 
-            <dl class="mt-5 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
-              <div class="grid gap-1">
-                <dt class="text-xs font-bold uppercase tracking-[0.08em] text-foreground-faint">
-                  {{ pageContent.priceLabel }}
-                </dt>
-                <dd class="text-lg font-bold text-foreground">{{ card.price }}</dd>
-              </div>
-              <div class="grid gap-1">
-                <dt class="text-xs font-bold uppercase tracking-[0.08em] text-foreground-faint">
-                  {{ pageContent.thresholdLabel }}
-                </dt>
-                <dd class="text-lg font-bold text-[var(--price-accent)]">{{ card.freeFrom }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
+        <Card
+          v-else-if="sortedCountries.length === 0"
+          class="px-5 py-12 text-center text-sm text-muted-foreground"
+        >
+          {{ pageContent.noCountries }}
+        </Card>
+
+        <Card v-else class="overflow-hidden" data-testid="shipping-rates-table">
+          <div class="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{{ pageContent.countryColumn }}</TableHead>
+                  <TableHead>{{ pageContent.priceLabel }}</TableHead>
+                  <TableHead>{{ pageContent.thresholdLabel }}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow
+                  v-for="country in sortedCountries"
+                  :key="country.countryCode"
+                  :data-testid="`shipping-rate-${country.countryCode}`"
+                >
+                  <TableCell class="font-medium text-foreground">
+                    <span>{{ localizedCountryName(country) }}</span>
+                    <span class="ml-2 font-mono text-xs text-muted-foreground">
+                      {{ country.countryCode }}
+                    </span>
+                  </TableCell>
+                  <TableCell class="whitespace-nowrap font-semibold tabular-nums">
+                    <span v-if="country.shippingCostCents === 0" class="text-success">
+                      {{ t('cart.shippingFree') }}
+                    </span>
+                    <span v-else>{{ formatPrice(country.shippingCostCents) }}</span>
+                  </TableCell>
+                  <TableCell class="whitespace-nowrap tabular-nums">
+                    <span v-if="country.shippingCostCents === 0" class="text-success">
+                      {{ pageContent.alwaysFree }}
+                    </span>
+                    <span
+                      v-else-if="country.freeShippingThresholdCents !== null"
+                      class="font-semibold text-[var(--price-accent)]"
+                    >
+                      {{
+                        t('footerPages.shipping.content.freeFromAmount', {
+                          amount: formatPrice(country.freeShippingThresholdCents),
+                        })
+                      }}
+                    </span>
+                    <span v-else class="text-muted-foreground">
+                      {{ pageContent.noFreeThreshold }}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
       </section>
 
       <section class="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">

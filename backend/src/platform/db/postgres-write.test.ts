@@ -23,9 +23,8 @@ describe('executePostgresWrite', () => {
 
   test('a unique violation returns the declared result', async () => {
     const result = await executePostgresWrite({ uniqueViolation: 'conflict' }, () =>
-      sql`INSERT INTO countries (name, country_code) VALUES ('Deutschland', 'DE')`.execute(
-        database.db,
-      ),
+      sql`INSERT INTO countries (name, country_code, shipping_cost_cents, free_shipping_threshold_cents)
+        VALUES ('Deutschland', 'DE', 490, 5000)`.execute(database.db),
     )
     expect(result).toBe('conflict')
   })

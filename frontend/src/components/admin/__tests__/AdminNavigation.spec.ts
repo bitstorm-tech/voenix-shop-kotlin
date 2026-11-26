@@ -24,6 +24,7 @@ function createAdminNavigationRouter() {
       { path: '/admin/articles/categories/:id', component: { template: '<div />' } },
       { path: '/admin/suppliers', component: { template: '<div />' } },
       { path: '/admin/logistics', component: { template: '<div />' } },
+      { path: '/admin/countries', component: { template: '<div />' } },
       { path: '/admin/vat', component: { template: '<div />' } },
       { path: '/admin/vat/new', component: { template: '<div />' } },
       { path: '/admin/vat/:id', component: { template: '<div />' } },
@@ -165,6 +166,7 @@ describe('AdminNavigation', () => {
       'Suppliers',
       'Logistics',
       'Production Destinations',
+      'Countries',
       'VAT',
       'Promotions',
     ])
@@ -172,6 +174,7 @@ describe('AdminNavigation', () => {
       '/admin/suppliers',
       '/admin/logistics',
       '/admin/logistics/destinations',
+      '/admin/countries',
       '/admin/vat',
       '/admin/promotions',
     ])
@@ -346,6 +349,7 @@ describe('AdminNavigation', () => {
   it.each([
     ['/admin/suppliers', 'Suppliers'],
     ['/admin/logistics', 'Logistics'],
+    ['/admin/countries', 'Countries'],
     ['/admin/vat', 'VAT'],
     ['/admin/vat/new', 'VAT'],
     ['/admin/vat/42', 'VAT'],

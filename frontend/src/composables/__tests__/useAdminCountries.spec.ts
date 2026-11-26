@@ -12,8 +12,20 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 
 /** The admin `Country` values of `docs/dev/backend/packages/country-package.md`, ordered by country code. */
 const countries = [
-  { id: 2, name: 'Austria', countryCode: 'AT' },
-  { id: 1, name: 'Germany', countryCode: 'DE' },
+  {
+    id: 2,
+    name: 'Austria',
+    countryCode: 'AT',
+    shippingCostCents: 890,
+    freeShippingThresholdCents: null,
+  },
+  {
+    id: 1,
+    name: 'Germany',
+    countryCode: 'DE',
+    shippingCostCents: 490,
+    freeShippingThresholdCents: 5000,
+  },
 ]
 
 describe('useAdminCountries', () => {
