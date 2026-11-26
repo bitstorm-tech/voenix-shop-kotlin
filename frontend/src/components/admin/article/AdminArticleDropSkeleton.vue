@@ -12,7 +12,7 @@ const props = withDefaults(
 )
 
 /** The skeleton spans the whole row, so it counts the columns the table actually renders. */
-const columnCount = computed(() => (props.syncColumn ? 9 : 8))
+const columnCount = computed(() => (props.syncColumn ? 10 : 9))
 
 const emit = defineEmits<{
   dragOver: [event: DragEvent]

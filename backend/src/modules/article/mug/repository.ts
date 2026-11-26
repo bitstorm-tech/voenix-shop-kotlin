@@ -82,6 +82,13 @@ export interface MugArticleListItem {
   supplierName: string | null
   variantCount: number
   exampleImageFilename: string | null
+  /** The effective gross sales price in cents, a discount already subtracted; `null` without a price. */
+  salesTotalGross: number | null
+}
+
+/** A list row as stored: the price id next to it, which the service resolves to `salesTotalGross`. */
+export type StoredMugListItem = Omit<MugArticleListItem, 'salesTotalGross'> & {
+  priceId: number | null
 }
 
 /** A stored mug with its price reference next to it; the service resolves the price. */
@@ -329,10 +336,19 @@ async function applyVariants(
  * The mugs in display order with the labels their references need, in four queries whatever the
  * catalog holds; the supplier name is filled in by the service from one batched lookup.
  */
-async function listMugs(trx: Trx): Promise<MugArticleListItem[]> {
+async function listMugs(trx: Trx): Promise<StoredMugListItem[]> {
   const mugs = await trx
     .selectFrom('article_mugs')
-    .select(['id', 'position', 'name', 'active', 'category_id', 'subcategory_id', 'supplier_id'])
+    .select([
+      'id',
+      'position',
+      'name',
+      'active',
+      'category_id',
+      'subcategory_id',
+      'supplier_id',
+      'price_id',
+    ])
     .orderBy('position')
     .orderBy('id')
     .execute()
@@ -377,6 +393,7 @@ async function listMugs(trx: Trx): Promise<MugArticleListItem[]> {
       exampleImageFilename:
         own.find((variant) => variant.example_image_filename !== null)?.example_image_filename ??
         null,
+      priceId: mug.price_id,
     }
   })
 }

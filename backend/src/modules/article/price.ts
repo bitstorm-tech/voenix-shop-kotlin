@@ -35,3 +35,16 @@ export async function writePrice(
   }
   return storedPriceId
 }
+
+/** List rows with their price id swapped for the effective gross sales price, in one batched read. */
+export async function withSalesTotals<Row extends { priceId: number | null }>(
+  prices: Pick<PriceCatalog, 'find'>,
+  rows: Row[],
+): Promise<(Omit<Row, 'priceId'> & { salesTotalGross: number | null })[]> {
+  const ids = rows.flatMap((row) => row.priceId ?? [])
+  const found = ids.length === 0 ? new Map<number, CalculatedPrice>() : await prices.find(ids)
+  return rows.map(({ priceId, ...row }) => ({
+    ...row,
+    salesTotalGross: (priceId === null ? undefined : found.get(priceId))?.salesTotal.gross ?? null,
+  }))
+}

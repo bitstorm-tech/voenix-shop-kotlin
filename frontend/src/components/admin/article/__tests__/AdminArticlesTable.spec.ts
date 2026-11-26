@@ -153,9 +153,20 @@ describe('AdminArticlesTable', () => {
       'Category',
       'Supplier',
       'Variants',
+      'Price',
       'Status',
       'Actions',
     ])
+  })
+
+  it('shows the effective gross price, or a dash without a price', async () => {
+    const { wrapper } = await mountTable({
+      articles: [article({ id: 1, salesTotalGross: 1490 }), article({ id: 2 })],
+    })
+
+    const prices = wrapper.findAll('[data-testid="article-price"]').map((cell) => cell.text())
+
+    expect(prices).toEqual(['14,90\u00a0€', '—'])
   })
 
   it('emits source and target ids from a dedicated drag handle without mutating its input', async () => {
@@ -200,7 +211,7 @@ describe('AdminArticlesTable', () => {
       await flushPromises()
 
       const columnCount = wrapper.findAll('thead th').length
-      expect(columnCount).toBe(syncColumn ? 9 : 8)
+      expect(columnCount).toBe(syncColumn ? 10 : 9)
       expect(wrapper.get('[data-testid="article-drop-skeleton"] td').attributes('colspan')).toBe(
         String(columnCount),
       )

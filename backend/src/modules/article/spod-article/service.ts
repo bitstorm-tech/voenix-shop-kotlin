@@ -2,12 +2,13 @@ import type { ExampleImages } from '@/modules/image'
 import type { PriceCatalog, PriceInput } from '@/modules/pricing'
 import type { SupplierModule } from '@/modules/supplier'
 import { invalid, notFound, ok, type OperationResult } from '@/platform/operation'
-import { preparePrice } from '../price'
+import { preparePrice, withSalesTotals } from '../price'
 import type {
   SpodArticle,
   SpodArticleListItem,
   SpodArticleRepository,
   StoredSpodArticle,
+  StoredSpodArticleListItem,
 } from './repository'
 
 /**
@@ -43,8 +44,9 @@ export function createSpodArticleService(
       ? article
       : { ...article, price: (await prices.find([priceId])).get(priceId) ?? null }
 
-  /** The list rows labeled with supplier names from one batched lookup. */
-  const withSupplierNames = async (items: SpodArticleListItem[]) => {
+  /** The list rows labeled with supplier names and prices, each from one batched lookup. */
+  const labeled = async (stored: StoredSpodArticleListItem[]): Promise<SpodArticleListItem[]> => {
+    const items = await withSalesTotals(prices, stored)
     const names = await suppliers(items.map((item) => item.supplierId))
     return items.map((item) => ({
       ...item,
@@ -53,7 +55,7 @@ export function createSpodArticleService(
   }
 
   return {
-    list: async (): Promise<SpodArticleListItem[]> => withSupplierNames(await repository.list()),
+    list: async (): Promise<SpodArticleListItem[]> => labeled(await repository.list()),
 
     get: async (id: number): Promise<OperationResult<SpodArticle>> => {
       const stored = await repository.find(id)
@@ -117,7 +119,7 @@ export function createSpodArticleService(
     ): Promise<OperationResult<SpodArticleListItem[]>> => {
       const result = await repository.reorder(sourceId, targetId)
       if (result.kind !== 'ok') return result
-      return ok(await withSupplierNames(result.value))
+      return ok(await labeled(result.value))
     },
   }
 }

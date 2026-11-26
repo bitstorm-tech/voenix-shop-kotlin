@@ -17,6 +17,7 @@ export function createAdminArticleListItem(
     supplierName: null,
     variantCount: 1,
     exampleImageFilename: null,
+    salesTotalGross: null,
     ...overrides,
   }
 }

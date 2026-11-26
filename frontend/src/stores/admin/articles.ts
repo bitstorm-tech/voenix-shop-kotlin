@@ -37,6 +37,8 @@ export interface AdminArticleListItemDto {
   supplierName: string | null
   variantCount: number
   exampleImageFilename: string | null
+  /** The effective gross sales price in cents, a discount already subtracted; `null` without a price. */
+  salesTotalGross: number | null
 }
 
 /**

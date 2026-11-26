@@ -85,6 +85,7 @@ function editArticle(article: Readonly<AdminArticleRowDto>) {
           <TableHead>Category</TableHead>
           <TableHead>Supplier</TableHead>
           <TableHead>Variants</TableHead>
+          <TableHead>Price</TableHead>
           <TableHead v-if="syncColumn">Synced</TableHead>
           <TableHead>Status</TableHead>
           <TableHead class="text-right">Actions</TableHead>

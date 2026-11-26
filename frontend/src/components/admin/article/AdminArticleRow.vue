@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { formatAdminStamp } from '@/lib/adminStamp'
+import { formatPrice } from '@/lib/formatPrice'
 import { cn } from '@/lib/utils'
 import { variantExampleImageUrl } from '@/lib/variantExampleImage'
 import type { AdminArticleRowDto, AdminArticleType } from '@/stores/admin/articles'
@@ -116,6 +117,9 @@ function formatCategory(article: Readonly<AdminArticleRowDto>) {
     </TableCell>
     <TableCell class="whitespace-nowrap text-muted-foreground">
       {{ article.variantCount }}
+    </TableCell>
+    <TableCell class="whitespace-nowrap" data-testid="article-price">
+      {{ article.salesTotalGross === null ? '—' : formatPrice(article.salesTotalGross) }}
     </TableCell>
     <TableCell v-if="syncColumn" class="whitespace-nowrap text-muted-foreground">
       <div data-testid="article-synced-at">{{ formatAdminStamp(article.syncedAt) ?? '—' }}</div>

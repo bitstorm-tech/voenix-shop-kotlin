@@ -9,13 +9,14 @@ import {
   type ValidationErrors,
 } from '@/platform/operation'
 import type { PrintAspectRatio } from '../catalog'
-import { preparePrice } from '../price'
+import { preparePrice, withSalesTotals } from '../price'
 import type {
   MugArticle,
   MugArticleListItem,
   MugDetails,
   MugRepository,
   StoredMug,
+  StoredMugListItem,
 } from './repository'
 
 /**
@@ -73,8 +74,9 @@ export function createMugService(
       ? article
       : { ...article, price: (await prices.find([priceId])).get(priceId) ?? null }
 
-  /** The list rows labeled with supplier names from one batched lookup. */
-  const withSupplierNames = async (items: MugArticleListItem[]) => {
+  /** The list rows labeled with supplier names and prices, each from one batched lookup. */
+  const labeled = async (stored: StoredMugListItem[]): Promise<MugArticleListItem[]> => {
+    const items = await withSalesTotals(prices, stored)
     const names = await suppliers(items.flatMap((item) => item.supplierId ?? []))
     return items.map((item) => ({
       ...item,
@@ -132,7 +134,7 @@ export function createMugService(
   }
 
   return {
-    list: async (): Promise<MugArticleListItem[]> => withSupplierNames(await repository.list()),
+    list: async (): Promise<MugArticleListItem[]> => labeled(await repository.list()),
 
     get: async (id: number): Promise<OperationResult<MugArticle>> => {
       const stored = await repository.find(id)
@@ -158,7 +160,7 @@ export function createMugService(
     ): Promise<OperationResult<MugArticleListItem[]>> => {
       const result = await repository.reorder(sourceId, targetId)
       if (result.kind !== 'ok') return result
-      return ok(await withSupplierNames(result.value))
+      return ok(await labeled(result.value))
     },
 
     storeExampleImage: exampleImages.store,

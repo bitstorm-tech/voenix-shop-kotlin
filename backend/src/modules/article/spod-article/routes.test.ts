@@ -78,6 +78,7 @@ describe('GET /api/admin/articles/spod', () => {
         exampleImageFilename: 'first.webp',
         syncedAt: '2026-08-24T09:15:00.000Z',
         missingAtSpreadconnect: false,
+        salesTotalGross: null,
       },
     ])
   })

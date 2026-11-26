@@ -256,7 +256,9 @@ belong to exactly one article by construction.
 - **The overview list** names what a mug references (`categoryName`,
   `subcategoryName`, `supplierName`), counts its variants, and shows the
   picture of the default variant or, failing that, of the oldest variant with
-  one. It runs four queries plus **one** `supplier.find` for the whole page.
+  one, and its `salesTotalGross` (the effective gross sales price, `null`
+  without a price). It runs four queries plus **one** `supplier.find` and
+  **one** price `find` for the whole page.
 - **Variants** come back default first, then by name, then by id.
 - **The variant array is a diff**: an entry with an id updates that variant,
   one without inserts, a stored variant the array omits is deleted with its
@@ -352,7 +354,7 @@ and `hotspot` (`null` until a run measured them), `printMask` (the part of the
 frame the product shows, as a PNG data URL; `null` when that is all of it, see
 decision 7), the embedded `price`, and
 `sync: { spodArticleId, environment, syncedAt, missingSince }`. A list row is
-the mug row's twelve fields plus `syncedAt` and `missingAtSpreadconnect`; its
+the mug row's thirteen fields plus `syncedAt` and `missingAtSpreadconnect`; its
 picture is the first listing image of the default variant's colour. The delete
 retires an article for good (the next sync of that destination brings it back
 if the operator was wrong) and deletes its listing images, mockups, and size

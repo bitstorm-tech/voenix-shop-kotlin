@@ -96,7 +96,7 @@ export interface SpodArticle {
   sync: SpodArticleSync
 }
 
-/** One row of the admin list: the mug row's twelve fields plus the two the sync contributes. */
+/** One row of the admin list: the mug row's thirteen fields plus the two the sync contributes. */
 export interface SpodArticleListItem {
   id: number
   position: number
@@ -112,6 +112,13 @@ export interface SpodArticleListItem {
   exampleImageFilename: string | null
   syncedAt: Date
   missingAtSpreadconnect: boolean
+  /** The effective gross sales price in cents, a discount already subtracted; `null` without a price. */
+  salesTotalGross: number | null
+}
+
+/** A list row as stored: the price id next to it, which the service resolves to `salesTotalGross`. */
+export type StoredSpodArticleListItem = Omit<SpodArticleListItem, 'salesTotalGross'> & {
+  priceId: number | null
 }
 
 /** A stored article with its price reference next to it; the service resolves the price. */
@@ -358,7 +365,7 @@ export async function examplePictures(
 }
 
 /** The articles in display order with the labels their references need, in five queries. */
-async function listArticles(trx: Trx): Promise<SpodArticleListItem[]> {
+async function listArticles(trx: Trx): Promise<StoredSpodArticleListItem[]> {
   const articles = await trx
     .selectFrom('article_spod_articles')
     .select([
@@ -371,6 +378,7 @@ async function listArticles(trx: Trx): Promise<SpodArticleListItem[]> {
       'supplier_id',
       'spod_synced_at',
       'spod_missing_since',
+      'price_id',
     ])
     .orderBy('position')
     .orderBy('id')
@@ -414,6 +422,7 @@ async function listArticles(trx: Trx): Promise<SpodArticleListItem[]> {
     exampleImageFilename: pictures.get(article.id) ?? null,
     syncedAt: article.spod_synced_at,
     missingAtSpreadconnect: article.spod_missing_since !== null,
+    priceId: article.price_id,
   }))
 }
 

@@ -151,6 +151,7 @@ describe('GET /api/admin/articles/mugs', () => {
         supplierName: 'Porcelain Ltd',
         variantCount: 1,
         exampleImageFilename: null,
+        salesTotalGross: 1490,
       },
       {
         id: draft.id,
@@ -165,6 +166,7 @@ describe('GET /api/admin/articles/mugs', () => {
         supplierName: null,
         variantCount: 0,
         exampleImageFilename: null,
+        salesTotalGross: null,
       },
     ])
   })
