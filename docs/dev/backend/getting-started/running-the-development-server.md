@@ -81,7 +81,8 @@ bun run dev:ngrok
 ```
 
 The tunnel gives the backend a public HTTPS address, which is what an external
-service needs to call it back. Locally that is the Mollie payment webhook.
+service needs to call it back. Locally that is the Mollie payment webhook and
+the Spreadconnect (SPOD) webhook; Spreadconnect refuses a `localhost` address.
 Payment deliberately has no dummy mode, so testing a payment locally always
 means a Mollie test key plus a tunnel. The `ngrok` binary must be installed
 and authenticated (`brew install ngrok`, then `ngrok config add-authtoken …`
@@ -204,6 +205,19 @@ values that are machine-specific or must never land in Git:
   MOLLIE_WEBHOOK_URL=https://replace-me.ngrok.app/api/payments/webhook/replace-with-16-chars
   MOLLIE_WEBHOOK_SECRET=replace-with-16-chars
   ```
+
+- **Testing SPOD shipments.** Set the webhook secret, the alert address, and
+  the tunnel as the address Spreadconnect calls, then press *Register webhooks*
+  on the SPOD destination:
+
+  ```sh
+  PRODUCTION_SPOD_WEBHOOK_SECRET=replace-with-at-least-32-characters
+  OPERATIONS_ALERT_EMAIL=you@example.com
+  PRODUCTION_SPOD_WEBHOOK_BASE_URL=https://replace-me.ngrok.app
+  ```
+
+  A free ngrok address changes on every start, so the subscriptions then show
+  `wrong URL` until you press the button again; a reserved domain avoids that.
 
 - **Real image generation** (`GENERATOR_DUMMY_MODE=false` plus
   `GENERATOR_API_KEY`) or **live email** (`EMAIL_ENABLED=true` plus

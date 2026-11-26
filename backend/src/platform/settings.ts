@@ -65,6 +65,10 @@ const schema = z
 
     PRODUCTION_ARTIFACT_ROOT: required.default('./data/production/artifacts'),
     PRODUCTION_SPOD_WEBHOOK_SECRET: optional,
+    // The partner's callbacks need a public HTTPS address; locally an ngrok tunnel to the backend.
+    PRODUCTION_SPOD_WEBHOOK_BASE_URL: optional
+      .transform((value) => value.replace(/\/+$/, ''))
+      .refine((value) => value === '' || value.startsWith('https://'), 'must be an HTTPS URL'),
     PRODUCTION_SECRETS_KEY: required.refine(
       (value) => Buffer.byteLength(value, 'utf8') >= 32,
       'must contain at least 32 UTF-8 bytes',
@@ -179,7 +183,11 @@ export function loadSettings(env: Record<string, string | undefined>) {
       spod:
         v.PRODUCTION_SPOD_WEBHOOK_SECRET === ''
           ? null
-          : { webhookSecret: v.PRODUCTION_SPOD_WEBHOOK_SECRET },
+          : {
+              webhookSecret: v.PRODUCTION_SPOD_WEBHOOK_SECRET,
+              /** Where the partner reaches this deployment: the override, else the frontend URL. */
+              webhookBaseUrl: v.PRODUCTION_SPOD_WEBHOOK_BASE_URL || v.FRONTEND_BASE_URL,
+            },
     },
     operations: {
       /** Where the operations alert and the SPOD ops alert go, or `null` to only log them. */

@@ -257,7 +257,7 @@ function webhookAnswer(c: Context, result: DestinationWebhookResult) {
     case 'notPublic':
       return c.json(
         apiError(
-          'FRONTEND_BASE_URL is not an HTTPS address, so Spreadconnect cannot reach this shop',
+          'The SPOD webhook base URL is not HTTPS; set PRODUCTION_SPOD_WEBHOOK_BASE_URL (ngrok locally)',
           {},
           'WEBHOOK_URL_NOT_PUBLIC',
         ),

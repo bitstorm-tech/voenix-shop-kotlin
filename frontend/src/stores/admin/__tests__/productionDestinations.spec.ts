@@ -385,7 +385,7 @@ describe('admin production destinations store', () => {
     stubFetch(() =>
       jsonResponse({ message: 'not https', code: 'WEBHOOK_URL_NOT_PUBLIC' }, { status: 409 }),
     )
-    await expect(store.registerWebhooks(1)).rejects.toThrow('FRONTEND_BASE_URL is not a public')
+    await expect(store.registerWebhooks(1)).rejects.toThrow('set PRODUCTION_SPOD_WEBHOOK_BASE_URL')
     stubFetch(() => jsonResponse({ message: 'Spreadconnect did not answer' }, { status: 502 }))
     await expect(store.webhookStatus(1)).rejects.toThrow('Spreadconnect did not answer')
   })

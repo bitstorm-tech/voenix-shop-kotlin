@@ -154,8 +154,21 @@ describe('loadSettings', () => {
       PRODUCTION_SPOD_WEBHOOK_SECRET: 'a'.repeat(32),
       OPERATIONS_ALERT_EMAIL: 'ops@example.com',
     })
-    expect(settings.production.spod).toEqual({ webhookSecret: 'a'.repeat(32) })
+    expect(settings.production.spod).toEqual({
+      webhookSecret: 'a'.repeat(32),
+      webhookBaseUrl: 'http://localhost:5173',
+    })
     expect(settings.operations).toEqual({ alertEmail: 'ops@example.com' })
+    const tunnelled = {
+      ...development,
+      PRODUCTION_SPOD_WEBHOOK_SECRET: 'a'.repeat(32),
+      OPERATIONS_ALERT_EMAIL: 'ops@example.com',
+      PRODUCTION_SPOD_WEBHOOK_BASE_URL: 'https://dev.ngrok.app/',
+    }
+    expect(loadSettings(tunnelled).production.spod?.webhookBaseUrl).toBe('https://dev.ngrok.app')
+    expect(failure({ ...tunnelled, PRODUCTION_SPOD_WEBHOOK_BASE_URL: 'http://dev.test' })).toBe(
+      'Invalid configuration: PRODUCTION_SPOD_WEBHOOK_BASE_URL must be an HTTPS URL',
+    )
   })
 
   test('the operations alert address is optional and free of control characters', () => {

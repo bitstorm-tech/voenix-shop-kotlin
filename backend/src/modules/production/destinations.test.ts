@@ -395,7 +395,9 @@ describe('…/{id}/webhooks', () => {
     expect(failed.status).toBe(502)
     expect(await jsonOf(failed)).toMatchObject({ code: 'REFUSED' })
 
-    const local = await adminApp({ frontendBaseUrl: 'http://localhost:5173' })
+    const local = await adminApp({
+      spodSettings: { webhookSecret: WEBHOOK_SECRET, webhookBaseUrl: 'http://localhost:5173' },
+    })
     const notPublic = await local.call('POST', `${PATH}/${String(spodId)}/webhooks`)
     expect(notPublic.status).toBe(409)
     expect(await jsonOf(notPublic)).toMatchObject({ code: 'WEBHOOK_URL_NOT_PUBLIC' })

@@ -67,7 +67,6 @@ export async function createProductionModule({
   accounts,
   orders,
   alertEmail,
-  frontendBaseUrl,
 }: {
   db: Kysely<Tables>
   settings: Settings['production']
@@ -80,8 +79,6 @@ export async function createProductionModule({
   orders: ProductionOrders
   /** The operations address the SPOD ops alert goes to, `null` when none is set. */
   alertEmail: string | null
-  /** The public address of this deployment, which also serves the partner's webhook. */
-  frontendBaseUrl: string
 }) {
   const secrets = createSecretBox(settings.secretsKey)
   const destinations = createDestinationRepository(db, secrets)
@@ -129,7 +126,7 @@ export async function createProductionModule({
           ? null
           : createSpodWebhooks(
               spod,
-              `${frontendBaseUrl}${SPOD_WEBHOOK_PATH}${encodeURIComponent(settings.spod.webhookSecret)}`,
+              `${settings.spod.webhookBaseUrl}${SPOD_WEBHOOK_PATH}${encodeURIComponent(settings.spod.webhookSecret)}`,
             ),
         spodCatalogSync,
       ),

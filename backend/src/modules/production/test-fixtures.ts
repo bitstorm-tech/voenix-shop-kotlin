@@ -44,7 +44,10 @@ import type { WebhookClient } from './spod/webhooks'
 
 export const WEBHOOK_SECRET = 'spod-webhook-secret-with-32-characters!'
 export const ALERT_EMAIL = 'ops@voenix.test'
-export const SPOD_SETTINGS = { webhookSecret: WEBHOOK_SECRET }
+export const SPOD_SETTINGS = {
+  webhookSecret: WEBHOOK_SECRET,
+  webhookBaseUrl: 'https://voenix.test',
+}
 
 /** Empties every production table and the rows the tests seed next to them. */
 export async function resetProduction(db: Kysely<Tables>): Promise<void> {
@@ -319,9 +322,6 @@ export function stubWebhookClient(overrides: Partial<WebhookClient> = {}): Webho
   }
 }
 
-/** The public address the production test kit runs under. */
-export const FRONTEND_BASE_URL = 'https://voenix.test'
-
 /** The supplier logins of a test: user id → supplier id. */
 export function supplierLogins() {
   const logins = new Map<number, number>()
@@ -341,14 +341,12 @@ export async function productionTestKit(
     spodSettings = SPOD_SETTINGS,
     client = stubSpodClient(),
     webhookClient = stubWebhookClient(),
-    frontendBaseUrl = FRONTEND_BASE_URL,
     syncStart = 'busy',
     syncState = { running: false, progress: null, report: null },
   }: {
     spodSettings?: Settings['production']['spod']
     client?: SubmissionClient
     webhookClient?: WebhookClient
-    frontendBaseUrl?: string
     syncStart?: 'started' | 'busy'
     syncState?: SpodSyncState
   } = {},
@@ -395,7 +393,6 @@ export async function productionTestKit(
     accounts: logins.accounts,
     orders: orders.reads,
     alertEmail: ALERT_EMAIL,
-    frontendBaseUrl,
   })
   const artifacts = await createArtifactStore(settings.artifactRoot)
   const worker = createProductionWorker({

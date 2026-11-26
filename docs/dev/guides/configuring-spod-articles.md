@@ -151,8 +151,8 @@ the shop. On `/admin/logistics/destinations` every SPOD destination has a
 *Webhooks* line below its row: one badge per event (`Shipment.sent`,
 `Order.cancelled`, `Order.needs-action`) that reads `active`, `missing`, or
 `wrong URL`. **Register webhooks** subscribes the missing events at
-`FRONTEND_BASE_URL` + `/api/production/webhooks/spod/` + the secret from
-step 1, and replaces the shop's own stale subscriptions (an old secret or host).
+`PRODUCTION_SPOD_WEBHOOK_BASE_URL` (default `FRONTEND_BASE_URL`) +
+`/api/production/webhooks/spod/` + the secret from step 1, and replaces the shop's own stale subscriptions (an old secret or host).
 Do it once per environment, and again after the secret or the shop's address
 changed. The Spreadconnect backoffice shows none of this; the partner offers
 subscriptions only through its API.
@@ -165,10 +165,11 @@ Two checks that are worth the minute:
 - The shop must be reachable from the public internet. A shop behind a VPN or
   on `localhost` gets no shipments and no error.
 
-For a local development setup there is no webhook (the button refuses a
-`FRONTEND_BASE_URL` that is not HTTPS): the job reaches
-`prepared_at` and stays there until someone marks it shipped by hand on the
-*Logistics* page.
+Spreadconnect refuses `localhost`, so a local setup needs the ngrok tunnel
+(`bun run dev:ngrok`) with its HTTPS address as `PRODUCTION_SPOD_WEBHOOK_BASE_URL`
+([Running the development server](../backend/getting-started/running-the-development-server.md)).
+Without it the button refuses, and a job reaches `prepared_at` and stays there
+until someone marks it shipped by hand on the *Logistics* page.
 
 ## 5. The article: backoffice first, then sync, then the shop's half
 

@@ -381,6 +381,7 @@ secrets"), answered by no read, and kept when an update leaves it empty.
 ```sh
 PRODUCTION_SPOD_WEBHOOK_SECRET=   # at least 32 characters
 OPERATIONS_ALERT_EMAIL=           # required once the secret is set
+PRODUCTION_SPOD_WEBHOOK_BASE_URL= # optional HTTPS address the partner calls; default FRONTEND_BASE_URL
 ```
 
 The secret is blank in a deployment without a print-on-demand supplier. A
@@ -439,8 +440,9 @@ destination row ([`spod/webhooks.ts`](../../../../backend/src/modules/production
 - `GET …/destinations/{id}/webhooks` lists the account's subscriptions and
   answers per event `ACTIVE` (one points at exactly this deployment's URL),
   `WRONG_URL` (only others), or `MISSING`, plus the hosts of the others. The
-  expected URL is `FRONTEND_BASE_URL` + `/api/production/webhooks/spod/` + the
-  secret; it holds the secret, so neither it nor any subscribed path is
+  expected URL is `PRODUCTION_SPOD_WEBHOOK_BASE_URL` (default
+  `FRONTEND_BASE_URL`; locally the ngrok tunnel, because the partner refuses
+  `localhost`) + `/api/production/webhooks/spod/` + the secret; it holds the secret, so neither it nor any subscribed path is
   answered or logged.
 - `POST …/destinations/{id}/webhooks` deletes the subscriptions of the three
   events whose path is this shop's webhook path but whose URL is not the
@@ -448,7 +450,7 @@ destination row ([`spod/webhooks.ts`](../../../../backend/src/modules/production
   and answers the new status. A subscription outside that path is left alone:
   it belongs to some other receiver of the account. Every step is idempotent,
   so a run that failed half-way is repeated; a partner failure is a `502` with
-  the bounded `SpodError` as `code`, a `FRONTEND_BASE_URL` that is not HTTPS a
+  the bounded `SpodError` as `code`, a base URL that is not HTTPS a
   `409 WEBHOOK_URL_NOT_PUBLIC`. The optional signature `secret` of the
   partner is not sent; the path secret is the authentication (decision 5).
 

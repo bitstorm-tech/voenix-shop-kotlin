@@ -187,7 +187,7 @@ export interface SpodWebhookStatus {
 /** The codes of the webhook routes, in the words the admin screen shows. */
 const WEBHOOK_MESSAGES: Record<string, string> = {
   WEBHOOK_URL_NOT_PUBLIC:
-    'FRONTEND_BASE_URL is not a public HTTPS address, so Spreadconnect cannot reach this shop.',
+    'This shop has no public HTTPS address for Spreadconnect; set PRODUCTION_SPOD_WEBHOOK_BASE_URL (locally an ngrok URL).',
   REFUSED: 'Spreadconnect refused the call; check the access token of this destination.',
   RATE_LIMITED: 'Spreadconnect rate limit reached; try again in a minute.',
   PROVIDER_UNAVAILABLE: 'Spreadconnect could not be reached.',
