@@ -74,7 +74,7 @@ watch(() => props.orderId, open)
 </script>
 
 <template>
-  <section class="space-y-4">
+  <section class="max-w-7xl space-y-4">
     <AdminPageHeader :title="orderNumber(orderId)" breakpoint="lg">
       <template #actions>
         <!-- Asks Mollie now, the way the webhook would have; recorded with the admin's user id. -->

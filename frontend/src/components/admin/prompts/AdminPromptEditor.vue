@@ -38,7 +38,7 @@ const saveLabel = computed(() => {
 </script>
 
 <template>
-  <section class="space-y-4">
+  <section class="max-w-7xl space-y-4">
     <AdminPageHeader :title="pageTitle">
       <template #actions>
         <Button as-child variant="outline">

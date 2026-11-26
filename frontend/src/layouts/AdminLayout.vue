@@ -95,7 +95,7 @@ function closeMobileNav() {
         <!-- No overflow on main: the page itself scrolls, and an overflow here would turn main into
              the scroll box of every `sticky` bar inside a view, so those bars would never stick. -->
         <main class="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
-          <div class="mx-auto max-w-7xl">
+          <div>
             <div class="mb-4 lg:hidden">
               <Sheet v-model:open="mobileNavOpen">
                 <SheetTrigger as-child>
