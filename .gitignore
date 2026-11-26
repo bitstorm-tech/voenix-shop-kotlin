@@ -3,6 +3,7 @@ out/
 output/
 .idea/
 .scratch/
+.worktrees/
 tmp/
 temp/
 *.iml

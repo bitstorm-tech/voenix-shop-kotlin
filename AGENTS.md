@@ -19,6 +19,10 @@ By default, clarify open decisions with Joe in the conversation, then implement 
 
 A driving issue and the council are for changes where a missed defect is expensive: database migrations, money (checkout, prices, payments), security, or a change across many modules — or whenever Joe asks for them. Only then is the plan written into a driving issue that carries what the `council` skill expects as input (`.claude/skills/council/SKILL.md`). Implementation and verification then run autonomously with that skill: Claude sub-agents implement ticket by ticket; the orchestrator, a Claude reviewer sub-agent, and Codex/GPT as a T3 Code child task review the result, plus two lane reviewers (a simplifier and a security reviewer). The agent definitions live in `.claude/agents/council-*.md`.
 
+## Git worktrees
+
+- Implement larger code changes in a new Git worktree located under `<REPO_ROOT>/.worktrees`.
+
 ## Backend
 
 The backend is `backend/`: TypeScript on Bun with Hono, Zod, and Kysely (`docs/dev/backend/conventions/technology-stack.md`). The former Kotlin backend was removed; its last state is the Git tag `kotlin-backend`.
