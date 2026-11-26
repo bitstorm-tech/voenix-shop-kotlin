@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, CircleCheck, CreditCard, Loader2, Tag } from 'lucide-vue-next'
 import { useCartStore } from '@/stores/shop/cart'
@@ -523,12 +523,12 @@ async function handleSubmit() {
               <Label for="termsAccepted" class="cursor-pointer text-sm">
                 <i18n-t keypath="checkout.termsLabel" tag="span">
                   <template #link>
-                    <a
-                      href="https://voenix.shop/pdf/AGBs.pdf"
+                    <RouterLink
+                      :to="{ name: 'terms' }"
                       target="_blank"
                       class="underline hover:text-primary"
                       @click.stop
-                      >{{ t('checkout.termsLinkText') }}</a
+                      >{{ t('checkout.termsLinkText') }}</RouterLink
                     >
                   </template>
                 </i18n-t>
