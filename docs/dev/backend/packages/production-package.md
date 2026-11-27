@@ -206,7 +206,7 @@ const production = await createProductionModule({
   spod,                                   // the application's one SpodClient
   accounts,                               // SupplierAccounts, implemented by account
   orders,                                 // ProductionOrders, implemented by order
-  alertEmail: settings.operations.alertEmail, // OPERATIONS_ALERT_EMAIL, where the SPOD ops alert goes
+  alertEmails: settings.operations.alertEmails, // OPERATIONS_ALERT_EMAIL, where the SPOD ops alert goes
 })
 app.route('/', production.routes)
 production.worker.start()
@@ -222,7 +222,7 @@ module runs:
 
 - It **refuses to start** when a `channel = 'SPOD'` destination exists while
   `settings.production.spod` is `null`, with
-  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmail are required`.
+  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmails are required`.
   A channel whose shipments arrive by webhook could not report one, and a
   worker started first could submit a paid order during a startup that is
   about to fail. A half-configured channel (`PRODUCTION_SPOD_WEBHOOK_SECRET`

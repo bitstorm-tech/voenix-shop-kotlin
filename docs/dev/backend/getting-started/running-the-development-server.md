@@ -248,7 +248,7 @@ PORT=9090 bun run dev
 | `EMAIL_ENABLED`, `EMAIL_POLL_INTERVAL_MINUTES`, `EMAIL_API_KEY`, `EMAIL_FROM_EMAIL`, `EMAIL_FROM_NAME` | `false`, `1`, unset, unset, `Voenix Shop` | live delivery needs the key and the sender |
 | `PRODUCTION_ARTIFACT_ROOT` | `./data/production/artifacts` | where production PDFs are stored |
 | `PRODUCTION_SPOD_WEBHOOK_SECRET` | unset | the secret needs 32 characters; set, it requires `OPERATIONS_ALERT_EMAIL` |
-| `OPERATIONS_ALERT_EMAIL` | unset | where the operations alert and the SPOD ops alert go; unset, the findings are only logged |
+| `OPERATIONS_ALERT_EMAIL` | unset | where the operations alert and the SPOD ops alert go, several addresses separated by commas (one mail each); unset, the findings are only logged |
 | `GENERATOR_DUMMY_MODE`, `GENERATOR_API_KEY` | `false`, unset | not in dummy mode, the key is required |
 | `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_WEBHOOK_SECRET` | required | the webhook URL must be HTTPS and end in the secret (16 characters or more) |
 | `RATE_LIMIT_TRUST_FORWARDED_FOR` | `false` | see [Rate limiting](../conventions/rate-limiting.md) |

@@ -14,8 +14,8 @@ export interface FindingSource {
  * The operations worker: every five minutes it first reconciles the payments under way with Mollie,
  * so a payment resolved now never becomes a finding, then asks the order, production, and email
  * modules for their findings (plain reads, outside any write of this module) and records the
- * answers in one transaction of its own, which also enqueues one `OPERATIONS_ALERT` to `alertEmail`
- * for the new mailed findings. Without an address it logs one `error` line per new mailed finding
+ * answers in one transaction of its own, which also enqueues one `OPERATIONS_ALERT` to each of
+ * `alertEmails` for the new mailed findings. Without an address it logs one `error` line per new mailed finding
  * instead and leaves them unalerted. A `stop` ends the reconciliation between payments and skips
  * collecting and recording for that scan. One instance per database, like the other two workers.
  */
@@ -24,7 +24,7 @@ export function createOperationsWorker({
   sources,
   repository,
   outbox,
-  alertEmail,
+  alertEmails,
   frontendBaseUrl,
   logger,
 }: {
@@ -32,12 +32,12 @@ export function createOperationsWorker({
   sources: readonly FindingSource[]
   repository: Pick<FindingRepository, 'record'>
   outbox: Pick<EmailModule['outbox'], 'enqueue'>
-  alertEmail: string | null
+  alertEmails: readonly string[]
   frontendBaseUrl: string
   logger: Logger
 }) {
   const alert: Alert = async (trx, findings) => {
-    if (alertEmail === null) {
+    if (alertEmails.length === 0) {
       for (const finding of findings) {
         if (!finding.isNew) continue
         logger.error(
@@ -60,10 +60,9 @@ export function createOperationsWorker({
         'New operations finding detected',
       )
     }
-    await outbox.enqueue(
-      trx,
-      renderOperationsAlert({ recipient: alertEmail, frontendBaseUrl, findings }),
-    )
+    for (const recipient of alertEmails) {
+      await outbox.enqueue(trx, renderOperationsAlert({ recipient, frontendBaseUrl, findings }))
+    }
     return true
   }
 

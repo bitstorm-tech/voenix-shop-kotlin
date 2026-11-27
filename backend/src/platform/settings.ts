@@ -20,6 +20,11 @@ const optional = z.string().trim().default('')
 const booleanText = z.enum(['true', 'false']).transform((value) => value === 'true')
 const integerText = z.string().regex(/^\d+$/, 'must be a whole number').transform(Number)
 const noControlCharacters = (value: string) => !/[\p{Cc}]/u.test(value)
+const addressList = (value: string) =>
+  value
+    .split(',')
+    .map((address) => address.trim())
+    .filter((address) => address !== '')
 
 const schema = z
   .object({
@@ -117,7 +122,8 @@ const schema = z
     if (spodConfigured && env.PRODUCTION_SPOD_WEBHOOK_SECRET.length < 32) {
       issue('PRODUCTION_SPOD_WEBHOOK_SECRET', 'must be at least 32 characters')
     }
-    if (spodConfigured && env.OPERATIONS_ALERT_EMAIL === '') {
+    const alertEmails = addressList(env.OPERATIONS_ALERT_EMAIL)
+    if (spodConfigured && alertEmails.length === 0) {
       issue('OPERATIONS_ALERT_EMAIL', 'is required when PRODUCTION_SPOD_WEBHOOK_SECRET is set')
     }
     if (env.PRODUCTION_SECRETS_KEY === env.AUTH_SESSION_SECRET) {
@@ -125,6 +131,8 @@ const schema = z
     }
     if (!noControlCharacters(env.OPERATIONS_ALERT_EMAIL)) {
       issue('OPERATIONS_ALERT_EMAIL', 'must not contain control characters')
+    } else if (!alertEmails.every((address) => z.email().safeParse(address).success)) {
+      issue('OPERATIONS_ALERT_EMAIL', 'must be a comma-separated list of email addresses')
     }
     // The webhook route only answers on /api/payments/webhook/<secret>, so a URL ending elsewhere
     // describes a deployment in which every real callback is refused.
@@ -190,8 +198,8 @@ export function loadSettings(env: Record<string, string | undefined>) {
             },
     },
     operations: {
-      /** Where the operations alert and the SPOD ops alert go, or `null` to only log them. */
-      alertEmail: v.OPERATIONS_ALERT_EMAIL === '' ? null : v.OPERATIONS_ALERT_EMAIL,
+      /** Where the alerts go, one mail per address; empty to only log them. */
+      alertEmails: addressList(v.OPERATIONS_ALERT_EMAIL),
     },
     generator: {
       dummyMode: v.GENERATOR_DUMMY_MODE,

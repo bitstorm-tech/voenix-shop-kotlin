@@ -63,7 +63,7 @@ export function createSpodOrderRepository({
   db,
   outbox,
   orders,
-  alertEmail,
+  alertEmails,
   secrets,
 }: {
   db: Kysely<Tables>
@@ -71,11 +71,11 @@ export function createSpodOrderRepository({
   orders: Pick<ProductionOrders, 'recordEvent'>
   /** Opens the stored access token of the destination a job is submitted through. */
   secrets: SecretBox
-  /** `null` in a deployment without SPOD settings, which then has no one to alert. */
-  alertEmail: string | null
+  /** Empty in a deployment without SPOD settings, which then has no one to alert. */
+  alertEmails: readonly string[]
 }) {
   const alert = async (trx: Transaction<Tables>, jobId: number, reason: SpodOpsAlertReason) => {
-    if (alertEmail === null) {
+    if (alertEmails.length === 0) {
       logger.error({ jobId, reason }, 'A SPOD job needs an operator, but no alert address is set')
       return
     }
@@ -86,16 +86,18 @@ export function createSpodOrderRepository({
       .select(['r.order_id', 'o.external_reference'])
       .where('o.production_job_id', '=', jobId)
       .executeTakeFirstOrThrow()
-    await outbox.enqueue(
-      trx,
-      renderSpodOpsAlert({
-        recipient: alertEmail,
-        jobId,
-        orderId: row.order_id,
-        reason,
-        externalReference: row.external_reference,
-      }),
-    )
+    for (const recipient of alertEmails) {
+      await outbox.enqueue(
+        trx,
+        renderSpodOpsAlert({
+          recipient,
+          jobId,
+          orderId: row.order_id,
+          reason,
+          externalReference: row.external_reference,
+        }),
+      )
+    }
   }
 
   return {

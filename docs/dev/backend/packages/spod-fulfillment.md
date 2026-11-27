@@ -394,7 +394,7 @@ address, and the application enforces it:
   the address alone is fine, the operations alert uses it without SPOD;
 - no secret while a `channel = 'SPOD'` destination exists → the production
   module refuses to start with
-  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmail are required`,
+  `A print-on-demand destination exists, so production.spod.webhookSecret and operations.alertEmails are required`,
   before its worker exists;
 - the write side: `POST`/`PUT /api/admin/production/destinations` refuses a SPOD
   destination with a `channel` field error while the block is missing, enabled

@@ -113,7 +113,7 @@ operations/
 |                      time, the order list,
 |                      the timeline, the two actions with the release's body schema; no-store
 |- worker.ts           createOperationsWorker({ reconcilePayments, sources, repository, outbox,
-|                      alertEmail, frontendBaseUrl, logger }) → { runOnce, start, stop };
+|                      alertEmails, frontendBaseUrl, logger }) → { runOnce, start, stop };
 |                      FindingSource; the alert (mail, or log without an address)
 |- worker.test.ts      reconcile first, upsert, resolve, reappear, the last-scan time, the alert,
 |                      the loop
@@ -536,7 +536,10 @@ which is also when an operator can act on it.
 
 Both alerts share one address, `OPERATIONS_ALERT_EMAIL`, which replaced the
 former SPOD-only alert address: there is one operations mailbox, not
-one per channel.
+one per channel. The variable may list several addresses separated by commas;
+each gets a mail of its own (one outbox row per address, enqueued in the same
+transaction), so one bad address fails only its own delivery and never holds
+back the others. Every address is checked at start-up.
 
 *Rejected:* storing the stalled mail's kind in `operations_findings` to decide
 the listed-only rule from the row. The rule is only needed at the moment the
@@ -573,7 +576,7 @@ const operations = createOperationsModule({
   orders: order.orders,   // reconcilePayments(now, signal), findings(now), adminOrder, adminOrders, recheckPayment
   production,             // findings(now), ofOrder, releaseSpodJob: requests, jobs, deliveries, SPOD orders
   outbox: email.outbox,   // findings(now), ofOrder: email_jobs; enqueue: the alert mail
-  settings: settings.operations, // { alertEmail: string | null }, OPERATIONS_ALERT_EMAIL
+  settings: settings.operations, // { alertEmails: string[] }, OPERATIONS_ALERT_EMAIL split at commas
   frontendBaseUrl,        // settings.frontend.baseUrl, for the timeline links
 })
 app.route('/', operations.routes)
@@ -585,7 +588,7 @@ await operations.worker.stop()
 The three parameters are typed as `Pick`s of the modules' own types (`Orders`,
 `ProductionModule`, the email module's `outbox`) with exactly the members this
 module calls; the composition root passes the modules' own objects. The same
-`settings.operations.alertEmail` goes to the production module as `alertEmail`,
+`settings.operations.alertEmails` goes to the production module as `alertEmails`,
 for the SPOD ops alert.
 
 ## Tests

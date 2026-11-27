@@ -17,7 +17,7 @@ import { createOperationsWorker } from './worker'
  * requests, jobs, deliveries, SPOD orders, email: the outbox); the worker reconciles the payments
  * under way first (`orders.reconcilePayments`) and then records the findings in
  * `operations_findings` (and the scan time in `operations_last_scan`), mails the new ones to
- * `settings.alertEmail` through the outbox, and the admin route lists them. The admin order list
+ * `settings.alertEmails` through the outbox, and the admin route lists them. The admin order list
  * and the timeline of one order are assembled from `orders.adminOrders` / `orders.adminOrder`,
  * `production.ofOrder`, `outbox.ofOrder`, and the findings of the order; the two admin actions
  * delegate to `orders.recheckPayment` and `production.releaseSpodJob`. Nothing
@@ -53,7 +53,7 @@ export function createOperationsModule({
     sources: [orders, production, outbox],
     repository,
     outbox,
-    alertEmail: settings.alertEmail,
+    alertEmails: settings.alertEmails,
     frontendBaseUrl,
     logger: createLogger('operations-worker'),
   })

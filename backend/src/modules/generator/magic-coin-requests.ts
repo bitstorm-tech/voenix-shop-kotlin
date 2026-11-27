@@ -99,8 +99,8 @@ export type MagicCoinRequestsService = ReturnType<typeof createMagicCoinRequests
  *
  * - Signed-in customers whose balance reached zero may submit at most one `PENDING` request at a
  *   time (`ux_magic_coin_requests_pending_user`), unless permanently blocked by an admin.
- * - Submitting a request atomically enqueues an alert mail to `alertEmail` (`OPERATIONS_ALERT_EMAIL`)
- *   when configured, or logs when absent.
+ * - Submitting a request atomically enqueues one alert mail per address in `alertEmails`
+ *   (`OPERATIONS_ALERT_EMAIL`), or logs when absent.
  * - Approving a request (or granting manually) atomically credits the coins and enqueues a customer
  *   mail without mentioning a specific coin count.
  * - Rejecting never sends a customer mail; rejecting with `blockUser: true` records a block row.
@@ -112,7 +112,7 @@ export function createMagicCoinRequestsService({
   orders,
   carts,
   outbox,
-  alertEmail,
+  alertEmails,
   frontendBaseUrl,
   logger,
 }: {
@@ -122,7 +122,7 @@ export function createMagicCoinRequestsService({
   orders: Pick<Orders, 'paidOrderCounts'>
   carts: Pick<CartModule, 'activeCartItemCounts'>
   outbox: Pick<EmailModule['outbox'], 'enqueue'>
-  alertEmail: string | null
+  alertEmails: readonly string[]
   frontendBaseUrl: string
   logger: Logger
 }) {
@@ -176,11 +176,11 @@ export function createMagicCoinRequestsService({
             .returning(['id', 'created_at'])
             .executeTakeFirstOrThrow()
 
-          if (alertEmail !== null) {
+          for (const recipient of alertEmails) {
             await outbox.enqueue(
               trx,
               renderMagicCoinRequestAlert({
-                recipient: alertEmail,
+                recipient,
                 frontendBaseUrl,
                 requestId: created.id,
                 userEmail,
@@ -195,7 +195,7 @@ export function createMagicCoinRequestsService({
         }),
       )
       if (result === 'alreadyPending') return { kind: 'alreadyPending' }
-      if (result.kind === 'created' && alertEmail === null) {
+      if (result.kind === 'created' && alertEmails.length === 0) {
         logger.info(
           { requestId: result.request.id, userId },
           'New Magic Coin request created without OPERATIONS_ALERT_EMAIL configured',

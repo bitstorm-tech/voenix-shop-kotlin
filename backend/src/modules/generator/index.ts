@@ -44,7 +44,7 @@ export function createGeneratorModule({
   orders,
   carts,
   outbox,
-  alertEmail = null,
+  alertEmails = [],
   frontendBaseUrl = 'http://localhost:5173',
   guestTokens,
   rateLimit,
@@ -59,7 +59,7 @@ export function createGeneratorModule({
   orders: Pick<Orders, 'paidOrderCounts'>
   carts: Pick<CartModule, 'activeCartItemCounts'>
   outbox: Pick<EmailModule['outbox'], 'enqueue'>
-  alertEmail?: string | null
+  alertEmails?: readonly string[]
   frontendBaseUrl?: string
   guestTokens: Auth['guestTokens']
   rateLimit: MiddlewareHandler
@@ -83,7 +83,7 @@ export function createGeneratorModule({
     orders,
     carts,
     outbox,
-    alertEmail,
+    alertEmails,
     frontendBaseUrl,
     logger,
   })

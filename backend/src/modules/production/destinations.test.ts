@@ -239,7 +239,7 @@ describe('a deployment without SPOD settings', () => {
     await seedSpodDestination(database.db, supplierId, false)
     expect(await rejectionOf(productionTestKit(database.db, { spodSettings: null }))).toBe(
       'A print-on-demand destination exists, so production.spod.webhookSecret and ' +
-        'operations.alertEmail are required',
+        'operations.alertEmails are required',
     )
     expect((await productionTestKit(database.db)).module.routes).toBeDefined()
   })

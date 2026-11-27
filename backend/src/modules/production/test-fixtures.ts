@@ -393,7 +393,7 @@ export async function productionTestKit(
     spod: { ...client, ...webhookClient },
     accounts: logins.accounts,
     orders: orders.reads,
-    alertEmail: ALERT_EMAIL,
+    alertEmails: [ALERT_EMAIL],
   })
   const artifacts = await createArtifactStore(settings.artifactRoot)
   const worker = createProductionWorker({
@@ -406,7 +406,7 @@ export async function productionTestKit(
       db,
       outbox: email.outbox,
       orders: orders.reads,
-      alertEmail: ALERT_EMAIL,
+      alertEmails: [ALERT_EMAIL],
       secrets: testSecrets,
     }),
     spod: client,

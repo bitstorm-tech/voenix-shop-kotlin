@@ -134,7 +134,7 @@ export async function createApplication(
       spod,
       accounts: account.supplierAccounts,
       orders: order.orders,
-      alertEmail: settings.operations.alertEmail,
+      alertEmails: settings.operations.alertEmails,
     })
     // The cart owns the print images the guest image route serves, so that route is installed
     // once both sides exist, like the orphan routes, which ask every module that refers to images.
@@ -157,7 +157,7 @@ export async function createApplication(
       orders: order.orders,
       carts: cart,
       outbox: email.outbox,
-      alertEmail: settings.operations.alertEmail,
+      alertEmails: settings.operations.alertEmails,
       frontendBaseUrl,
       guestTokens,
       rateLimit: rateLimit({

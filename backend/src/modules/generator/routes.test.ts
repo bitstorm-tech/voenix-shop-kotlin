@@ -127,7 +127,7 @@ const app = (
   extras: {
     paidOrderCounts?: (ids: readonly number[]) => Promise<Map<number, number>>
     activeCartItemCounts?: (ids: readonly number[]) => Promise<Map<number, number>>
-    alertEmail?: string | null
+    alertEmails?: readonly string[]
     requestLimit?: number
   } = {},
 ) => {
@@ -144,7 +144,7 @@ const app = (
       activeCartItemCounts: extras.activeCartItemCounts ?? (() => Promise.resolve(new Map())),
     },
     outbox: emailOutbox(),
-    alertEmail: extras.alertEmail === undefined ? ALERT_EMAIL : extras.alertEmail,
+    alertEmails: extras.alertEmails ?? [ALERT_EMAIL],
     frontendBaseUrl: FRONTEND_BASE_URL,
     guestTokens: testAuth.guestTokens,
     rateLimit: createClientIpRateLimiter({
@@ -440,6 +440,18 @@ describe('Customer Magic Coin request routes', () => {
     })
     expect(mails[0]?.text).toContain('customer-14@example.com')
     expect(mails[0]?.text).toContain(`${FRONTEND_BASE_URL}/admin/magic-coins`)
+  })
+
+  test('a refill request alerts every operations address with a mail of its own', async () => {
+    await seedZeroBalance(16)
+    const target = app(undefined, undefined, undefined, {
+      alertEmails: [ALERT_EMAIL, 'second@voenix.example'],
+    })
+    const headers = await signedInHeaders({ userId: 16, roles: ['USER'] })
+
+    expect((await jsonPost(target, '/api/magic-coins/requests', headers)).status).toBe(201)
+    const recipients = (await queuedEmails()).map((mail) => mail.recipient)
+    expect(recipients.toSorted()).toEqual([ALERT_EMAIL, 'second@voenix.example'])
   })
 
   test('rate limits refill request submissions', async () => {

@@ -52,11 +52,11 @@ const spodJob = (kind: 'SPOD_QUARANTINED' | 'SPOD_REMOTE_ATTENTION', id: number)
 
 /**
  * A worker over one source whose answer the test sets before each scan; `reconcilePayments` runs
- * as the scan's first step. It alerts `alertEmail` through the real outbox and logs to `logger`.
+ * as the scan's first step. It alerts `alertEmails` through the real outbox and logs to `logger`.
  */
 function scripted(
   reconcilePayments: (now: Date, signal?: AbortSignal) => Promise<void> = () => Promise.resolve(),
-  alertEmail: string | null = ALERT_EMAIL,
+  alertEmails: readonly string[] = [ALERT_EMAIL],
 ) {
   const answer: { findings: Finding[]; scans: number; readAt: Date | null } = {
     findings: [],
@@ -86,7 +86,7 @@ function scripted(
       },
       fetch: () => Promise.reject(new Error('No mail is sent in this test')),
     }).outbox,
-    alertEmail,
+    alertEmails,
     frontendBaseUrl: 'https://shop.example',
     logger,
   })
@@ -254,7 +254,7 @@ describe('the operations scan', () => {
       sources: [{ findings: () => Promise.reject(new Error('The source is down')) }],
       repository,
       outbox: { enqueue: () => Promise.reject(new Error('No mail in this test')) },
-      alertEmail: null,
+      alertEmails: [],
       frontendBaseUrl: 'https://shop.example',
       logger,
     })
@@ -381,7 +381,7 @@ describe('the operations alert', () => {
   test('without an address the findings are recorded unalerted and each new one is logged once', async () => {
     const error = spyOn(logger, 'error').mockImplementation(() => undefined)
     try {
-      const { worker, answer } = scripted(undefined, null)
+      const { worker, answer } = scripted(undefined, [])
       answer.findings = [stalledJob(1, null), unresolvedPayment, spodJob('SPOD_QUARANTINED', 5)]
       await worker.runOnce()
       await worker.runOnce()

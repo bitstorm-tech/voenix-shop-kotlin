@@ -158,7 +158,7 @@ describe('loadSettings', () => {
       webhookSecret: 'a'.repeat(32),
       webhookBaseUrl: 'http://localhost:5173',
     })
-    expect(settings.operations).toEqual({ alertEmail: 'ops@example.com' })
+    expect(settings.operations).toEqual({ alertEmails: ['ops@example.com'] })
     const tunnelled = {
       ...development,
       PRODUCTION_SPOD_WEBHOOK_SECRET: 'a'.repeat(32),
@@ -171,10 +171,19 @@ describe('loadSettings', () => {
     )
   })
 
-  test('the operations alert address is optional and free of control characters', () => {
-    expect(loadSettings(development).operations).toEqual({ alertEmail: null })
+  test('the operations alert addresses are optional, comma-separated, and free of control characters', () => {
+    expect(loadSettings(development).operations).toEqual({ alertEmails: [] })
     const alone = loadSettings({ ...development, OPERATIONS_ALERT_EMAIL: ' ops@example.com ' })
-    expect(alone.operations).toEqual({ alertEmail: 'ops@example.com' })
+    expect(alone.operations).toEqual({ alertEmails: ['ops@example.com'] })
+    const several = { ...development, OPERATIONS_ALERT_EMAIL: 'ops@example.com, joe@example.com,' }
+    expect(loadSettings(several).operations).toEqual({
+      alertEmails: ['ops@example.com', 'joe@example.com'],
+    })
+    expect(
+      failure({ ...development, OPERATIONS_ALERT_EMAIL: 'ops@example.com joe@example.com' }),
+    ).toBe(
+      'Invalid configuration: OPERATIONS_ALERT_EMAIL must be a comma-separated list of email addresses',
+    )
     expect(alone.production.spod).toBeNull()
     expect(failure({ ...development, OPERATIONS_ALERT_EMAIL: 'ops@example.com\nBcc: x@y.z' })).toBe(
       'Invalid configuration: OPERATIONS_ALERT_EMAIL must not contain control characters',
