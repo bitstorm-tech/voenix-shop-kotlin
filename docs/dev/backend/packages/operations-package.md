@@ -187,8 +187,9 @@ All three answer `Cache-Control: no-store`. They share the path
 to the one route that matches; the order module's guards on that prefix may run
 in front of these routes as well, and since they are the same two guards
 (`requireAdmin`, `no-store`) that is harmless. One row of the list, through
-`orders.adminOrders({ email, limit: 50 })` and `openCounts` (the open findings
-grouped by `order_id`):
+`orders.adminOrders({ email, limit: 50 })`, `production.shippingStatuses`
+(`OPEN`, `PARTIALLY_SHIPPED`, `SHIPPED`, or `null` without a production
+request), and `openCounts` (the open findings grouped by `order_id`):
 
 ```json
 {
@@ -196,6 +197,7 @@ grouped by `order_id`):
   "createdAt": "2026-10-16T09:00:00.000Z",
   "status": "PAID",
   "paymentStatus": "PAID",
+  "shippingStatus": "OPEN",
   "total": 4070,
   "email": "kunde@example.com",
   "openFindings": 1

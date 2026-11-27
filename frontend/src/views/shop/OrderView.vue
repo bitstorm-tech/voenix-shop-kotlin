@@ -268,7 +268,11 @@ async function redesignItem(item: OrderItem) {
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
-              <OrderStatusBadge :status="order.status" :payment-status="order.paymentStatus" />
+              <OrderStatusBadge
+                :status="order.status"
+                :payment-status="order.paymentStatus"
+                :shipping-status="order.shippingStatus"
+              />
             </div>
 
             <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -343,7 +347,11 @@ async function redesignItem(item: OrderItem) {
                   </p>
                 </TableCell>
                 <TableCell class="align-top">
-                  <OrderStatusBadge :status="order.status" :payment-status="order.paymentStatus" />
+                  <OrderStatusBadge
+                    :status="order.status"
+                    :payment-status="order.paymentStatus"
+                    :shipping-status="order.shippingStatus"
+                  />
                 </TableCell>
                 <TableCell class="px-4 align-top text-right font-semibold tabular-nums">
                   {{ formatPrice(order.total) }}

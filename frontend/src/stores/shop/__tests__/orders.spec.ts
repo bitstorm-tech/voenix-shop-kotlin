@@ -18,6 +18,8 @@ function orderPayload() {
     createdAt: '2026-07-30T09:12:44Z',
     status: 'PAID',
     paymentStatus: 'PAID',
+    shippingStatus: 'OPEN',
+    shipments: [],
     subtotal: 3980,
     shippingCost: 490,
     discountAmount: 400,

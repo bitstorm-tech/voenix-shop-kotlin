@@ -3,7 +3,7 @@ import type { Kysely, Transaction } from 'kysely'
 import type { ArticleCatalog } from '@/modules/article'
 import type { EmailModule } from '@/modules/email'
 import type { ImageModule } from '@/modules/image'
-import type { ProductionOrders } from '@/modules/production'
+import { customerShippingOfOrders, type ProductionOrders } from '@/modules/production'
 import type { PromotionCodes } from '@/modules/promotion'
 import type { Auth } from '@/platform/auth/auth'
 import type { Tables } from '@/platform/db/database'
@@ -73,6 +73,7 @@ export function createOrderModule({
     images,
     printImages,
     payments,
+    shippingOfOrders: (orderIds) => customerShippingOfOrders(db, orderIds),
     frontendBaseUrl: settings.frontendBaseUrl,
   })
 

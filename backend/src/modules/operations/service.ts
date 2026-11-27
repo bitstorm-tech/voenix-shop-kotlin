@@ -23,7 +23,10 @@ export function createOperationsService({
 }: {
   findings: Pick<FindingRepository, 'openOfOrder' | 'openCounts' | 'openCount'>
   orders: Pick<Orders, 'adminOrder' | 'adminOrders' | 'recheckPayment'>
-  production: Pick<ProductionModule, 'ofOrder' | 'releaseSpodJob' | 'unshippedOrderCount'>
+  production: Pick<
+    ProductionModule,
+    'ofOrder' | 'releaseSpodJob' | 'shippingStatuses' | 'unshippedOrderCount'
+  >
   outbox: Pick<EmailModule['outbox'], 'ofOrder'>
 }) {
   return {
@@ -55,11 +58,19 @@ export function createOperationsService({
       })
     },
 
-    /** The newest orders, optionally of exactly one e-mail address, each with its open findings. */
+    /** The newest orders, optionally of exactly one e-mail address, each with its shipping status and open findings. */
     orders: async (email: string | null) => {
       const list = await orders.adminOrders({ email, limit: ORDER_LIST_SIZE })
-      const counts = await findings.openCounts(list.map((order) => order.orderId))
-      return list.map((order) => ({ ...order, openFindings: counts.get(order.orderId) ?? 0 }))
+      const orderIds = list.map((order) => order.orderId)
+      const [counts, shipping] = await Promise.all([
+        findings.openCounts(orderIds),
+        production.shippingStatuses(orderIds),
+      ])
+      return list.map((order) => ({
+        ...order,
+        shippingStatus: shipping.get(order.orderId) ?? null,
+        openFindings: counts.get(order.orderId) ?? 0,
+      }))
     },
 
     /** The numbers of the admin menu's badges: paid orders not fully shipped, open findings. */

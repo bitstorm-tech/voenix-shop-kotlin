@@ -212,6 +212,7 @@ describe('admin orders store', () => {
       createdAt: '2026-10-16T09:00:00.000Z',
       status: 'PAID',
       paymentStatus: 'PAID',
+      shippingStatus: 'OPEN',
       total: 4070,
       email: 'kunde@example.com',
       openFindings: 1,

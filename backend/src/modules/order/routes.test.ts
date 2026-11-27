@@ -42,6 +42,8 @@ const ORDER_ONE = {
   createdAt: '2026-07-30T09:12:44.123Z',
   status: 'PENDING',
   paymentStatus: null,
+  shippingStatus: null,
+  shipments: [],
   subtotal: 3980,
   shippingCost: 490,
   discountAmount: 0,
@@ -77,6 +79,104 @@ describe('GET /api/orders', () => {
     )) as { orderId: number }[]
     expect(account.map((order) => order.orderId)).toEqual([3])
     expect(await jsonOf(await app().request('/api/orders'))).toEqual([])
+  })
+
+  test('includes shippingStatus and shipped parcels with shop-built tracking links across all customer reads', async () => {
+    const shippedAt = new Date('2026-08-01T12:00:00.000Z')
+    const [supplierA, supplierB] = await database.db
+      .insertInto('suppliers')
+      .values([{ name: 'Druckerei' }, { name: 'Spreadconnect' }])
+      .returning('id')
+      .execute()
+    const { id: requestId } = await database.db
+      .insertInto('production_requests')
+      .values({ order_id: 2 })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+    await database.db
+      .insertInto('production_jobs')
+      .values([
+        {
+          request_id: requestId,
+          supplier_id: supplierA?.id ?? 0,
+          fulfillment_channel: 'SPOD',
+          file_name: 'ORD-2.pdf',
+          prepared_at: shippedAt,
+          shipped_at: shippedAt,
+          shipped_by_channel: 'SPOD',
+          shipping_carrier: 'DHL',
+          shipping_carrier_reported: 'dhl express raw',
+          tracking_number: 'JJD 12345',
+        },
+        {
+          request_id: requestId,
+          supplier_id: supplierB?.id ?? 0,
+          fulfillment_channel: 'SFTP',
+          file_name: 'ORD-2.pdf',
+        },
+      ])
+      .execute()
+
+    const expectedPartial = {
+      shippingStatus: 'PARTIALLY_SHIPPED',
+      shipments: [
+        {
+          shippedAt: shippedAt.toISOString(),
+          carrierName: 'DHL',
+          trackingNumber: 'JJD 12345',
+          trackingUrl:
+            'https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=JJD%2012345',
+        },
+      ],
+    }
+
+    const listed = (await jsonOf(
+      await app().request('/api/orders', { headers: await asGuest() }),
+    )) as { orderId: number; shippingStatus: string | null; shipments: unknown[] }[]
+    expect(listed.find((o) => o.orderId === 2)).toMatchObject(expectedPartial)
+    expect(listed.find((o) => o.orderId === 1)).toMatchObject({
+      shippingStatus: null,
+      shipments: [],
+    })
+    expect(JSON.stringify(listed)).not.toContain('dhl express raw')
+
+    expect(
+      await jsonOf(await app().request('/api/orders/2', { headers: await asGuest() })),
+    ).toMatchObject(expectedPartial)
+
+    // Ship the second job with OTHER carrier -> SHIPPED, plain tracking number, no URL.
+    await database.db
+      .updateTable('production_jobs')
+      .set({
+        prepared_at: shippedAt,
+        shipped_at: new Date('2026-08-02T09:30:00.000Z'),
+        shipping_carrier: 'OTHER',
+        tracking_number: 'CUSTOM-99',
+      })
+      .where('request_id', '=', requestId)
+      .where('shipped_at', 'is', null)
+      .execute()
+
+    const tokenTwo = (
+      await database.db
+        .selectFrom('orders')
+        .select('access_token')
+        .where('id', '=', 2)
+        .executeTakeFirstOrThrow()
+    ).access_token
+
+    expect(await jsonOf(await app().request(`/api/order-lookup/${tokenTwo}`))).toMatchObject({
+      shippingStatus: 'SHIPPED',
+      shipments: [
+        expectedPartial.shipments[0],
+        {
+          shippedAt: '2026-08-02T09:30:00.000Z',
+          carrierName: null,
+          trackingNumber: 'CUSTOM-99',
+          trackingUrl: null,
+        },
+      ],
+    })
   })
 })
 

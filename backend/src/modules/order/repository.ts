@@ -1,6 +1,11 @@
 import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import type { ArticleType, CatalogVariant } from '@/modules/article'
-import type { FulfillmentOrder, ProductionOrderEvent } from '@/modules/production'
+import type {
+  CustomerShipment,
+  FulfillmentOrder,
+  OrderShippingStatus,
+  ProductionOrderEvent,
+} from '@/modules/production'
 import { read, type Tables } from '@/platform/db/database'
 import type { PaymentStatus } from './payment/mollie'
 import { isLive } from './payment/repository'
@@ -51,14 +56,18 @@ export interface OrderLineView {
 
 /**
  * The one representation the history, the detail read, and the token lookup answer. Every amount
- * is stored, never recalculated; `paymentStatus` is the one value from another table, `null` when
- * the order has no payment at all (a free order, or one whose payment was never started).
+ * is stored, never recalculated; `paymentStatus` is `null` when the order has no payment at all
+ * (a free order, or one whose payment was never started); `shippingStatus` is `null` before
+ * production is requested and `shipments` holds every shipped parcel with its shop-built tracking
+ * link.
  */
 export interface OrderView {
   orderId: number
   createdAt: string
   status: OrderStatus
   paymentStatus: PaymentStatus | null
+  shippingStatus: OrderShippingStatus | null
+  shipments: CustomerShipment[]
   subtotal: number
   shippingCost: number
   discountAmount: number
@@ -66,7 +75,7 @@ export interface OrderView {
   items: OrderLineView[]
 }
 
-type OrderRecord = Omit<OrderView, 'paymentStatus'>
+type OrderRecord = Omit<OrderView, 'paymentStatus' | 'shippingStatus' | 'shipments'>
 
 /** What made the shop ask Mollie about a payment: its webhook, a detail read, the scan, or an admin. */
 export type PaymentCause = 'WEBHOOK' | 'REFRESH' | 'RECONCILIATION' | 'ADMIN_RECHECK'

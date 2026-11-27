@@ -2,17 +2,26 @@ import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchJson } from '@/lib/api'
 import type { OperationsFinding } from '@/stores/admin/operations'
-import type { Order, OrderPaymentStatus, OrderStatus } from '@/stores/shop/orders'
+import type {
+  Order,
+  OrderPaymentStatus,
+  OrderShippingStatus,
+  OrderStatus,
+} from '@/stores/shop/orders'
+
+export type { OrderShippingStatus }
 
 /**
  * One row of `GET /api/admin/orders`: the newest 50 orders, optionally of exactly one e-mail
- * address, each with the number of its open operations findings. `total` is in integer cents.
+ * address, each with its shipping status and the number of its open operations findings. `total`
+ * is in integer cents.
  */
 export interface AdminOrderListEntry {
   orderId: number
   createdAt: string
   status: OrderStatus
   paymentStatus: OrderPaymentStatus | null
+  shippingStatus: OrderShippingStatus | null
   total: number
   email: string
   openFindings: number
@@ -94,7 +103,7 @@ export interface OrderTimelineJob {
  * history, and the open findings. Timestamps are ISO strings; amounts are integer cents.
  */
 export interface OrderTimeline {
-  order: Order & {
+  order: Omit<Order, 'shippingStatus' | 'shipments'> & {
     email: string
     phone: string | null
     shippingAddress: AdminOrderAddress

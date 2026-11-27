@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Coffee, Loader2, Package, Paintbrush, ShoppingCart } from 'lucide-vue-next'
+import {
+  Coffee,
+  ExternalLink,
+  Loader2,
+  Package,
+  Paintbrush,
+  ShoppingCart,
+  Truck,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/formatPrice'
 import type { Order, OrderItem } from '@/stores/shop/orders'
@@ -29,10 +37,19 @@ const emit = defineEmits<{
   redesignItem: [item: OrderItem]
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 /** The backend states the discount; it is never inferred from the other three amounts. */
 const hasDiscount = computed(() => props.order.discountAmount > 0)
+const hasShipments = computed(() => props.order.shipments.length > 0)
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'de-DE', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
 
 function isItemBusy(item: OrderItem) {
   return props.addingItemId === item.orderItemId
@@ -61,6 +78,50 @@ function getItemTotal(item: OrderItem) {
 
 <template>
   <div class="space-y-4">
+    <div
+      v-if="hasShipments"
+      class="rounded-lg border border-border bg-background p-4"
+      data-testid="order-shipments"
+    >
+      <div class="flex items-center gap-2 text-sm font-medium">
+        <Truck class="size-4 text-muted-foreground" />
+        <span>{{ t('orders.shipmentsTitle') }}</span>
+      </div>
+      <ul class="mt-3 divide-y divide-border text-sm">
+        <li
+          v-for="(shipment, index) in order.shipments"
+          :key="`${shipment.shippedAt}-${index}`"
+          class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-2 first:pt-0 last:pb-0"
+          data-testid="order-shipment"
+        >
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span class="font-medium">
+              {{ t('orders.shippedOn', { date: formatDate(shipment.shippedAt) }) }}
+            </span>
+            <span v-if="shipment.carrierName" class="text-muted-foreground">
+              {{ t('orders.carrier') }}:
+              <span class="font-medium text-foreground">{{ shipment.carrierName }}</span>
+            </span>
+            <span v-if="shipment.trackingNumber" class="text-muted-foreground">
+              {{ t('orders.trackingNumber') }}:
+              <span class="font-mono text-xs text-foreground">{{ shipment.trackingNumber }}</span>
+            </span>
+          </div>
+          <a
+            v-if="shipment.trackingUrl"
+            :href="shipment.trackingUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline"
+            data-testid="order-tracking-link"
+          >
+            {{ t('orders.trackShipment') }}
+            <ExternalLink class="size-3.5" />
+          </a>
+        </li>
+      </ul>
+    </div>
+
     <ul class="divide-y divide-border rounded-lg border border-border bg-background">
       <li
         v-for="item in order.items"

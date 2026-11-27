@@ -47,6 +47,20 @@ export interface OrderItem {
 }
 
 /**
+ * Shipping progress of a paid order across its production jobs; `null` when no production request
+ * exists yet (unpaid or cancelled order).
+ */
+export type OrderShippingStatus = 'OPEN' | 'PARTIALLY_SHIPPED' | 'SHIPPED'
+
+/** One shipped parcel as a customer sees it, with the shop's own tracking link when available. */
+export interface OrderShipment {
+  shippedAt: string
+  carrierName: string | null
+  trackingNumber: string | null
+  trackingUrl: string | null
+}
+
+/**
  * What `GET /api/orders` and `GET /api/orders/{orderId}` both answer — the list entry carries its
  * lines, so no second request per order is needed.
  *
@@ -60,6 +74,8 @@ export interface Order {
   createdAt: string
   status: OrderStatus
   paymentStatus: OrderPaymentStatus | null
+  shippingStatus: OrderShippingStatus | null
+  shipments: OrderShipment[]
   subtotal: number
   shippingCost: number
   discountAmount: number
