@@ -25,6 +25,7 @@ every difference.
   - [How one sync run works](#how-one-sync-run-works)
   - [The report and its warning codes](#the-report-and-its-warning-codes)
   - [The sync decisions](#the-sync-decisions)
+- [The partner's stock](#the-partners-stock)
 - [Validation and normalization](#validation-and-normalization)
 - [The database schema](#the-database-schema)
 - [Concurrency: the ordering locks and the deferred unique rule](#concurrency-the-ordering-locks-and-the-deferred-unique-rule)
@@ -378,11 +379,15 @@ sizes of active variants.
 | `GET /api/articles/categories` | `200`, the navigation over every visible article |
 
 **One visibility rule**: the article is active, its category is set and
-active, and it has no subcategory or an active one. `storefront.ts` writes it
+active, and it has no subcategory or an active one. A SPOD article also needs
+at least one active variant in stock at the partner (see
+[The partner's stock](#the-partners-stock)). `storefront.ts` writes it
 once per type (`visibleMugs`, `visibleSpodArticles`) and every read starts from
 it, so the navigation never leads into an empty list.
 
-- **No supplier fields and no `active` flags**; only active variants.
+- **No supplier fields and no `active` flags**; only active variants, and of
+  a SPOD article only those in stock. When its default is sold out, the first
+  variant still in stock answers `isDefault: true`.
 - **`articleType`** (`"MUG"`, `"SPOD"`) is the discriminator a grid that merges
   both lists switches on. It stays out of the admin representations.
 - **`price`** is the effective gross in cents (a discount already subtracted),
@@ -402,6 +407,8 @@ it, so the navigation never leads into an empty list.
 articleCatalog.find(references: Iterable<ArticleVariantReference>): Promise<Map<string, CatalogVariant>>
 articleCatalog.printFormats(articleIds: Iterable<number>): Promise<Map<number, PrintAspectRatio>>
 spodCatalogSync.sync(source: SpodCatalogSource): Promise<SpodSyncResult>
+spodStock.record(destinationId, environment, stock: ReadonlyMap<string, number>, complete): Promise<number>
+spodStock.keysOf(variantIds): Promise<SpodStockKey[]>
 ```
 
 **`find`** answers a batch of `{ articleId, variantId }` pairs. The map is
@@ -417,7 +424,7 @@ empty input runs no SQL, a batch without prices asks pricing nothing.
 | --- | --- |
 | `articleType` | `'MUG' \| 'SPOD'` |
 | `articleName`, `variantName` | a SPOD variant's name is `"Black / M"` |
-| `purchasable` | active article ∧ active variant ∧ a price exists |
+| `purchasable` | active article ∧ active variant ∧ a price exists; a SPOD variant also needs stock |
 | `grossSalesPriceCents` | the effective gross, `null` without a price row — never a `0` |
 | `supplierId`, `supplierArticleNumber` | a SPOD article answers no number |
 | the five layout mm fields | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm`; `null` for SPOD and for a mug without details |
@@ -434,7 +441,8 @@ ratio, and `'1:1'` for every SPOD article (AI image generation stays decoupled
 from the measured print frame's aspect ratio for now; the editor crops and
 composes to the frame's stored `widthPct / heightPct`).
 
-**`spodCatalogSync`** is described next.
+**`spodCatalogSync`** is described next, **`spodStock`** in
+[The partner's stock](#the-partners-stock).
 
 ## The SPOD catalog sync
 
@@ -664,6 +672,50 @@ in [The sync decisions](https://github.com/bitstorm-tech/voenix-shop-kotlin/blob
    `MOCKUP` is not a `LISTING` image, and a colour is sellable only with both a
    mockup and at least one listing image.
 
+## The partner's stock
+
+A SPOD variant the partner has no stock of, or no longer sells, is neither
+shown nor sold. `article_spod_variants.spod_stock`
+([`V46`](../../../../backend/migrations/V46__article_spod_variant_stock.sql))
+holds the partner's quantity per SKU; `IN_STOCK` in `spod-article/stock.ts` is
+the one predicate (`spod_stock IS NULL OR spod_stock > 0`) the storefront, the
+navigation, the sold sizes' measurements, and `articleCatalog.find` (and so
+the cart and the order placement) share. `NULL` means "never read" and hides
+nothing; a variant without a SKU is never read.
+
+This module only stores what the production module reads, because the access
+to the partner is production's (sync decision 5):
+
+- **The stock worker** in production reads every SPOD destination's whole
+  `GET /stock` listing at startup and then every 15 minutes (about one call
+  per hundred SKUs) and hands it to `spodStock.record(…, complete)`. A
+  **complete** listing (as many SKUs as its `count`) stores `0` on every SKU of
+  that destination and environment it lacks: the partner took it out of the
+  range, and the article disappears before the next manual sync deactivates it
+  and marks it *Missing at Spreadconnect*. An incomplete listing records only
+  the SKUs it names; a page that is not answered records nothing.
+- **The checkout** asks `GET /stock/{sku}` for each SPOD line of the cart right
+  before TX1, within five seconds altogether, and records the answers partially.
+  A line sold out since it was added is then refused by TX1's buy rule as
+  `itemUnavailable`.
+
+Decisions (2026-11-27, Joe):
+
+1. **Its own column, not `active`.** A sync never activates (decision 6), so a
+   variant deactivated for being sold out would have to be activated by hand
+   after every restock. The stock column hides it and lets it come back by
+   itself.
+2. **Hidden at `0`**, no safety buffer. A variant sold out between the page
+   view and the SPOD submission ends as `Order.needs-action`, as before.
+3. **A partner that does not answer changes nothing.** The stored stock stays,
+   both in the worker and at checkout (a `404` for one SKU included; the next
+   complete listing stores its `0`). An outage of the partner neither empties
+   the shop nor blocks a checkout.
+4. **The manual sync does not write the stock.** A synced article is inactive
+   until an admin activates it, and the worker has read its stock long before.
+   Rejected: the variant's `stock` field of `GET /articles`, which would make
+   every run `updated` for a changed quantity.
+
 ## Validation and normalization
 
 | Field | Rule and message |
@@ -805,6 +857,7 @@ stubbed `fetch` behind the real `createSpodClient`.
 | `mug/routes.test.ts` | one happy path per mug route; the field errors of the write path, the list with supplier names, the reorder answer and its `409`, the pre-upload |
 | `mug/service.test.ts` | the price joins the transaction (a rejected article leaves no price, identity, or variant identity; a rejected price creates no article; the price is rewritten in place and deleted with the mug), the variant diff with default swap and file cleanup (a shared file survives), concurrent writers stay dense, an outsider's rotation makes the reorder `409` |
 | `spod-article/routes.test.ts` | the five admin routes, the four write-path activation refusals, the measurements of every variant size with the lowest-id label, the delete with all three kinds of file and the measurements, the reorder and its `409`, no create and no t-shirt paths |
+| `spod-article/stock.test.ts` | `record`: a complete listing stores `0` for the SKUs it lacks on its own destination only, an identical one changes nothing, a partial one touches only its SKUs; `keysOf`; a sold-out variant hidden and not purchasable, its default role handed on; an article with nothing in stock gone from the list and the menu, back once restocked |
 | `storefront.test.ts` | the visibility matrix over mugs, SPOD articles, and the navigation; the whole public documents; the discounted price; no partner ids in the SPOD answer; the measurements of active sizes only; the empty catalog |
 | `catalog.test.ts` | `find`: purchasable, inactive, draft without price, discounted, unknown and cross-article pairs, the SPOD triple and hotspot, an unmeasured SPOD article; `printFormats` |
 | `spod-article/calibration.test.ts` | `measurePrintFrame` and `dimensionsForAspectRatio` on drawn preview pairs: flat square and non-square (`3:2`, `2:1`) frames, dark shading + warm lighting + glare + gamma 2.2, neon green/magenta garments, half-up edges ending at 100, glossy round product with mask, shaped cutouts (phone case camera hole, zip hoodie, visible bounds), full-bleed overhang past the mockup edges, `DISTORTED_PRINT` (25° rotation and aspect-ratio mismatch), `NO_PRINT_AREA`, `UNREADABLE_IMAGE`, and the 4000 px calibration design pairs |

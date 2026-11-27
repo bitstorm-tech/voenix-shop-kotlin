@@ -202,6 +202,13 @@ Three things to get right over there, because only the backoffice can fix them:
   variant inactive, and the next run after the pictures exist fills them in.
   The same holds for pictures lost from this shop's disk: the next run
   downloads every picture whose file is gone, and the article keeps its id.
+- **Sold out means hidden, by itself.** Every 15 minutes, and once more right
+  before a checkout, the shop reads the partner's stock. A size or colour the
+  partner has no stock of disappears from the shop and cannot be bought, an
+  article with nothing left disappears entirely, and both come back on their
+  own once the partner restocks. An article the partner takes out of the range
+  disappears the same way within 15 minutes; the next sync marks it *Missing
+  at Spreadconnect*. Nothing of this changes the *Active* switch.
 - **An article whose variants span more than one product type is skipped.** One
   article here is one product in several colours and sizes.
 - **The product type needs a front view with at least one front hotspot** —
@@ -349,7 +356,8 @@ are uploaded at most once per run); the picture downloads do not count. Twenty
 tees of one product type therefore cost as much calibration as one tee. Each
 paced call takes a little over a second, so ten different product types add
 about one to two minutes to a run. The run works in the background; the screen
-polls it until it is done.
+polls it until it is done. The stock reading shares the budget: about one call
+per hundred SKUs every 15 minutes, and one per SPOD line at checkout.
 
 ### 5c. Complete the shop's half in the article editor
 

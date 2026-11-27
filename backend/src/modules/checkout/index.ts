@@ -19,6 +19,7 @@ export function createCheckoutModule({
   promotionCodes,
   orders,
   countries,
+  refreshSpodStock,
   guestTokens,
 }: {
   db: Kysely<Tables>
@@ -26,6 +27,7 @@ export function createCheckoutModule({
   promotionCodes: Pick<PromotionCodes, 'reserve' | 'release'>
   orders: Pick<Orders, 'place' | 'payable' | 'confirmFree' | 'startPayment'>
   countries: Pick<CountryModule, 'shippingPolicy'>
+  refreshSpodStock: (variantIds: readonly number[]) => Promise<void>
   guestTokens: Auth['guestTokens']
 }) {
   const service = createCheckoutService({
@@ -34,6 +36,7 @@ export function createCheckoutModule({
     promotionCodes,
     orders,
     countries,
+    refreshSpodStock,
   })
   return { routes: checkoutRoutes(service, guestTokens) }
 }

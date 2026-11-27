@@ -13,6 +13,7 @@ import {
   unreferencedFilenames,
 } from '../persistence'
 import { writePrice } from '../price'
+import { IN_STOCK } from './stock'
 import type { SpodArticleInput } from './service'
 import '../schema'
 
@@ -307,7 +308,7 @@ export async function sizeMeasurements(
     .selectFrom('article_spod_variants')
     .select(['article_id', 'spod_size_id', 'size_label'])
     .where('article_id', 'in', articleIds)
-    .$if(activeOnly, (query) => query.where('active', '=', true))
+    .$if(activeOnly, (query) => query.where('active', '=', true).where(IN_STOCK))
     .orderBy('id')
     .execute()
   const labels = new Map<string, string>()

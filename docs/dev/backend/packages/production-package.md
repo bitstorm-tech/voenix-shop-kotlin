@@ -203,6 +203,7 @@ const production = await createProductionModule({
   suppliers,                              // find(ids), for supplier names
   articleCatalog: article.articleCatalog, // today's supplier and partner ids
   spodCatalogSync: article.spodCatalogSync,
+  spodStock: article.spodStock,           // where the stock worker stores the partner's stock
   spod,                                   // the application's one SpodClient
   accounts,                               // SupplierAccounts, implemented by account
   orders,                                 // ProductionOrders, implemented by order
@@ -212,7 +213,8 @@ app.route('/', production.routes)
 production.worker.start()
 // order receives production.requestProduction and production.productionPdfGenerator,
 // operations receives production.findings, production.ofOrder (the timeline's production section),
-// and production.releaseSpodJob (the admin's release of a quarantined SPOD job)
+// and production.releaseSpodJob (the admin's release of a quarantined SPOD job),
+// checkout receives production.refreshSpodStock
 // at shutdown
 await production.worker.stop()
 ```
@@ -233,7 +235,11 @@ module runs:
   than the first generation.
 
 `worker.start()` scans once immediately and then every minute; `stop()` aborts
-between rows and resolves when the row in progress is finished. Run **one**
+between rows and resolves when the row in progress is finished. It also starts
+the stock worker (`spod/stock.ts`), which reads every SPOD destination's stock
+into the article module now and then every 15 minutes; `refreshSpodStock`
+reads a cart's SPOD lines once more for the checkout (see
+[The partner's stock](article-package.md#the-partners-stock)). Run **one**
 worker per database: the partner offers no idempotency key, so a second worker
 could create a second paid order (see [SPOD fulfillment](spod-fulfillment.md)).
 

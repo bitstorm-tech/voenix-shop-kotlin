@@ -161,6 +161,15 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const designAnswer = z.object({ designId: lenientId })
 const createdOrderAnswer = z.object({ id: lenientId })
 const orderStateAnswer = z.object({ state: z.string() })
+/**
+ * One page of the stock: SKU → quantity, and the size of the whole listing. Strict on purpose: the
+ * caller stores a SKU the listing lacks as sold out, so a page that cannot be read must not count.
+ */
+const stockPageAnswer = z.object({
+  items: z.record(z.string(), z.number().int()),
+  count: z.number().int(),
+})
+const stockAnswer = z.number().int()
 const hotspotsAnswer = z.object({ hotspots: z.array(z.object({ name: z.string() })).default([]) })
 const subscriptionsAnswer = z.array(
   z.object({
@@ -426,6 +435,27 @@ export function createSpodClient({
         `/articles?limit=${String(limit)}&offset=${String(offset)}`,
         { method: 'GET' },
         json(spodCatalogPage),
+        signal,
+      ),
+
+    /** One page of the stock of every SKU of the merchant's articles; paging is the caller's. */
+    stock: (access: SpodAccess, limit: number, offset: number) =>
+      call(
+        access,
+        'listing stock',
+        `/stock?limit=${String(limit)}&offset=${String(offset)}`,
+        { method: 'GET' },
+        json(stockPageAnswer),
+      ),
+
+    /** The stock of one SKU; an unknown SKU is refused (`404`). */
+    stockOf: (access: SpodAccess, sku: string, signal?: AbortSignal) =>
+      call(
+        access,
+        'reading stock',
+        `/stock/${encodeURIComponent(sku)}`,
+        { method: 'GET' },
+        json(stockAnswer),
         signal,
       ),
 
