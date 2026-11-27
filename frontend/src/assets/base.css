@@ -67,7 +67,6 @@
   --payment-badge-border: oklch(0 0 0 / 0.08);
   --surface-glass: oklch(1 0 0 / 0.92);
   --shadow-elevated-hover: 0 4px 16px oklch(0 0 0 / 0.08);
-  --rating: oklch(0.769 0.1647 70.08);
   --category-mugs-surface: linear-gradient(
     135deg,
     oklch(0.98 0.02 60) 0%,
@@ -170,7 +169,6 @@
   --payment-badge-border: oklch(1 0 0 / 0.14);
   --surface-glass: oklch(0.287 0.0072 285.935 / 0.88);
   --shadow-elevated-hover: 0 4px 16px oklch(0 0 0 / 0.35);
-  --rating: oklch(0.769 0.1647 70.08);
   --category-mugs-surface: linear-gradient(
     135deg,
     oklch(0.31 0.07 35 / 0.4) 0%,
@@ -271,7 +269,6 @@
   --color-payment-badge: var(--payment-badge);
   --color-payment-badge-border: var(--payment-badge-border);
   --color-surface-glass: var(--surface-glass);
-  --color-rating: var(--rating);
   --animate-wizard-step-enter: wizard-step-fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-enter-lift: enter-lift 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-enter-scale: enter-scale 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;

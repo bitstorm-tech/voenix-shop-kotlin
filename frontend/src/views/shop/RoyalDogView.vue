@@ -3,7 +3,6 @@ import type { RouteLocationRaw } from 'vue-router'
 import RoyalDogHero from '@/components/shop/landing/royaldog/RoyalDogHero.vue'
 import RoyalDogSteps from '@/components/shop/landing/royaldog/RoyalDogSteps.vue'
 import RoyalDogGallery from '@/components/shop/landing/royaldog/RoyalDogGallery.vue'
-import RoyalDogReviews from '@/components/shop/landing/royaldog/RoyalDogReviews.vue'
 import RoyalDogCtaBand from '@/components/shop/landing/royaldog/RoyalDogCtaBand.vue'
 
 /**
@@ -50,7 +49,6 @@ const wizardTo: RouteLocationRaw = {
     <RoyalDogHero :wizard-to="wizardTo" :before-image="beforeImage" :after-image="afterImage" />
     <RoyalDogSteps />
     <RoyalDogGallery :images="galleryImages" />
-    <RoyalDogReviews />
     <RoyalDogCtaBand :wizard-to="wizardTo" />
   </div>
 </template>

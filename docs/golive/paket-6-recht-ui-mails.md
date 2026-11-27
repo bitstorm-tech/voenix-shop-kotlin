@@ -1,6 +1,6 @@
 # Paket 6: Rechtliche Seiten, Kasse, Bestellmails, PAngV, GPSR & Katalog-UI
 
-**Enthaltene offene Punkte aus [`docs/golive/README.md`](README.md):** `A1` (Fallback/EN), `A3` (Checkout-Hinweis), `A4`, `A5` (§ 36 VSBG), `A7`, `A8`, `A10`, `A11`, `A13`, `A14`, `A16` (Checkout-Hinweis & Live-KYC-Abgleich), `A18`, `A20`, `A21` (Lieferzeiten & „ab 150 €“), `C2`, `C4`  
+**Enthaltene offene Punkte aus [`docs/golive/README.md`](README.md):** `A1` (Fallback/EN), `A3` (Checkout-Hinweis), `A4`, `A5` (§ 36 VSBG), `A7`, `A8`, `A11`, `A13`, `A14`, `A16` (Checkout-Hinweis & Live-KYC-Abgleich), `A18`, `A20`, `A21` (Lieferzeiten & „ab 150 €“), `C2`, `C4`  
 **Risikoprofil:** Mittel bis Hoch (rechtliche Pflichtangaben im Shop & in Bestellmails; berührt Frontend + Mail-Templates + Artikel-Schema für GPSR).  
 **Empfohlener Zeitpunkt:** Bis auf die EN-iubenda-Policy-ID (`A1`) und den finalen Mollie-Live-KYC-Abgleich (`A16`) ist **alles sofort umsetzbar**.
 
@@ -13,7 +13,7 @@
 3. **Werbeaussagen (`A11`):** **„Made in Germany“** und **„DHL aus Deutschland“** sind korrekt und bleiben erhalten. Entfernt werden nur nicht existierende Produkte („Poster“, „Als Karte“); Zahlarten und DE-/EU-Lieferzeiten werden exakt abgeglichen.
 4. **`/royal-dog` (`C4`):** Route & Verlinkungen für den Launch **vorerst ausblenden** (kein Prompt-Blocker).
 5. **Aufteilung:**
-   - **Sofort umsetzbar:** Abschnitte **1** (`A5`-VSBG, `A21`), **2** (`A1`-Code-Fallback), **3** (`A7`, `A8`, `A3`/`A16`/`A18`), **4** (`A4`), **5** (`A10`, `A11`-Streichungen, `A14`, `A20`), **6** (`A13`) und **7** (`C2`, `C4`).
+   - **Sofort umsetzbar:** Abschnitte **1** (`A5`-VSBG, `A21`), **2** (`A1`-Code-Fallback), **3** (`A7`, `A8`, `A3`/`A16`/`A18`), **4** (`A4`), **5** (`A11`-Streichungen, `A14`, `A20`), **6** (`A13`) und **7** (`C2`, `C4`).
    - **Nach externen Zulieferungen:** Englische **iubenda-Policy-ID** (`A1`) und finaler Abgleich der **aktiven Mollie-Zahlarten** nach Live-KYC (`A16`, insb. PayPal-Freischaltung).
 
 ---
@@ -56,16 +56,14 @@
   - Vollständige Anbieterangaben (JoTo AI GbR, Gesellschafter, Anschrift, E-Mail, Telefonnummer, USt-IdNr.) in den Mail-Footer von `layout.ts` aufnehmen.
   - Mail-Template-Tests aktualisieren.
 
-### 5. `A10`, `A11`, `A14`, `A20` — UWG-Bereinigung, Upload-Hinweise & Wizard-Legal-Leiste
+### 5. `A11`, `A14`, `A20` — UWG-Bereinigung, Upload-Hinweise & Wizard-Legal-Leiste
 - **Dateien:**
   - `frontend/src/views/shop/HomeView.vue:139-159,230,276,328-370`
-  - `frontend/src/components/shop/campaigns/royal-dog/RoyalDogReviews.vue`
   - `frontend/src/i18n/locales/de.json`, `en.json`
   - `frontend/src/components/shop/wizard/steps/UploadImageStep.vue:44-75`
   - `frontend/src/components/shop/editor/ProductDraftUpload.vue:44-70`
   - `frontend/src/layouts/ShopLayout.vue:20,36`
 - **Umsetzung:**
-  - **`A10`:** Hardcodierte Kundenstimmen auf Startseite & `/royal-dog` entfernen sowie ungenutzte Fake-Stats (`4,9 Sterne`, `50k+ Designs`) aus `de.json`/`en.json` löschen.
   - **`A11`:** Nicht existierende Produkte („Poster“, „Als Karte“) entfernen; „Made in Germany“ und „DHL aus Deutschland“ bleiben erhalten; Zahlarten und DE-/EU-Lieferzeit-Angaben überall konsistent halten.
   - **`A14`:** In **beiden** Upload-Komponenten (`UploadImageStep.vue` und `ProductDraftUpload.vue`) einen kurzen Hinweis zu Bildrechten, abgebildeten Personen und KI-Verarbeitung mit Links zu `/privacy` und `/terms` einbauen.
   - **`A20`:** Auch bei `hideFooter: true` (`/wizard`, `/editor`) eine schmale Legal-Leiste (`Impressum · Datenschutz · AGB`) rendern.

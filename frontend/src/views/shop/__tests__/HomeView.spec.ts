@@ -126,7 +126,7 @@ describe('HomeView', () => {
     expect(sections[1]?.text()).toContain('DHL-Versand')
     expect(sections[1]?.text()).toContain('Sichere Zahlung')
     expect(sections[2]?.attributes('id')).toBe('styles')
-    expect(sections[3]?.text()).toContain('Das sagen unsere Kunden')
+    expect(sections[3]?.text()).toContain('Jetzt ausprobieren')
   })
 
   it('randomizes both landing carousels on load without mutating store order', async () => {

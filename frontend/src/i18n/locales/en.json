@@ -668,30 +668,6 @@
       "title": "Freshly crowned",
       "alt": "A dog as a royal portrait"
     },
-    "reviews": {
-      "kicker": "Reviews",
-      "title": "The staff is delighted",
-      "items": {
-        "lena": {
-          "initial": "L",
-          "name": "Lena M.",
-          "detail": "Pug · King Karl",
-          "text": "Our pug Karl is now King Karl on my mug. Coffee with His Majesty, every morning."
-        },
-        "tom": {
-          "initial": "T",
-          "name": "Tom B.",
-          "detail": "Dachshund · Emperor",
-          "text": "My girlfriend's dachshund as an emperor. She cried laughing, and the mug instantly became her favorite."
-        },
-        "anna": {
-          "initial": "A",
-          "name": "Anna K.",
-          "detail": "Golden Retriever · Queen",
-          "text": "Uploaded one photo, two minutes later our girl sat on a throne wearing a crown. The print quality is excellent."
-        }
-      }
-    },
     "cta": {
       "title": "Every dog is royalty. Yours deserves the proof.",
       "subtitle": "Free preview, no account needed. The crown is waiting.",
@@ -780,43 +756,11 @@
       "retry": "Try again",
       "openStyle": "Choose {title} style"
     },
-    "reviews": {
-      "kicker": "Customer voices",
-      "title": "What our customers say",
-      "items": {
-        "markus": {
-          "initial": "M",
-          "text": "Got a photo of our dog printed as watercolor on a mug. My wife loved it — best gift.",
-          "name": "Markus T.",
-          "detail": "Mug · Watercolor"
-        },
-        "sarah": {
-          "initial": "S",
-          "text": "Pop art on the thermo mug looks like it was painted by an artist. Great quality, print lasts perfectly.",
-          "name": "Sarah K.",
-          "detail": "Thermo mug · Pop Art"
-        },
-        "julia": {
-          "initial": "J",
-          "text": "Ordered personalized mugs for the team — everyone their own photo in cartoon style. A hit in the office!",
-          "name": "Julia M.",
-          "detail": "6x mugs · Cartoon"
-        }
-      }
-    },
     "cta": {
       "title": "Try it now — for free.",
       "subtitle": "Upload a photo, pick a style, see the preview. Only pay when you order.",
       "primaryCta": "Upload photo"
     }
-  },
-  "stats": {
-    "rating": "4.9",
-    "ratingLabel": "Star Rating",
-    "designs": "50k+",
-    "designsLabel": "Designs Created",
-    "shipping": "3–5 d",
-    "shippingLabel": "Fast Shipping"
   },
   "cta": {
     "headline": "Ready for your masterpiece?",

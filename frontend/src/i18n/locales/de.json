@@ -668,30 +668,6 @@
       "title": "Frisch gekrönt",
       "alt": "Ein Hund als königliches Porträt"
     },
-    "reviews": {
-      "kicker": "Bewertungen",
-      "title": "Das Personal ist begeistert",
-      "items": {
-        "lena": {
-          "initial": "L",
-          "name": "Lena M.",
-          "detail": "Mops · König Karl",
-          "text": "Unser Mops Karl ist jetzt König Karl auf meiner Tasse. Kaffee mit Seiner Majestät, jeden Morgen."
-        },
-        "tom": {
-          "initial": "T",
-          "name": "Tom B.",
-          "detail": "Dackel · Kaiser",
-          "text": "Der Dackel meiner Freundin als Kaiser. Sie hat Tränen gelacht, und die Tasse ist sofort ihre Lieblingstasse geworden."
-        },
-        "anna": {
-          "initial": "A",
-          "name": "Anna K.",
-          "detail": "Golden Retriever · Königin",
-          "text": "Ein Foto hochgeladen, zwei Minuten später saß unsere Hündin mit Krone auf dem Thron. Die Druckqualität ist top."
-        }
-      }
-    },
     "cta": {
       "title": "Jeder Hund ist königlich. Deiner verdient den Beweis.",
       "subtitle": "Vorschau kostenlos, kein Account nötig. Die Krone wartet.",
@@ -780,43 +756,11 @@
       "retry": "Erneut versuchen",
       "openStyle": "Stil {title} auswählen"
     },
-    "reviews": {
-      "kicker": "Kundenstimmen",
-      "title": "Das sagen unsere Kunden",
-      "items": {
-        "markus": {
-          "initial": "M",
-          "text": "Hab ein Foto von unserem Hund als Aquarell auf eine Tasse drucken lassen. Meine Frau war begeistert — bestes Geschenk.",
-          "name": "Markus T.",
-          "detail": "Tasse · Aquarell"
-        },
-        "sarah": {
-          "initial": "S",
-          "text": "Pop-Art auf dem Thermobecher sieht aus wie vom Künstler. Qualität top, Druck hält einwandfrei.",
-          "name": "Sarah K.",
-          "detail": "Thermobecher · Pop-Art"
-        },
-        "julia": {
-          "initial": "J",
-          "text": "Personalisierte Tassen fürs Team bestellt — jeder sein Foto im Cartoon-Stil. Mega fürs Büro!",
-          "name": "Julia M.",
-          "detail": "6x Tassen · Cartoon"
-        }
-      }
-    },
     "cta": {
       "title": "Jetzt ausprobieren — kostenlos.",
       "subtitle": "Foto hochladen, Stil wählen, Vorschau sehen. Bezahlen erst wenn du bestellst.",
       "primaryCta": "Foto hochladen"
     }
-  },
-  "stats": {
-    "rating": "4,9",
-    "ratingLabel": "Sterne Bewertung",
-    "designs": "50k+",
-    "designsLabel": "Erstellte Designs",
-    "shipping": "3–5 d",
-    "shippingLabel": "Schneller Versand"
   },
   "cta": {
     "headline": "Bereit für dein Kunstwerk?",

@@ -5,8 +5,7 @@ import LandingCarousel from '@/components/shop/landing/LandingCarousel.vue'
 import LandingCarouselCard from '@/components/shop/landing/LandingCarouselCard.vue'
 import ImageComparisonSlider from '@/components/shared/ImageComparisonSlider.vue'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { ArrowRight, BadgeCheck, CheckCircle, ShieldCheck, Star, Truck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, CheckCircle, ShieldCheck, Truck } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -42,7 +41,6 @@ const subcategories = computed(() =>
   ),
 )
 
-const reviews = ['markus', 'sarah', 'julia'] as const
 const heroMetaItems = ['noAccount', 'preview', 'shipping'] as const
 
 onMounted(() => {
@@ -233,45 +231,6 @@ onMounted(() => {
             />
           </template>
         </LandingCarousel>
-      </div>
-    </section>
-
-    <section class="bg-background-warm py-14">
-      <div class="mx-auto max-w-[1100px] px-6">
-        <header class="mx-auto mb-8 max-w-[480px] text-center">
-          <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
-            {{ t('landing.reviews.kicker') }}
-          </p>
-          <h2 class="text-2xl font-extrabold tracking-normal text-foreground">
-            {{ t('landing.reviews.title') }}
-          </h2>
-        </header>
-
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card v-for="review in reviews" :key="review" as="article" class="rounded-lg bg-card p-5">
-            <div class="mb-2 flex gap-0.5 text-rating">
-              <Star v-for="index in 5" :key="index" class="size-3.5 fill-current" />
-            </div>
-            <p class="text-sm leading-relaxed text-foreground-soft">
-              {{ t(`landing.reviews.items.${review}.text`) }}
-            </p>
-            <div class="mt-4 flex items-center gap-2">
-              <div
-                class="grid size-7 place-items-center rounded-full bg-background-warm text-xs font-bold text-foreground-soft"
-              >
-                {{ t(`landing.reviews.items.${review}.initial`) }}
-              </div>
-              <div>
-                <p class="text-xs font-bold text-foreground">
-                  {{ t(`landing.reviews.items.${review}.name`) }}
-                </p>
-                <p class="text-[11px] text-foreground-faint">
-                  {{ t(`landing.reviews.items.${review}.detail`) }}
-                </p>
-              </div>
-            </div>
-          </Card>
-        </div>
       </div>
     </section>
 

@@ -26,7 +26,7 @@ Jedes Paket ist für eine eigene Session (bei Bedarf in getrennten Worktrees) ge
 
 | Paket | Schwerpunkt | Enthaltene Punkte | Workflow / Reihenfolge |
 |---|---|---|---|
-| **[Paket 6](paket-6-recht-ui-mails.md)** | **Sofort umsetzbar:** PAngV, Button-Lösung, EU-GPSR, UWG, Upload-/DSGVO-Hinweise, Legal-Leiste, iubenda-Fallback, Bestellbestätigungs-Mail (`A4`), § 36 VSBG (`A5`), `/shipping`-Lieferzeiten (`A21`), `C2`, `C4`. **Nach externen Zulieferungen:** EN-iubenda-Policy-ID (`A1`) & Mollie-Live-KYC-Zahlartenabgleich (`A16`). | `A1`, `A3`-Checkout, `A4`, `A5`-VSBG, `A7`–`A8`, `A10`–`A11`, `A13`–`A14`, `A16`, `A18`, `A20`–`A21`, `C2`, `C4` | Code sofort; EN-iubenda-ID & Live-Zahlartenabgleich nach externer Klärung. |
+| **[Paket 6](paket-6-recht-ui-mails.md)** | **Sofort umsetzbar:** PAngV, Button-Lösung, EU-GPSR, UWG, Upload-/DSGVO-Hinweise, Legal-Leiste, iubenda-Fallback, Bestellbestätigungs-Mail (`A4`), § 36 VSBG (`A5`), `/shipping`-Lieferzeiten (`A21`), `C2`, `C4`. **Nach externen Zulieferungen:** EN-iubenda-Policy-ID (`A1`) & Mollie-Live-KYC-Zahlartenabgleich (`A16`). | `A1`, `A3`-Checkout, `A4`, `A5`-VSBG, `A7`–`A8`, `A11`, `A13`–`A14`, `A16`, `A18`, `A20`–`A21`, `C2`, `C4` | Code sofort; EN-iubenda-ID & Live-Zahlartenabgleich nach externer Klärung. |
 
 ```mermaid
 flowchart LR
@@ -71,7 +71,7 @@ flowchart LR
   - **BFSG-Kleinstunternehmer-Ausnahme** (<10 MA & ≤2 Mio. € Umsatz, § 3 Abs. 3 BFSG) intern dokumentieren.
 
 ### Strang 1D: Offene Code-Pakete (Phase 1)
-- [ ] **[Paket 6 – sofort umsetzbarer Code](paket-6-recht-ui-mails.md):** `A1`-Fallback, `A3`-Checkout-Hinweis, `A4` (Bestellbestätigungs-Mail + Anbieter-Footer), `A5`-Rest (§ 36 VSBG in `/imprint`), `A7`, `A8`, `A10`, `A11`-Streichungen („Poster“/„Als Karte“), `A13` (EU-GPSR), `A14`, `A16`-Checkout-Hinweis, `A18`, `A20`, `A21`-Rest (`/shipping`-Lieferzeiten & „ab 150 €“), `C2`, `C4`.
+- [ ] **[Paket 6 – sofort umsetzbarer Code](paket-6-recht-ui-mails.md):** `A1`-Fallback, `A3`-Checkout-Hinweis, `A4` (Bestellbestätigungs-Mail + Anbieter-Footer), `A5`-Rest (§ 36 VSBG in `/imprint`), `A7`, `A8`, `A11`-Streichungen („Poster“/„Als Karte“), `A13` (EU-GPSR), `A14`, `A16`-Checkout-Hinweis, `A18`, `A20`, `A21`-Rest (`/shipping`-Lieferzeiten & „ab 150 €“), `C2`, `C4`.
 
 ### Strang 1E: Katalog & Admin-Daten bereinigen
 - [ ] **`A12` Stilnamen mit fremden Rechten umbenennen:** „Hundertwasser“, „Picasso“, „Funky Pop Toy Style“, „Instagramm Beauty“ im Admin ändern.
