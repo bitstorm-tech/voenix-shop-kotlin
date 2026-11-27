@@ -1,7 +1,8 @@
 # Go-Live-Fahrplan & offene Checkliste – Voenix Shop
 
-**Stand:** 2026-11-26  
+**Stand:** 2026-11-27  
 Zentrale Arbeitsliste für alle **noch offenen** Aufgaben bis zum Go-Live (konsolidiert aus Audit, Fahrplan und offenen Arbeitspaketen; erledigte Pakete und Punkte wurden entfernt).  
+Für die vollständige Funktions- und Fehlerabnahme aus Kundensicht siehe die separate **[Kundentest-Checkliste](kundentest-checkliste.md)** (Kauf- & Zahlungskombinationen, Zahlungsfehler/Retries, Gutscheine, Konto, E-Mails & Mobilgeräte).  
 *Hinweis: Rechtliche Punkte sind eine technische Einschätzung, keine Rechtsberatung.*
 
 ---
@@ -137,7 +138,7 @@ flowchart LR
 
 ### Domain-Umzug & Live-Abnahme (T0, vor Traffic/Werbung)
 - [ ] **`E1` DNS & Kanonisierung:** `voenix.shop` umstellen; `www.voenix.shop` ↔ `voenix.shop` kanonisch per 301 weiterleiten; HTTPS & Legacy-301-Redirects (`/impressum`, `/pdf/AGBs.pdf`, etc.) stichprobenartig testen.
-- [ ] **`E4` Echte End-to-End-Live-Testbestellungen auf iOS Safari & Android Chrome (mit Live-Mollie-Key):**
+- [ ] **`E4` Vollständige Abnahme aus Kundensicht & echte End-to-End-Live-Testbestellungen auf iOS Safari & Android Chrome (mit Live-Mollie-Key)** — detaillierte Test- und Kombinationsmatrix in der **[Kundentest-Checkliste](kundentest-checkliste.md)**:
   1. **Tasse (SFTP, DE):** Foto → KI-Generierung → Editor (inkl. Stil-Aufpreis `C2`) → Warenkorb (mit/ohne Gutschein) → Live-Zahlung → Bestellmail in Inbox (inkl. AGB/Widerruf/Footer) → `/order/:token` → PDF auf SFTP + Lieferanten-Mail → Versandmarkierung → Versandmail + Tracking.
   2. **Textil (SPOD, EU-Zielland & `en`-Oberfläche):** Länderwechsel im Checkout prüft EU-Versandkosten (Paket 7) → Telefon-Validierung → Live-Zahlung → Live-Order in Spreadconnect inkl. Motiv/Hotspot (insb. falls `OVERALL_FRONT`-Artikel aktiv sind).
   3. **Konto & Fehlerpfade:** Registrierung → E-Mail-Bestätigung → Passwort-Reset → abgebrochene Mollie-Zahlung → Retry-Zahlung erfolgreich.
