@@ -715,20 +715,6 @@
         "ariaLabel": "Comparison slider between photo and design"
       }
     },
-    "categories": {
-      "mug": {
-        "label": "On your mug",
-        "tag": "Print"
-      },
-      "card": {
-        "label": "As a card",
-        "tag": "Print"
-      },
-      "shirt": {
-        "label": "On T-shirts",
-        "tag": "Print"
-      }
-    },
     "how": {
       "kicker": "How it works",
       "title": "From photo to finished product in 3 steps",
@@ -748,9 +734,6 @@
       }
     },
     "products": {
-      "kicker": "Catalog",
-      "title": "Your art on real products",
-      "subtitle": "Quality materials, professional print. Choose your product and get started.",
       "previous": "Show previous products",
       "next": "Show more products",
       "page": "Show products page {page} of {total}",

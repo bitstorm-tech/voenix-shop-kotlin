@@ -715,20 +715,6 @@
         "ariaLabel": "Vergleichsregler zwischen Foto und Design"
       }
     },
-    "categories": {
-      "mug": {
-        "label": "Auf deiner Tasse",
-        "tag": "Druck"
-      },
-      "card": {
-        "label": "Als Karte",
-        "tag": "Druck"
-      },
-      "shirt": {
-        "label": "Auf T-Shirts",
-        "tag": "Druck"
-      }
-    },
     "how": {
       "kicker": "So funktioniert's",
       "title": "In 3 Schritten zum fertigen Produkt",
@@ -748,9 +734,6 @@
       }
     },
     "products": {
-      "kicker": "Sortiment",
-      "title": "Deine Kunst auf echten Produkten",
-      "subtitle": "Hochwertige Materialien, professioneller Druck. Wähle dein Produkt und starte direkt.",
       "previous": "Vorherige Produkte anzeigen",
       "next": "Weitere Produkte anzeigen",
       "page": "Produktseite {page} von {total} anzeigen",
