@@ -313,21 +313,37 @@ describe('GET /api/admin/operations/menu-counts', () => {
     const admin = await get(MENU_COUNTS)
     expect(admin.status).toBe(200)
     expect(admin.headers.get('Cache-Control')).toBe('no-store')
-    expect(await jsonOf(admin)).toEqual({ unshippedOrders: 0, openFindings: 0 })
+    expect(await jsonOf(admin)).toEqual({
+      unshippedOrders: 0,
+      openFindings: 0,
+      pendingMagicCoinRequests: 0,
+    })
   })
 
-  test('counts paid orders not fully shipped and open findings', async () => {
+  test('counts paid orders not fully shipped, open findings, and pending Magic Coin requests', async () => {
     await seedTimeline()
     const unsplit = await seedOrder('zwei@example.test', LATER)
     await database.db.insertInto('production_requests').values({ order_id: unsplit }).execute()
+    await database.db
+      .insertInto('magic_coin_requests')
+      .values({ user_id: 12, status: 'PENDING' })
+      .execute()
 
-    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({ unshippedOrders: 2, openFindings: 1 })
+    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({
+      unshippedOrders: 2,
+      openFindings: 1,
+      pendingMagicCoinRequests: 1,
+    })
 
     await database.db
       .updateTable('production_jobs')
       .set({ prepared_at: LATER, shipped_at: LATER })
       .execute()
-    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({ unshippedOrders: 1, openFindings: 1 })
+    expect(await jsonOf(await get(MENU_COUNTS))).toEqual({
+      unshippedOrders: 1,
+      openFindings: 1,
+      pendingMagicCoinRequests: 1,
+    })
   })
 })
 

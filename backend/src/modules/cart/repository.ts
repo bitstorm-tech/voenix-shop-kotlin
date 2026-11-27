@@ -255,6 +255,27 @@ export function createCartRepository(
       )
       return image?.filename ?? null
     }) satisfies GuestImageResolver,
+
+    /**
+     * How many total item units each user currently holds in their active cart; users without an
+     * active cart (or with an empty one) are absent from the map.
+     */
+    activeCartItemCounts: async (userIds: readonly number[]): Promise<Map<number, number>> => {
+      const unique = [...new Set(userIds)]
+      if (unique.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('carts')
+          .innerJoin('cart_items', 'cart_items.cart_id', 'carts.id')
+          .select(['carts.user_id', (eb) => eb.fn.sum<number>('cart_items.quantity').as('count')])
+          .where('carts.status', '=', 'ACTIVE')
+          .where('carts.user_id', 'in', unique)
+          .groupBy('carts.user_id')
+          .$narrowType<{ user_id: number }>()
+          .execute(),
+      )
+      return new Map(rows.map((row) => [row.user_id, row.count]))
+    },
   }
 }
 

@@ -109,19 +109,6 @@ export async function createApplication(
         resendConfirmation: rateLimit({ limit: 5, windowSeconds: 60 * 60 }),
       },
     })
-    const generator = createGeneratorModule({
-      db,
-      settings: settings.generator,
-      articleCatalog: article.articleCatalog,
-      promptCatalog: prompt.promptCatalog,
-      guestTokens,
-      rateLimit: rateLimit({
-        limit: 20,
-        windowSeconds: 60 * 60,
-        globalLimit: settings.generator.globalMaxPerHour,
-      }),
-      fetch,
-    })
 
     // Order comes before production, which is created with order's reads; the two admin PDF
     // routes need production's generator and are mounted once it exists. The print image read is
@@ -149,17 +136,8 @@ export async function createApplication(
       orders: order.orders,
       alertEmail: settings.operations.alertEmail,
     })
-    // Operations looks across the pipeline through the findings of the three owning modules.
-    const operations = createOperationsModule({
-      db,
-      orders: order.orders,
-      production,
-      outbox: email.outbox,
-      settings: settings.operations,
-      frontendBaseUrl,
-    })
     // The cart owns the print images the guest image route serves, so that route is installed
-    // once both sides exist, like the orphan routes, which ask every module that refers to images. The checkout is the last consumer and exports nothing.
+    // once both sides exist, like the orphan routes, which ask every module that refers to images.
     const cart = createCartModule({
       db,
       articleCatalog: article.articleCatalog,
@@ -169,6 +147,36 @@ export async function createApplication(
       images: image,
       guestTokens,
       promotionRateLimit: rateLimit({ limit: 20, windowSeconds: 15 * 60 }),
+    })
+    const generator = createGeneratorModule({
+      db,
+      settings: settings.generator,
+      articleCatalog: article.articleCatalog,
+      promptCatalog: prompt.promptCatalog,
+      accounts: account.accountDirectory,
+      orders: order.orders,
+      carts: cart,
+      outbox: email.outbox,
+      alertEmail: settings.operations.alertEmail,
+      frontendBaseUrl,
+      guestTokens,
+      rateLimit: rateLimit({
+        limit: 20,
+        windowSeconds: 60 * 60,
+        globalLimit: settings.generator.globalMaxPerHour,
+      }),
+      requestRateLimit: rateLimit({ limit: 10, windowSeconds: 60 * 60 }),
+      fetch,
+    })
+    // Operations looks across the pipeline through the findings of the three owning modules.
+    const operations = createOperationsModule({
+      db,
+      orders: order.orders,
+      production,
+      outbox: email.outbox,
+      magicCoins: generator,
+      settings: settings.operations,
+      frontendBaseUrl,
     })
     const legal = createLegalModule({ fetch })
     const checkout = createCheckoutModule({

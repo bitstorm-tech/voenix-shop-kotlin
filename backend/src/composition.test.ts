@@ -55,11 +55,13 @@ describe('createApplication', () => {
     expect((await request('/api/prompts')).status).toBe(200)
     expect((await request('/api/cart')).status).toBe(200)
     expect((await request('/api/orders')).status).toBe(200)
-    expect((await request('/api/magic-coins/balance')).status).toBe(200)
+    expect((await request('/api/magic-coins/balance')).status).toBe(404)
     expect((await request('/api/order-lookup/nobody')).status).toBe(404)
     expect((await request('/api/images/public/200/nobody.png')).status).toBe(404)
     expect((await request('/api/images/guest/200/1')).status).toBe(404)
     for (const path of [
+      '/api/magic-coins/request-status',
+      '/api/admin/magic-coins/requests',
       '/api/admin/prices',
       '/api/admin/suppliers',
       '/api/admin/promotions',
@@ -146,6 +148,7 @@ describe('an access token', () => {
       expect((await request(path, { headers })).status).toBe(200)
     }
     for (const path of [
+      '/api/admin/magic-coins/requests',
       '/api/admin/orders',
       '/api/admin/orders/1/timeline',
       '/api/admin/production/jobs',
@@ -178,6 +181,7 @@ describe('the MCP endpoint', () => {
       expect(text).toContain('GET /api/admin/operations/findings')
       expect(text).toContain('POST /api/admin/countries json')
       for (const locked of [
+        '/api/admin/magic-coins',
         '/api/admin/orders',
         '/api/admin/production',
         '/api/admin/supplier-logins',

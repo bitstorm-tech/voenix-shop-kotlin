@@ -36,16 +36,24 @@
     }
   },
   "magicCoins": {
-    "badgeLabel": "Magic Coins",
-    "hero": {
-      "title": "Magic Coins"
-    },
-    "summary": {
-      "currentBalance": "Aktueller Bestand"
-    },
-    "unavailableTitle": "Zusätzliche Magic Coins sind bald verfügbar",
-    "unavailableDescription": "Der Kauf zusätzlicher Magic-Coins-Pakete ist derzeit noch nicht freigeschaltet. Dein aktuelles Guthaben siehst du oben.",
-    "backToProducts": "Produkte entdecken"
+    "dialog": {
+      "title": "Deine Magic Coins sind aufgebraucht",
+      "guestDescription": "Deine Magic Coins sind aufgebraucht. Melde dich an oder erstelle ein kostenloses Konto, um weiter KI-Designs zu erstellen.",
+      "requestDescription": "Deine Magic Coins sind aufgebraucht. Klicke auf den Button, wenn du mehr Magic Coins brauchst.",
+      "pendingTitle": "Deine Anfrage ist eingegangen",
+      "pendingDescription": "Wir prüfen deine Anfrage so schnell wie möglich und senden dir eine E-Mail, sobald neue Magic Coins verfügbar sind.",
+      "blockedDescription": "Für dieses Konto können derzeit keine weiteren Magic Coins angefordert werden.",
+      "availableTitle": "Neue Magic Coins verfügbar",
+      "availableDescription": "Du hast wieder Magic Coins verfügbar und kannst direkt weiter KI-Designs erstellen.",
+      "loading": "Status wird geladen...",
+      "requestButton": "Mehr Magic Coins anfragen",
+      "loginButton": "Anmelden",
+      "registerButton": "Konto erstellen",
+      "closeButton": "Schließen",
+      "loadError": "Der Status konnte nicht geladen werden. Du kannst trotzdem versuchen, neue Magic Coins anzufragen.",
+      "submitError": "Deine Anfrage konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+      "rateLimited": "Du hast in kurzer Zeit zu viele Anfragen gesendet. Bitte versuche es später erneut."
+    }
   },
   "auth": {
     "login": {
@@ -1265,11 +1273,8 @@
         "generateButton": "Magie erzeugen",
         "retryButton": "Nochmal versuchen",
         "generateAnother": "Weitere generieren",
-        "costSuffix": "{coins} Coin",
-        "refillMagicCoins": "Magic Coins aufladen",
-        "checkingMagicCoins": "Deine Magic Coins werden geprüft...",
-        "insufficientMagicCoins": "Du hast aktuell keine Magic Coins mehr übrig, um weitere KI-Designs zu generieren.",
-        "magicCoinsUnavailable": "Magic Coins sind aktuell nicht verfügbar. Bitte versuche es später erneut.",
+        "refillMagicCoins": "Mehr Magic Coins anfragen",
+        "insufficientMagicCoins": "Deine Magic Coins sind aufgebraucht.",
         "historyLabel": "Deine Variationen",
         "variationAlt": "Variation {number}",
         "errorMessage": "Beim Erstellen deines Designs ist ein Fehler aufgetreten.",
@@ -1305,7 +1310,6 @@
     "products": "Produkte",
     "wizard": "Gestalten",
     "editor": "Editor",
-    "magic-coins": "Magic Coins",
     "cart": "Warenkorb",
     "checkout": "Kasse",
     "order-confirmation": "Bestellbestätigung",

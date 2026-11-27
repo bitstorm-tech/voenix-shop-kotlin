@@ -219,17 +219,20 @@ describe('AdminNavigation', () => {
     expect(getActiveLinkTexts(wrapper)).toEqual(['Access tokens'])
   })
 
-  it('shows the menu counts as badges on Orders and Operations, zero included', async () => {
+  it('shows the menu counts as badges on Orders, Operations, and Magic Coins, zero included', async () => {
     const { wrapper } = await mountNavigation()
     expect(wrapper.find('[data-nav-badge]').exists()).toBe(false)
 
-    await wrapper.setProps({ menuCounts: { unshippedOrders: 3, openFindings: 0 } })
+    await wrapper.setProps({
+      menuCounts: { unshippedOrders: 3, openFindings: 0, pendingMagicCoinRequests: 2 },
+    })
 
     const badgeOf = (title: string) =>
       wrapper.find(`[data-nav-title="${title}"] [data-nav-badge]`).text()
     expect(badgeOf('Orders')).toBe('3')
     expect(badgeOf('Operations')).toBe('0')
-    expect(wrapper.findAll('[data-nav-badge]')).toHaveLength(2)
+    expect(badgeOf('Magic Coins')).toBe('2')
+    expect(wrapper.findAll('[data-nav-badge]')).toHaveLength(3)
   })
 
   it('does not render removed Admin destinations', async () => {
@@ -252,6 +255,7 @@ describe('AdminNavigation', () => {
   it.each([
     ['/admin/orders', 'Orders'],
     ['/admin/operations', 'Operations'],
+    ['/admin/magic-coins', 'Magic Coins'],
   ])(
     'marks only the matching top-level operational link active for %s',
     async (path, activeTitle) => {

@@ -61,10 +61,6 @@ function stubFetch(routes: Record<string, () => Response>) {
         return jsonResponse(apiUser)
       }
 
-      if (path === '/api/magic-coins/balance') {
-        return jsonResponse({ balance: 0 })
-      }
-
       if (path === '/api/cart') {
         return jsonResponse(emptyCart)
       }
@@ -410,7 +406,7 @@ describe('auth store identity transitions', () => {
     return fetchMock.mock.calls.map(([input]) => String(input))
   }
 
-  it('refetches cart, Magic Coins balance and orders after a login', async () => {
+  it('refetches cart and orders after a login without calling any balance endpoint', async () => {
     const fetchMock = stubFetch({ '/api/auth/login': noContentResponse })
     const store = await createStore()
     fetchMock.mockClear()
@@ -419,13 +415,13 @@ describe('auth store identity transitions', () => {
 
     const paths = requestedPaths(fetchMock)
     expect(paths).toContain('/api/cart')
-    expect(paths).toContain('/api/magic-coins/balance')
     expect(paths).toContain('/api/orders')
+    expect(paths).not.toContain('/api/magic-coins/balance')
     // The refetches must address the new identity, so they run after the login answered.
     expect(paths.indexOf('/api/cart')).toBeGreaterThan(paths.indexOf('/api/auth/login'))
   })
 
-  it('refetches cart and Magic Coins balance after a logout', async () => {
+  it('refetches cart after a logout without calling any balance endpoint', async () => {
     const fetchMock = stubFetch({ '/api/auth/logout': noContentResponse })
     const store = await createStore()
     fetchMock.mockClear()
@@ -434,7 +430,7 @@ describe('auth store identity transitions', () => {
 
     const paths = requestedPaths(fetchMock)
     expect(paths).toContain('/api/cart')
-    expect(paths).toContain('/api/magic-coins/balance')
+    expect(paths).not.toContain('/api/magic-coins/balance')
     // `GET /api/orders` is guest-capable, but the logout does not preload the guest history:
     // the order page fetches it when it is opened.
     expect(paths).not.toContain('/api/orders')

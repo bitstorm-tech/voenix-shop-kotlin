@@ -125,6 +125,8 @@ export function createOrderModule({
       adminOrder: repository.adminOrder,
       /** The newest orders for the admin list, optionally of exactly one e-mail address. */
       adminOrders: service.adminOrders,
+      /** How many paid orders each user has placed, for admin verification signals. */
+      paidOrderCounts: repository.paidOrderCounts,
       /** The three reads and the history write production is created with. */
       ...productionOrders,
     },

@@ -1,4 +1,5 @@
 import type { EmailModule } from '@/modules/email'
+import type { GeneratorModule } from '@/modules/generator'
 import type { Orders } from '@/modules/order'
 import type { ProductionModule } from '@/modules/production'
 import { notFound, ok } from '@/platform/operation'
@@ -20,6 +21,7 @@ export function createOperationsService({
   orders,
   production,
   outbox,
+  magicCoins = { pendingRequestCount: () => Promise.resolve(0) },
 }: {
   findings: Pick<FindingRepository, 'openOfOrder' | 'openCounts' | 'openCount'>
   orders: Pick<Orders, 'adminOrder' | 'adminOrders' | 'recheckPayment'>
@@ -28,6 +30,7 @@ export function createOperationsService({
     'ofOrder' | 'releaseSpodJob' | 'shippingStatuses' | 'unshippedOrderCount'
   >
   outbox: Pick<EmailModule['outbox'], 'ofOrder'>
+  magicCoins?: Pick<GeneratorModule, 'pendingRequestCount'>
 }) {
   return {
     /**
@@ -73,13 +76,14 @@ export function createOperationsService({
       }))
     },
 
-    /** The numbers of the admin menu's badges: paid orders not fully shipped, open findings. */
+    /** The numbers of the admin menu's badges: paid orders not fully shipped, open findings, pending Magic Coin requests. */
     menuCounts: async () => {
-      const [unshippedOrders, openFindings] = await Promise.all([
+      const [unshippedOrders, openFindings, pendingMagicCoinRequests] = await Promise.all([
         production.unshippedOrderCount(),
         findings.openCount(),
+        magicCoins.pendingRequestCount(),
       ])
-      return { unshippedOrders, openFindings }
+      return { unshippedOrders, openFindings, pendingMagicCoinRequests }
     },
 
     /** Asks Mollie about the order's payment now, recorded with the admin's user id. */

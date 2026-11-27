@@ -100,6 +100,8 @@ await email.worker.stop()
 | `SHIPPING_NOTIFICATION` | `renderShippingNotification(ShippingNotificationData)` | queued | customer first name |
 | `SPOD_OPS_ALERT` | `renderSpodOpsAlert({ …, reason, externalReference })` | queued | — (an operations mailbox is not a person) |
 | `OPERATIONS_ALERT` | `renderOperationsAlert({ recipient, frontendBaseUrl, findings })` | queued | — (an operations mailbox is not a person) |
+| `MAGIC_COIN_REQUEST_ALERT` | `renderMagicCoinRequestAlert({ recipient, frontendBaseUrl, requestId, userEmail })` | queued | — (an operations mailbox is not a person) |
+| `MAGIC_COINS_GRANTED` | `renderMagicCoinsGranted({ recipient, shopUrl })` | queued | — |
 
 Every function returns a `RenderedEmail`:
 

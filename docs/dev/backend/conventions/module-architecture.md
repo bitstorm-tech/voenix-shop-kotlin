@@ -136,8 +136,8 @@ module with what it may import besides the platform:
 | `order` | `image`, `article`, `promotion`, `production`, `email` | Placed orders and their payment (the former `payment` module is a subfolder); exports one `orders` object with the reads other modules need |
 | `cart` | `image`, `article`, `prompt`, `promotion`, `order` | The cart, its lines, print images, reorder |
 | `checkout` | `cart`, `promotion`, `order`, `country`, `article` | The one buy journey, in two transactions |
-| `generator` | `article`, `prompt`, `image` | AI image generation and the Magic Coins it is paid with (the former `magic-coins` module is part of it), and the admin's background removal |
-| `operations` | `order`, `production`, `email` | The one place that looks across the whole pipeline: records the findings each owning module reports about its own stalled rows, and lists them to admins. It imports the three modules' finding *types* and email's `renderOperationsAlert` for its alert mail; the composition root injects their `findings(now)` capabilities and the outbox's `enqueue`. Nothing imports it |
+| `generator` | `article`, `prompt`, `image`, `email`, `account`, `order`, `cart` | AI image generation, Magic Coins, customer refill requests, and the admin's Magic Coins review surface and background removal; exports `pendingRequestCount` for the admin menu badge |
+| `operations` | `order`, `production`, `email`, `generator` | The one place that looks across the whole pipeline: records the findings each owning module reports about its own stalled rows, lists them to admins, and aggregates the admin menu badge counts (`orders`, `operations`, `magicCoins`). Nothing imports it |
 | `mcp` | — | `/api/mcp`, where an AI client administers the catalog and master data with an access token through three generic tools over the admin routes that opt in with `requireAdminOrToken`. Owns no table; reads the composed `app`'s routes and calls them in-process. Its tests alone may import every module's index, to run the tools on a real admin module (see the [MCP package guide](../packages/mcp-package.md)) |
 
 The composition root and the test support may import every module.

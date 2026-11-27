@@ -68,6 +68,8 @@ export function createCartModule({
       /** Closes the cart in the caller's transaction; `false` when it was no longer active. */
       markCheckedOut: repository.markCheckedOut,
     },
+    /** How many item units each user currently holds in their active cart, for admin signals. */
+    activeCartItemCounts: repository.activeCartItemCounts,
   }
 }
 

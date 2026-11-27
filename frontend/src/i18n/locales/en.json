@@ -36,16 +36,24 @@
     }
   },
   "magicCoins": {
-    "badgeLabel": "Magic Coins",
-    "hero": {
-      "title": "Magic Coins"
-    },
-    "summary": {
-      "currentBalance": "Current balance"
-    },
-    "unavailableTitle": "Additional Magic Coins coming soon",
-    "unavailableDescription": "Purchasing additional Magic Coins packages is not available yet. Your current balance is shown above.",
-    "backToProducts": "Discover products"
+    "dialog": {
+      "title": "Your Magic Coins are used up",
+      "guestDescription": "Your Magic Coins are used up. Sign in or create a free account to keep creating AI designs.",
+      "requestDescription": "Your Magic Coins are used up. Click the button below if you need more Magic Coins.",
+      "pendingTitle": "Your request has been received",
+      "pendingDescription": "We will review your request as soon as possible and send you an email once new Magic Coins are available.",
+      "blockedDescription": "Additional Magic Coins cannot be requested for this account right now.",
+      "availableTitle": "New Magic Coins available",
+      "availableDescription": "You have Magic Coins available again and can keep creating AI designs right away.",
+      "loading": "Loading status...",
+      "requestButton": "Request more Magic Coins",
+      "loginButton": "Sign in",
+      "registerButton": "Create account",
+      "closeButton": "Close",
+      "loadError": "Could not load your request status. You can still try requesting more Magic Coins.",
+      "submitError": "Your request could not be sent right now. Please try again shortly.",
+      "rateLimited": "You have sent too many requests in a short time. Please try again later."
+    }
   },
   "auth": {
     "login": {
@@ -1265,11 +1273,8 @@
         "generateButton": "Create Magic",
         "retryButton": "Try again",
         "generateAnother": "Generate another",
-        "costSuffix": "{coins} Coin",
-        "refillMagicCoins": "Refill Magic Coins",
-        "checkingMagicCoins": "Checking your Magic Coins...",
-        "insufficientMagicCoins": "You don’t have any Magic Coins left to generate more AI designs right now.",
-        "magicCoinsUnavailable": "Magic Coins are currently unavailable. Please try again later.",
+        "refillMagicCoins": "Request more Magic Coins",
+        "insufficientMagicCoins": "Your Magic Coins are used up.",
         "historyLabel": "Your variations",
         "variationAlt": "Variation {number}",
         "errorMessage": "Something went wrong while creating your design.",
@@ -1305,7 +1310,6 @@
     "products": "Products",
     "wizard": "Design",
     "editor": "Editor",
-    "magic-coins": "Magic Coins",
     "cart": "Cart",
     "checkout": "Checkout",
     "order-confirmation": "Order Confirmation",

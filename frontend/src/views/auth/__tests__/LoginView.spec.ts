@@ -52,10 +52,6 @@ function stubLogin(loginResponse: () => Response) {
         return new Response(null, { status: 204 })
       }
 
-      if (path === '/api/magic-coins/balance') {
-        return jsonResponse({ balance: 0 })
-      }
-
       throw new Error(`Unexpected request: ${path}`)
     }),
   )

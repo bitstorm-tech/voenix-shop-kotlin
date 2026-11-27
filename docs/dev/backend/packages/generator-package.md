@@ -11,8 +11,10 @@ Every generation costs one Magic Coin, and every visitor, guest or signed-in
 customer, owns one coin balance that starts with 10 coins.
 
 ```text
-POST /api/generator/generate    →  raw image bytes
-GET  /api/magic-coins/balance   →  {"balance": 9}
+POST /api/generator/generate              →  raw image bytes
+GET  /api/magic-coins/request-status      →  {"status": "CAN_REQUEST" | "PENDING" | "BLOCKED"}
+POST /api/magic-coins/requests            →  201 pending refill request (+ admin alert mail)
+/api/admin/magic-coins/*                  →  admin review, manual grants, and blocklist
 ```
 
 The module also answers the admin's background removal (see
@@ -21,25 +23,39 @@ key and the dummy switch.
 
 In the Kotlin backend the coins were a module of their own, `magic-coins`,
 exporting the `GenerationCoins` capability to its only consumer, the generator
-(#252). The port folds them into this module: the coins are an internal part
-of it, and the module exports **no capability** at all. Nothing in the backend
-asks the generator for anything; the storefront does.
+(#252). The port folds them into this module: the coins and their refill request
+workflow are part of it, and the module exports only `pendingRequestCount` for
+the admin menu badge in `operations`.
 
-What the endpoint borrows from elsewhere:
+Magic Coin balances are deliberately **not exposed** to the storefront (`GET /api/magic-coins/balance`
+was removed): visitors do not see a remaining coin counter. Instead, when a visitor runs out of
+their initial 10 coins (`402 INSUFFICIENT_MAGIC_COINS`), guests are prompted to sign in or register
+(unlocking their own 10 account coins), while signed-in customers get a one-click button to request
+more Magic Coins. Requests land in `/admin/magic-coins`, where admins review GDPR-lean account and
+shop-activity signals (email, account age, paid orders, active cart items, coin history and
+consumption span — no IP storage) and approve (configurable coin amount, default 10), soft-reject,
+or reject and permanently block the account.
+
+What the module borrows from elsewhere:
 
 - the prompt text comes from the prompt module's `promptCatalog.composedText`;
 - the shape the image must have comes from the article module's
   `articleCatalog.printFormats`: a mug is printed wide (`16:9`), a SPOD article
   square (`1:1`);
+- narrow read capabilities from `account` (`accountDirectory`), `order` (`paidOrderCounts`),
+  and `cart` (`activeCartItemCounts`) for the admin review signals;
+- `email.outbox` to enqueue admin alerts (`MAGIC_COIN_REQUEST_ALERT`) and customer approval mails
+  (`MAGIC_COINS_GRANTED`, without mentioning an exact coin count);
 - the visitor's identity and the guest cookie come from `platform`;
-- the per-IP rate limit comes from `platform`, because the module knows that a
-  call costs money, not how many calls an IP gets (see
+- the per-IP rate limits come from `platform`, because the module knows that a
+  call costs money or sends mail, not how many calls an IP gets (see
   [Rate limiting](../conventions/rate-limiting.md));
 - the generated image comes from fal.ai, over HTTP.
 
 A generated image is answered and forgotten. It becomes a durable object only
 when the customer later puts it into a cart, and that is the cart module's
-business. The one table the module owns is `magic_coins`.
+business. The module owns three tables: `magic_coins`, `magic_coin_requests`,
+and `magic_coin_request_blocks` (`V10`, `V44`).
 
 ## The five-minute mental model
 
@@ -144,7 +160,14 @@ Kotlin module closed its Ktor client on `ApplicationStopped`).
 | Method and path | Auth | Body | Success |
 | --- | --- | --- | --- |
 | `POST /api/generator/generate` | anonymous **or** signed in, CSRF token required (`guestCapable`), at most 20 calls per client IP per hour and `GENERATOR_GLOBAL_MAX_PER_HOUR` (default 200) across all IPs | `multipart/form-data` with a file part `image` and the text parts `promptId` and `articleId` | `200` with the raw image bytes and the generated image's `Content-Type` |
-| `GET /api/magic-coins/balance` | anonymous or signed in | none | `200` `{"balance": <int>}` with `Cache-Control: no-store`; uses `guestTokens.tryGet(c)` and returns `10` for passive visitors without setting a guest cookie or creating a DB row |
+| `GET /api/magic-coins/request-status` | signed in (`requireAuthenticated`), `Cache-Control: no-store` | none | `200` `{"status": "CAN_REQUEST" \| "PENDING" \| "BLOCKED"}` |
+| `POST /api/magic-coins/requests` | signed in (`requireAuthenticated`, CSRF), `Cache-Control: no-store`, at most 10 calls per client IP per hour | none | `201` `{"id": <int>, "status": "PENDING", "createdAt": "…"}` and enqueues `MAGIC_COIN_REQUEST_ALERT` to `OPERATIONS_ALERT_EMAIL` (if configured); `403 MAGIC_COINS_REQUEST_BLOCKED` if blocked; `409 MAGIC_COIN_REQUEST_ALREADY_PENDING` if already open; `409 MAGIC_COINS_AVAILABLE` if balance ≥ 1 |
+| `GET /api/admin/magic-coins/requests` | session-only admin (`requireAdmin`), `Cache-Control: no-store` | query `?status=PENDING\|DECIDED` (default `PENDING`) | `200` enriched request list with account, order, cart, and coin-usage signals |
+| `POST /api/admin/magic-coins/requests/:id/approve` | `requireAdmin`, `Cache-Control: no-store` | `{"amount": 1..1000}` | `200` credits coins atomically and enqueues `MAGIC_COINS_GRANTED` (no coin count in mail); `404` / `409` |
+| `POST /api/admin/magic-coins/requests/:id/reject` | `requireAdmin`, `Cache-Control: no-store` | `{"blockUser": boolean}` | `200` marks rejected (and inserts block when `blockUser: true`); sends no customer mail; `404` / `409` |
+| `POST /api/admin/magic-coins/grants` | `requireAdmin`, `Cache-Control: no-store` | `{"email": "…", "amount": 1..1000}` | `200` credits coins directly, auto-approves any open request for that user, and enqueues `MAGIC_COINS_GRANTED`; `404` if unknown email |
+| `GET /api/admin/magic-coins/blocks` | `requireAdmin`, `Cache-Control: no-store` | none | `200` list of currently blocked accounts |
+| `DELETE /api/admin/magic-coins/blocks/:userId` | `requireAdmin`, `Cache-Control: no-store` | none | `204` unblocks the account; `404` if not blocked |
 
 A generated image has no JSON envelope and no `Content-Disposition` header,
 because the frontend store `frontend/src/stores/shop/imageGeneration.ts` reads

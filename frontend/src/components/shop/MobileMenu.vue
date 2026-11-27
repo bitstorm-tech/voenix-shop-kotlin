@@ -32,8 +32,6 @@ import { usePwaInstallStore } from '@/stores/shared/pwaInstall'
 import { useLocaleStore } from '@/stores/shared/locale'
 import { useThemeStore, type Theme } from '@/stores/shared/theme'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
-import MagicCoinsBadge from './MagicCoinsBadge.vue'
 
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
@@ -41,7 +39,6 @@ const localeStore = useLocaleStore()
 const themeStore = useThemeStore()
 const pwaStore = usePwaInstallStore()
 const categoriesStore = useArticleCategoriesStore()
-const magicCoinsStore = useMagicCoinsStore()
 const router = useRouter()
 
 const isOpen = shallowRef(false)
@@ -369,15 +366,6 @@ const activeThemeIcon = computed(
                 <span>{{ t('pwaInstall.browser.step2') }}</span>
               </li>
             </ol>
-          </div>
-
-          <!-- Magic Coins -->
-          <div
-            class="flex w-full items-center px-3 py-1"
-            :aria-label="t('magicCoins.badgeLabel')"
-            data-testid="mobile-menu-magic-coins"
-          >
-            <MagicCoinsBadge :coins="magicCoinsStore.balance" />
           </div>
 
           <!-- Language Switcher -->

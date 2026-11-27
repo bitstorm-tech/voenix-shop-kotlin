@@ -8,6 +8,7 @@ import { createAccountRepository } from './repository'
 import { accessTokenRoutes, accountRoutes, type AccountRateLimits } from './routes'
 import { createAccountService } from './service'
 
+export type { AccountSummary } from './repository'
 export type { AccountRateLimits } from './routes'
 
 /**
@@ -43,10 +44,16 @@ export function createAccountModule({
     now,
   })
   const supplierAccounts: SupplierAccounts = { supplierIdOf: repository.findSupplierId }
+  const accountDirectory = {
+    findByIds: repository.findSummariesByIds,
+    findByEmail: repository.findSummaryByEmail,
+  }
   const routes = accountRoutes(service, auth, rateLimits)
   routes.route('/', accessTokenRoutes(repository))
-  return { routes, supplierAccounts }
+  return { routes, supplierAccounts, accountDirectory }
 }
+
+export type AccountDirectory = ReturnType<typeof createAccountModule>['accountDirectory']
 
 /**
  * The lookup `createAuth` resolves a bearer token with. It is created on its own, before the auth

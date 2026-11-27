@@ -23,8 +23,8 @@ const moduleDependencies: Record<string, string[]> = {
   order: ['image', 'article', 'promotion', 'production', 'email'],
   cart: ['image', 'article', 'prompt', 'promotion', 'order'],
   checkout: ['cart', 'promotion', 'order', 'country', 'article'],
-  generator: ['article', 'prompt', 'image'],
-  operations: ['order', 'production', 'email'],
+  generator: ['article', 'prompt', 'image', 'email', 'account', 'order', 'cart'],
+  operations: ['order', 'production', 'email', 'generator'],
   mcp: [],
 }
 

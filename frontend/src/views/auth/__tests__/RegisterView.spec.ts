@@ -39,10 +39,6 @@ function stubRegister(registerResponse: () => Response) {
       return jsonResponse({ message: 'Authentication required', errors: {} }, 401)
     }
 
-    if (path === '/api/magic-coins/balance') {
-      return jsonResponse({ balance: 0 })
-    }
-
     throw new Error(`Unexpected request: ${path}`)
   })
 

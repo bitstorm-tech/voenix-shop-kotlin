@@ -4,14 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GenerateStep from '@/components/shop/wizard/steps/GenerateStep.vue'
 import { ThumbnailButton } from '@/components/ui/thumbnail-button'
 import { useImageGenerationStore, type GeneratedImage } from '@/stores/shop/imageGeneration'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 import { useWizardStore } from '@/stores/shop/wizard'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, params?: Record<string, unknown> | number) => {
       if (typeof params === 'number') return `${key}:${params}`
-      if (params?.coins) return `${key}:${params.coins}`
       if (params?.number) return `${key}:${params.number}`
       return key
     },
@@ -27,16 +25,39 @@ function generatedImage(id: string): GeneratedImage {
   }
 }
 
+const commonStubs = {
+  Button: {
+    props: ['asChild'],
+    template: '<button v-bind="$attrs"><slot /></button>',
+  },
+  Dialog: {
+    props: ['open'],
+    emits: ['update:open'],
+    template: '<div data-testid="dialog-root" :data-open="String(open)"><slot v-if="open" /></div>',
+  },
+  DialogContent: {
+    template: '<div role="dialog"><slot /></div>',
+  },
+  DialogDescription: {
+    template: '<p><slot /></p>',
+  },
+  DialogTitle: {
+    template: '<h3><slot /></h3>',
+  },
+  MagicCoinsExhaustedDialog: {
+    props: ['open'],
+    emits: ['update:open', 'coins-available'],
+    template: '<div data-testid="magic-coins-dialog-stub" :data-open="String(open)" />',
+  },
+  RouterLink: RouterLinkStub,
+}
+
 function mountGenerateStep(imageCount = 3) {
   const wizard = useWizardStore()
   const imageGeneration = useImageGenerationStore()
-  const magicCoins = useMagicCoinsStore()
 
   wizard.selectPrompt(7)
   wizard.uploadedFile = new File(['fixture'], 'fixture.png', { type: 'image/png' })
-  magicCoins.balance = 10
-  magicCoins.isLoading = false
-  magicCoins.error = null
 
   const images = Array.from({ length: imageCount }, (_, index) =>
     generatedImage(`generated-${index + 1}`),
@@ -45,30 +66,7 @@ function mountGenerateStep(imageCount = 3) {
   imageGeneration.selectedImageId = images.at(-1)?.id ?? null
 
   return mount(GenerateStep, {
-    global: {
-      stubs: {
-        Button: {
-          props: ['asChild'],
-          template: '<button v-bind="$attrs"><slot /></button>',
-        },
-        Dialog: {
-          props: ['open'],
-          emits: ['update:open'],
-          template:
-            '<div data-testid="dialog-root" :data-open="String(open)"><slot v-if="open" /></div>',
-        },
-        DialogContent: {
-          template: '<div role="dialog"><slot /></div>',
-        },
-        DialogDescription: {
-          template: '<p><slot /></p>',
-        },
-        DialogTitle: {
-          template: '<h3><slot /></h3>',
-        },
-        RouterLink: RouterLinkStub,
-      },
-    },
+    global: { stubs: commonStubs },
   })
 }
 
@@ -84,12 +82,8 @@ function mountRefusedGeneration(refusal: {
 }) {
   const wizard = useWizardStore()
   const imageGeneration = useImageGenerationStore()
-  const magicCoins = useMagicCoinsStore()
 
   wizard.selectPrompt(7)
-  magicCoins.balance = 10
-  magicCoins.isLoading = false
-  magicCoins.error = null
 
   imageGeneration.error = refusal.message
   imageGeneration.errorCode = refusal.code ?? null
@@ -97,15 +91,7 @@ function mountRefusedGeneration(refusal: {
   imageGeneration.errorRetryAfterSeconds = refusal.retryAfterSeconds ?? null
 
   return mount(GenerateStep, {
-    global: {
-      stubs: {
-        Button: {
-          props: ['asChild'],
-          template: '<button v-bind="$attrs"><slot /></button>',
-        },
-        RouterLink: RouterLinkStub,
-      },
-    },
+    global: { stubs: commonStubs },
   })
 }
 
@@ -118,13 +104,14 @@ describe('GenerateStep', () => {
     vi.restoreAllMocks()
   })
 
-  it('puts the regenerate action above the generated result layout', () => {
+  it('puts the regenerate action above the generated result layout without showing coin cost', () => {
     const wrapper = mountGenerateStep()
 
     const toolbar = wrapper.get('.generate-result-toolbar')
     const layout = wrapper.get('.generate-result-layout')
 
     expect(toolbar.text()).toContain('configurator.steps.generate.generateAnother')
+    expect(toolbar.text()).not.toContain('costSuffix')
     expect(
       toolbar.element.compareDocumentPosition(layout.element) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
@@ -234,7 +221,7 @@ describe('GenerateStep', () => {
     expect(wrapper.get('p').text()).toBe('configurator.steps.generate.errorMessage')
   })
 
-  it('keeps the insufficient Magic Coins panel without a refill link', () => {
+  it('opens the Magic Coins exhausted popup automatically on INSUFFICIENT_MAGIC_COINS', () => {
     const wrapper = mountRefusedGeneration({
       message: 'Not enough Magic Coins',
       code: 'INSUFFICIENT_MAGIC_COINS',
@@ -242,7 +229,24 @@ describe('GenerateStep', () => {
     })
 
     expect(wrapper.get('p').text()).toBe('configurator.steps.generate.insufficientMagicCoins')
-    expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="magic-coins-dialog-stub"]').attributes('data-open')).toBe(
+      'true',
+    )
+    expect(wrapper.find('[data-testid="open-magic-coins-dialog"]').exists()).toBe(true)
+  })
+
+  it('keeps generated images visible underneath when a later regenerate runs out of coins', async () => {
+    const wrapper = mountGenerateStep(1)
+    const imageGeneration = useImageGenerationStore()
+
+    imageGeneration.errorCode = 'INSUFFICIENT_MAGIC_COINS'
+    imageGeneration.errorStatus = 402
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.generate-preview-image').attributes('src')).toBe('blob:generated-1')
+    expect(wrapper.get('[data-testid="magic-coins-dialog-stub"]').attributes('data-open')).toBe(
+      'true',
+    )
   })
 
   it('opens the lightbox when the main preview is clicked', async () => {
