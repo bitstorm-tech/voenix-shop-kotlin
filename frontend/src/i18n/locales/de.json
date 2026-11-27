@@ -302,9 +302,7 @@
     "quickAccess": {
       "title": "Schnellzugriff",
       "about": "Über uns",
-      "faq": "Häufige Fragen",
-      "contact": "Kontakt",
-      "support": "Support"
+      "faq": "Häufige Fragen"
     },
     "legal": {
       "title": "Rechtliches",
@@ -323,25 +321,150 @@
     "copyright": "© {year} Voenix.Shop. Alle Rechte vorbehalten."
   },
   "footerPages": {
-    "sectionEyebrow": "Informationen",
-    "contentNote": "Die Inhalte dieser Seite werden aktuell vorbereitet und später ergänzt.",
-    "backHome": "Zur Startseite",
-    "browseProducts": "Produkte entdecken",
     "about": {
       "title": "Über uns",
-      "description": "Hier findest du bald mehr Informationen über Voenix, unsere Idee und unser Team."
+      "description": "Aus Bayern. Mit Liebe. Für deine besonderen Momente.",
+      "content": {
+        "eyebrow": "Über uns",
+        "headline": "Aus Bayern. Mit Liebe.",
+        "subheadline": "Für deine besonderen Momente.",
+        "paragraphs": [
+          "Wir sind voenix.shop – ein kleines, smartes Team aus Holzkirchen bei München, das KI-Magie in deinen Alltag bringt. Unser Online-Konfigurator wurde komplett von unserem Team in Bayern entwickelt und macht es dir kinderleicht, aus einem Lieblingsfoto ein echtes Kunstwerk zu gestalten.",
+          "Gedruckt wird jedes unserer Produkte – von der Tasse bis zum Textil – hochqualitativ in Deutschland: präzise, langlebig und mit viel Liebe zum Detail. Kein Billigdruck, kein Risiko: echte Qualität, die man sieht und spürt.",
+          "Der Versand erfolgt aus Deutschland mit DHL – schnell, sicher und zuverlässig. So kommt dein individuelles Lieblingsstück pünktlich, gut verpackt und bereit für große Augenblicke bei dir an."
+        ],
+        "claim": "voenix.shop – Moments made magical.",
+        "highlights": [
+          {
+            "id": "bavaria",
+            "title": "Entwickelt in Bayern",
+            "description": "Unser Online-Konfigurator entsteht komplett in Holzkirchen bei München – mit Fokus auf einfache Bedienung und starke KI-Designs."
+          },
+          {
+            "id": "quality",
+            "title": "Gedruckt in Deutschland",
+            "description": "Präzise, langlebige Veredelung mit viel Liebe zum Detail – Qualität, die man sieht und spürt."
+          },
+          {
+            "id": "shipping",
+            "title": "Versand mit DHL",
+            "description": "Schneller, versicherter Paketversand aus Deutschland – pünktlich und sicher verpackt."
+          }
+        ],
+        "ctaTitle": "Bereit für dein eigenes Unikat?",
+        "ctaDescription": "Entdecke unsere Produkte oder schreib uns direkt bei Fragen oder Anfragen für Firmenkunden.",
+        "ctaProducts": "Produkte entdecken",
+        "ctaContact": "E-Mail schreiben",
+        "email": "write-us@voenix.shop"
+      }
     },
     "faq": {
       "title": "Häufige Fragen",
-      "description": "Hier sammeln wir bald Antworten auf die wichtigsten Fragen zu Bestellung, Gestaltung und Versand."
-    },
-    "contact": {
-      "title": "Kontakt",
-      "description": "Hier findest du bald Kontaktmöglichkeiten, Erreichbarkeiten und Ansprechpartner."
-    },
-    "support": {
-      "title": "Support",
-      "description": "Hier entsteht bald eine zentrale Hilfeseite für Unterstützung rund um Bestellungen und Designs."
+      "description": "Hier haben wir Antworten auf die wichtigsten Fragen rund um Konfigurator, Bestellung, Zahlung und Versand zusammengestellt.",
+      "content": {
+        "eyebrow": "Kundenservice & FAQ",
+        "introPrefix": "Deine Frage ist nicht dabei? Schreib uns gerne an",
+        "introSuffix": "und wir melden uns schnellstmöglich bei dir.",
+        "email": "write-us@voenix.shop",
+        "items": [
+          {
+            "id": "configurator",
+            "question": "Wie funktioniert der Online-Konfigurator?",
+            "paragraphs": [
+              "Folge einfach den Schritten in unserem Online-Konfigurator:",
+              "1. Wähle dein Wunschprodukt (z. B. Tasse oder Textil) und deine bevorzugte Variante.",
+              "2. Wähle deinen KI-Stil – oder nutze dein hochgeladenes Foto direkt ohne KI-Bearbeitung.",
+              "3. Lade dein Foto hoch und schneide es auf den Ausschnitt zu, den du verwenden möchtest.",
+              "4. Starte die KI-Generierung und wähle dein Lieblingsmotiv – bei Bedarf kannst du weitere Varianten erzeugen.",
+              "5. Im Editor kannst du dein Motiv feinjustieren, optional Text ergänzen und dein Produkt in den Warenkorb legen."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "cart",
+            "question": "Wie lange bleibt meine Auswahl im Warenkorb?",
+            "paragraphs": [
+              "Artikel, die du in deinen Warenkorb legst, bleiben für deinen Einkauf gespeichert. Als Gast ist dein Warenkorb an deine aktuelle Browser-Sitzung gebunden.",
+              "Wenn du später auf einem anderen Gerät weitermachen oder deine Bestellungen jederzeit einsehen möchtest, erstelle dir gerne ein Benutzerkonto und logge dich ein."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "promoCode",
+            "question": "Wie nutze ich meinen Rabatt- bzw. Aktionscode?",
+            "paragraphs": [
+              "Im Warenkorb findest du in der Bestellübersicht das Feld „Aktionscode“. Trage deinen Code dort ein und klicke auf „Anwenden“ – die Gesamtsumme deiner Bestellung passt sich automatisch an.",
+              "In der Regel sind unsere Aktionscodes jeweils einmalig pro Kundin bzw. Kunde nutzbar."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "returns",
+            "question": "Wie kann ich einen Artikel zurückgeben?",
+            "paragraphs": [
+              "Bei den von uns angebotenen personalisierten Produkten handelt es sich um Waren, die nach Kundenspezifikation angefertigt werden oder eindeutig auf die persönlichen Bedürfnisse zugeschnitten sind (§ 312g Abs. 2 Nr. 1 BGB). Hier besteht kein Widerrufsrecht.",
+              "Deine gesetzlichen Mängelrechte (z. B. bei Produktions- oder Transportschäden) bleiben davon selbstverständlich unberührt."
+            ],
+            "linkLabel": "Weitere Informationen zu Widerruf & Rückgabe"
+          },
+          {
+            "id": "visit",
+            "question": "Kann ich euch besuchen kommen?",
+            "paragraphs": [
+              "Leider nein. Wir sind ein reines Online-Business und bieten derzeit keine lokalen Verkaufsstellen an. Du bekommst unsere MOMENTS MADE MAGICAL Produkte exklusiv bei uns auf voenix.shop."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "shippingCountries",
+            "question": "In welche Länder liefert ihr?",
+            "paragraphs": [
+              "Wir liefern innerhalb Deutschlands und in ausgewählte EU-Länder. Alle aktuell verfügbaren Zielländer, Versandkosten und etwaige Freigrenzen findest du jederzeit aktuell auf unserer Versandseite.",
+              "Du wohnst in einem anderen Land? Kontaktiere uns gerne unter write-us@voenix.shop für ein individuelles Versandangebot."
+            ],
+            "linkLabel": "Zu den Versandinformationen"
+          },
+          {
+            "id": "deliveryTimes",
+            "question": "Wie lange sind die Lieferzeiten?",
+            "paragraphs": [
+              "Sofern bei deinem Wunschartikel nichts anderes angegeben ist, beträgt die Lieferzeit innerhalb Deutschlands in der Regel bis zu 7 Werktage nach Zahlungseingang. Im EU-Ausland kann die Zustellung je nach Auslastung des Versanddienstleisters (DHL) entsprechend länger dauern.",
+              "Nachdem wir dein Paket beim Versanddienstleister abgegeben haben, erhältst du von uns eine Trackingnummer zur Sendungsverfolgung. So kannst du den Weg deiner Lieferung online nachverfolgen."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "splitDelivery",
+            "question": "Was, wenn Artikel unterschiedliche Lieferzeiten haben?",
+            "paragraphs": [
+              "In der Regel variieren die Lieferzeiten unserer Artikel nur gering. Daher sind wir bemüht, dir alles so schnell wie möglich in einer Lieferung zu senden.",
+              "Sollte dennoch ein Artikel deiner Bestellung eine unerwartet lange Lieferzeit aufweisen oder getrennt gefertigt werden, versenden wir die verfügbaren Artikel umgehend und senden fehlende Artikel in einer zweiten, für dich kostenfreien Lieferung nach."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "shippingMethod",
+            "question": "Wie erfolgt der Versand?",
+            "paragraphs": [
+              "Wir versenden national und ins EU-Ausland mit dem Versanddienstleister DHL im Paketversand (versichert bis 500 Euro, inklusive Sendungsverfolgung)."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "payment",
+            "question": "Wie kann ich bezahlen?",
+            "paragraphs": [
+              "Wir bieten dir folgende Zahlungsarten an: Visa, Mastercard, Apple Pay, Google Pay, PayPal und Klarna (Verfügbarkeit je nach Land und Endgerät).",
+              "Für eine schnelle, bequeme und sichere Zahlungsabwicklung arbeiten wir mit dem Zahlungsdienstleister Mollie B.V. zusammen."
+            ],
+            "linkLabel": "Alle Details zu den Zahlungsbedingungen"
+          }
+        ],
+        "ctaTitle": "Konnten wir deine Fragen beantworten?",
+        "ctaDescription": "Wenn noch Fragen offen sind, hilft dir unser Kundenservice gerne persönlich weiter.",
+        "ctaHome": "Danke! Zurück zur Startseite",
+        "ctaEmail": "Leider nein – E-Mail senden"
+      }
     },
     "privacy": {
       "title": "Datenschutzerklärung",
@@ -391,12 +514,79 @@
       }
     },
     "returns": {
-      "title": "Rücksendungen & Rückerstattungen",
-      "description": "Hier findest du bald Hinweise zu Rückgaben, Reklamationen und Erstattungsabläufen."
+      "title": "Widerruf & Rückgabe",
+      "description": "Widerrufsbelehrung, Ausschluss bei personalisierten Produkten und Muster-Widerrufsformular."
     },
     "payment": {
-      "title": "Zahlung",
-      "description": "Hier ergänzen wir bald Informationen zu verfügbaren Zahlungsarten und Abläufen."
+      "title": "Zahlungsbedingungen",
+      "description": "Informationen zu unseren akzeptierten Zahlungsarten und zur sicheren Zahlungsabwicklung.",
+      "content": {
+        "eyebrow": "Zahlungsbedingungen",
+        "lead": "Schnell, bequem und sicher bezahlen.",
+        "intro": "Für deine Bestellung auf voenix.shop bieten wir dir folgende Zahlungsarten an. Die konkret verfügbaren Optionen können je nach Land und Endgerät variieren.",
+        "methodsTitle": "Verfügbare Zahlungsarten",
+        "methods": [
+          {
+            "id": "visa",
+            "name": "Visa",
+            "description": "Bequeme Zahlung per Visa Kredit- oder Debitkarte."
+          },
+          {
+            "id": "mastercard",
+            "name": "Mastercard",
+            "description": "Bequeme Zahlung per Mastercard Kredit- oder Debitkarte."
+          },
+          {
+            "id": "apple-pay",
+            "name": "Apple Pay",
+            "description": "Schnelles und sicheres Bezahlen direkt über Apple-Geräte."
+          },
+          {
+            "id": "google-pay",
+            "name": "Google Pay",
+            "description": "Schnelles und sicheres Bezahlen über dein Google-Konto."
+          },
+          {
+            "id": "paypal",
+            "name": "PayPal",
+            "description": "Direkt und geschützt mit deinem PayPal-Konto bezahlen."
+          },
+          {
+            "id": "klarna",
+            "name": "Klarna",
+            "description": "Flexibel bezahlen mit Klarna (z. B. Rechnungskauf)."
+          }
+        ],
+        "providerTitle": "Unser Zahlungspartner",
+        "providerIntro": "Um dir eine schnelle, bequeme und vor allem sichere Zahlungsabwicklung anzubieten, arbeiten wir mit dem folgenden Zahlungsdienstleister zusammen:",
+        "providerName": "Mollie B.V.",
+        "providerAddressLines": ["Keizersgracht 126", "1015 CW Amsterdam", "Niederlande"],
+        "providerRegisterLabel": "Handelsregister (KvK)",
+        "providerRegisterValue": "30204462",
+        "providerVatLabel": "USt-IdNr.",
+        "providerVatValue": "NL815839091B01",
+        "providerSupervision": "Mollie B.V. ist als lizenziertes Zahlungsinstitut bei der niederländischen Zentralbank (De Nederlandsche Bank, DNB) registriert.",
+        "notesTitle": "Bitte beachte",
+        "notesParagraphs": [
+          "Mit der Nutzung unserer Zahlungsfunktion erfolgt die Zahlungsabwicklung über Mollie B.V. sowie – je nach gewählter Zahlungsart – über nachgelagerte Zahlungsanbieter (z. B. PayPal oder Klarna). Bei einzelnen Zahlungsarten wie dem Klarna Rechnungskauf geht die Forderung an den jeweiligen Anbieter über.",
+          "Bitte beachte, dass die Geschäfts- und Datenschutzbedingungen der jeweiligen Zahlungsanbieter je nach Land variieren können."
+        ],
+        "linksTitle": "Weiterführende Informationen",
+        "links": [
+          {
+            "label": "Datenschutzerklärung von Mollie",
+            "href": "https://www.mollie.com/de/privacy"
+          },
+          {
+            "label": "AGB von Klarna",
+            "href": "https://www.klarna.com/de/agb/"
+          },
+          {
+            "label": "Datenschutzhinweise von Klarna",
+            "href": "https://www.klarna.com/de/datenschutz/"
+          }
+        ]
+      }
     },
     "imprint": {
       "title": "Impressum",
