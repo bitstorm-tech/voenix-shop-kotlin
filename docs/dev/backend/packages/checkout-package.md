@@ -214,7 +214,10 @@ it is placed, so its retry is the "already paid" answer too.
 
 In four lines:
 
-1. **Identity check & TX1**: no identity → `CART_EMPTY`; otherwise open TX1,
+1. **Identity check & TX1**: no identity → `CART_EMPTY`; otherwise read the
+   partner's stock of the cart's SPOD lines (`refreshSpodStock`, outside any
+   transaction, at most five seconds, see
+   [The partner's stock](article-package.md#the-partners-stock)), then open TX1,
    lock the active cart (`lockActiveCart`, empty → `CART_EMPTY`), resolve
    `countries.shippingPolicy(shippingAddress.country)` (`null` → field error on
    `shippingAddress.country`), compute `cartTotals(cart.lines, cart.discount,
@@ -297,6 +300,7 @@ const checkout = createCheckoutModule({
   promotionCodes: promotion.promotionCodes,   // reserve, release
   orders: order.orders,                       // place, payable, confirmFree, startPayment
   countries: country,                         // shippingPolicy
+  refreshSpodStock: production.refreshSpodStock,
   guestTokens: auth.guestTokens,
 })
 app.route('/', checkout.routes)

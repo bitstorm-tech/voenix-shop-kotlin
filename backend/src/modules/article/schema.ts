@@ -140,6 +140,8 @@ export interface ArticleSpodVariantsTable {
   sku: string | null
   is_default: boolean
   active: boolean
+  /** The partner's stock (V46); `0` hides the variant, `NULL` (never read) does not. */
+  spod_stock: number | null
 }
 
 /** The pictures of one colour: every `LISTING` image the partner lists and at most one `MOCKUP`. */

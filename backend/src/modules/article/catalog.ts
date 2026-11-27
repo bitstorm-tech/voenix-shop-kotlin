@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely'
 import type { CalculatedPrice, PriceCatalog } from '@/modules/pricing'
 import { read, type Tables } from '@/platform/db/database'
+import { IN_STOCK } from './spod-article/stock'
 import './schema'
 
 /**
@@ -42,7 +43,8 @@ export interface SpodProductRef {
 
 /**
  * Everything another module may know about one variant of one article, all current master data.
- * `purchasable` is the whole buy rule: active article, active variant, and a price. The gross amount
+ * `purchasable` is the whole buy rule: active article, active variant (for SPOD also in stock at the
+ * partner), and a price. The gross amount
  * is the effective sales total (a discount already subtracted), `null` exactly when no price row
  * exists. A mug answers the five layout millimetres and its two colour codes, a SPOD article its
  * product triple and the hotspot its frame was measured for; each answers `null` for the other's.
@@ -130,6 +132,7 @@ export function createArticleCatalog(db: Kysely<Tables>, prices: Pick<PriceCatal
             'v.article_id as articleId',
             'v.size_label as sizeLabel',
             'v.active as variantActive',
+            IN_STOCK.as('inStock'),
             'v.spod_product_type_id as productTypeId',
             'v.spod_size_id as sizeId',
             'ap.color_name as colorName',
@@ -159,7 +162,8 @@ export function createArticleCatalog(db: Kysely<Tables>, prices: Pick<PriceCatal
               articleName: row.articleName,
               variantName: spodVariantName(row.colorName, row.sizeLabel),
               articleActive: row.articleActive,
-              variantActive: row.variantActive,
+              // A variant the partner has no stock of is sold like an inactive one: not at all.
+              variantActive: row.variantActive && row.inStock,
               priceId: row.priceId,
               supplierId: row.supplierId,
               supplierArticleNumber: null,

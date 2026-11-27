@@ -8,7 +8,7 @@ This guide explains the TypeScript code in
 The SPOD package is the one place in this backend that knows the HTTP API of
 the print-on-demand partner **Spreadconnect (SPOD)**. It owns the client, the
 vocabulary of a provider call (`SpodAccess`, `SpodEnvironment`, `SpodResult`,
-`SpodError`), the request and answer shapes of the ten calls, and the two
+`SpodError`), the request and answer shapes of the twelve calls, and the two
 readings the partner's answers need, `parseColorHex` and `downloadUrl`.
 
 It is a **leaf module**: it imports no other module, and from the platform only
@@ -87,7 +87,7 @@ The ownership rules are:
 ```text
 spod/
 |- index.ts          the public surface: createSpodClient, the types, downloadUrl, parseColorHex
-|- client.ts         createSpodClient({ fetch, now, sleep, logger }) with the ten calls and the pacer;
+|- client.ts         createSpodClient({ fetch, now, sleep, logger }) with the twelve calls and the pacer;
 |                    SpodAccess, SpodEnvironment, SPOD_ENVIRONMENTS, spodEnvironmentOfStoredValue,
 |                    SpodResult, SpodError, the order request shapes (SpodOrderRequest …)
 |- catalog.ts        the Zod schemas and types of the catalog answers (SpodCatalogPage,
@@ -139,9 +139,9 @@ Which of a colour's images the shop shows is the operator's choice in the
 backoffice (issue #260); the Kotlin `frontImage` ranking was deleted then and is
 not ported.
 
-## The ten calls
+## The twelve calls
 
-This module serves **no** HTTP route. Its API is the ten calls it makes
+This module serves **no** HTTP route. Its API is the twelve calls it makes
 outwards. Every call answers a `Promise<SpodResult<T>>`.
 
 | Call | Partner endpoint | Answers |
@@ -153,6 +153,8 @@ outwards. Every call answers a `Promise<SpodResult<T>>`.
 | `availableHotspots(access, productTypeId, designId)` | `GET /productTypes/{id}/hotspots/design/{designId}` | the placement names this product type offers |
 | `articles(access, limit, offset)` | `GET /articles?limit=…&offset=…` | one `SpodCatalogPage` of the merchant's backoffice articles |
 | `sizeChart(access, productTypeId)` | `GET /productTypes/{id}/size-chart` | the `SpodSizeChart`: its `sizeImageUrl`, and `sizes` (`sizeId`, `name`, and `measurements` of `name` and `valueMm`; `valueInch` is not read). Garbled `sizes` read as `[]`, so they never cost the picture |
+| `stock(access, limit, offset)` | `GET /stock?limit=…&offset=…` | one page of SKU → quantity and the `count` of the whole listing; read strictly, because a SKU the listing lacks is stored as sold out |
+| `stockOf(access, sku, signal?)` | `GET /stock/{sku}`, the SKU percent-encoded | the quantity of one SKU; an unknown SKU is a `REFUSED` (`404`) |
 | `download(url, timeoutSeconds)` | the URL a previous answer carried | a `SpodBinary`: the image bytes and their content type |
 | `views(access, productTypeId)` | `GET /productTypes/{id}/views` | `SpodViews`: each view's name, placement names, and mockup per colour |
 | `previews(access, productTypeId, request)` | `POST /productTypes/{id}/previews` | `SpodPreviews`: the URLs of the rendered previews, one per view |

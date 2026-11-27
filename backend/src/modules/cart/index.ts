@@ -65,6 +65,11 @@ export function createCartModule({
        * first, else `guestToken`) inside `trx`, or answers `null` when there is none.
        */
       lockActiveCart: service.lockCheckoutCart,
+      /** The variant ids of the caller's active cart, read without a lock (none without a cart). */
+      variantIds: async (guestToken: string | null, userId: number | null) =>
+        (await repository.findActiveCart({ guestToken, userId }))?.lines.map(
+          (line) => line.variantId,
+        ) ?? [],
       /** Closes the cart in the caller's transaction; `false` when it was no longer active. */
       markCheckedOut: repository.markCheckedOut,
     },

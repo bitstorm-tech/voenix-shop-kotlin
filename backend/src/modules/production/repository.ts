@@ -104,6 +104,19 @@ export function createDestinationRepository(db: Kysely<Tables>, secrets: SecretB
       return row !== undefined
     },
 
+    /** Every SPOD destination, enabled or not: its articles may be on sale either way. */
+    spodDestinationIds: async (): Promise<number[]> => {
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('production_destinations')
+          .select('id')
+          .where('channel', '=', 'SPOD')
+          .orderBy('id')
+          .execute(),
+      )
+      return rows.map((row) => row.id)
+    },
+
     /**
      * What a SPOD catalog sync of this destination reads with, access token included. `enabled` is
      * not part of it: a disabled destination may still sync. A destination of another channel has

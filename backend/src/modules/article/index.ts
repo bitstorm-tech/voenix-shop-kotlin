@@ -18,6 +18,7 @@ import { storefrontRoutes } from './routes'
 import { createSpodArticleRepository } from './spod-article/repository'
 import { spodArticleRoutes } from './spod-article/routes'
 import { createSpodArticleService } from './spod-article/service'
+import { createSpodStock } from './spod-article/stock'
 import { createSpodCatalogSync } from './spod-article/sync'
 import { createSyncRepository } from './spod-article/sync-repository'
 import { createStorefront } from './storefront'
@@ -32,6 +33,7 @@ export type {
 } from './catalog'
 export { catalogKey, spodVariantName } from './catalog'
 export type { PrintFrame } from './spod-article/repository'
+export type { SpodStock, SpodStockKey } from './spod-article/stock'
 export type {
   SpodCatalogSource,
   SpodCatalogSync,
@@ -48,7 +50,8 @@ export type {
  * The article module: the admin routes of categories, subcategories, mugs, and SPOD articles, the
  * three storefront reads, and two capabilities. `articleCatalog` resolves the article-variant
  * references Cart, Order, Checkout, Production, and the Generator store; `spodCatalogSync`
- * reconciles one destination's backoffice catalog, triggered by Production; `imageReferences`
+ * reconciles one destination's backoffice catalog, triggered by Production; `spodStock` stores the
+ * partner's stock Production reads (a variant without stock is neither shown nor sold); `imageReferences`
  * answers the pictures its rows refer to, for the image module's orphan list.
  */
 export function createArticleModule({
@@ -112,6 +115,7 @@ export function createArticleModule({
       folders: spodFolders,
       logger,
     }),
+    spodStock: createSpodStock(db),
     imageReferences: createImageReferences(db),
   }
 }

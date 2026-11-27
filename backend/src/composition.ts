@@ -131,6 +131,7 @@ export async function createApplication(
       suppliers: supplier,
       articleCatalog: article.articleCatalog,
       spodCatalogSync: article.spodCatalogSync,
+      spodStock: article.spodStock,
       spod,
       accounts: account.supplierAccounts,
       orders: order.orders,
@@ -185,6 +186,7 @@ export async function createApplication(
       promotionCodes: promotion.promotionCodes,
       orders: order.orders,
       countries: country,
+      refreshSpodStock: production.refreshSpodStock,
       guestTokens,
     })
 
