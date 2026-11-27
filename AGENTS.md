@@ -21,7 +21,7 @@ A driving issue and the council are for changes where a missed defect is expensi
 
 ## Git worktrees
 
-- Implement larger code changes in a new Git worktree located under `<REPO_ROOT>/.worktrees`.
+- Implement code changes in a new Git worktree located under `<REPO_ROOT>/.worktrees`.
 
 ## Backend
 
