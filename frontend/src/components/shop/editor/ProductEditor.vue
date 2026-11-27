@@ -792,7 +792,6 @@ async function handleAddToCart() {
   --editor-control-shadow: 0 18px 44px color-mix(in srgb, var(--foreground) 8%, transparent);
   --editor-rail-width: 5.5rem;
   --editor-panel-width: clamp(20rem, 29vw, 26.25rem);
-  --editor-mobile-toolbar-reserve: calc(6.75rem + env(safe-area-inset-bottom, 0px));
   --editor-mobile-panel-reserve: min(58dvh, 28rem);
   --editor-mobile-panel-layout-reserve: min(12rem, 22dvh);
 }
@@ -814,13 +813,11 @@ async function handleAddToCart() {
   grid-template-areas:
     'workspace'
     'tools';
-  padding-bottom: var(--editor-mobile-toolbar-reserve);
 }
 
+/* The mobile toolbar reserve lives in ShopLayout's legal bar, which follows the editor. */
 .editor-layout--panel-open {
-  padding-bottom: calc(
-    var(--editor-mobile-toolbar-reserve) + var(--editor-mobile-panel-layout-reserve)
-  );
+  padding-bottom: var(--editor-mobile-panel-layout-reserve);
 }
 
 .editor-workspace {

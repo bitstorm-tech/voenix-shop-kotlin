@@ -317,9 +317,6 @@ void validatePromptQuery()
     <SelectStyleStep v-if="currentStepId === 'selectStyle'" @skip="skipStyle" />
     <component :is="currentStepComponent" v-else />
 
-    <!-- Spacer so floating button doesn't cover content on mobile -->
-    <div class="h-20 md:hidden" />
-
     <!-- Floating "Weiter" button (mobile only) -->
     <div class="fixed inset-x-0 bottom-0 z-40 md:hidden">
       <div
