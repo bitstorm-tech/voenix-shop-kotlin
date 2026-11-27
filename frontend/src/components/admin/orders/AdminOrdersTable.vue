@@ -12,9 +12,18 @@ import {
 import { formatAdminStamp } from '@/lib/adminStamp'
 import { formatPrice } from '@/lib/formatPrice'
 import { orderNumber } from '@/lib/fulfillment'
-import type { AdminOrderListEntry } from '@/stores/admin/orders'
+import type { AdminOrderListEntry, OrderShippingStatus } from '@/stores/admin/orders'
 
 defineProps<{ orders: AdminOrderListEntry[] }>()
+
+const SHIPPING_BADGES: Record<
+  OrderShippingStatus,
+  { label: string; variant: 'success' | 'warning' | 'muted' }
+> = {
+  SHIPPED: { label: 'Shipped', variant: 'success' },
+  PARTIALLY_SHIPPED: { label: 'Partially shipped', variant: 'warning' },
+  OPEN: { label: 'Open', variant: 'muted' },
+}
 </script>
 
 <template>
@@ -27,6 +36,7 @@ defineProps<{ orders: AdminOrderListEntry[] }>()
             <TableHead>Placed</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Payment</TableHead>
+            <TableHead>Shipping</TableHead>
             <TableHead>Total</TableHead>
             <TableHead>E-mail</TableHead>
             <TableHead>Open findings</TableHead>
@@ -50,6 +60,15 @@ defineProps<{ orders: AdminOrderListEntry[] }>()
               ><Badge variant="muted">{{ order.status }}</Badge></TableCell
             >
             <TableCell class="text-muted-foreground">{{ order.paymentStatus ?? '—' }}</TableCell>
+            <TableCell class="whitespace-nowrap" data-testid="order-shipping-status">
+              <Badge
+                v-if="order.shippingStatus !== null"
+                :variant="SHIPPING_BADGES[order.shippingStatus].variant"
+              >
+                {{ SHIPPING_BADGES[order.shippingStatus].label }}
+              </Badge>
+              <span v-else class="text-muted-foreground">—</span>
+            </TableCell>
             <TableCell class="whitespace-nowrap">{{ formatPrice(order.total) }}</TableCell>
             <TableCell class="text-muted-foreground">{{ order.email }}</TableCell>
             <TableCell>

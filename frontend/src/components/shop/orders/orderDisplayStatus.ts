@@ -1,23 +1,36 @@
-import type { OrderPaymentStatus, OrderStatus } from '@/stores/shop/orders'
+import type { OrderPaymentStatus, OrderShippingStatus, OrderStatus } from '@/stores/shop/orders'
 
 /**
- * The one status a customer sees. On the wire an order still carries two values — the shop's
- * order status and Mollie's payment status — but the shop shows a single word: the order status
- * decides, and only while the order is still `PENDING` does the payment status refine it, because
- * a dead payment is the one thing a customer can act on.
+ * The one status a customer sees. On the wire an order carries its order status, Mollie's payment
+ * status, and its shipping progress — but the shop shows a single word: once paid, shipping
+ * progress refines it to `PARTIALLY_SHIPPED` or `SHIPPED`; while still `PENDING`, a dead payment
+ * surfaces because it is the one thing a customer can act on.
  */
 export type OrderDisplayStatus =
   | 'PENDING'
   | 'PAID'
+  | 'PARTIALLY_SHIPPED'
+  | 'SHIPPED'
   | 'CANCELLED'
   | 'PAYMENT_FAILED'
   | 'PAYMENT_EXPIRED'
   | 'PAYMENT_CANCELED'
 
+function paidDisplayStatus(shippingStatus: OrderShippingStatus | null): OrderDisplayStatus {
+  if (shippingStatus === 'SHIPPED') return 'SHIPPED'
+  if (shippingStatus === 'PARTIALLY_SHIPPED') return 'PARTIALLY_SHIPPED'
+  return 'PAID'
+}
+
 export function orderDisplayStatus(
   status: OrderStatus,
   paymentStatus: OrderPaymentStatus | null,
+  shippingStatus: OrderShippingStatus | null = null,
 ): OrderDisplayStatus {
+  if (status === 'PAID') {
+    return paidDisplayStatus(shippingStatus)
+  }
+
   if (status !== 'PENDING') {
     return status
   }
@@ -25,7 +38,7 @@ export function orderDisplayStatus(
   // The provider already confirmed the payment; the order row flips on the next confirmation
   // pass, so waiting customers should not read "in progress" as "not paid yet".
   if (paymentStatus === 'PAID') {
-    return 'PAID'
+    return paidDisplayStatus(shippingStatus)
   }
 
   if (paymentStatus === 'FAILED') {

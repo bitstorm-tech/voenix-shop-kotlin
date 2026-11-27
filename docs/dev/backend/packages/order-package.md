@@ -166,6 +166,15 @@ The list, the detail, and the lookup answer the same representation:
   "createdAt": "2026-07-30T09:12:44.123Z",
   "status": "PAID",
   "paymentStatus": "PAID",
+  "shippingStatus": "SHIPPED",
+  "shipments": [
+    {
+      "shippedAt": "2026-07-31T14:20:00.000Z",
+      "carrierName": "DHL",
+      "trackingNumber": "00340434161094042557",
+      "trackingUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=00340434161094042557"
+    }
+  ],
   "subtotal": 3980,
   "shippingCost": 490,
   "discountAmount": 400,
@@ -190,8 +199,12 @@ The list, the detail, and the lookup answer the same representation:
 `status` is the order's own word (`PENDING`, `PAID`, `CANCELLED`).
 `paymentStatus` is the one value from another table: one of Mollie's seven
 words, uppercased, or `null` when the order has no payment at all (a free
-order, or one whose payment was never started). The three reads fill it
-differently, and the difference is the design:
+order, or one whose payment was never started). `shippingStatus` (`OPEN`,
+`PARTIALLY_SHIPPED`, `SHIPPED`, or `null` before production is requested) and
+`shipments` (shipped parcels with the shop's carrier display name and
+template-built tracking link, never raw partner text or URLs) come from
+production's `customerShippingOfOrders` batch read. The three reads fill
+`paymentStatus` differently, and the difference is the design:
 
 | Route | How `paymentStatus` is filled | What it costs |
 | --- | --- | --- |

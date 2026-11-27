@@ -30,6 +30,8 @@ function makeOrder(): Order {
     createdAt: '2026-05-01T10:00:00Z',
     status: 'PAID',
     paymentStatus: 'PAID',
+    shippingStatus: null,
+    shipments: [],
     subtotal: 1499,
     shippingCost: 0,
     discountAmount: 0,
@@ -256,5 +258,46 @@ describe('OrderView', () => {
 
     expect(wrapper.text()).toContain('orders.loadError')
     expect(wrapper.text()).not.toContain('HTTP error 500')
+  })
+
+  it('shows the shipped status badge and shipment tracking details when expanded', async () => {
+    const order = makeOrder()
+    order.shippingStatus = 'SHIPPED'
+    order.shipments = [
+      {
+        shippedAt: '2026-05-03T12:00:00Z',
+        carrierName: 'DHL',
+        trackingNumber: '00340434161094042557',
+        trackingUrl:
+          'https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=00340434161094042557',
+      },
+      {
+        shippedAt: '2026-05-04T09:00:00Z',
+        carrierName: null,
+        trackingNumber: 'LOCAL-99',
+        trackingUrl: null,
+      },
+    ]
+    const ordersStore = useOrdersStore()
+    ordersStore.orders = [order]
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+
+    const wrapper = await mountOrders(createRouterForOrders())
+
+    expect(wrapper.text()).toContain('orders.displayStatus.SHIPPED')
+    expect(wrapper.find('[data-testid="order-shipments"]').exists()).toBe(false)
+
+    await wrapper.get('[role="button"]').trigger('click')
+
+    const shipments = wrapper.get('[data-testid="order-shipments"]')
+    expect(shipments.text()).toContain('DHL')
+    expect(shipments.text()).toContain('00340434161094042557')
+    expect(shipments.text()).toContain('LOCAL-99')
+    const links = shipments.findAll('[data-testid="order-tracking-link"]')
+    expect(links).toHaveLength(1)
+    expect(links[0]?.attributes('href')).toBe(
+      'https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=00340434161094042557',
+    )
+    expect(links[0]?.attributes('rel')).toBe('noopener noreferrer')
   })
 })

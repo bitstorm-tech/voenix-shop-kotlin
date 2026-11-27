@@ -121,21 +121,57 @@ describe('admin OrdersView', () => {
         createdAt: '2026-10-16T09:00:00.000Z',
         status: 'PAID',
         paymentStatus: 'PAID',
+        shippingStatus: 'SHIPPED',
         total: 4070,
         email: 'kunde@example.com',
         openFindings: 2,
+      },
+      {
+        orderId: 41,
+        createdAt: '2026-10-16T08:00:00.000Z',
+        status: 'PAID',
+        paymentStatus: 'PAID',
+        shippingStatus: 'PARTIALLY_SHIPPED',
+        total: 2000,
+        email: 'teil@example.com',
+        openFindings: 0,
+      },
+      {
+        orderId: 40,
+        createdAt: '2026-10-16T07:00:00.000Z',
+        status: 'PAID',
+        paymentStatus: 'PAID',
+        shippingStatus: 'OPEN',
+        total: 1500,
+        email: 'offen@example.com',
+        openFindings: 0,
+      },
+      {
+        orderId: 39,
+        createdAt: '2026-10-16T06:00:00.000Z',
+        status: 'PENDING',
+        paymentStatus: 'OPEN',
+        shippingStatus: null,
+        total: 1000,
+        email: 'unbezahlt@example.com',
+        openFindings: 0,
       },
     ]
     const wrapper = await mountOrdersView()
 
     expect(mocks.storeState.fetchOrders).toHaveBeenCalledWith('')
-    const row = wrapper.find('[data-testid="order-row"]')
+    const rows = wrapper.findAll('[data-testid="order-row"]')
+    expect(rows).toHaveLength(4)
+    const row = rows[0]!
     expect(row.text()).toContain('kunde@example.com')
     expect(row.text()).toContain('40,70')
     expect(row.text()).toContain('2')
     const link = row.find('[data-testid="order-link"]')
     expect(link.text()).toBe('ORD-42')
     expect(link.attributes('href')).toBe('/admin/orders/42')
+    expect(
+      rows.map((entry) => entry.find('[data-testid="order-shipping-status"]').text().trim()),
+    ).toEqual(['Shipped', 'Partially shipped', 'Open', '—'])
   })
 
   it('filters the list by the typed e-mail address', async () => {

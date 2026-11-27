@@ -22,6 +22,8 @@ function makeOrder(): Order {
     createdAt: '2026-05-01T10:00:00Z',
     status: 'PAID',
     paymentStatus: 'PAID',
+    shippingStatus: null,
+    shipments: [],
     subtotal: 1499,
     shippingCost: 0,
     discountAmount: 0,
@@ -110,6 +112,31 @@ describe('OrderLinkView', () => {
 
     // Joe decision 4: a textual summary, no new image capability on an anonymous page.
     expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.findAll('button')).toHaveLength(0)
+  })
+
+  it('shows the shipped status and tracking link on the permanent order page', async () => {
+    const order = makeOrder()
+    order.shippingStatus = 'PARTIALLY_SHIPPED'
+    order.shipments = [
+      {
+        shippedAt: '2026-05-03T12:00:00Z',
+        carrierName: 'Deutsche Post',
+        trackingNumber: 'DP-123',
+        trackingUrl: 'https://www.deutschepost.de/de/s/sendungsverfolgung.html?piececode=DP-123',
+      },
+    ]
+    const store = useOrdersStore()
+    vi.spyOn(store, 'fetchOrderByToken').mockResolvedValue(order)
+
+    const wrapper = await mountOrderLink()
+
+    expect(wrapper.text()).toContain('orders.displayStatus.PARTIALLY_SHIPPED')
+    expect(wrapper.text()).toContain('Deutsche Post')
+    expect(wrapper.text()).toContain('DP-123')
+    expect(wrapper.get('[data-testid="order-tracking-link"]').attributes('href')).toBe(
+      'https://www.deutschepost.de/de/s/sendungsverfolgung.html?piececode=DP-123',
+    )
     expect(wrapper.findAll('button')).toHaveLength(0)
   })
 

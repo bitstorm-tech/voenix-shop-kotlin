@@ -38,7 +38,7 @@ export function createOperationsModule({
   >
   production: Pick<
     ProductionModule,
-    'findings' | 'ofOrder' | 'releaseSpodJob' | 'unshippedOrderCount'
+    'findings' | 'ofOrder' | 'releaseSpodJob' | 'shippingStatuses' | 'unshippedOrderCount'
   >
   outbox: Pick<EmailModule['outbox'], 'findings' | 'enqueue' | 'ofOrder'>
   settings: Settings['operations']

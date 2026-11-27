@@ -23,8 +23,17 @@ import { createSpodOrderRepository } from './spod/repository'
 import { spodSimulationRoutes } from './spod/simulation'
 import type { SubmissionClient } from './spod/submitter'
 import { createSpodWebhooks, SPOD_WEBHOOK_PATH, type WebhookClient } from './spod/webhooks'
-import { productionOfOrder, unshippedOrderCount } from './timeline'
+import {
+  type CustomerShipment,
+  customerShippingOfOrders,
+  type OrderCustomerShipping,
+  type OrderShippingStatus,
+  productionOfOrder,
+  shippingStatusesOfOrders,
+  unshippedOrderCount,
+} from './timeline'
 
+export type { CustomerShipment, OrderCustomerShipping, OrderShippingStatus }
 export type { ProductionFinding } from './findings'
 export type {
   FulfillmentOrder,
@@ -40,7 +49,7 @@ export type {
   ProductionPdfResult,
 } from './pdf/generator'
 export type { ProductionPdfError } from './pdf/renderer'
-export { requestProduction }
+export { customerShippingOfOrders, requestProduction }
 
 /**
  * The production module: destinations, the durable pipeline (split, PDF generation, SFTP delivery,
@@ -142,6 +151,8 @@ export async function createProductionModule({
     findings: async (now: Date) => productionFindings(db, now, await suppliers.ids()),
     /** The production section of one order's admin timeline: request, jobs, deliveries, SPOD. */
     ofOrder: (orderId: number) => productionOfOrder(db, orderId),
+    /** The shipping status per order across its production jobs, for the admin order list. */
+    shippingStatuses: (orderIds: readonly number[]) => shippingStatusesOfOrders(db, orderIds),
     /** How many paid orders still have something to ship (the admin menu's order badge). */
     unshippedOrderCount: () => unshippedOrderCount(db),
     /**

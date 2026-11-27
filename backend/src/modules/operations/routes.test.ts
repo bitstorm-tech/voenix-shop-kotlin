@@ -542,6 +542,7 @@ describe('GET /api/admin/orders', () => {
         createdAt: LATER.toISOString(),
         status: 'PAID',
         paymentStatus: null,
+        shippingStatus: null,
         total: 4070,
         email: 'andere@example.test',
         openFindings: 0,
@@ -551,6 +552,7 @@ describe('GET /api/admin/orders', () => {
         createdAt: AT.toISOString(),
         status: 'PAID',
         paymentStatus: null,
+        shippingStatus: null,
         total: 4070,
         email: 'kunde@example.test',
         openFindings: 2,
@@ -562,6 +564,71 @@ describe('GET /api/admin/orders', () => {
     expect(await jsonOf(await get(`${ORDERS}?email=kunde@example`))).toEqual([])
     expect(await jsonOf(await get(`${ORDERS}?email=`))).toHaveLength(2)
     expect((await get(ORDERS, ['USER'])).status).toBe(403)
+  })
+
+  test('reports each order shipping status across its production jobs', async () => {
+    const unpaid = await seedOrder('unpaid@example.test', AT)
+    const unsplit = await seedOrder('unsplit@example.test', new Date(AT.getTime() + 1000))
+    const open = await seedOrder('open@example.test', new Date(AT.getTime() + 2000))
+    const partial = await seedOrder('partial@example.test', new Date(AT.getTime() + 3000))
+    const shipped = await seedOrder('shipped@example.test', new Date(AT.getTime() + 4000))
+
+    const [supplierA, supplierB] = await database.db
+      .insertInto('suppliers')
+      .values([{ name: 'A' }, { name: 'B' }])
+      .returning('id')
+      .execute()
+    const [a, b] = [supplierA?.id ?? 0, supplierB?.id ?? 0]
+
+    const addRequest = async (orderId: number) =>
+      (
+        await database.db
+          .insertInto('production_requests')
+          .values({ order_id: orderId })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      ).id
+
+    await addRequest(unsplit)
+    const openReq = await addRequest(open)
+    const partialReq = await addRequest(partial)
+    const shippedReq = await addRequest(shipped)
+
+    await database.db
+      .insertInto('production_jobs')
+      .values([
+        { request_id: openReq, supplier_id: a, fulfillment_channel: 'SPOD', file_name: 'a.pdf' },
+        {
+          request_id: partialReq,
+          supplier_id: a,
+          fulfillment_channel: 'SPOD',
+          file_name: 'a.pdf',
+          prepared_at: LATER,
+          shipped_at: LATER,
+        },
+        { request_id: partialReq, supplier_id: b, fulfillment_channel: 'SFTP', file_name: 'b.pdf' },
+        {
+          request_id: shippedReq,
+          supplier_id: a,
+          fulfillment_channel: 'SPOD',
+          file_name: 'a.pdf',
+          prepared_at: LATER,
+          shipped_at: LATER,
+        },
+      ])
+      .execute()
+
+    const list = (await jsonOf(await get(ORDERS))) as {
+      orderId: number
+      shippingStatus: string | null
+    }[]
+    expect(list.map(({ orderId, shippingStatus }) => ({ orderId, shippingStatus }))).toEqual([
+      { orderId: shipped, shippingStatus: 'SHIPPED' },
+      { orderId: partial, shippingStatus: 'PARTIALLY_SHIPPED' },
+      { orderId: open, shippingStatus: 'OPEN' },
+      { orderId: unsplit, shippingStatus: 'OPEN' },
+      { orderId: unpaid, shippingStatus: null },
+    ])
   })
 
   test('answers at most the newest 50 orders', async () => {

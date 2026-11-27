@@ -3,7 +3,11 @@ import type { Transaction } from 'kysely'
 import { catalogKey, type ArticleCatalog } from '@/modules/article'
 import { renderOrderConfirmation, type EmailModule } from '@/modules/email'
 import type { ImageModule } from '@/modules/image'
-import type { ProductionData, ShippingNotificationOrder } from '@/modules/production'
+import type {
+  OrderCustomerShipping,
+  ProductionData,
+  ShippingNotificationOrder,
+} from '@/modules/production'
 import type { Tables } from '@/platform/db/database'
 import { notFound, ok, type OperationResult } from '@/platform/operation'
 import type { PaymentService } from './payment/service'
@@ -69,6 +73,7 @@ export function createOrderService({
   images,
   printImages,
   payments,
+  shippingOfOrders,
   frontendBaseUrl,
 }: {
   repository: OrderRepository
@@ -77,19 +82,30 @@ export function createOrderService({
   images: Pick<ImageModule, 'privateStorage'>
   printImages: PrintImageReads
   payments: Pick<PaymentService, 'stored' | 'refreshed'>
+  shippingOfOrders: (orderIds: readonly number[]) => Promise<Map<number, OrderCustomerShipping>>
   frontendBaseUrl: string
 }) {
   /** The permanent page of one order; the token is URL-safe, so nothing needs escaping. */
   const orderUrl = (accessToken: string) => `${frontendBaseUrl}/order/${accessToken}`
 
+  const shippingFields = (shipping: OrderCustomerShipping | undefined) => ({
+    shippingStatus: shipping?.shippingStatus ?? null,
+    shipments: shipping?.shipments ?? [],
+  })
+
   return {
-    /** The caller's orders with their stored payment status: one batch read, never a provider call. */
+    /** The caller's orders with their stored payment and shipping state: batch reads, never a provider call. */
     history: async (userId: number | null, guestToken: string | null): Promise<OrderView[]> => {
       const orders = await repository.history(userId, guestToken)
-      const statuses = await payments.stored(orders.map((order) => order.orderId))
+      const orderIds = orders.map((order) => order.orderId)
+      const [statuses, shipping] = await Promise.all([
+        payments.stored(orderIds),
+        shippingOfOrders(orderIds),
+      ])
       return orders.map((order) => ({
         ...order,
         paymentStatus: statuses.get(order.orderId) ?? null,
+        ...shippingFields(shipping.get(order.orderId)),
       }))
     },
 
@@ -107,11 +123,13 @@ export function createOrderService({
       const order = await repository.order(orderId, userId, guestToken)
       if (order === undefined) return notFound
       const paymentStatus = await payments.refreshed(orderId, 'REFRESH')
-      const current =
+      const [current, shipping] = await Promise.all([
         paymentStatus === 'PAID' && order.status === 'PENDING'
-          ? ((await repository.order(orderId, userId, guestToken)) ?? order)
-          : order
-      return ok({ ...current, paymentStatus })
+          ? repository.order(orderId, userId, guestToken).then((fresh) => fresh ?? order)
+          : Promise.resolve(order),
+        shippingOfOrders([orderId]),
+      ])
+      return ok({ ...current, paymentStatus, ...shippingFields(shipping.get(orderId)) })
     },
 
     /**
@@ -122,8 +140,15 @@ export function createOrderService({
     orderByToken: async (token: string): Promise<OperationResult<OrderView>> => {
       const order = ACCESS_TOKEN.test(token) ? await repository.orderByToken(token) : undefined
       if (order === undefined) return notFound
-      const statuses = await payments.stored([order.orderId])
-      return ok({ ...order, paymentStatus: statuses.get(order.orderId) ?? null })
+      const [statuses, shipping] = await Promise.all([
+        payments.stored([order.orderId]),
+        shippingOfOrders([order.orderId]),
+      ])
+      return ok({
+        ...order,
+        paymentStatus: statuses.get(order.orderId) ?? null,
+        ...shippingFields(shipping.get(order.orderId)),
+      })
     },
 
     /**
