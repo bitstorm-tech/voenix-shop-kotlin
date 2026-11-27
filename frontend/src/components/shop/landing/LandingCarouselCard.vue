@@ -8,6 +8,7 @@ const props = defineProps<{
   title: string
   meta?: string
   imageUrl?: string
+  imageLoading?: 'eager' | 'lazy'
   noImageLabel: string
 }>()
 
@@ -42,7 +43,7 @@ function handleImageError() {
         class="landing-carousel-card__image block size-full object-cover transition-transform duration-200 group-hover:scale-[1.035] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
         width="400"
         height="400"
-        loading="lazy"
+        :loading="imageLoading ?? 'lazy'"
         decoding="async"
         @error="handleImageError"
       />

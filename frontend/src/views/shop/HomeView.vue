@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import GenCardImage from '@/assets/landing/gen-card.jpg'
 import GenDesignImage from '@/assets/landing/gen-design.jpg'
 import GenPhotoImage from '@/assets/landing/gen-photo.jpg'
-import GenTshirtImage from '@/assets/landing/gen-tshirt.jpg'
 import LandingCarousel from '@/components/shop/landing/LandingCarousel.vue'
 import LandingCarouselCard from '@/components/shop/landing/LandingCarouselCard.vue'
 import ImageComparisonSlider from '@/components/shared/ImageComparisonSlider.vue'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import Mug2Image from '@/assets/landing/mug2.png'
 import { ArrowRight, BadgeCheck, CheckCircle, ShieldCheck, Star, Truck } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -112,76 +108,29 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Card as="article" class="overflow-hidden rounded-lg bg-background-soft">
-            <div
-              class="flex aspect-[4/3] items-center justify-center overflow-hidden bg-background-warm p-2"
-            >
-              <img
-                :src="Mug2Image"
-                :alt="t('landing.categories.mug.label')"
-                class="size-full object-contain"
-                width="553"
-                height="630"
-                loading="eager"
-                decoding="async"
+        <div id="products" class="mt-6">
+          <LandingCarousel
+            :items="subcategories"
+            :is-loading="categoriesStore.isLoading"
+            :error="categoriesStore.error"
+            i18n-key="landing.products"
+            @retry="categoriesStore.fetchCategories()"
+          >
+            <template #item="{ item }">
+              <LandingCarouselCard
+                :to="{
+                  name: 'products',
+                  query: { category: String(item.categoryId), subcategory: String(item.id) },
+                }"
+                :title="item.name"
+                :meta="item.categoryName"
+                :image-url="item.imageUrl"
+                image-loading="eager"
+                :aria-label="t('landing.products.openSubcategory', { title: item.name })"
+                :no-image-label="t('landing.products.noImage')"
               />
-            </div>
-            <div
-              class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-bold text-foreground-soft"
-            >
-              <span>{{ t('landing.categories.mug.label') }}</span>
-              <Badge class="rounded-sm bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">
-                {{ t('landing.categories.mug.tag') }}
-              </Badge>
-            </div>
-          </Card>
-          <Card as="article" class="overflow-hidden rounded-lg bg-background-soft">
-            <div class="flex aspect-[4/3] items-center justify-center overflow-hidden bg-muted">
-              <img
-                :src="GenCardImage"
-                :alt="t('landing.categories.card.label')"
-                class="size-full object-cover"
-                width="512"
-                height="512"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-            <div
-              class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-bold text-foreground-soft"
-            >
-              <span>{{ t('landing.categories.card.label') }}</span>
-              <Badge class="rounded-sm bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">
-                {{ t('landing.categories.card.tag') }}
-              </Badge>
-            </div>
-          </Card>
-          <Card as="article" class="overflow-hidden rounded-lg bg-background-soft">
-            <div
-              class="flex aspect-[4/3] items-center justify-center overflow-hidden bg-background-soft"
-            >
-              <img
-                :src="GenTshirtImage"
-                :alt="t('landing.categories.shirt.label')"
-                class="size-full object-cover"
-                width="512"
-                height="512"
-                loading="eager"
-                decoding="async"
-              />
-            </div>
-            <div
-              class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-bold text-foreground-soft"
-            >
-              <span>{{ t('landing.categories.shirt.label') }}</span>
-              <Badge
-                class="rounded-sm bg-surface-inverse px-2 py-0.5 text-[10px] text-surface-inverse-foreground"
-              >
-                {{ t('landing.categories.shirt.tag') }}
-              </Badge>
-            </div>
-          </Card>
+            </template>
+          </LandingCarousel>
         </div>
       </div>
     </section>
@@ -231,66 +180,28 @@ onMounted(() => {
             </p>
           </article>
         </div>
-      </div>
-    </section>
 
-    <section id="products" class="py-14">
-      <div class="mx-auto max-w-[1100px] px-6">
-        <header class="mx-auto mb-8 max-w-[480px] text-center">
-          <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
-            {{ t('landing.products.kicker') }}
-          </p>
-          <h2 class="text-2xl font-extrabold tracking-normal text-foreground">
-            {{ t('landing.products.title') }}
-          </h2>
-          <p class="mt-2 text-sm leading-relaxed text-foreground-muted">
-            {{ t('landing.products.subtitle') }}
-          </p>
-        </header>
-
-        <LandingCarousel
-          :items="subcategories"
-          :is-loading="categoriesStore.isLoading"
-          :error="categoriesStore.error"
-          i18n-key="landing.products"
-          @retry="categoriesStore.fetchCategories()"
-        >
-          <template #item="{ item }">
-            <LandingCarouselCard
-              :to="{
-                name: 'products',
-                query: { category: String(item.categoryId), subcategory: String(item.id) },
-              }"
-              :title="item.name"
-              :meta="item.categoryName"
-              :image-url="item.imageUrl"
-              :aria-label="t('landing.products.openSubcategory', { title: item.name })"
-              :no-image-label="t('landing.products.noImage')"
-            />
-          </template>
-        </LandingCarousel>
-
-        <div class="mt-10 grid grid-cols-1 gap-4 border-y py-8 sm:grid-cols-3">
+        <div class="mt-4 grid grid-cols-1 gap-4 border-t pt-8 sm:grid-cols-3">
           <div class="text-center">
             <BadgeCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
             <p class="text-sm font-bold text-foreground">{{ t('landing.trust.craft.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.craft.text') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.craft.text') }}</p>
           </div>
           <div class="text-center">
             <Truck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
             <p class="text-sm font-bold text-foreground">{{ t('landing.trust.shipping.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.shipping.text') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.shipping.text') }}</p>
           </div>
           <div class="text-center">
             <ShieldCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
             <p class="text-sm font-bold text-foreground">{{ t('landing.trust.payment.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.payment.text') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.payment.text') }}</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="styles" class="bg-background-soft py-14">
+    <section id="styles" class="py-14">
       <div class="mx-auto max-w-[1100px] px-6">
         <header class="mx-auto mb-8 max-w-[480px] text-center">
           <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
@@ -325,7 +236,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="py-14">
+    <section class="bg-background-warm py-14">
       <div class="mx-auto max-w-[1100px] px-6">
         <header class="mx-auto mb-8 max-w-[480px] text-center">
           <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
@@ -337,12 +248,7 @@ onMounted(() => {
         </header>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card
-            v-for="review in reviews"
-            :key="review"
-            as="article"
-            class="rounded-lg bg-background-soft p-5"
-          >
+          <Card v-for="review in reviews" :key="review" as="article" class="rounded-lg bg-card p-5">
             <div class="mb-2 flex gap-0.5 text-rating">
               <Star v-for="index in 5" :key="index" class="size-3.5 fill-current" />
             </div>
