@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Building2, FileText, Mail, MapPin } from 'lucide-vue-next'
+import { Building2, FileText, Mail, MapPin, Phone } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -10,6 +10,8 @@ const representatives = 'Josef Bauer & Thomas Pränger'
 const street = 'Wallbergstr. 18'
 const city = '83607 Holzkirchen'
 const emailAddress = 'write-us@voenix.shop'
+const phoneDisplay = '+49 (0)8024 477 32 - 200'
+const phoneHref = 'tel:+49802447732200'
 const vatId = 'DE455554144'
 
 const copy = computed(() =>
@@ -21,6 +23,8 @@ const copy = computed(() =>
         addressLabel: 'Anschrift',
         contactTitle: 'Kontakt',
         contactLabel: 'E-Mail-Adresse',
+        phoneTitle: 'Telefon',
+        phoneLabel: 'Telefonnummer',
         taxTitle: 'Steuer',
         vatLabel: 'USt-IdNr.',
         responsibleTitle: 'Inhaltlich verantwortlich',
@@ -34,6 +38,8 @@ const copy = computed(() =>
         addressLabel: 'Address',
         contactTitle: 'Contact',
         contactLabel: 'Email',
+        phoneTitle: 'Phone',
+        phoneLabel: 'Phone number',
         taxTitle: 'Tax',
         vatLabel: 'VAT ID',
         responsibleTitle: 'Responsible for content',
@@ -52,6 +58,14 @@ const facts = computed(() => [
     value: emailAddress,
     href: `mailto:${emailAddress}`,
     icon: Mail,
+  },
+  {
+    key: 'phone',
+    title: copy.value.phoneTitle,
+    label: copy.value.phoneLabel,
+    value: phoneDisplay,
+    href: phoneHref,
+    icon: Phone,
   },
   {
     key: 'tax',

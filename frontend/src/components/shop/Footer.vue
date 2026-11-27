@@ -29,8 +29,6 @@ type PaymentMethod = {
 const quickLinks: FooterLink[] = [
   { routeName: 'about', labelKey: 'footer.quickAccess.about' },
   { routeName: 'faq', labelKey: 'footer.quickAccess.faq' },
-  { routeName: 'contact', labelKey: 'footer.quickAccess.contact' },
-  { routeName: 'support', labelKey: 'footer.quickAccess.support' },
 ]
 
 const legalLinks: FooterLink[] = [

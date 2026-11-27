@@ -17,7 +17,7 @@ export const LEGACY_REDIRECTS: ReadonlyMap<string, string> = new Map([
   ['/faq', '/faq'],
   ['/ueber-uns', '/about'],
   ['/tassenuebersicht', '/'],
-  ['/firmenkunden', '/contact'],
+  ['/firmenkunden', '/about'],
   ['/pdf/agbs.pdf', '/terms'],
 ])
 

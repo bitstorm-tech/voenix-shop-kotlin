@@ -302,9 +302,7 @@
     "quickAccess": {
       "title": "Quick Access",
       "about": "About Us",
-      "faq": "FAQ",
-      "contact": "Contact",
-      "support": "Support"
+      "faq": "FAQ"
     },
     "legal": {
       "title": "Legal",
@@ -323,25 +321,150 @@
     "copyright": "© {year} Voenix.Shop. All rights reserved."
   },
   "footerPages": {
-    "sectionEyebrow": "Information",
-    "contentNote": "The content for this page is currently being prepared and will be expanded soon.",
-    "backHome": "Back to home",
-    "browseProducts": "Browse products",
     "about": {
       "title": "About Us",
-      "description": "This page will soon share more about Voenix, our idea, and our team."
+      "description": "From Bavaria. With Love. For your special moments.",
+      "content": {
+        "eyebrow": "About Us",
+        "headline": "From Bavaria. With Love.",
+        "subheadline": "For your special moments.",
+        "paragraphs": [
+          "We are voenix.shop — a small, smart team from Holzkirchen near Munich bringing AI magic into your everyday life. Our online configurator was built entirely by our team in Bavaria and makes it effortless to turn a favourite photo into a genuine piece of art.",
+          "Every single one of our products — from mugs to apparel — is printed to high quality standards in Germany: precise, durable, and crafted with attention to detail. No cheap prints, no compromises — real quality you can see and feel.",
+          "Orders are shipped from Germany with DHL — fast, secure, and reliable. That way your personalised favourite piece arrives on time, well packaged, and ready for memorable moments."
+        ],
+        "claim": "voenix.shop – Moments made magical.",
+        "highlights": [
+          {
+            "id": "bavaria",
+            "title": "Built in Bavaria",
+            "description": "Our online configurator is developed in Holzkirchen near Munich with a focus on effortless design and expressive AI styles."
+          },
+          {
+            "id": "quality",
+            "title": "Printed in Germany",
+            "description": "Precise, long-lasting printing with real attention to detail — quality you can see and feel."
+          },
+          {
+            "id": "shipping",
+            "title": "Shipped with DHL",
+            "description": "Fast, insured parcel delivery from Germany — carefully packed and delivered reliably."
+          }
+        ],
+        "ctaTitle": "Ready to create your own one-of-a-kind piece?",
+        "ctaDescription": "Browse our products or write to us directly for questions and corporate inquiries.",
+        "ctaProducts": "Browse products",
+        "ctaContact": "Send email",
+        "email": "write-us@voenix.shop"
+      }
     },
     "faq": {
       "title": "FAQ",
-      "description": "This page will soon collect answers to common questions about ordering, design, and shipping."
-    },
-    "contact": {
-      "title": "Contact",
-      "description": "This page will soon include contact channels, availability, and the right points of contact."
-    },
-    "support": {
-      "title": "Support",
-      "description": "This page will soon become the central help area for support around orders and designs."
+      "description": "Here we have collected answers to the most important questions about our configurator, orders, payment, and shipping.",
+      "content": {
+        "eyebrow": "Customer Service & FAQ",
+        "introPrefix": "Can't find your question? Feel free to write to",
+        "introSuffix": "and we will get back to you as soon as possible.",
+        "email": "write-us@voenix.shop",
+        "items": [
+          {
+            "id": "configurator",
+            "question": "How does the online configurator work?",
+            "paragraphs": [
+              "Simply follow the steps in our online configurator:",
+              "1. Choose your desired product (e.g., mug or apparel) and your preferred variant.",
+              "2. Pick an AI style — or use your uploaded photo directly without AI transformation.",
+              "3. Upload your photo and crop it to the section you want to use.",
+              "4. Start the AI generation and choose your favourite design — you can generate additional variants if needed.",
+              "5. In the editor, you can fine-tune your design, optionally add text, and add your product to the cart."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "cart",
+            "question": "How long does my selection stay in the cart?",
+            "paragraphs": [
+              "Items you add to your cart stay saved for your shopping session. As a guest, your cart is linked to your current browser session.",
+              "If you want to continue later on another device or view your orders at any time, feel free to create an account and sign in."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "promoCode",
+            "question": "How do I use my promo code?",
+            "paragraphs": [
+              "In the cart order summary, you will find the \"Promo code\" field. Enter your code there and click \"Apply\" — your order total adjusts automatically.",
+              "As a rule, our promo codes can be used once per customer."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "returns",
+            "question": "How can I return an item?",
+            "paragraphs": [
+              "The personalised products we offer are goods made to customer specifications or clearly tailored to personal needs (Sec. 312g para. 2 no. 1 German Civil Code / BGB). There is no statutory right of withdrawal for these items.",
+              "Your statutory warranty rights (for example in the event of a production defect or transit damage) remain unaffected."
+            ],
+            "linkLabel": "More information on returns & withdrawal"
+          },
+          {
+            "id": "visit",
+            "question": "Can I visit you in person?",
+            "paragraphs": [
+              "Unfortunately not. We are an online-only business and currently do not operate any physical retail locations. You can get our MOMENTS MADE MAGICAL products exclusively at voenix.shop."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "shippingCountries",
+            "question": "Which countries do you ship to?",
+            "paragraphs": [
+              "We deliver within Germany and to selected EU countries. You can always find all currently available destinations, shipping costs, and any free-shipping thresholds on our shipping page.",
+              "Do you live in another country? Feel free to contact us at write-us@voenix.shop for an individual shipping quote."
+            ],
+            "linkLabel": "View shipping information"
+          },
+          {
+            "id": "deliveryTimes",
+            "question": "How long are the delivery times?",
+            "paragraphs": [
+              "Unless stated otherwise for your chosen item, delivery within Germany typically takes up to 7 business days after payment is received. Deliveries to other EU countries may take longer depending on the shipping carrier's (DHL) workload.",
+              "Once we have handed your parcel over to the shipping carrier, you will receive a tracking number from us so you can follow your shipment online."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "splitDelivery",
+            "question": "What if items have different delivery times?",
+            "paragraphs": [
+              "Delivery times across our items usually vary only slightly, so we aim to send your entire order as quickly as possible in a single shipment.",
+              "If an item in your order still has an unexpectedly long lead time or is fulfilled separately, we will ship the available items right away and send the remaining items in a second delivery at no additional cost to you."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "shippingMethod",
+            "question": "How are orders shipped?",
+            "paragraphs": [
+              "We ship domestically and to EU destinations via DHL parcel delivery (insured up to €500, including shipment tracking)."
+            ],
+            "linkLabel": ""
+          },
+          {
+            "id": "payment",
+            "question": "How can I pay?",
+            "paragraphs": [
+              "We offer the following payment methods: Visa, Mastercard, Apple Pay, Google Pay, PayPal, and Klarna (availability depends on country and device).",
+              "For fast, convenient, and secure payment processing, we partner with the payment service provider Mollie B.V."
+            ],
+            "linkLabel": "View all payment conditions"
+          }
+        ],
+        "ctaTitle": "Did we answer your questions?",
+        "ctaDescription": "If anything is still unclear, our customer service team will be happy to assist you personally.",
+        "ctaHome": "Thanks! Back to home",
+        "ctaEmail": "Still need help — send email"
+      }
     },
     "privacy": {
       "title": "Privacy Policy",
@@ -391,12 +514,79 @@
       }
     },
     "returns": {
-      "title": "Returns & Refunds",
-      "description": "This page will soon explain returns, complaints, and refund handling."
+      "title": "Returns & Right of Withdrawal",
+      "description": "Withdrawal policy, exclusion for personalised products, and model withdrawal form. This legal notice is available in German only; the German text is binding."
     },
     "payment": {
-      "title": "Payment",
-      "description": "This page will soon cover supported payment methods and payment flows."
+      "title": "Payment Conditions",
+      "description": "Information about our accepted payment methods and secure payment processing.",
+      "content": {
+        "eyebrow": "Payment Conditions",
+        "lead": "Pay quickly, conveniently, and securely.",
+        "intro": "We offer the following payment methods for your order at voenix.shop. Exact availability may vary depending on your country and device.",
+        "methodsTitle": "Accepted Payment Methods",
+        "methods": [
+          {
+            "id": "visa",
+            "name": "Visa",
+            "description": "Convenient payment with your Visa credit or debit card."
+          },
+          {
+            "id": "mastercard",
+            "name": "Mastercard",
+            "description": "Convenient payment with your Mastercard credit or debit card."
+          },
+          {
+            "id": "apple-pay",
+            "name": "Apple Pay",
+            "description": "Fast and secure checkout directly on Apple devices."
+          },
+          {
+            "id": "google-pay",
+            "name": "Google Pay",
+            "description": "Fast and secure checkout using your Google account."
+          },
+          {
+            "id": "paypal",
+            "name": "PayPal",
+            "description": "Pay directly and securely with your PayPal account."
+          },
+          {
+            "id": "klarna",
+            "name": "Klarna",
+            "description": "Flexible payment with Klarna (e.g. Pay Later)."
+          }
+        ],
+        "providerTitle": "Our Payment Partner",
+        "providerIntro": "To provide fast, convenient, and above all secure payment processing, we work with the following payment service provider:",
+        "providerName": "Mollie B.V.",
+        "providerAddressLines": ["Keizersgracht 126", "1015 CW Amsterdam", "Netherlands"],
+        "providerRegisterLabel": "Commercial Register (KvK)",
+        "providerRegisterValue": "30204462",
+        "providerVatLabel": "VAT ID",
+        "providerVatValue": "NL815839091B01",
+        "providerSupervision": "Mollie B.V. is registered as a licensed payment institution with the Dutch Central Bank (De Nederlandsche Bank, DNB).",
+        "notesTitle": "Please Note",
+        "notesParagraphs": [
+          "When you use our checkout payment function, processing is handled by Mollie B.V. and — depending on the payment method selected — by downstream payment providers (such as PayPal or Klarna). For certain payment methods such as Klarna Pay Later, the payment claim is assigned to the respective provider.",
+          "Please note that the terms and privacy policies of payment providers may vary by country."
+        ],
+        "linksTitle": "Further Information",
+        "links": [
+          {
+            "label": "Mollie Privacy Statement",
+            "href": "https://www.mollie.com/en/privacy"
+          },
+          {
+            "label": "Klarna Terms & Conditions",
+            "href": "https://www.klarna.com/international/terms-and-conditions/"
+          },
+          {
+            "label": "Klarna Privacy Notice",
+            "href": "https://www.klarna.com/international/privacy-policy/"
+          }
+        ]
+      }
     },
     "imprint": {
       "title": "Imprint",

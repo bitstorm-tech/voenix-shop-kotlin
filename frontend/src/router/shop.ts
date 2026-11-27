@@ -50,22 +50,6 @@ export const shopRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'contact',
-        name: 'contact',
-        component: () => import('@/views/shop/ContactView.vue'),
-        meta: {
-          title: 'Contact',
-        },
-      },
-      {
-        path: 'support',
-        name: 'support',
-        component: () => import('@/views/shop/SupportView.vue'),
-        meta: {
-          title: 'Support',
-        },
-      },
-      {
         path: 'privacy',
         name: 'privacy',
         component: () => import('@/views/shop/PrivacyView.vue'),
