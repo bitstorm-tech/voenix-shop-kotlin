@@ -128,4 +128,63 @@ describe('HomeView', () => {
     expect(sections[2]?.attributes('id')).toBe('styles')
     expect(sections[3]?.text()).toContain('Das sagen unsere Kunden')
   })
+
+  it('randomizes both landing carousels on load without mutating store order', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const categoriesStore = useArticleCategoriesStore()
+    categoriesStore.categories = [
+      {
+        id: 1,
+        name: 'Tassen',
+        position: 1,
+        subcategories: [
+          { id: 11, name: 'Keramik 330ML', position: 1, exampleImageFilename: 'ceramic.webp' },
+          { id: 12, name: 'Emaille 330ML', position: 2, exampleImageFilename: 'enamel.webp' },
+        ],
+      },
+      {
+        id: 2,
+        name: 'Thermobehälter',
+        position: 2,
+        subcategories: [
+          { id: 21, name: 'Thermoflasche', position: 1, exampleImageFilename: 'bottle.webp' },
+        ],
+      },
+    ]
+    vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
+
+    const promptsStore = usePromptsStore()
+    promptsStore.prompts = [
+      createShopPrompt({ id: 1, title: 'Aquarell', exampleImageFilename: 'aquarell.webp' }),
+      createShopPrompt({ id: 2, title: 'Ölgemälde', exampleImageFilename: 'oil.webp' }),
+      createShopPrompt({ id: 3, title: 'Pop Art', exampleImageFilename: 'pop.webp' }),
+    ]
+    vi.spyOn(promptsStore, 'fetchPrompts').mockResolvedValue()
+
+    const wrapper = await mountHome('de')
+
+    const productTitles = wrapper
+      .get('#products')
+      .findAll('.landing-carousel-card__title')
+      .map((title) => title.text())
+    const styleTitles = wrapper
+      .get('#styles')
+      .findAll('.landing-carousel-card__title')
+      .map((title) => title.text())
+
+    expect(productTitles).toEqual(['Emaille 330ML', 'Thermoflasche', 'Keramik 330ML'])
+    expect(styleTitles).toEqual(['Ölgemälde', 'Pop Art', 'Aquarell'])
+
+    // Store arrays keep their original API order for navigation and other views
+    expect(categoriesStore.categories[0]?.subcategories.map((sub) => sub.name)).toEqual([
+      'Keramik 330ML',
+      'Emaille 330ML',
+    ])
+    expect(promptsStore.prompts.map((prompt) => prompt.title)).toEqual([
+      'Aquarell',
+      'Ölgemälde',
+      'Pop Art',
+    ])
+  })
 })
