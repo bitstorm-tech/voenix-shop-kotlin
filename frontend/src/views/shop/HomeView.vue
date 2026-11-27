@@ -180,6 +180,24 @@ onMounted(() => {
             </p>
           </article>
         </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-4 border-t pt-8 sm:grid-cols-3">
+          <div class="text-center">
+            <BadgeCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.craft.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.craft.text') }}</p>
+          </div>
+          <div class="text-center">
+            <Truck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.shipping.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.shipping.text') }}</p>
+          </div>
+          <div class="text-center">
+            <ShieldCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.payment.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-muted">{{ t('landing.trust.payment.text') }}</p>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -215,24 +233,6 @@ onMounted(() => {
             />
           </template>
         </LandingCarousel>
-
-        <div class="mt-10 grid grid-cols-1 gap-4 border-y py-8 sm:grid-cols-3">
-          <div class="text-center">
-            <BadgeCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.craft.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.craft.text') }}</p>
-          </div>
-          <div class="text-center">
-            <Truck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.shipping.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.shipping.text') }}</p>
-          </div>
-          <div class="text-center">
-            <ShieldCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.payment.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.payment.text') }}</p>
-          </div>
-        </div>
       </div>
     </section>
 
