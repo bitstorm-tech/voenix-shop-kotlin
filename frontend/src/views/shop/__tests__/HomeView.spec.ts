@@ -111,7 +111,7 @@ describe('HomeView', () => {
     expect(stylesSection.get('img').attributes('loading')).toBe('lazy')
   })
 
-  it('keeps the trust strip between the how-it-works and styles sections', async () => {
+  it('places the trust strip at the bottom of the styles section with alternating section rhythm', async () => {
     const categoriesStore = useArticleCategoriesStore()
     vi.spyOn(categoriesStore, 'fetchCategories').mockResolvedValue()
 
@@ -122,9 +122,10 @@ describe('HomeView', () => {
     const sections = wrapper.findAll('section')
 
     expect(sections[1]?.attributes('id')).toBe('how')
+    expect(sections[2]?.attributes('id')).toBe('styles')
     expect(sections[2]?.text()).toContain('Made in Germany')
     expect(sections[2]?.text()).toContain('DHL-Versand')
     expect(sections[2]?.text()).toContain('Sichere Zahlung')
-    expect(sections[3]?.attributes('id')).toBe('styles')
+    expect(sections[3]?.text()).toContain('Das sagen unsere Kunden')
   })
 })

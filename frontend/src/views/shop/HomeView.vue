@@ -183,29 +183,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="py-10">
-      <div class="mx-auto max-w-[1100px] px-6">
-        <div class="grid grid-cols-1 gap-4 border-y py-8 sm:grid-cols-3">
-          <div class="text-center">
-            <BadgeCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.craft.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.craft.text') }}</p>
-          </div>
-          <div class="text-center">
-            <Truck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.shipping.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.shipping.text') }}</p>
-          </div>
-          <div class="text-center">
-            <ShieldCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
-            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.payment.title') }}</p>
-            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.payment.text') }}</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="styles" class="bg-background-soft py-14">
+    <section id="styles" class="py-14">
       <div class="mx-auto max-w-[1100px] px-6">
         <header class="mx-auto mb-8 max-w-[480px] text-center">
           <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
@@ -237,10 +215,28 @@ onMounted(() => {
             />
           </template>
         </LandingCarousel>
+
+        <div class="mt-10 grid grid-cols-1 gap-4 border-y py-8 sm:grid-cols-3">
+          <div class="text-center">
+            <BadgeCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.craft.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.craft.text') }}</p>
+          </div>
+          <div class="text-center">
+            <Truck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.shipping.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.shipping.text') }}</p>
+          </div>
+          <div class="text-center">
+            <ShieldCheck class="mx-auto mb-2 size-6 text-primary" aria-hidden="true" />
+            <p class="text-sm font-bold text-foreground">{{ t('landing.trust.payment.title') }}</p>
+            <p class="mt-1 text-xs text-foreground-faint">{{ t('landing.trust.payment.text') }}</p>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="py-14">
+    <section class="bg-background-warm py-14">
       <div class="mx-auto max-w-[1100px] px-6">
         <header class="mx-auto mb-8 max-w-[480px] text-center">
           <p class="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-primary">
@@ -252,12 +248,7 @@ onMounted(() => {
         </header>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card
-            v-for="review in reviews"
-            :key="review"
-            as="article"
-            class="rounded-lg bg-background-soft p-5"
-          >
+          <Card v-for="review in reviews" :key="review" as="article" class="rounded-lg bg-card p-5">
             <div class="mb-2 flex gap-0.5 text-rating">
               <Star v-for="index in 5" :key="index" class="size-3.5 fill-current" />
             </div>
