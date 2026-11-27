@@ -32,6 +32,8 @@ export {
   type OperationsAlertFinding,
   type OperationsAlertKind,
 } from './templates/operations-alert'
+export { renderMagicCoinRequestAlert } from './templates/magic-coin-request-alert'
+export { renderMagicCoinsGranted } from './templates/magic-coins-granted'
 
 /**
  * The email module, a leaf: an owning module renders a mail with one of the `render…` functions

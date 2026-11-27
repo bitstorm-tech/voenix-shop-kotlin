@@ -1,8 +1,6 @@
 import { ref, computed, markRaw, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, fetchForm, type ApiFieldErrors } from '@/lib/api'
-import { INSUFFICIENT_MAGIC_COINS_CODE } from '@/lib/magicCoins'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 
 export interface GeneratedImage {
   id: string
@@ -64,6 +62,9 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
    * catalog for the type behind the id and generates in the format that type prints in — a mug
    * wrap or a shirt's print ratio (issue #205). A request without it is a `400` with a field error
    * on `articleId`, so the caller must have a selected article before it starts.
+   *
+   * Magic Coin balances are deliberately never queried ahead of time; an exhausted balance surfaces
+   * directly from `POST /api/generator/generate` as `402 INSUFFICIENT_MAGIC_COINS`.
    */
   async function generateImage(image: File | Blob, promptId: number, articleId: number) {
     requestGeneration += 1
@@ -76,26 +77,6 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
     clearError()
 
     try {
-      const magicCoinsStore = useMagicCoinsStore()
-      if (magicCoinsStore.balance === null) {
-        await magicCoinsStore.fetchBalance()
-      }
-
-      if (activeGeneration !== requestGeneration) {
-        return
-      }
-
-      if (magicCoinsStore.balance === null) {
-        error.value = magicCoinsStore.error ?? 'Failed to load Magic Coins'
-        return
-      }
-
-      if (magicCoinsStore.balance <= 0) {
-        errorCode.value = INSUFFICIENT_MAGIC_COINS_CODE
-        error.value = 'Not enough Magic Coins'
-        return
-      }
-
       const formData = new FormData()
       const ext = { 'image/png': 'png', 'image/webp': 'webp' }[image.type] ?? 'jpg'
       const fileName = image instanceof File ? image.name : `cropped.${ext}`
@@ -120,7 +101,6 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
       }
       generatedImages.value.push(newImage)
       selectedImageId.value = newImage.id
-      await magicCoinsStore.fetchBalance()
     } catch (err) {
       if (activeGeneration !== requestGeneration) {
         return
@@ -132,11 +112,6 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
         errorRetryAfterSeconds.value = err.retryAfterSeconds
         errorFieldErrors.value = err.fieldErrors
         error.value = err.message
-
-        if (errorCode.value === INSUFFICIENT_MAGIC_COINS_CODE) {
-          await useMagicCoinsStore().fetchBalance()
-        }
-
         return
       }
 
@@ -180,6 +155,7 @@ export const useImageGenerationStore = defineStore('imageGeneration', () => {
     errorStatus,
     errorRetryAfterSeconds,
     errorFieldErrors,
+    clearError,
     generateImage,
     selectImage,
     reset,

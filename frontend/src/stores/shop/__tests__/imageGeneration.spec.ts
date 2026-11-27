@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { resetApiClientForTests } from '@/lib/api'
 import { INSUFFICIENT_MAGIC_COINS_CODE } from '@/lib/magicCoins'
 import { useImageGenerationStore } from '@/stores/shop/imageGeneration'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -32,9 +31,7 @@ describe('imageGeneration store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('refetches Magic Coins after a successful generation', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 1
+  it('generates an image directly without calling any balance endpoint', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url === '/api/antiforgery/token') {
@@ -47,9 +44,6 @@ describe('imageGeneration store', () => {
             headers: { 'Content-Type': 'image/png' },
           }),
         )
-      }
-      if (url === '/api/magic-coins/balance') {
-        return Promise.resolve(jsonResponse({ balance: 0 }))
       }
       return Promise.reject(new Error(`Unexpected URL: ${url}`))
     })
@@ -64,18 +58,14 @@ describe('imageGeneration store', () => {
     expect(store.generatedImages[0]!.blob.type).toBe('image/png')
     expect(store.generatedImages[0]!.url).toBe('blob:generated')
     expect(store.selectedImageId).toBe('generated-image-id')
-    expect(magicCoinsStore.balance).toBe(0)
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(
       '/api/magic-coins/balance',
-      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
     )
   })
 
   // The generator generates *for* an article: the route reads the type behind `articleId` and picks
   // the format that type prints in, and refuses a request without it (issue #205).
   it('sends the image, the prompt, and the article as the multipart parts of the request', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 1
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url === '/api/antiforgery/token') {
@@ -88,9 +78,6 @@ describe('imageGeneration store', () => {
             headers: { 'Content-Type': 'image/png' },
           }),
         )
-      }
-      if (url === '/api/magic-coins/balance') {
-        return Promise.resolve(jsonResponse({ balance: 0 }))
       }
       return Promise.reject(new Error(`Unexpected URL: ${url}`))
     })
@@ -110,23 +97,7 @@ describe('imageGeneration store', () => {
     expect(formData.get('image')).toBeInstanceOf(Blob)
   })
 
-  it('does not send a generation request when balance is zero', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 0
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const store = useImageGenerationStore()
-
-    await store.generateImage(new Blob(['image'], { type: 'image/png' }), 12, 7)
-
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(store.errorCode).toBe(INSUFFICIENT_MAGIC_COINS_CODE)
-    expect(store.generatedImages).toHaveLength(0)
-  })
-
   it('records the rate-limit status and the Retry-After wait for a 429 refusal', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 5
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -157,8 +128,6 @@ describe('imageGeneration store', () => {
   })
 
   it('records the too-large status for a 413 refusal', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 5
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -192,8 +161,6 @@ describe('imageGeneration store', () => {
   // `400 Validation failed` on the `image` part. The store has to keep those field errors, or the
   // message is indistinguishable from an upstream failure.
   it('records the image field errors of a 400 refusal', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 5
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -228,9 +195,7 @@ describe('imageGeneration store', () => {
     expect(store.errorCode).toBeNull()
   })
 
-  it('keeps the insufficient Magic Coins code branch and refetches the balance', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 5
+  it('records the insufficient Magic Coins code on 402 without fetching a balance', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url === '/api/antiforgery/token') {
@@ -248,9 +213,6 @@ describe('imageGeneration store', () => {
           ),
         )
       }
-      if (url === '/api/magic-coins/balance') {
-        return Promise.resolve(jsonResponse({ balance: 0 }))
-      }
       return Promise.reject(new Error(`Unexpected URL: ${url}`))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -260,19 +222,12 @@ describe('imageGeneration store', () => {
 
     expect(store.errorCode).toBe(INSUFFICIENT_MAGIC_COINS_CODE)
     expect(store.errorStatus).toBe(402)
-    expect(magicCoinsStore.balance).toBe(0)
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/magic-coins/balance',
-      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
-    )
   })
 
   it('resets only image-generation-owned preview URLs', async () => {
     vi.mocked(URL.createObjectURL)
       .mockReturnValueOnce('blob:image-generation')
       .mockReturnValueOnce('blob:editor-owned')
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 1
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -287,9 +242,6 @@ describe('imageGeneration store', () => {
               headers: { 'Content-Type': 'image/png' },
             }),
           )
-        }
-        if (url === '/api/magic-coins/balance') {
-          return Promise.resolve(jsonResponse({ balance: 0 }))
         }
         return Promise.reject(new Error(`Unexpected URL: ${url}`))
       }),
@@ -309,8 +261,6 @@ describe('imageGeneration store', () => {
   })
 
   it('discards a late generation response when reset is called while in flight', async () => {
-    const magicCoinsStore = useMagicCoinsStore()
-    magicCoinsStore.balance = 2
     let resolveGenerate!: (response: Response) => void
     const generatePromise = new Promise<Response>((resolve) => {
       resolveGenerate = resolve
@@ -325,9 +275,6 @@ describe('imageGeneration store', () => {
         }
         if (url === '/api/generator/generate') {
           return generatePromise
-        }
-        if (url === '/api/magic-coins/balance') {
-          return Promise.resolve(jsonResponse({ balance: 1 }))
         }
         return Promise.reject(new Error(`Unexpected URL: ${url}`))
       }),

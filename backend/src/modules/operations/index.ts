@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { EmailModule } from '@/modules/email'
+import type { GeneratorModule } from '@/modules/generator'
 import type { Orders } from '@/modules/order'
 import type { ProductionModule } from '@/modules/production'
 import type { Tables } from '@/platform/db/database'
@@ -28,6 +29,7 @@ export function createOperationsModule({
   orders,
   production,
   outbox,
+  magicCoins = { pendingRequestCount: () => Promise.resolve(0) },
   settings,
   frontendBaseUrl,
 }: {
@@ -41,6 +43,7 @@ export function createOperationsModule({
     'findings' | 'ofOrder' | 'releaseSpodJob' | 'shippingStatuses' | 'unshippedOrderCount'
   >
   outbox: Pick<EmailModule['outbox'], 'findings' | 'enqueue' | 'ofOrder'>
+  magicCoins?: Pick<GeneratorModule, 'pendingRequestCount'>
   settings: Settings['operations']
   frontendBaseUrl: string
 }) {
@@ -57,7 +60,7 @@ export function createOperationsModule({
   return {
     routes: operationsRoutes(
       repository,
-      createOperationsService({ findings: repository, orders, production, outbox }),
+      createOperationsService({ findings: repository, orders, production, outbox, magicCoins }),
     ),
     worker: { start: worker.start, stop: worker.stop },
   }

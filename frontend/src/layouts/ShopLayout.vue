@@ -4,10 +4,8 @@ import { useRoute } from 'vue-router'
 import ShopHeader from '@/components/shop/Header.vue'
 import ShopFooter from '@/components/shop/Footer.vue'
 import { useCartStore } from '@/stores/shop/cart'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 
 const cartStore = useCartStore()
-const magicCoinsStore = useMagicCoinsStore()
 const route = useRoute()
 
 const isFullBleed = computed(() => route.name === 'home')
@@ -21,7 +19,6 @@ const shouldRenderFooter = computed(() => route.meta.hideFooter !== true)
 
 onMounted(() => {
   cartStore.fetchCart()
-  magicCoinsStore.fetchBalance()
 })
 </script>
 

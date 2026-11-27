@@ -1,6 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
 import ShopLayout from '@/layouts/ShopLayout.vue'
-import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import { authGuard } from './guards'
 
 /**
@@ -128,14 +127,6 @@ export const shopRoutes: RouteRecordRaw[] = [
           title: 'Editor',
           hideFooter: true,
           wideContent: true,
-        },
-      },
-      {
-        path: MAGIC_COINS_ROUTE.slice(1),
-        name: 'magic-coins',
-        component: () => import('@/views/shop/MagicCoinsView.vue'),
-        meta: {
-          title: 'Magic Coins',
         },
       },
       {

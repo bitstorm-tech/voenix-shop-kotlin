@@ -479,6 +479,23 @@ export function createOrderRepository(db: Kysely<Tables>) {
         ]),
       )
     },
+
+    /** How many paid orders each user in `userIds` has placed; users with none are absent. */
+    paidOrderCounts: async (userIds: readonly number[]): Promise<Map<number, number>> => {
+      const unique = [...new Set(userIds)]
+      if (unique.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('orders')
+          .select(['user_id', (eb) => eb.fn.countAll<number>().as('count')])
+          .where('user_id', 'in', unique)
+          .where('status', '=', 'PAID')
+          .groupBy('user_id')
+          .$narrowType<{ user_id: number }>()
+          .execute(),
+      )
+      return new Map(rows.map((row) => [row.user_id, row.count]))
+    },
   }
 }
 

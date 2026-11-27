@@ -6,6 +6,7 @@ sends mail, burns PBKDF2 CPU, locks out accounts, or brute-forces coupons:
 | Endpoint | Per-IP limit | Global cap |
 | --- | --- | --- |
 | `POST /api/generator/generate` | 20 / hour | `GENERATOR_GLOBAL_MAX_PER_HOUR` (default 200 / hour) |
+| `POST /api/magic-coins/requests` | 10 / hour | — |
 | `POST /api/auth/login` | 20 / 15 min | — |
 | `POST /api/auth/register` | 5 / hour | — |
 | `POST /api/auth/forgot-password` | 5 / hour | — |

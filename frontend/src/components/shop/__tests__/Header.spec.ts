@@ -2,7 +2,6 @@ import { mount, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Header from '@/components/shop/Header.vue'
-import { MAGIC_COINS_ROUTE } from '@/lib/magicCoins'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCampaignStore } from '@/stores/shop/campaign'
 
@@ -66,7 +65,6 @@ function mountHeader(options: { realMobileMenu?: boolean } = {}) {
           template: '<div data-testid="header-category-menu-panel">{{ category.name }}</div>',
         },
         LanguageDropdown: passthroughStub,
-        MagicCoinsBadge: passthroughStub,
         MobileMenu: options.realMobileMenu ? false : passthroughStub,
         NavigationMenuContent: navigationMenuContentStub,
         NavigationMenuIndicator: passthroughStub,
@@ -169,15 +167,13 @@ describe('Header', () => {
     expect(className).not.toContain('overflow-x-auto')
   })
 
-  it('displays the shared Magic Coins badge without linking to a purchase page', () => {
+  it('does not render a Magic Coins balance badge in header or link to /magic-coins', () => {
     const wrapper = mountHeader()
 
-    expect(wrapper.find('[data-testid="header-magic-coins"]').attributes('aria-label')).toBe(
-      'magicCoins.badgeLabel',
-    )
+    expect(wrapper.find('[data-testid="header-magic-coins"]').exists()).toBe(false)
     const magicCoinsLink = wrapper
       .findAllComponents(RouterLinkStub)
-      .find((link) => link.props('to') === MAGIC_COINS_ROUTE)
+      .find((link) => link.props('to') === '/magic-coins')
     expect(magicCoinsLink).toBeUndefined()
   })
 
@@ -197,6 +193,6 @@ describe('Header', () => {
     ])
     expect(document.body.textContent).toContain('Espresso')
     expect(document.body.textContent).toContain('Thermobecher')
-    expect(document.body.querySelector('[data-testid="mobile-menu-magic-coins"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="mobile-menu-magic-coins"]')).toBeNull()
   })
 })

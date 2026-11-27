@@ -8,10 +8,10 @@ const database = testDatabase({ template: false })
 describe('migrate', () => {
   test('applies every file in version order to an empty database and nothing on a second run', async () => {
     const applied = await migrate(database.settings)
-    expect(applied).toHaveLength(42)
+    expect(applied).toHaveLength(43)
     expect(applied[0]).toBe('V1__create_countries.sql')
     expect(applied[1]).toBe('V2__create_value_added_taxes.sql')
-    expect(applied.at(-1)).toBe('V43__encrypted_destination_secrets_and_session_version.sql')
+    expect(applied.at(-1)).toBe('V44__magic_coin_requests.sql')
 
     expect(await migrate(database.settings)).toEqual([])
 
@@ -20,8 +20,8 @@ describe('migrate', () => {
       .select('version')
       .orderBy('version')
       .execute()
-    expect(recorded).toHaveLength(42)
-    expect(recorded.at(-1)).toEqual({ version: 43 })
+    expect(recorded).toHaveLength(43)
+    expect(recorded.at(-1)).toEqual({ version: 44 })
     const seeded = await sql<{
       count: number
     }>`SELECT count(*)::int AS count FROM countries`.execute(database.db)

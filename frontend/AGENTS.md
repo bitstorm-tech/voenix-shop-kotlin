@@ -35,9 +35,7 @@
 
 - Shared state belongs under `stores/shared/`; admin, supplier, and shop state belong under their matching area folders.
 - Keep auth behavior in `stores/shared/auth.ts`.
-- Magic Coins balance is handled by `stores/shop/magicCoins.ts` and fetched from `GET /api/magic-coins/balance`.
-- Do not introduce stale Magic Coins caching. Concurrent balance requests should stay deduplicated.
-- After login, logout, or successful image generation, refetch the Magic Coins balance so the active guest/user context is reflected.
+- Magic Coins balances are deliberately never shown or pre-fetched in the storefront; an exhausted balance surfaces from `POST /api/generator/generate` as `402 INSUFFICIENT_MAGIC_COINS` and opens `components/shop/wizard/MagicCoinsExhaustedDialog.vue` (login/register for guests, one-click refill request via `GET /api/magic-coins/request-status` and `POST /api/magic-coins/requests` for signed-in users).
 
 ## Testing and Verification
 

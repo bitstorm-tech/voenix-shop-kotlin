@@ -3,6 +3,8 @@ import { renderAccountConfirmation } from './account-confirmation'
 import { renderChangeEmailConfirmation } from './change-email-confirmation'
 import { renderChangeEmailNotification } from './change-email-notification'
 import { DURABLE_LINK_HINT, type RenderedEmail } from './layout'
+import { renderMagicCoinRequestAlert } from './magic-coin-request-alert'
+import { renderMagicCoinsGranted } from './magic-coins-granted'
 import {
   renderOperationsAlert,
   type OperationsAlertFinding,
@@ -541,6 +543,55 @@ describe('operations alert', () => {
         'Versuche:       3',
         'Fehlercode:     SFTP_CONNECT_FAILED',
         'Verlauf:        https://shop.example/admin/orders/42',
+      ].join('\n'),
+    )
+  })
+})
+
+describe('magic coins mails', () => {
+  test('magic coin request alert links to the admin page and escapes the email', () => {
+    const mail = renderMagicCoinRequestAlert({
+      recipient: 'ops@voenix.shop',
+      frontendBaseUrl: BASE_URL,
+      requestId: 17,
+      userEmail: 'a&b<c>@example.com',
+    })
+    expect(mail.kind).toBe('MAGIC_COIN_REQUEST_ALERT')
+    expect(mail.recipient).toBe('ops@voenix.shop')
+    expect(mail.recipientName).toBeNull()
+    expect(mail.subject).toBe('Neue Magic-Coins-Anfrage')
+    expectFramedWithLink(mail, `${BASE_URL}/admin/magic-coins`)
+    expect(mail.html).toContain('a&amp;b&lt;c&gt;@example.com')
+    expect(mail.text).toBe(
+      [
+        'Neue Magic-Coins-Anfrage',
+        '========================================',
+        '',
+        'Ein angemeldeter Account hat weitere Magic Coins angefordert. Bitte prüfe die Anfrage im Admin-Dashboard.',
+        '',
+        'Anfrage:  #17',
+        'Account:  a&b<c>@example.com',
+        'Admin:    https://shop.example/admin/magic-coins',
+      ].join('\n'),
+    )
+  })
+
+  test('magic coins granted mail addresses the customer without naming a coin count', () => {
+    const shopUrl = `${BASE_URL}/products`
+    const mail = renderMagicCoinsGranted({ recipient, shopUrl })
+    expect(mail.kind).toBe('MAGIC_COINS_GRANTED')
+    expect(mail.recipient).toBe(recipient)
+    expect(mail.recipientName).toBeNull()
+    expect(mail.subject).toBe('Du hast neue Magic Coins erhalten')
+    expectFramedWithLink(mail, shopUrl)
+    expect(mail.text).toBe(
+      [
+        'Du hast neue Magic Coins erhalten',
+        '========================================',
+        '',
+        'Gute Nachrichten: Wir haben deinem Konto neue Magic Coins gutgeschrieben. Du kannst jetzt im Voenix Shop wieder neue KI-Designs erstellen.',
+        '',
+        'Zum Shop: https://shop.example/products',
       ].join('\n'),
     )
   })

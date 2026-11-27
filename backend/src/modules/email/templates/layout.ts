@@ -20,6 +20,8 @@ export type QueuedEmailKind =
   | 'SHIPPING_NOTIFICATION'
   | 'SPOD_OPS_ALERT'
   | 'OPERATIONS_ALERT'
+  | 'MAGIC_COIN_REQUEST_ALERT'
+  | 'MAGIC_COINS_GRANTED'
 
 export type EmailKind = UserEmailKind | QueuedEmailKind
 

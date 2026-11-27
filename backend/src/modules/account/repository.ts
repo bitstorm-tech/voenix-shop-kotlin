@@ -54,6 +54,14 @@ export interface AccessToken {
   lastUsedAt: Date | null
 }
 
+/** Narrow read-only summary of a user account for cross-module admin views (never credentials). */
+export interface AccountSummary {
+  userId: number
+  email: string
+  name: string | null
+  createdAt: Date
+}
+
 /** Confirmation, reset (also the supplier invitation), and e-mail change links. */
 export type TokenPurpose = 'CONFIRM_EMAIL' | 'RESET_PASSWORD' | 'CHANGE_EMAIL'
 
@@ -135,6 +143,50 @@ export function createAccountRepository(db: Kysely<Tables>) {
 
     findById: (id: number): Promise<UserAccount | undefined> =>
       read(db, (trx) => findAccount(trx, id)),
+
+    /** Narrow account summaries for a set of user ids; unknown ids are absent from the map. */
+    findSummariesByIds: async (
+      userIds: readonly number[],
+    ): Promise<Map<number, AccountSummary>> => {
+      const unique = [...new Set(userIds)]
+      if (unique.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('users')
+          .select(['id', 'email', 'created_at', 'shipping_first_name', 'shipping_last_name'])
+          .where('id', 'in', unique)
+          .execute(),
+      )
+      return new Map(
+        rows.map((row) => [
+          row.id,
+          {
+            userId: row.id,
+            email: row.email,
+            name: joinName(row.shipping_first_name, row.shipping_last_name),
+            createdAt: row.created_at,
+          },
+        ]),
+      )
+    },
+
+    /** Case-insensitive e-mail lookup returning the narrow account summary, or `undefined`. */
+    findSummaryByEmail: async (email: string): Promise<AccountSummary | undefined> => {
+      const row = await read(db, (trx) =>
+        trx
+          .selectFrom('users')
+          .select(['id', 'email', 'created_at', 'shipping_first_name', 'shipping_last_name'])
+          .where((eb) => eb(eb.fn('lower', ['email']), '=', eb.fn('lower', [eb.val(email)])))
+          .executeTakeFirst(),
+      )
+      if (row === undefined) return undefined
+      return {
+        userId: row.id,
+        email: row.email,
+        name: joinName(row.shipping_first_name, row.shipping_last_name),
+        createdAt: row.created_at,
+      }
+    },
 
     /**
      * The supplier this user acts for, or `null` for a customer, an admin, and a user that does
@@ -606,3 +658,10 @@ async function toUserAccount(
 /** An address with no field set is no address. */
 const storedAddress = (address: Address): Address | null =>
   Object.values(address).every((value) => value === null) ? null : address
+
+function joinName(firstName: string | null, lastName: string | null): string | null {
+  const parts = [firstName?.trim(), lastName?.trim()].filter(
+    (part): part is string => part !== undefined && part !== '',
+  )
+  return parts.length === 0 ? null : parts.join(' ')
+}

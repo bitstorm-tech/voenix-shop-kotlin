@@ -3,7 +3,6 @@ import VoenixLogo from '@/assets/images/voenix-logo-text.svg'
 import { useAuthStore } from '@/stores/shared/auth'
 import { useArticleCategoriesStore } from '@/stores/shop/articleCategories'
 import { useCampaignStore } from '@/stores/shop/campaign'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 import { LogIn } from 'lucide-vue-next'
 import {
   NavigationMenu,
@@ -20,14 +19,12 @@ import { RouterLink, useRoute } from 'vue-router'
 import CartButton from './CartButton.vue'
 import HeaderCategoryMenuPanel from './HeaderCategoryMenuPanel.vue'
 import LanguageDropdown from './LanguageDropdown.vue'
-import MagicCoinsBadge from './MagicCoinsBadge.vue'
 import MobileMenu from './MobileMenu.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import UserMenu from './UserMenu.vue'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
-const magicCoinsStore = useMagicCoinsStore()
 // MobileMenu reads from this store but does not fetch — Header owns the fetch.
 const categoriesStore = useArticleCategoriesStore()
 // The logo goes back to the visitor's entry landing page (e.g. /royal-dog), not always to /.
@@ -106,9 +103,6 @@ function isCategoryActive(categoryId: number) {
           </template>
 
           <UserMenu v-if="authStore.isAuthenticated" />
-          <div :aria-label="t('magicCoins.badgeLabel')" data-testid="header-magic-coins">
-            <MagicCoinsBadge :coins="magicCoinsStore.balance" />
-          </div>
           <ThemeToggle />
           <LanguageDropdown />
           <CartButton />

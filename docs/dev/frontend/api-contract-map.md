@@ -175,7 +175,8 @@ an identity change and adopts whatever the backend answers.
 | `stores/shop/orders.ts` | `GET /api/order-lookup/{token}` | same | #116 |
 | `stores/shop/countries.ts` | `GET /api/countries` | same | #92 |
 | `views/shop/PrivacyView.vue` | `GET /api/legal/privacy` | same | none |
-| `stores/shop/magicCoins.ts` | `GET /api/magic-coins/balance` | same | none |
+| `components/shop/wizard/MagicCoinsExhaustedDialog.vue` | `GET /api/magic-coins/request-status` and `POST /api/magic-coins/requests` | same | Magic Coins refill popup |
+| `stores/admin/magicCoins.ts` | `/api/admin/magic-coins/requests`, `…/approve`, `…/reject`, `…/grants`, `…/blocks` | same | Magic Coins admin review |
 | `stores/shop/imageGeneration.ts` | `POST /api/generator/generate` (multipart) | same | #95 |
 | `lib/backgroundRemoval.ts` | `POST /api/admin/images/background-removal` (multipart, part `file`) | same | #292 |
 
@@ -224,7 +225,7 @@ only the first of them carries a machine-readable `code`:
 
 | Refusal | Answer | How the client reads it |
 | --- | --- | --- |
-| Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the store refetches the balance |
+| Out of Magic Coins | `402` with `code: INSUFFICIENT_MAGIC_COINS` | the `code`; the wizard opens the Magic Coins refill dialog |
 | The generator's own image bound: over 10 MiB, or not JPEG/PNG/WebP | `400 Validation failed` with a field error on `image` | `errorStatus` plus an `image` key in `errorFieldErrors` |
 | Unknown or unavailable prompt | `404 Prompt not found` | falls through to the generic message; the UI only offers prompts it just listed |
 | Unknown article (the multipart `articleId` the image is generated for, issue #205) | `404 Article not found` | falls through to the generic message; the UI only offers articles it just listed |

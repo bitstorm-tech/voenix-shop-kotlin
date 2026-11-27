@@ -1,21 +1,21 @@
 <script setup lang="ts">
 import { shallowRef, watch, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Sparkles, RefreshCw, AlertCircle, ZoomIn, Loader2 } from 'lucide-vue-next'
+import { Sparkles, RefreshCw, AlertCircle, ZoomIn, Coins } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useWizardStore } from '@/stores/shop/wizard'
 import { useImageGenerationStore } from '@/stores/shop/imageGeneration'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
-import { IMAGE_GENERATION_MAGIC_COIN_COST, INSUFFICIENT_MAGIC_COINS_CODE } from '@/lib/magicCoins'
+import { INSUFFICIENT_MAGIC_COINS_CODE } from '@/lib/magicCoins'
+import MagicCoinsExhaustedDialog from '@/components/shop/wizard/MagicCoinsExhaustedDialog.vue'
 import VariantGallery from '@/components/shop/wizard/VariantGallery.vue'
 import { useGenerationErrorMessage } from '@/composables/useGenerationErrorMessage'
 
 const { t } = useI18n()
 const wizard = useWizardStore()
 const imageGeneration = useImageGenerationStore()
-const magicCoinsStore = useMagicCoinsStore()
 const lightboxOpen = shallowRef(false)
+const magicCoinsDialogOpen = shallowRef(false)
 
 // --- Timer ---
 const elapsedSeconds = shallowRef(0)
@@ -40,20 +40,8 @@ const currentMessageIndex = shallowRef(0)
 let messageInterval: ReturnType<typeof setInterval> | null = null
 
 const currentMessage = computed(() => t(messageKeys[currentMessageIndex.value]!))
-const canGenerate = computed(() => magicCoinsStore.balance !== null && magicCoinsStore.balance > 0)
-const isCheckingMagicCoins = computed(
-  () => magicCoinsStore.balance === null && magicCoinsStore.isLoading,
-)
-const hasMagicCoinsError = computed(
-  () => magicCoinsStore.balance === null && magicCoinsStore.error !== null,
-)
-const shouldShowInsufficientMagicCoins = computed(
-  () =>
-    imageGeneration.errorCode === INSUFFICIENT_MAGIC_COINS_CODE ||
-    (imageGeneration.errorStatus === null &&
-      !imageGeneration.hasImages &&
-      magicCoinsStore.balance !== null &&
-      magicCoinsStore.balance <= 0),
+const isOutOfMagicCoins = computed(
+  () => imageGeneration.errorCode === INSUFFICIENT_MAGIC_COINS_CODE,
 )
 
 const generationErrorMessage = useGenerationErrorMessage()
@@ -102,6 +90,16 @@ watch(
   { immediate: true },
 )
 
+watch(
+  isOutOfMagicCoins,
+  (exhausted) => {
+    if (exhausted) {
+      magicCoinsDialogOpen.value = true
+    }
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   stopAnimations()
 })
@@ -111,17 +109,15 @@ async function generate() {
   // article, and the wizard picked one two steps ago (issue #205).
   if (!wizard.imageForGeneration || !wizard.selectedPromptId || !wizard.selectedArticleId) return
 
-  if (magicCoinsStore.balance === null) {
-    await magicCoinsStore.fetchBalance()
-  }
-
-  if (!canGenerate.value) return
-
   await imageGeneration.generateImage(
     wizard.imageForGeneration,
     wizard.selectedPromptId,
     wizard.selectedArticleId,
   )
+}
+
+function handleCoinsAvailable() {
+  imageGeneration.clearError()
 }
 
 onMounted(async () => {
@@ -235,106 +231,12 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Magic Coins loading state -->
-    <div v-else-if="isCheckingMagicCoins" class="mt-6 sm:mt-8">
-      <div
-        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
-      >
-        <div class="flex flex-col items-center justify-center gap-5 p-10 sm:p-14">
-          <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 sm:h-[4.5rem] sm:w-[4.5rem]"
-          >
-            <Loader2 class="h-6 w-6 animate-spin text-primary sm:h-7 sm:w-7" />
-          </div>
-          <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('configurator.steps.generate.checkingMagicCoins') }}
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Insufficient Magic Coins state -->
-    <div v-else-if="shouldShowInsufficientMagicCoins" class="mt-6 sm:mt-8">
-      <div
-        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
-      >
-        <div
-          class="flex flex-col items-center justify-center gap-5 bg-[linear-gradient(180deg,oklch(0.98_0.01_20_/_0.3)_0%,oklch(0.99_0.005_20_/_0.2)_100%)] p-10 sm:p-14"
-        >
-          <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 sm:h-[4.5rem] sm:w-[4.5rem]"
-          >
-            <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
-          </div>
-          <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('configurator.steps.generate.insufficientMagicCoins') }}
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Magic Coins unavailable state -->
-    <div v-else-if="hasMagicCoinsError" class="mt-6 sm:mt-8">
-      <div
-        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
-      >
-        <div
-          class="flex flex-col items-center justify-center gap-5 bg-[linear-gradient(180deg,oklch(0.98_0.01_20_/_0.3)_0%,oklch(0.99_0.005_20_/_0.2)_100%)] p-10 sm:p-14"
-        >
-          <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 sm:h-[4.5rem] sm:w-[4.5rem]"
-          >
-            <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
-          </div>
-          <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ t('configurator.steps.generate.magicCoinsUnavailable') }}
-          </p>
-          <Button variant="outline" size="sm" @click="magicCoinsStore.fetchBalance()">
-            <RefreshCw class="h-3.5 w-3.5" />
-            {{ t('configurator.steps.generate.retryButton') }}
-          </Button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Error state -->
-    <div v-else-if="imageGeneration.error" class="mt-6 sm:mt-8">
-      <div
-        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
-      >
-        <div
-          class="flex flex-col items-center justify-center gap-5 bg-[linear-gradient(180deg,oklch(0.98_0.01_20_/_0.3)_0%,oklch(0.99_0.005_20_/_0.2)_100%)] p-10 sm:p-14"
-        >
-          <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 sm:h-[4.5rem] sm:w-[4.5rem]"
-          >
-            <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
-          </div>
-          <p class="text-center text-sm text-muted-foreground sm:text-base">
-            {{ generationErrorMessage }}
-          </p>
-          <Button variant="outline" size="sm" :disabled="!canGenerate" @click="generate">
-            <RefreshCw class="h-3.5 w-3.5" />
-            {{ t('configurator.steps.generate.retryButton') }}
-          </Button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Success state -->
+    <!-- Success state (stays visible even when a later regenerate runs out of coins) -->
     <div v-else-if="imageGeneration.hasImages" class="generate-result mt-6 sm:mt-8">
-      <div
-        v-if="canGenerate"
-        class="generate-result-toolbar mb-4 flex justify-center md:justify-end"
-      >
+      <div class="generate-result-toolbar mb-4 flex justify-center md:justify-end">
         <Button variant="outline" size="sm" @click="generate">
           <RefreshCw class="h-3.5 w-3.5" />
-          {{ t('configurator.steps.generate.generateAnother') }} ·
-          {{
-            t('configurator.steps.generate.costSuffix', {
-              coins: IMAGE_GENERATION_MAGIC_COIN_COST,
-            })
-          }}
+          {{ t('configurator.steps.generate.generateAnother') }}
         </Button>
       </div>
 
@@ -392,6 +294,57 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- Insufficient Magic Coins state (fallback card when no image was generated yet) -->
+    <div v-else-if="isOutOfMagicCoins" class="mt-6 sm:mt-8">
+      <div
+        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
+      >
+        <div class="flex flex-col items-center justify-center gap-5 p-10 sm:p-14">
+          <div
+            class="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 sm:h-[4.5rem] sm:w-[4.5rem]"
+          >
+            <Coins class="h-6 w-6 text-primary sm:h-7 sm:w-7" />
+          </div>
+          <p class="text-center text-sm text-muted-foreground sm:text-base">
+            {{ t('configurator.steps.generate.insufficientMagicCoins') }}
+          </p>
+          <Button
+            variant="default"
+            size="sm"
+            data-testid="open-magic-coins-dialog"
+            @click="magicCoinsDialogOpen = true"
+          >
+            <Coins class="h-4 w-4" />
+            {{ t('configurator.steps.generate.refillMagicCoins') }}
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="imageGeneration.error" class="mt-6 sm:mt-8">
+      <div
+        class="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_3px_oklch(0_0_0_/_0.06),0_4px_12px_oklch(0_0_0_/_0.04)] motion-safe:animate-wizard-step-enter motion-reduce:animate-none"
+      >
+        <div
+          class="flex flex-col items-center justify-center gap-5 bg-[linear-gradient(180deg,oklch(0.98_0.01_20_/_0.3)_0%,oklch(0.99_0.005_20_/_0.2)_100%)] p-10 sm:p-14"
+        >
+          <div
+            class="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 sm:h-[4.5rem] sm:w-[4.5rem]"
+          >
+            <AlertCircle class="h-6 w-6 text-destructive sm:h-7 sm:w-7" />
+          </div>
+          <p class="text-center text-sm text-muted-foreground sm:text-base">
+            {{ generationErrorMessage }}
+          </p>
+          <Button variant="outline" size="sm" @click="generate">
+            <RefreshCw class="h-3.5 w-3.5" />
+            {{ t('configurator.steps.generate.retryButton') }}
+          </Button>
+        </div>
+      </div>
+    </div>
+
     <!-- Idle state (no generation started yet, no file) -->
     <div v-else class="mt-6 sm:mt-8">
       <div
@@ -405,21 +358,18 @@ onMounted(async () => {
               <Sparkles class="h-6 w-6 text-white sm:h-7 sm:w-7" />
             </div>
           </div>
-          <Button
-            @click="generate"
-            :disabled="!wizard.uploadedFile || !wizard.selectedArticleId || !canGenerate"
-          >
+          <Button @click="generate" :disabled="!wizard.uploadedFile || !wizard.selectedArticleId">
             <Sparkles class="h-4 w-4" />
-            {{ t('configurator.steps.generate.generateButton') }} ·
-            {{
-              t('configurator.steps.generate.costSuffix', {
-                coins: IMAGE_GENERATION_MAGIC_COIN_COST,
-              })
-            }}
+            {{ t('configurator.steps.generate.generateButton') }}
           </Button>
         </div>
       </div>
     </div>
+
+    <MagicCoinsExhaustedDialog
+      v-model:open="magicCoinsDialogOpen"
+      @coins-available="handleCoinsAvailable"
+    />
 
     <!-- Lightbox dialog -->
     <Dialog v-model:open="lightboxOpen">

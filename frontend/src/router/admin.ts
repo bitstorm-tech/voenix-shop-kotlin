@@ -217,6 +217,14 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'magic-coins',
+        name: 'admin-magic-coins',
+        component: () => import('@/views/admin/MagicCoinsView.vue'),
+        meta: {
+          title: 'Magic Coins',
+        },
+      },
+      {
         path: 'images/orphans',
         name: 'admin-orphan-images',
         component: () => import('@/views/admin/OrphanImagesView.vue'),

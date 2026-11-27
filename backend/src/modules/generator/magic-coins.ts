@@ -1,5 +1,5 @@
 import type { Context } from 'hono'
-import { sql, type ExpressionBuilder, type Kysely } from 'kysely'
+import { sql, type ExpressionBuilder, type Kysely, type Transaction } from 'kysely'
 import type { Auth } from '@/platform/auth/auth'
 import { read, write, type Tables } from '@/platform/db/database'
 import './schema'
@@ -10,6 +10,13 @@ export const GENERATION_COST = 1
 
 /** Who owns a coin balance: a signed-in customer, or the guest of the `voenix.guest` cookie. */
 export type MagicCoinsOwner = { kind: 'user'; userId: number } | { kind: 'guest'; token: string }
+
+/** Balance metadata of one user account for admin verification signals. */
+export interface UserMagicCoinsSummary {
+  balance: number
+  firstSpentAt: Date
+  lastUpdatedAt: Date
+}
 
 /**
  * The owner behind a mutating request: the signed-in user, otherwise the guest of the
@@ -24,24 +31,32 @@ export async function magicCoinsOwner(
   return { kind: 'guest', token: await guestTokens.getOrCreate(c) }
 }
 
-/**
- * The existing owner behind a read request, or `null` for an anonymous visitor without a guest
- * cookie. Never sets a cookie, so passive page views do not create a 30-day guest cookie or a DB
- * row (§ 25 TDDDG).
- */
-export async function tryMagicCoinsOwner(
-  c: Context,
-  guestTokens: Auth['guestTokens'],
-): Promise<MagicCoinsOwner | null> {
-  const userId = c.var.principal?.userId
-  if (userId !== undefined) return { kind: 'user', userId }
-  const token = await guestTokens.tryGet(c)
-  return token === null ? null : { kind: 'guest', token }
-}
-
 /** How an owner appears in a log line: a guest token identifies a visitor and is never logged. */
 export const describeOwner = (owner: MagicCoinsOwner): string =>
   owner.kind === 'user' ? `user owner ${String(owner.userId)}` : 'guest owner'
+
+/**
+ * Atomically ensures the user's `magic_coins` row exists (starting from `INITIAL_BALANCE`) and
+ * adds `amount` coins inside the caller's transaction; answers the resulting balance.
+ */
+export async function grantCoinsInTransaction(
+  trx: Transaction<Tables>,
+  userId: number,
+  amount: number,
+): Promise<number> {
+  await trx
+    .insertInto('magic_coins')
+    .values({ user_id: userId, balance: INITIAL_BALANCE })
+    .onConflict((conflict) => conflict.doNothing())
+    .execute()
+  const updated = await trx
+    .updateTable('magic_coins')
+    .set({ balance: sql`balance + ${amount}`, updated_at: sql`CURRENT_TIMESTAMP` })
+    .where('user_id', '=', userId)
+    .returning('balance')
+    .executeTakeFirstOrThrow()
+  return updated.balance
+}
 
 export type MagicCoins = ReturnType<typeof createMagicCoins>
 
@@ -59,6 +74,32 @@ export function createMagicCoins(db: Kysely<Tables>) {
         trx.selectFrom('magic_coins').select('balance').where(ownerIs(owner)).executeTakeFirst(),
       )
       return row?.balance ?? INITIAL_BALANCE
+    },
+
+    /** Reads stored balance metadata for the given user ids; users without a row are absent. */
+    readUserSummaries: async (
+      userIds: readonly number[],
+    ): Promise<Map<number, UserMagicCoinsSummary>> => {
+      const unique = [...new Set(userIds)]
+      if (unique.length === 0) return new Map()
+      const rows = await read(db, (trx) =>
+        trx
+          .selectFrom('magic_coins')
+          .select(['user_id', 'balance', 'created_at', 'updated_at'])
+          .where('user_id', 'in', unique)
+          .$narrowType<{ user_id: number }>()
+          .execute(),
+      )
+      return new Map(
+        rows.map((row) => [
+          row.user_id,
+          {
+            balance: row.balance,
+            firstSpentAt: row.created_at,
+            lastUpdatedAt: row.updated_at,
+          },
+        ]),
+      )
     },
 
     /** The owner's balance, created with the initial grant on first contact. */

@@ -2,6 +2,7 @@ import type { Component } from 'vue'
 import {
   Bot,
   CircleAlert,
+  Coins,
   Database,
   FileText,
   ImageOff,
@@ -22,6 +23,7 @@ export interface AdminNavLinkItem {
 export interface AdminMenuCounts {
   unshippedOrders: number
   openFindings: number
+  pendingMagicCoinRequests: number
 }
 
 export interface AdminNavGroupItem {
@@ -148,6 +150,13 @@ export const adminNavigationItems: AdminNavItem[] = [
     to: '/admin/operations',
     icon: CircleAlert,
     badge: 'openFindings',
+  },
+  {
+    type: 'link',
+    title: 'Magic Coins',
+    to: '/admin/magic-coins',
+    icon: Coins,
+    badge: 'pendingMagicCoinRequests',
   },
   {
     type: 'link',

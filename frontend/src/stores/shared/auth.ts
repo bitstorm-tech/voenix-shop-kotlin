@@ -9,7 +9,6 @@ import {
   type Address,
   type AddressInput,
 } from '@/stores/shop/checkout'
-import { useMagicCoinsStore } from '@/stores/shop/magicCoins'
 import { useOrdersStore } from '@/stores/shop/orders'
 
 export interface User {
@@ -113,21 +112,12 @@ const postAuth = async (
  */
 async function refetchIdentityScopedState(options: {
   cart?: boolean
-  magicCoins?: boolean
   orders?: boolean
 }): Promise<void> {
   const refetches: Promise<unknown>[] = []
 
   if (options.cart) {
     refetches.push(useCartStore().fetchCart())
-  }
-
-  if (options.magicCoins) {
-    // `invalidate()` drops an in-flight request of the old context; without it the deduplication
-    // in the Magic Coins store would hand out that stale answer to this refetch.
-    const coins = useMagicCoinsStore()
-    coins.invalidate()
-    refetches.push(coins.fetchBalance())
   }
 
   if (options.orders) {
@@ -206,9 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
       // `fetchCurrentUser` hands the signed-in user to `setUser`, which clears the cache on the
       // identity change — nothing has to be dropped here.
       await fetchCurrentUser()
-      // The signed-in customer sees their own Magic Coins balance. The guest balance is not
-      // theirs — it stays on the guest identity and is reachable again after a logout.
-      await refetchIdentityScopedState({ cart: true, magicCoins: true, orders: true })
+      await refetchIdentityScopedState({ cart: true, orders: true })
     }
 
     return result
@@ -228,7 +216,7 @@ export const useAuthStore = defineStore('auth', () => {
     // checkout form goes as well, because it holds the departed customer's addresses.
     useOrdersStore().$reset()
     useCheckoutStore().$reset()
-    await refetchIdentityScopedState({ cart: true, magicCoins: true })
+    await refetchIdentityScopedState({ cart: true })
   }
 
   const hasRole = (role: string): boolean => {
