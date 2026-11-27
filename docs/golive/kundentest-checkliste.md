@@ -33,7 +33,7 @@ Ergänzung zum [Go-Live-Fahrplan](README.md) mit allen Kundenpfaden, Kauf- und Z
 - [ ] **Preise & Pflichtangaben**:
   - [ ] Preisangaben zeigen `inkl. MwSt., zzgl. Versand` mit klickbarem Link auf `/shipping`.
   - [ ] Keine unbeabsichtigten Streichpreise/Rabatte zum Launch aktiv.
-  - [ ] EU-GPSR-Herstellerangaben sind am Produkt einsehbar (nach Paket 6A).
+  - [ ] EU-GPSR-Herstellerangaben sind am Produkt einsehbar (nach Paket 6).
   - [ ] Nicht verfügbare/ausgeblendete Varianten sind nicht bestellbar.
 
 ---
@@ -309,14 +309,14 @@ Jede relevante Kombination aus **Kundentyp × Produktart × Zielland × Adresse 
 
 ## 10. Rechtliche Seiten, Info-Seiten & Technik-Check im Browser
 
-- [ ] **Alle 10 Content-/Rechtsseiten in `DE` und `EN` prüfen** (vollständig, aktuell, keine toten Links):
+- [ ] **Alle 8 Content-/Rechtsseiten in `DE` und `EN` prüfen** (vollständig, aktuell, keine toten Links):
   - [ ] `/imprint` (Impressum inkl. Gesellschafter, Anschrift, E-Mail, **Telefonnummer**, USt-IdNr., § 36 VSBG)
   - [ ] `/privacy` (iubenda-Datenschutzerklärung lädt sauber in DE & EN; enthält fal.ai, Mollie, Sweego, Sliplane, SPOD, Tassen-Lieferant; keine alten Stripe-/Facebook-Pixel-/GTM-Einträge)
-  - [ ] `/terms` (finale AGB in DE & EN)
-  - [ ] `/returns` (Widerrufsausschluss für personalisierte Ware, § 312g Abs. 2 Nr. 1 BGB)
+  - [ ] `/terms` (finale AGB in DE; EN zeigt verbindlichen deutschen Text mit Hinweis)
+  - [ ] `/returns` (Widerrufsausschluss für personalisierte Ware, § 312g Abs. 2 Nr. 1 BGB; EN zeigt verbindlichen deutschen Text mit Hinweis)
   - [ ] `/shipping` (dynamische Länderliste + echte Versandkosten, Freigrenzen & Lieferzeiten je Land)
   - [ ] `/payment` (exakt die bei Mollie aktiven Zahlarten; deckungsgleich mit Footer-Logos)
-  - [ ] `/about`, `/faq`, `/contact`, `/support` (echte Inhalte, `mailto:write-us@voenix.shop` klickbar)
+  - [ ] `/about`, `/faq` (echte Inhalte in DE & EN, `mailto:write-us@voenix.shop` klickbar)
 - [ ] **Browser-DevTools-Check (Netzwerk & Cookies)**:
   - [ ] Keine Fehler in der Browser-Konsole auf allen Hauptseiten.
   - [ ] Keine unerwünschten Drittanbieter-Requests (kein Google Fonts, kein Tracking-Pixel, kein Analytics).
