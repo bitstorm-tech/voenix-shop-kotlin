@@ -10,6 +10,7 @@ import {
   type PrintFrame,
   type SpodSizeMeasurements,
 } from './spod-article/repository'
+import { IN_STOCK } from './spod-article/stock'
 import './schema'
 
 type Trx = Transaction<Tables>
@@ -112,7 +113,10 @@ const visibleMugs = (trx: Trx) =>
     .where('c.active', '=', true)
     .where((eb) => eb.or([eb('a.subcategory_id', 'is', null), eb('s.active', '=', true)]))
 
-/** The visible SPOD articles, by exactly the same rule. */
+/**
+ * The visible SPOD articles, by exactly the same rule, plus one of their own: at least one active
+ * variant is in stock at the partner.
+ */
 const visibleSpodArticles = (trx: Trx) =>
   trx
     .selectFrom('article_spod_articles as a')
@@ -121,6 +125,16 @@ const visibleSpodArticles = (trx: Trx) =>
     .where('a.active', '=', true)
     .where('c.active', '=', true)
     .where((eb) => eb.or([eb('a.subcategory_id', 'is', null), eb('s.active', '=', true)]))
+    .where((eb) =>
+      eb.exists(
+        eb
+          .selectFrom('article_spod_variants as sv')
+          .select('sv.id')
+          .whereRef('sv.article_id', '=', 'a.id')
+          .where('sv.active', '=', true)
+          .where(IN_STOCK),
+      ),
+    )
 
 export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 'find'>) {
   /**
@@ -238,6 +252,7 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
             articles.map((article) => article.id),
           )
           .where('v.active', '=', true)
+          .where(IN_STOCK)
           .orderBy('ap.position')
           .orderBy('ap.id')
           .orderBy('v.id')
@@ -264,6 +279,8 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
           throw new Error(`The active SPOD article ${String(article.id)} is incomplete`)
         }
         const own = variants.filter((variant) => variant.article_id === article.id)
+        // A sold-out default hands its role to the first variant still in stock.
+        const defaultId = (own.find((variant) => variant.is_default) ?? own[0])?.id
         const appearanceIds = [...new Set(own.map((variant) => variant.appearance_id))]
         return {
           articleType: 'SPOD',
@@ -295,7 +312,7 @@ export function createStorefront(db: Kysely<Tables>, prices: Pick<PriceCatalog, 
             name: spodVariantName(variant.color_name, variant.size_label),
             appearanceId: variant.appearance_id,
             size: variant.size_label,
-            isDefault: variant.is_default,
+            isDefault: variant.id === defaultId,
           })),
         }
       })

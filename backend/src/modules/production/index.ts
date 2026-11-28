@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Kysely } from 'kysely'
-import type { ArticleCatalog, SpodCatalogSync } from '@/modules/article'
+import type { ArticleCatalog, SpodCatalogSync, SpodStock } from '@/modules/article'
 import type { EmailModule } from '@/modules/email'
 import type { SupplierModule } from '@/modules/supplier'
 import type { SupplierAccounts } from '@/platform/auth/auth'
@@ -21,6 +21,7 @@ import { destinationRoutes } from './routes'
 import { createDestinationService } from './service'
 import { createSpodOrderRepository } from './spod/repository'
 import { spodSimulationRoutes } from './spod/simulation'
+import { createSpodStockSync, type StockClient } from './spod/stock'
 import type { SubmissionClient } from './spod/submitter'
 import { createSpodWebhooks, SPOD_WEBHOOK_PATH, type WebhookClient } from './spod/webhooks'
 import {
@@ -59,7 +60,9 @@ export { customerShippingOfOrders, requestProduction }
  * `worker.start()` once and `worker.stop()` at shutdown, hands `requestProduction` to the paid
  * transition and `productionPdfGenerator` to the admin order downloads, and `findings` (the stalled
  * rows of the pipeline), `ofOrder` (one order's production state), and `releaseSpodJob` (the
- * admin's release of a quarantined SPOD job) to the operations module.
+ * admin's release of a quarantined SPOD job) to the operations module. Its worker also reads the
+ * partner's stock into the article module every 15 minutes, and `refreshSpodStock` reads it once
+ * more for the checkout.
  *
  * It refuses to start when a SPOD destination exists while `settings.spod` is missing: a channel
  * whose shipments arrive by webhook could not report one, and the worker must not submit a paid
@@ -73,6 +76,7 @@ export async function createProductionModule({
   suppliers,
   articleCatalog,
   spodCatalogSync,
+  spodStock,
   spod,
   accounts,
   orders,
@@ -84,7 +88,8 @@ export async function createProductionModule({
   suppliers: Pick<SupplierModule, 'find' | 'ids'>
   articleCatalog: Pick<ArticleCatalog, 'find'>
   spodCatalogSync: Pick<SpodCatalogSync, 'start' | 'state'>
-  spod: SubmissionClient & WebhookClient
+  spodStock: Pick<SpodStock, 'record' | 'keysOf'>
+  spod: SubmissionClient & WebhookClient & StockClient
   accounts: SupplierAccounts
   orders: ProductionOrders
   /** The operations addresses the SPOD ops alert goes to, empty when none is set. */
@@ -117,6 +122,8 @@ export async function createProductionModule({
     spod,
     secrets,
   })
+
+  const stockSync = createSpodStockSync({ destinations, spod, stock: spodStock })
 
   const fulfillment = createFulfillmentService({
     repository: createFulfillmentRepository(db, email.outbox, orders),
@@ -160,7 +167,17 @@ export async function createProductionModule({
      * answers the job's admin view (SPOD fulfillment, "Reconciling a quarantined job").
      */
     releaseSpodJob: fulfillment.releaseSpodJob,
-    worker: { start: worker.start, stop: worker.stop },
+    /** Reads the partner's stock of a cart's SPOD lines right before its checkout. */
+    refreshSpodStock: stockSync.refresh,
+    worker: {
+      start: () => {
+        worker.start()
+        stockSync.start()
+      },
+      stop: async () => {
+        await Promise.all([worker.stop(), stockSync.stop()])
+      },
+    },
   }
 }
 

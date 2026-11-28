@@ -11,7 +11,7 @@ describe('migrate', () => {
     expect(applied).toHaveLength(45)
     expect(applied[0]).toBe('V1__create_countries.sql')
     expect(applied[1]).toBe('V2__create_value_added_taxes.sql')
-    expect(applied.at(-1)).toBe('V46__order_items_vat_percent.sql')
+    expect(applied.at(-1)).toBe('V46__article_spod_variant_stock.sql')
 
     expect(await migrate(database.settings)).toEqual([])
 

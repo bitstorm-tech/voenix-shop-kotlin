@@ -82,12 +82,15 @@ export function createCheckoutService({
   promotionCodes,
   orders,
   countries,
+  refreshSpodStock,
 }: {
   db: Kysely<Tables>
   carts: CheckoutCarts
   promotionCodes: Pick<PromotionCodes, 'reserve' | 'release'>
   orders: Pick<Orders, 'place' | 'payable' | 'confirmFree' | 'startPayment'>
   countries: Pick<CountryModule, 'shippingPolicy'>
+  /** Reads the partner's current stock of these variants into the catalog's buy rule. */
+  refreshSpodStock: (variantIds: readonly number[]) => Promise<void>
 }) {
   const logger = createLogger('checkout')
 
@@ -175,6 +178,9 @@ export function createCheckoutService({
       request: CheckoutInput,
     ): Promise<CheckoutResult> => {
       if (guestToken === null && userId === null) return { kind: 'emptyCart' }
+      // Outside any transaction, because it asks the partner: a SPOD line sold out since it was
+      // added is then refused by TX1 as `itemUnavailable`, like any line the catalog stopped selling.
+      await refreshSpodStock(await carts.variantIds(guestToken, userId))
       const placement = await place(guestToken, userId, request)
       if (placement.kind !== 'payable') {
         if (placement.kind === 'started') {

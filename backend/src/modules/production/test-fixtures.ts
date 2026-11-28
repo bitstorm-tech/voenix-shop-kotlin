@@ -391,7 +391,16 @@ export async function productionTestKit(
       },
       state: () => syncState,
     },
-    spod: { ...client, ...webhookClient },
+    spodStock: {
+      record: () => Promise.reject(new Error('No stock is recorded in this test')),
+      keysOf: () => Promise.resolve([]),
+    },
+    spod: {
+      ...client,
+      ...webhookClient,
+      stock: () => Promise.reject(new Error('No stock is read in this test')),
+      stockOf: () => Promise.reject(new Error('No stock is read in this test')),
+    },
     accounts: logins.accounts,
     orders: orders.reads,
     alertEmails: [ALERT_EMAIL],
