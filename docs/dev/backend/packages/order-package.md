@@ -804,7 +804,7 @@ ids to file names through `printImages` and the file names to paths through
 `V16` creates `orders` and `order_items`, `V17` creates `payments`, `V21` adds
 `order_items.article_type`, `V31` adds `order_items.spod_hotspot`
 (`varchar(64) NULL`), `V34` creates `order_events`, the
-[order history](#the-order-history), and `V46` adds `order_items.vat_percent`
+[order history](#the-order-history), and `V47` adds `order_items.vat_percent`
 (`integer NOT NULL`, 0 to 100; earlier lines were backfilled with 19).
 
 | Rule | Why |
