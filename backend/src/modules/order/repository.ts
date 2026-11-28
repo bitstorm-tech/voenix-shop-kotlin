@@ -40,6 +40,26 @@ export interface PayableOrder {
   billingAddress: OrderAddress
 }
 
+/** A paid order as its invoice prints it; every amount is the stored one, in gross cents. */
+export interface InvoiceOrder {
+  orderId: number
+  /** The `Europe/Berlin` day of `ORDER_PAID`, `YYYY-MM-DD`: the invoice date. */
+  paidOn: string
+  billingAddress: OrderAddress
+  subtotalCents: number
+  shippingCostCents: number
+  discountCents: number
+  totalCents: number
+  lines: {
+    articleName: string
+    variantName: string
+    quantity: number
+    priceCents: number
+    promptPriceCents: number
+    vatPercent: number
+  }[]
+}
+
 /** One line of an order answer, exactly as it was ordered. */
 export interface OrderLineView {
   orderItemId: number
@@ -254,6 +274,59 @@ export function createOrderRepository(db: Kysely<Tables>) {
           .where('access_token', '=', token)
           .execute()
         return (await withLines(trx, rows))[0]
+      }),
+
+    /**
+     * What the invoice of one paid order of the caller is printed from: the billing address, the
+     * stored amounts, the lines with their VAT rate, and the day it was paid. `undefined` for an
+     * unknown, a foreign, and an unpaid order alike.
+     */
+    invoice: (
+      orderId: number,
+      userId: number | null,
+      guestToken: string | null,
+    ): Promise<InvoiceOrder | undefined> =>
+      read(db, async (trx) => {
+        const row = await trx
+          .selectFrom('orders')
+          .select([...payableColumns, 'subtotal_cents', 'shipping_cost_cents', 'discount_cents'])
+          .select((eb) =>
+            eb
+              .selectFrom('order_events')
+              .select((events) => events.fn.max('occurred_at').as('paid_at'))
+              .whereRef('order_events.order_id', '=', 'orders.id')
+              .where('kind', '=', 'ORDER_PAID')
+              .as('paid_at'),
+          )
+          .where('id', '=', orderId)
+          .where('status', '=', 'PAID')
+          .where(readable(userId, guestToken))
+          .executeTakeFirst()
+        if (row === undefined) return undefined
+        const lines = await trx
+          .selectFrom('order_items')
+          .select([
+            'article_name as articleName',
+            'variant_name as variantName',
+            'quantity',
+            'price_cents as priceCents',
+            'prompt_price_cents as promptPriceCents',
+            'vat_percent as vatPercent',
+          ])
+          .where('order_id', '=', orderId)
+          .orderBy('position')
+          .execute()
+        if (row.paid_at === null) throw new Error(`Paid order ${String(orderId)} has no ORDER_PAID`)
+        return {
+          orderId,
+          paidOn: berlinDate(new Date(row.paid_at)),
+          billingAddress: toPayableOrder(row).billingAddress,
+          subtotalCents: row.subtotal_cents,
+          shippingCostCents: row.shipping_cost_cents,
+          discountCents: row.discount_cents,
+          totalCents: row.total_cents,
+          lines,
+        }
       }),
 
     /** One order of the caller with its status, for the retry-payment journey. */
@@ -563,6 +636,7 @@ export async function insertOrder(
     .values(
       input.lines.map((line, index) => {
         const snapshot = snapshotOf(line)
+        if (snapshot.salesVatPercent === null) throw new Error('A purchasable line has a VAT rate')
         return {
           order_id: id,
           position: index + 1,
@@ -579,6 +653,7 @@ export async function insertOrder(
           document_format_margin_bottom_mm: snapshot.documentFormatMarginBottomMm,
           spod_hotspot: snapshot.spodHotspot,
           quantity: line.quantity,
+          vat_percent: snapshot.salesVatPercent,
           price_cents: line.priceCents,
           prompt_price_cents: line.promptPriceCents,
           prompt_id: line.promptId,

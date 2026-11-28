@@ -10,6 +10,7 @@ import type {
 } from '@/modules/production'
 import type { Tables } from '@/platform/db/database'
 import { notFound, ok, type OperationResult } from '@/platform/operation'
+import { renderInvoice } from './invoice'
 import type { PaymentService } from './payment/service'
 import {
   berlinDate,
@@ -133,6 +134,19 @@ export function createOrderService({
     },
 
     /**
+     * The invoice PDF of one paid order of the caller, rendered from the stored order on every
+     * call and kept nowhere; unknown, foreign, and unpaid orders are all `notFound`.
+     */
+    invoice: async (
+      orderId: number,
+      userId: number | null,
+      guestToken: string | null,
+    ): Promise<OperationResult<Uint8Array>> => {
+      const order = await repository.invoice(orderId, userId, guestToken)
+      return order === undefined ? notFound : ok(await renderInvoice(order))
+    },
+
+    /**
      * The order behind a mail link. A string not shaped like a token is answered before the
      * database is touched, exactly like an unknown one; the status is the stored one, never a
      * refresh, because an anonymous request must not drive provider calls.
@@ -168,7 +182,11 @@ export function createOrderService({
       if (
         input.lines.some((line) => {
           const entry = catalog.get(catalogKey(line))
-          return entry?.purchasable !== true || entry.grossSalesPriceCents === null
+          return (
+            entry?.purchasable !== true ||
+            entry.grossSalesPriceCents === null ||
+            entry.salesVatPercent === null
+          )
         })
       ) {
         return { kind: 'unavailableArticle' }

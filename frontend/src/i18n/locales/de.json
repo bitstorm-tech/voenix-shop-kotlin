@@ -269,6 +269,7 @@
     "carrier": "Paketdienst",
     "trackingNumber": "Sendungsnummer",
     "trackShipment": "Sendung verfolgen",
+    "downloadInvoice": "Rechnung herunterladen",
     "quantity": "Menge",
     "unitPrice": "Stückpreis",
     "itemTotal": "Summe",

@@ -43,7 +43,7 @@ export interface OrdersTable {
 }
 
 /**
- * The `order_items` table (V16, V21, V31): one ordered line in the customer's order (`position`).
+ * The `order_items` table (V16, V21, V31, V46): one ordered line in the customer's order (`position`).
  * Everything from `article_type` down is a snapshot; the article and variant ids carry no foreign
  * key, so an order survives the deletion of what it bought.
  */
@@ -64,6 +64,7 @@ export interface OrderItemsTable {
   document_format_margin_bottom_mm: number | null
   spod_hotspot: string | null
   quantity: number
+  vat_percent: number
   price_cents: number
   prompt_price_cents: number
   prompt_id: number | null

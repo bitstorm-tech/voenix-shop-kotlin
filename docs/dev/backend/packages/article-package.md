@@ -419,6 +419,7 @@ empty input runs no SQL, a batch without prices asks pricing nothing.
 | `articleName`, `variantName` | a SPOD variant's name is `"Black / M"` |
 | `purchasable` | active article ∧ active variant ∧ a price exists |
 | `grossSalesPriceCents` | the effective gross, `null` without a price row — never a `0` |
+| `salesVatPercent` | the sales VAT rate of that price, `null` exactly when `grossSalesPriceCents` is |
 | `supplierId`, `supplierArticleNumber` | a SPOD article answers no number |
 | the five layout mm fields | `printTemplateWidthMm`, `printTemplateHeightMm`, `documentFormatWidthMm`, `documentFormatHeightMm`, `documentFormatMarginBottomMm`; `null` for SPOD and for a mug without details |
 | `outsideColorCode`, `insideColorCode` | `null` for SPOD |

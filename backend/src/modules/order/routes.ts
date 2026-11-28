@@ -55,6 +55,20 @@ export function orderRoutes(orders: OrderService, guestTokens: Auth['guestTokens
     ),
   )
 
+  customer.get('/:orderId/invoice', idParams('orderId'), async (c) => {
+    const { orderId } = c.req.valid('param')
+    const result = await orders.invoice(
+      orderId,
+      c.var.principal?.userId ?? null,
+      await guestTokens.tryGet(c),
+    )
+    if (result.kind !== 'ok') return c.json(apiError(ORDER_NOT_FOUND), 404)
+    return c.body(new Uint8Array(result.value), 200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="Rechnung-${String(orderId)}.pdf"`,
+    })
+  })
+
   const lookup = new Hono()
   lookup.use(noStore)
   lookup.get('/', (c) => c.json(apiError(ORDER_NOT_FOUND), 404))

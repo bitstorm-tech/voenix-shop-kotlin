@@ -97,6 +97,7 @@ async function seedOrder(email: string, createdAt: Date): Promise<number> {
       article_name: 'Tasse',
       variant_name: 'Weiß',
       quantity: 2,
+      vat_percent: 19,
       price_cents: 1790,
       prompt_price_cents: 0,
     })

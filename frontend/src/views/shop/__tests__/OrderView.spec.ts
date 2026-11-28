@@ -174,6 +174,22 @@ describe('OrderView', () => {
     expect(router.currentRoute.value.name).not.toBe('wizard')
   })
 
+  it('offers the invoice download of a paid order only', async () => {
+    const pending = { ...makeOrder(), orderId: 1001, status: 'PENDING' as const }
+    const ordersStore = useOrdersStore()
+    ordersStore.orders = [makeOrder(), pending]
+    vi.spyOn(ordersStore, 'fetchOrders').mockResolvedValue()
+
+    const wrapper = await mountOrders(createRouterForOrders())
+    // Card and table row share one expanded state, so one toggle per order opens both views.
+    for (const toggle of wrapper.findAll('[role="button"]').slice(0, 2))
+      await toggle.trigger('click')
+
+    const links = wrapper.findAll('[data-testid="order-invoice"]')
+    expect(links.length).toBeGreaterThan(0)
+    expect(links.every((link) => link.attributes('href') === '/api/orders/1000/invoice')).toBe(true)
+  })
+
   it('shows one combined status badge, resting on the order status for a free order', async () => {
     const order = makeOrder()
     order.paymentStatus = null

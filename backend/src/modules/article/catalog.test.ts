@@ -87,6 +87,7 @@ const mugVariant = (overrides: Partial<CatalogVariant>): CatalogVariant => ({
   variantName: 'Red',
   purchasable: true,
   grossSalesPriceCents: 1490,
+  salesVatPercent: 19,
   supplierId: supplier,
   supplierArticleNumber: '4711',
   printTemplateWidthMm: 200,
@@ -127,6 +128,7 @@ describe('articleCatalog.find', () => {
       mugVariant({
         purchasable: false,
         grossSalesPriceCents: null,
+        salesVatPercent: null,
         supplierArticleNumber: null,
         printTemplateWidthMm: null,
         printTemplateHeightMm: null,
@@ -162,6 +164,7 @@ describe('articleCatalog.find', () => {
       variantName: 'Black / L',
       purchasable: false,
       grossSalesPriceCents: null,
+      salesVatPercent: null,
       supplierId: supplier,
       supplierArticleNumber: null,
       printTemplateWidthMm: null,
