@@ -64,7 +64,7 @@ describe('GET /api/orders/{orderId}/invoice', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('application/pdf')
     expect(response.headers.get('Content-Disposition')).toBe(
-      'attachment; filename="Rechnung-1.pdf"',
+      'attachment; filename="Rechnung-Voenix-Shop-1.pdf"',
     )
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     const document = await getDocument({ data: new Uint8Array(await response.arrayBuffer()) })

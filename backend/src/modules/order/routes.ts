@@ -65,7 +65,7 @@ export function orderRoutes(orders: OrderService, guestTokens: Auth['guestTokens
     if (result.kind !== 'ok') return c.json(apiError(ORDER_NOT_FOUND), 404)
     return c.body(new Uint8Array(result.value), 200, {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Rechnung-${String(orderId)}.pdf"`,
+      'Content-Disposition': `attachment; filename="Rechnung-Voenix-Shop-${String(orderId)}.pdf"`,
     })
   })
 

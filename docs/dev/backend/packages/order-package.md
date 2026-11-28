@@ -148,7 +148,7 @@ service. The payment subfolder has the standard shape of a module, without an
 | --- | --- | --- | --- |
 | `GET /api/orders` | guest-capable | `200`, a JSON array of `OrderView`, newest first | — |
 | `GET /api/orders/{orderId}` | guest-capable | `200` `OrderView` | `404` (unknown, foreign, and non-numeric id alike) |
-| `GET /api/orders/{orderId}/invoice` | guest-capable | `200` `application/pdf` as the attachment `Rechnung-{orderId}.pdf` | `404` (unknown, foreign, non-numeric, **and** unpaid alike) |
+| `GET /api/orders/{orderId}/invoice` | guest-capable | `200` `application/pdf` as the attachment `Rechnung-Voenix-Shop-{orderId}.pdf` | `404` (unknown, foreign, non-numeric, **and** unpaid alike) |
 | `GET /api/order-lookup/{token}` | none; the token is the credential | `200` `OrderView` | `404` (malformed, unknown, **and** missing token) |
 | `GET /api/admin/orders/{orderId}/production-pdfs` | admin | `200`, an array of `{ "supplierId": 3, "fileName": "ORD-42.pdf" }` | `404`, `409`/`500` with a `PRODUCTION_PDF_*` code |
 | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | admin | `200` `application/pdf` as an attachment | `404`, `409`, `500` |
