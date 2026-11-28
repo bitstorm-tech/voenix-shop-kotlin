@@ -55,6 +55,8 @@ export interface CatalogVariant {
   variantName: string
   purchasable: boolean
   grossSalesPriceCents: number | null
+  /** The sales VAT rate of the price, `null` exactly when `grossSalesPriceCents` is. */
+  salesVatPercent: number | null
   supplierId: number | null
   supplierArticleNumber: string | null
   printTemplateWidthMm: number | null
@@ -79,7 +81,10 @@ export function printAspectRatioOf(stored: string): PrintAspectRatio {
   return ratio
 }
 
-type StoredVariant = Omit<CatalogVariant, 'purchasable' | 'grossSalesPriceCents'> & {
+type StoredVariant = Omit<
+  CatalogVariant,
+  'purchasable' | 'grossSalesPriceCents' | 'salesVatPercent'
+> & {
   articleActive: boolean
   variantActive: boolean
   priceId: number | null
@@ -199,6 +204,7 @@ export function createArticleCatalog(db: Kysely<Tables>, prices: Pick<PriceCatal
               variantName: variant.variantName,
               purchasable: variant.articleActive && variant.variantActive && price !== undefined,
               grossSalesPriceCents: price?.salesTotal.gross ?? null,
+              salesVatPercent: price?.salesVat.percent ?? null,
               supplierId: variant.supplierId,
               supplierArticleNumber: variant.supplierArticleNumber,
               printTemplateWidthMm: variant.printTemplateWidthMm,

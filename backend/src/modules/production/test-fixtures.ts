@@ -281,6 +281,7 @@ export function fakeCatalog() {
         variantName: values.variantName ?? 'Weiß',
         purchasable: true,
         grossSalesPriceCents: 1999,
+        salesVatPercent: 19,
         supplierId: values.supplierId,
         supplierArticleNumber: null,
         printTemplateWidthMm: null,

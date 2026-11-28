@@ -26,6 +26,7 @@ export const MUG: CatalogVariant = {
   variantName: 'White',
   purchasable: true,
   grossSalesPriceCents: 1490,
+  salesVatPercent: 19,
   supplierId: 3,
   supplierArticleNumber: 'MUG-001',
   printTemplateWidthMm: 200,
@@ -45,6 +46,7 @@ export const SPOD: CatalogVariant = {
   articleName: 'Shirt Organic',
   variantName: 'Black / M',
   grossSalesPriceCents: 2500,
+  salesVatPercent: 19,
   outsideColorCode: null,
   insideColorCode: null,
   spodProduct: { productTypeId: 812, appearanceId: 2, sizeId: 3 },
@@ -217,10 +219,10 @@ export async function seedOrderItem(
       'kunde@example.com', 990, 490, 0, 1480)
     RETURNING id`.execute(db)
   const { rows } = await sql<{ id: number }>`INSERT INTO order_items (order_id, position,
-      article_id, variant_id, article_type, article_name, variant_name, quantity, price_cents,
-      prompt_id, print_image_id)
+      article_id, variant_id, article_type, article_name, variant_name, quantity, vat_percent,
+      price_cents, prompt_id, print_image_id)
     VALUES (${orders[0]?.id ?? 0}, 1, ${line.articleId}, ${line.variantId}, 'MUG', 'Classic mug',
-      'White', 1, 990, ${line.promptId}, ${line.printImageId})
+      'White', 1, 19, 990, ${line.promptId}, ${line.printImageId})
     RETURNING id`.execute(db)
   return rows[0]?.id ?? 0
 }

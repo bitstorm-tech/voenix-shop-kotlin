@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Coffee,
   ExternalLink,
+  FileDown,
   Loader2,
   Package,
   Paintbrush,
@@ -226,6 +227,19 @@ function getItemTotal(item: OrderItem) {
         <span>{{ t('orders.total') }}</span>
         <span class="tabular-nums">{{ formatPrice(order.total) }}</span>
       </div>
+      <Button
+        v-if="!readonly && order.status === 'PAID'"
+        as="a"
+        variant="outline"
+        size="sm"
+        class="mt-2 self-start sm:self-end"
+        :href="`/api/orders/${order.orderId}/invoice`"
+        download
+        data-testid="order-invoice"
+      >
+        <FileDown class="size-4" />
+        {{ t('orders.downloadInvoice') }}
+      </Button>
     </div>
   </div>
 </template>

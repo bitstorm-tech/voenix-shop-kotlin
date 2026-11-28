@@ -24,6 +24,7 @@ subfolder.
   - [Payments that stand still: `findings(now)`](#payments-that-stand-still-findingsnow)
   - [The Mollie adapter](#the-mollie-adapter)
   - [The spelling trap: `CANCELED` versus `CANCELLED`](#the-spelling-trap-canceled-versus-cancelled)
+- [The customer invoice](#the-customer-invoice)
 - [The order history](#the-order-history)
 - [The admin reads](#the-admin-reads)
 - [The production contract](#the-production-contract)
@@ -107,6 +108,7 @@ order/
 |- index.ts                 createOrderModule(deps) → { routes, adminPdfRoutes, orders }; the exported types
 |- schema.ts                orders, order_items, payments, order_events, merged into the platform's
 |                           Tables; OrderStatus, OrderEventActorType
+|- invoice.ts               vatBreakdown (the tax per rate) and renderInvoice (the customer's PDF)
 |- routes.ts                orderRoutes (customer + lookup subtrees), adminPdfRoutes(generator),
 |                           the no-store middleware, the PRODUCTION_PDF_* table
 |- service.ts               createOrderService: the three reads, place, payable, adminOrders, the
@@ -146,6 +148,7 @@ service. The payment subfolder has the standard shape of a module, without an
 | --- | --- | --- | --- |
 | `GET /api/orders` | guest-capable | `200`, a JSON array of `OrderView`, newest first | — |
 | `GET /api/orders/{orderId}` | guest-capable | `200` `OrderView` | `404` (unknown, foreign, and non-numeric id alike) |
+| `GET /api/orders/{orderId}/invoice` | guest-capable | `200` `application/pdf` as the attachment `Rechnung-Voenix-Shop-{orderId}.pdf` | `404` (unknown, foreign, non-numeric, **and** unpaid alike) |
 | `GET /api/order-lookup/{token}` | none; the token is the credential | `200` `OrderView` | `404` (malformed, unknown, **and** missing token) |
 | `GET /api/admin/orders/{orderId}/production-pdfs` | admin | `200`, an array of `{ "supplierId": 3, "fileName": "ORD-42.pdf" }` | `404`, `409`/`500` with a `PRODUCTION_PDF_*` code |
 | `GET /api/admin/orders/{orderId}/production-pdfs/{supplierId}` | admin | `200` `application/pdf` as an attachment | `404`, `409`, `500` |
@@ -302,9 +305,10 @@ the lines with the prices the customer was quoted.
    exception.
 2. **The catalog snapshot.** `articleCatalog.find(lines)` resolves every
    `(articleId, variantId)` once, and every reference has to come back with
-   `purchasable === true` and `grossSalesPriceCents !== null`; otherwise the
-   answer is `unavailableArticle` and nothing is written. The line stores the
-   article type, both names, the supplier article number, the five mug
+   `purchasable === true`, `grossSalesPriceCents !== null`, and
+   `salesVatPercent !== null`; otherwise the answer is `unavailableArticle` and
+   nothing is written. The line stores the article type, both names, the sales
+   VAT rate (for the [invoice](#the-customer-invoice)), the supplier article number, the five mug
    millimetres (`NULL` on a SPOD line), and the **SPOD hotspot**
    (`CatalogVariant.spodHotspot`, `NULL` on a mug): what is printed must be what
    was previewed, so a later sync cannot change it (#260, decisions 8 and 14).
@@ -663,6 +667,39 @@ the bank statement. Local development uses a Mollie test key and a tunnel.
 Do not "fix" either. Unifying them would make a word silently valid on the
 wrong side, and a cancelled payment leaves the order `PENDING`.
 
+## The customer invoice
+
+`GET /api/orders/{orderId}/invoice` answers the invoice of one paid order of
+the caller as a PDF; the order history offers it as a download on every `PAID`
+order. The read is the ownership-filtered one of the detail route, narrowed to
+`status = 'PAID'`, so an unpaid order is the same `404` as a foreign one. The
+mail-link page (`/api/order-lookup`) offers no invoice.
+
+Decisions (Joe, 2026-11-28):
+
+1. **Rendered on every download, stored nowhere**, like the production PDFs.
+   Everything printed comes from the immutable order snapshot plus the
+   `ORDER_PAID` event, so the same order prints the same invoice again, with one
+   exception: the seller block (`SELLER` in `invoice.ts`) is code. Changing it
+   changes the old invoices too. If that ever matters (GoBD wants the issued
+   version), the alternative is rendering at the paid transition and storing the
+   file in the private storage.
+2. **The invoice number is the order number.** Every paid order has exactly one
+   invoice, so the number is unique; gaps from cancelled orders are allowed.
+   Order numbers start at 11000 (`V45`), above everything the previous shop
+   issued.
+3. **The VAT rate is snapshotted per line at placement** (`vat_percent`, from
+   the price's sales VAT). The prompt price on a line is an ancillary service of
+   the printed article and takes its rate; shipping and the discount follow the
+   goods, split over the rates in proportion to their gross amounts
+   (`vatBreakdown`, the last rate taking the rounding remainder, so the rates add
+   up to the stored total exactly). The alternative, a fixed 19 %, needed no
+   migration but would print wrong taxes the day an article got another rate.
+
+The invoice date is the Berlin day of `ORDER_PAID`; the delivery date is printed
+as "entspricht dem Rechnungsdatum". Every amount is the stored gross; net and
+tax are derived per rate, never stored.
+
 ## The order history
 
 Status columns are overwritten, so who or what moved an order would otherwise
@@ -766,8 +803,9 @@ ids to file names through `printImages` and the file names to paths through
 
 `V16` creates `orders` and `order_items`, `V17` creates `payments`, `V21` adds
 `order_items.article_type`, `V31` adds `order_items.spod_hotspot`
-(`varchar(64) NULL`), and `V34` creates `order_events`, the
-[order history](#the-order-history).
+(`varchar(64) NULL`), `V34` creates `order_events`, the
+[order history](#the-order-history), and `V47` adds `order_items.vat_percent`
+(`integer NOT NULL`, 0 to 100; earlier lines were backfilled with 19).
 
 | Rule | Why |
 | --- | --- |
@@ -908,6 +946,7 @@ Run them with `bun test src/modules/order` from `backend/`; they need Docker.
 - **Cancelling an order because a payment failed.** A failed, expired, or
   cancelled payment leaves the order `PENDING`; only a provider that refused to
   create a payment at all takes the order back.
-- **Refunds** and a **dummy payment mode**.
+- **Refunds** and a **dummy payment mode**, and therefore no credit note
+  (Gutschrift / Rechnungskorrektur) for a refunded invoice.
 - **Taking a reservation.** That is the checkout's `promotionCodes.reserve`;
   this module only ends one (redemption, cancellation, payment ended).

@@ -37,6 +37,7 @@ export const MUG: CatalogVariant = {
   variantName: 'Weiß/Blau',
   purchasable: true,
   grossSalesPriceCents: 1490,
+  salesVatPercent: 19,
   supplierId: 3,
   supplierArticleNumber: 'MUG-001',
   printTemplateWidthMm: 200,

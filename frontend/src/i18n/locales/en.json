@@ -269,6 +269,7 @@
     "carrier": "Carrier",
     "trackingNumber": "Tracking number",
     "trackShipment": "Track shipment",
+    "downloadInvoice": "Download invoice",
     "quantity": "Quantity",
     "unitPrice": "Unit price",
     "itemTotal": "Item total",
